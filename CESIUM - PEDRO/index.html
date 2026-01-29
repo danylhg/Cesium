@@ -189,8 +189,8 @@
       // ❌ ya no ponemos límites de zoom
       function setZoomNoLimits(scene) {
         const ssc = scene.screenSpaceCameraController;
-        ssc.minimumZoomDistance = undefined;
-        ssc.maximumZoomDistance = undefined;
+        ssc.minimumZoomDistance = 100;
+        ssc.maximumZoomDistance = 100000000;
         ssc.enableCollisionDetection = true;
       }
 
