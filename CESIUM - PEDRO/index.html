@@ -23,6 +23,7 @@
         z-index: 1;
       }
 
+      /* HUD encima del mapa, pero NO bloquea clicks */
       #hud {
         position: absolute;
         inset: 0;
@@ -38,6 +39,69 @@
         opacity: 0.5;
         font-size: 10px !important;
       }
+
+      /* ===== MENU ABC (AÑADIR / BORRAR / CAMBIAR) ===== */
+      #menu {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 1000001;
+        background: rgba(0, 0, 0, 0.78);
+        color: #fff;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+        padding: 10px;
+        width: 240px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 10px;
+        pointer-events: auto; /* importante */
+        backdrop-filter: blur(6px);
+      }
+
+      #menu h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+      }
+
+      #menu .row {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+
+      #menu select,
+      #menu input,
+      #menu button {
+        width: 100%;
+        background: rgba(20, 20, 20, 0.9);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        padding: 8px;
+        border-radius: 8px;
+        outline: none;
+        font-size: 12px;
+      }
+
+      #menu input::placeholder {
+        color: rgba(255, 255, 255, 0.55);
+      }
+
+      #menu button {
+        cursor: pointer;
+        font-weight: 600;
+      }
+
+      #menu button:hover {
+        border-color: rgba(255, 255, 255, 0.45);
+      }
+
+      #menu .hint {
+        font-size: 11px;
+        opacity: 0.75;
+        margin-top: 4px;
+        line-height: 1.2;
+      }
     </style>
   </head>
 
@@ -45,13 +109,40 @@
     <div id="cesiumContainer"></div>
     <canvas id="hud"></canvas>
 
+    <!-- MENU -->
+    <div id="menu">
+      <h3>ABC de puntitos</h3>
+
+      <div class="row">
+        <select id="pointList" title="Lista de puntos"></select>
+      </div>
+
+      <div class="row">
+        <input id="name" placeholder="Nombre (ej. Puebla)" />
+      </div>
+
+      <div class="row">
+        <input id="lat" placeholder="Lat (vacío = centro)" />
+        <input id="lon" placeholder="Lon (vacío = centro)" />
+      </div>
+
+      <div class="row">
+        <button id="add">Añadir</button>
+        <button id="update">Cambiar</button>
+        <button id="remove">Quitar</button>
+      </div>
+
+      <div class="hint">
+        Si dejas lat/lon vacíos al añadir, se pone en el centro de la vista (centro del radar).
+      </div>
+    </div>
+
     <script src="./node_modules/cesium/Build/Cesium/Cesium.js"></script>
 
     <script>
       const CONFIG = {
         mexicoRect: { west: -118.6, south: 14.0, east: -86.5, north: 33.5 },
         camera: {
-          // ya NO usamos minHeight para limitar acercamiento
           maxHeight: 4500000, // 🚫 no más alejamiento que esto
           startHeight: 2500000
         },
@@ -81,11 +172,9 @@
 
       function setZoomLimits(scene, maxHeight) {
         const ssc = scene.screenSpaceCameraController;
-
-        ssc.maximumZoomDistance = maxHeight; 
-        ssc.minimumZoomDistance = 1.0; 
-
-        ssc.enableCollisionDetection = true; 
+        ssc.maximumZoomDistance = maxHeight;
+        ssc.minimumZoomDistance = 100.0; // mínimo seguro
+        ssc.enableCollisionDetection = true;
       }
 
       function lockCameraToRectangle(camera, rect, maxHeight) {
@@ -96,7 +185,7 @@
         const south = rect.south;
         const north = rect.north;
 
-        const SAFE_MIN_HEIGHT = 1.0;
+        const SAFE_MIN_HEIGHT = 50.0;
 
         camera.changed.addEventListener(() => {
           if (correcting) return;
@@ -104,7 +193,6 @@
           const carto = Cesium.Cartographic.fromCartesian(camera.positionWC);
           if (!carto) return;
 
-          
           if (
             !Number.isFinite(carto.height) ||
             !Number.isFinite(carto.longitude) ||
@@ -118,9 +206,6 @@
 
           const clampedLon = clamp(lon, west, east);
           const clampedLat = clamp(lat, south, north);
-
-          // ✅ solo limita el alejamiento (máximo), el acercamiento queda libre
-          // pero con piso mínimo para no romper Cesium
           const clampedHeight = Math.max(SAFE_MIN_HEIGHT, Math.min(carto.height, maxHeight));
 
           const moved =
@@ -179,10 +264,6 @@
           pointer.x = x;
           pointer.y = y;
           pointer.active = x >= 0 && y >= 0 && x <= rect.width && y <= rect.height;
-        });
-
-        window.addEventListener("pointerleave", () => {
-          pointer.active = false;
         });
 
         return pointer;
@@ -305,6 +386,8 @@
         ctx.fillStyle = "white";
 
         for (const p of points) {
+          if (!Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+
           const world = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0);
           const screen = scene.cartesianToCanvasCoordinates(world, scratch2D);
           if (!screen) continue;
@@ -344,6 +427,143 @@
         requestAnimationFrame(frame);
       }
 
+      /* ===== NUEVO: obtener lat/lon del centro de la vista (centro del radar) ===== */
+      function getCenterLatLon(scene) {
+        const canvas = scene.canvas;
+
+        // Centro de la pantalla
+        const center = new Cesium.Cartesian2(
+          canvas.clientWidth / 2,
+          canvas.clientHeight / 2
+        );
+
+        const ray = scene.camera.getPickRay(center);
+        if (!ray) return null;
+
+        const hit = scene.globe.pick(ray, scene);
+        if (!hit) return null;
+
+        const carto = Cesium.Cartographic.fromCartesian(hit);
+        if (!carto) return null;
+
+        return {
+          lat: Cesium.Math.toDegrees(carto.latitude),
+          lon: Cesium.Math.toDegrees(carto.longitude)
+        };
+      }
+
+      /* ===== MENU ABC LOGICA ===== */
+      function setupMenuABC(scene) {
+        const list = document.getElementById("pointList");
+        const nameInput = document.getElementById("name");
+        const latInput = document.getElementById("lat");
+        const lonInput = document.getElementById("lon");
+
+        function refreshList(keepIndex = true) {
+          const prev = keepIndex ? Number(list.value) : 0;
+
+          list.innerHTML = "";
+          CONFIG.points.forEach((p, i) => {
+            const opt = document.createElement("option");
+            opt.value = String(i);
+            opt.textContent = p.name ?? `Punto ${i + 1}`;
+            list.appendChild(opt);
+          });
+
+          if (CONFIG.points.length === 0) {
+            list.innerHTML = `<option value="-1">(sin puntos)</option>`;
+            nameInput.value = "";
+            latInput.value = "";
+            lonInput.value = "";
+            return;
+          }
+
+          const next = clamp(prev, 0, CONFIG.points.length - 1);
+          list.value = String(next);
+          fillInputsFromSelection();
+        }
+
+        function fillInputsFromSelection() {
+          const idx = Number(list.value);
+          const p = CONFIG.points[idx];
+          if (!p) return;
+          nameInput.value = p.name ?? "";
+          latInput.value = String(p.lat ?? "");
+          lonInput.value = String(p.lon ?? "");
+        }
+
+        function parseLatLon() {
+          const latStr = String(latInput.value || "").trim();
+          const lonStr = String(lonInput.value || "").trim();
+          if (!latStr || !lonStr) return null; // vacío => usar centro
+
+          const lat = parseFloat(latStr);
+          const lon = parseFloat(lonStr);
+
+          if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+          if (lat < -90 || lat > 90) return null;
+          if (lon < -180 || lon > 180) return null;
+
+          return { lat, lon };
+        }
+
+        list.addEventListener("change", fillInputsFromSelection);
+
+        // ✅ AÑADIR: si lat/lon vacíos => centro del radar (centro de vista)
+        document.getElementById("add").onclick = () => {
+          const name = String(nameInput.value || "").trim() || "Nuevo";
+
+          const parsed = parseLatLon();
+          const center = getCenterLatLon(scene);
+
+          const data = parsed ?? center;
+
+          if (!data) {
+            alert("No pude obtener el centro (¿el globo no está visible?). Mueve la cámara hacia el mapa.");
+            return;
+          }
+
+          CONFIG.points.push({ name, lat: data.lat, lon: data.lon });
+
+          refreshList(false);
+          list.value = String(CONFIG.points.length - 1);
+          fillInputsFromSelection();
+        };
+
+        // CAMBIAR: aquí sí exige coords válidas (porque “cambiar” normalmente es editar)
+        document.getElementById("update").onclick = () => {
+          const idx = Number(list.value);
+          const p = CONFIG.points[idx];
+          if (!p) return;
+
+          const name = String(nameInput.value || "").trim() || p.name || "Punto";
+          const parsed = parseLatLon();
+          if (!parsed) {
+            alert("Para CAMBIAR, escribe lat/lon válidos (o selecciona y edita).");
+            return;
+          }
+
+          p.name = name;
+          p.lat = parsed.lat;
+          p.lon = parsed.lon;
+
+          refreshList(true);
+          list.value = String(idx);
+          fillInputsFromSelection();
+        };
+
+        document.getElementById("remove").onclick = () => {
+          const idx = Number(list.value);
+          if (!Number.isFinite(idx) || idx < 0 || idx >= CONFIG.points.length) return;
+
+          CONFIG.points.splice(idx, 1);
+          refreshList(false);
+        };
+
+        refreshList(false);
+      }
+
+      /* ===== INIT ===== */
       const viewer = createViewer("cesiumContainer");
       const { scene, camera } = viewer;
 
@@ -354,18 +574,15 @@
         CONFIG.mexicoRect.north
       );
 
-      
       setZoomLimits(scene, CONFIG.camera.maxHeight);
-
-      
       lockCameraToRectangle(camera, mexicoRect, CONFIG.camera.maxHeight);
-
       setCameraStart(camera, mexicoRect, CONFIG.camera.startHeight);
 
       const hudCanvas = document.getElementById("hud");
       const { ctx, state: hudState } = setupHud(hudCanvas);
       const pointer = setupPointer(hudCanvas, hudState);
 
+      setupMenuABC(scene);
       startLoop(ctx, hudState, scene, camera, pointer);
     </script>
   </body>
