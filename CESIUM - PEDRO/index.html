@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LA PRUEBA DE CESIUM</title>
+
+    <link rel="stylesheet" href="./node_modules/cesium/Build/Cesium/Widgets/widgets.css" />
+
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: #000;
+      }
+
+      #cesiumContainer {
+        position: absolute;
+        inset: 0;
+        z-index: 1;
+      }
+
+      #hud {
+        position: absolute;
+        inset: 0;
+        z-index: 999999;
+        pointer-events: none;
+        display: block;
+      }
+
+      .cesium-widget-credits {
+        bottom: 6px !important;
+        left: 6px !important;
+        right: auto !important;
+        opacity: 0.5;
+        font-size: 10px !important;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div id="cesiumContainer"></div>
+    <canvas id="hud"></canvas>
+
+    <script src="./node_modules/cesium/Build/Cesium/Cesium.js"></script>
+
+    <script>
+      const CONFIG = {
+        mexicoRect: { west: -118.6, south: 14.0, east: -86.5, north: 33.5 },
+        camera: {
+          // ya NO usamos minHeight para limitar acercamiento
+          maxHeight: 4500000, // 🚫 no más alejamiento que esto
+          startHeight: 2500000
+        },
+        radar: {
+          radiusFactor: 0.48,
+          rings: 8,
+          spokes: 24,
+          ticks: 240,
+          showHourLabels: false
+        },
+        points: [
+          { name: "Veracruz", lon: -96.1342, lat: 19.1738 },
+          { name: "Aguascalientes", lon: -102.296, lat: 21.8853 },
+          { name: "Chihuahua", lon: -106.0889, lat: 28.6353 }
+        ],
+        hover: {
+          hitRadius: 12,
+          dotRadius: 5
+        }
+      };
+
+      const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+      function createViewer(containerId) {
+        return new Cesium.Viewer(containerId, { timeline: false, animation: false });
+      }
+
+      function setZoomLimits(scene, maxHeight) {
+        const ssc = scene.screenSpaceCameraController;
+
+        ssc.maximumZoomDistance = maxHeight; 
+        ssc.minimumZoomDistance = 1.0; 
+
+        ssc.enableCollisionDetection = true; 
+      }
+
+      function lockCameraToRectangle(camera, rect, maxHeight) {
+        let correcting = false;
+
+        const west = rect.west;
+        const east = rect.east;
+        const south = rect.south;
+        const north = rect.north;
+
+        const SAFE_MIN_HEIGHT = 1.0;
+
+        camera.changed.addEventListener(() => {
+          if (correcting) return;
+
+          const carto = Cesium.Cartographic.fromCartesian(camera.positionWC);
+          if (!carto) return;
+
+          
+          if (
+            !Number.isFinite(carto.height) ||
+            !Number.isFinite(carto.longitude) ||
+            !Number.isFinite(carto.latitude)
+          ) {
+            return;
+          }
+
+          const lon = Cesium.Math.negativePiToPi(carto.longitude);
+          const lat = carto.latitude;
+
+          const clampedLon = clamp(lon, west, east);
+          const clampedLat = clamp(lat, south, north);
+
+          // ✅ solo limita el alejamiento (máximo), el acercamiento queda libre
+          // pero con piso mínimo para no romper Cesium
+          const clampedHeight = Math.max(SAFE_MIN_HEIGHT, Math.min(carto.height, maxHeight));
+
+          const moved =
+            clampedLon !== lon ||
+            clampedLat !== lat ||
+            clampedHeight !== carto.height;
+
+          if (!moved) return;
+
+          correcting = true;
+          camera.setView({
+            destination: Cesium.Cartesian3.fromRadians(clampedLon, clampedLat, clampedHeight)
+          });
+          correcting = false;
+        });
+      }
+
+      function setCameraStart(camera, rect, height) {
+        const center = Cesium.Rectangle.center(rect);
+        camera.setView({
+          destination: Cesium.Cartesian3.fromRadians(center.longitude, center.latitude, height)
+        });
+      }
+
+      function setupHud(canvas) {
+        const ctx = canvas.getContext("2d");
+        const state = { w: 0, h: 0 };
+
+        function resize() {
+          state.w = window.innerWidth;
+          state.h = window.innerHeight;
+          const dpr = window.devicePixelRatio || 1;
+
+          canvas.width = Math.floor(state.w * dpr);
+          canvas.height = Math.floor(state.h * dpr);
+          canvas.style.width = `${state.w}px`;
+          canvas.style.height = `${state.h}px`;
+
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        window.addEventListener("resize", resize);
+        resize();
+
+        return { ctx, state };
+      }
+
+      function setupPointer(hudCanvas, hudState) {
+        const pointer = { x: hudState.w / 2, y: hudState.h / 2, active: false };
+
+        window.addEventListener("pointermove", (e) => {
+          const rect = hudCanvas.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          pointer.x = x;
+          pointer.y = y;
+          pointer.active = x >= 0 && y >= 0 && x <= rect.width && y <= rect.height;
+        });
+
+        window.addEventListener("pointerleave", () => {
+          pointer.active = false;
+        });
+
+        return pointer;
+      }
+
+      function drawRadarGrid(ctx, cfg, w, h, pointer) {
+        const cx = w / 2;
+        const cy = h / 2;
+        const R = Math.min(w, h) * cfg.radiusFactor;
+
+        const px = pointer?.x ?? cx;
+        const py = pointer?.y ?? cy;
+
+        const dx = px - cx;
+        const dy = py - cy;
+        const dist = Math.hypot(dx, dy);
+        const ang = Math.atan2(dy, dx);
+
+        const ringStep = R / cfg.rings;
+        const ringIndex = clamp(Math.floor(dist / ringStep), 0, cfg.rings - 1);
+
+        const spokeIndexRaw = Math.round(((ang + Math.PI) / (Math.PI * 2)) * cfg.spokes);
+        const spokeIndex = ((spokeIndexRaw % cfg.spokes) + cfg.spokes) % cfg.spokes;
+        const spokeAngle = (spokeIndex / cfg.spokes) * Math.PI * 2;
+
+        ctx.save();
+        ctx.strokeStyle = "white";
+        ctx.fillStyle = "white";
+
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = 1;
+        for (let i = 1; i <= cfg.rings; i++) {
+          const r = (R * i) / cfg.rings;
+          ctx.beginPath();
+          ctx.arc(cx, cy, r, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        ctx.globalAlpha = 0.3;
+        for (let i = 0; i < cfg.spokes; i++) {
+          const a = (i / cfg.spokes) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a));
+          ctx.stroke();
+        }
+
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, R, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.globalAlpha = 0.9;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < cfg.ticks; i++) {
+          const a = (i / cfg.ticks) * Math.PI * 2;
+          const isMajor = i % 10 === 0;
+          const len = isMajor ? 10 : 5;
+
+          const x1 = cx + (R - len) * Math.cos(a);
+          const y1 = cy + (R - len) * Math.sin(a);
+          const x2 = cx + R * Math.cos(a);
+          const y2 = cy + R * Math.sin(a);
+
+          ctx.beginPath();
+          ctx.moveTo(x1, y1);
+          ctx.lineTo(x2, y2);
+          ctx.stroke();
+        }
+
+        if (pointer?.active && dist <= R) {
+          ctx.save();
+          ctx.globalAlpha = 0.9;
+          ctx.lineWidth = 2;
+          const rr = (ringIndex + 1) * ringStep;
+          ctx.beginPath();
+          ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+
+          ctx.save();
+          ctx.globalAlpha = 0.9;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + R * Math.cos(spokeAngle), cy + R * Math.sin(spokeAngle));
+          ctx.stroke();
+          ctx.restore();
+
+          ctx.save();
+          ctx.globalAlpha = 0.9;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.arc(cx, cy, dist, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(cx + R * Math.cos(ang), cy + R * Math.sin(ang));
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        ctx.restore();
+      }
+
+      function drawStatePoints(ctx, scene, camera, points, w, h, pointer, hoverCfg) {
+        const scratch2D = new Cesium.Cartesian2();
+        const scratchDir = new Cesium.Cartesian3();
+        const scratchNorm = new Cesium.Cartesian3();
+        const scratchCamDir = new Cesium.Cartesian3();
+
+        const HIT_RADIUS = hoverCfg.hitRadius;
+        const DOT_RADIUS = hoverCfg.dotRadius;
+
+        Cesium.Cartesian3.normalize(camera.directionWC, scratchCamDir);
+
+        ctx.save();
+        ctx.strokeStyle = "white";
+        ctx.fillStyle = "white";
+
+        for (const p of points) {
+          const world = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, 0);
+          const screen = scene.cartesianToCanvasCoordinates(world, scratch2D);
+          if (!screen) continue;
+
+          Cesium.Cartesian3.subtract(world, camera.positionWC, scratchDir);
+          Cesium.Cartesian3.normalize(scratchDir, scratchNorm);
+
+          if (Cesium.Cartesian3.dot(scratchNorm, scratchCamDir) <= 0) continue;
+          if (screen.x < 0 || screen.x > w || screen.y < 0 || screen.y > h) continue;
+
+          const hovered =
+            pointer?.active &&
+            Math.hypot(screen.x - pointer.x, screen.y - pointer.y) <= HIT_RADIUS;
+
+          ctx.globalAlpha = hovered ? 1.0 : 0.65;
+          ctx.lineWidth = hovered ? 2.2 : 1.2;
+
+          ctx.beginPath();
+          ctx.arc(screen.x, screen.y, DOT_RADIUS, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+
+        ctx.restore();
+      }
+
+      function startLoop(ctx, hudState, scene, camera, pointer) {
+        function frame() {
+          const { w, h } = hudState;
+
+          ctx.clearRect(0, 0, w, h);
+          drawRadarGrid(ctx, CONFIG.radar, w, h, pointer);
+          drawStatePoints(ctx, scene, camera, CONFIG.points, w, h, pointer, CONFIG.hover);
+
+          requestAnimationFrame(frame);
+        }
+
+        requestAnimationFrame(frame);
+      }
+
+      const viewer = createViewer("cesiumContainer");
+      const { scene, camera } = viewer;
+
+      const mexicoRect = Cesium.Rectangle.fromDegrees(
+        CONFIG.mexicoRect.west,
+        CONFIG.mexicoRect.south,
+        CONFIG.mexicoRect.east,
+        CONFIG.mexicoRect.north
+      );
+
+      
+      setZoomLimits(scene, CONFIG.camera.maxHeight);
+
+      
+      lockCameraToRectangle(camera, mexicoRect, CONFIG.camera.maxHeight);
+
+      setCameraStart(camera, mexicoRect, CONFIG.camera.startHeight);
+
+      const hudCanvas = document.getElementById("hud");
+      const { ctx, state: hudState } = setupHud(hudCanvas);
+      const pointer = setupPointer(hudCanvas, hudState);
+
+      startLoop(ctx, hudState, scene, camera, pointer);
+    </script>
+  </body>
+</html>
