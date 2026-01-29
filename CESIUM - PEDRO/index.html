@@ -151,9 +151,6 @@
         Centro actual: <span class="pill" id="centerReadout">---</span>
       </div>
       <div class="err" id="msg"></div>
-      <div class="hint">
-        Zoom: Min <span class="pill" id="zoomMin">-</span> / Max <span class="pill" id="zoomMax">-</span>
-      </div>
     </div>
 
     <script src="./node_modules/cesium/Build/Cesium/Cesium.js"></script>
@@ -162,10 +159,7 @@
       const CONFIG = {
         mexicoRect: { west: -118.6, south: 14.0, east: -86.5, north: 33.5 },
         camera: {
-          // Zoom "realista" para México:
-          // minHeight ~ 3 km (ver ciudad), maxHeight ~ 1,800 km (ver todo México + margen)
-          minHeight: 3000,
-          maxHeight: 1800000,
+          // ✅ sin límites de zoom; solo usamos altura inicial
           startHeight: 900000
         },
         radar: {
@@ -192,18 +186,16 @@
         });
       }
 
-      function setZoomLimits(scene, minHeight, maxHeight) {
+      // ❌ ya no ponemos límites de zoom
+      function setZoomNoLimits(scene) {
         const ssc = scene.screenSpaceCameraController;
-
-        // En Cesium: minimumZoomDistance = qué tan CERCA puedes (distancia mínima)
-        //           maximumZoomDistance = qué tan LEJOS puedes (distancia máxima)
-        ssc.minimumZoomDistance = minHeight;
-        ssc.maximumZoomDistance = maxHeight;
-
+        ssc.minimumZoomDistance = undefined;
+        ssc.maximumZoomDistance = undefined;
         ssc.enableCollisionDetection = true;
       }
 
-      function lockCameraToRectangle(camera, rect, minHeight, maxHeight) {
+      // 🔒 solo encerramos a México (lat/lon), SIN tocar altura
+      function lockCameraToRectangle(camera, rect) {
         let correcting = false;
 
         const west = rect.west;
@@ -231,17 +223,12 @@
           const clampedLon = clamp(lon, west, east);
           const clampedLat = clamp(lat, south, north);
 
-          // ✅ Zoom realista: no te deja irte a infinito ni meterte al suelo
-          const clampedHeight = clamp(carto.height, minHeight, maxHeight);
-
-          const moved =
-            clampedLon !== lon || clampedLat !== lat || clampedHeight !== carto.height;
-
+          const moved = clampedLon !== lon || clampedLat !== lat;
           if (!moved) return;
 
           correcting = true;
           camera.setView({
-            destination: Cesium.Cartesian3.fromRadians(clampedLon, clampedLat, clampedHeight)
+            destination: Cesium.Cartesian3.fromRadians(clampedLon, clampedLat, carto.height)
           });
           correcting = false;
         });
@@ -451,6 +438,7 @@
         requestAnimationFrame(frame);
       }
 
+      // Centro del viewport (para lat/lon del centro)
       function getCenterLatLon(scene) {
         const canvas = scene.canvas;
         const center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
@@ -458,7 +446,6 @@
         const ray = scene.camera.getPickRay(center);
         if (!ray) return null;
 
-        // OJO: si no hay globo renderizado aún, pick puede fallar
         const hit = scene.globe.pick(ray, scene);
         if (!hit) return null;
 
@@ -478,9 +465,6 @@
         const lonInput = document.getElementById("lon");
         const centerReadout = document.getElementById("centerReadout");
         const msg = document.getElementById("msg");
-
-        document.getElementById("zoomMin").textContent = `${(CONFIG.camera.minHeight / 1000).toFixed(1)}km`;
-        document.getElementById("zoomMax").textContent = `${(CONFIG.camera.maxHeight / 1000).toFixed(0)}km`;
 
         function setMsg(text = "") {
           msg.textContent = text;
@@ -511,7 +495,6 @@
             const s = `${lat}, ${lon}`;
             centerReadout.textContent = s;
 
-            // actualiza inputs solo si cambió (para no pelear con el usuario)
             if (s !== last) {
               latInput.value = String(lat);
               lonInput.value = String(lon);
@@ -573,7 +556,7 @@
           if (nameExists(name)) return setMsg("Ese nombre ya existe. No se permiten repetidos.");
 
           const coords = parseLatLonInputs() || getCenterLatLon(scene);
-          if (!coords) return setMsg("No pude obtener el centro (prueba acercarte al mapa).");
+          if (!coords) return setMsg("No pude obtener el centro (a veces pasa si estás muy lejos o el globo no está visible).");
 
           CONFIG.points.push({ name, lat: coords.lat, lon: coords.lon });
           refreshList(false);
@@ -593,7 +576,7 @@
           if (nameExists(name, idx)) return setMsg("Ese nombre ya existe en otro punto.");
 
           const coords = parseLatLonInputs() || getCenterLatLon(scene);
-          if (!coords) return setMsg("No pude obtener el centro (prueba acercarte al mapa).");
+          if (!coords) return setMsg("No pude obtener el centro.");
 
           p.name = name;
           p.lat = coords.lat;
@@ -629,8 +612,12 @@
         CONFIG.mexicoRect.north
       );
 
-      setZoomLimits(scene, CONFIG.camera.minHeight, CONFIG.camera.maxHeight);
-      lockCameraToRectangle(camera, mexicoRect, CONFIG.camera.minHeight, CONFIG.camera.maxHeight);
+      // ✅ sin límites de zoom
+      setZoomNoLimits(scene);
+
+      // ✅ mantenemos encierro a México (lat/lon)
+      lockCameraToRectangle(camera, mexicoRect);
+
       setCameraStart(camera, mexicoRect, CONFIG.camera.startHeight);
 
       const hudCanvas = document.getElementById("hud");
