@@ -23,7 +23,6 @@
         z-index: 1;
       }
 
-      /* HUD encima del mapa, pero NO bloquea clicks */
       #hud {
         position: absolute;
         inset: 0;
@@ -40,7 +39,7 @@
         font-size: 10px !important;
       }
 
-      /* ===== MENU ABC (AÑADIR / BORRAR / CAMBIAR) ===== */
+      /* ===== MENU ABC ===== */
       #menu {
         position: absolute;
         top: 12px;
@@ -50,10 +49,10 @@
         color: #fff;
         font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
         padding: 10px;
-        width: 240px;
+        width: 260px;
         border: 1px solid rgba(255, 255, 255, 0.25);
         border-radius: 10px;
-        pointer-events: auto; /* importante */
+        pointer-events: auto;
         backdrop-filter: blur(6px);
       }
 
@@ -100,7 +99,24 @@
         font-size: 11px;
         opacity: 0.75;
         margin-top: 4px;
-        line-height: 1.2;
+        line-height: 1.25;
+      }
+
+      #menu .pill {
+        display: inline-block;
+        padding: 2px 8px;
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 999px;
+        font-size: 11px;
+        opacity: 0.9;
+      }
+
+      #menu .err {
+        color: #ffb3b3;
+        font-size: 11px;
+        margin-top: 6px;
+        line-height: 1.25;
+        min-height: 14px;
       }
     </style>
   </head>
@@ -109,7 +125,6 @@
     <div id="cesiumContainer"></div>
     <canvas id="hud"></canvas>
 
-    <!-- MENU -->
     <div id="menu">
       <h3>ABC de puntitos</h3>
 
@@ -118,22 +133,26 @@
       </div>
 
       <div class="row">
-        <input id="name" placeholder="Nombre (ej. Puebla)" />
+        <input id="name" placeholder="Nombre (único)" />
       </div>
 
       <div class="row">
-        <input id="lat" placeholder="Lat (vacío = centro)" />
-        <input id="lon" placeholder="Lon (vacío = centro)" />
+        <input id="lat" placeholder="Lat (auto al mover)" />
+        <input id="lon" placeholder="Lon (auto al mover)" />
       </div>
 
       <div class="row">
-        <button id="add">Añadir</button>
+        <button id="add">Añadir (centro)</button>
         <button id="update">Cambiar</button>
         <button id="remove">Quitar</button>
       </div>
 
       <div class="hint">
-        Si dejas lat/lon vacíos al añadir, se pone en el centro de la vista (centro del radar).
+        Centro actual: <span class="pill" id="centerReadout">---</span>
+      </div>
+      <div class="err" id="msg"></div>
+      <div class="hint">
+        Zoom: Min <span class="pill" id="zoomMin">-</span> / Max <span class="pill" id="zoomMax">-</span>
       </div>
     </div>
 
@@ -143,8 +162,11 @@
       const CONFIG = {
         mexicoRect: { west: -118.6, south: 14.0, east: -86.5, north: 33.5 },
         camera: {
-          maxHeight: 4500000, // 🚫 no más alejamiento que esto
-          startHeight: 2500000
+          // Zoom "realista" para México:
+          // minHeight ~ 3 km (ver ciudad), maxHeight ~ 1,800 km (ver todo México + margen)
+          minHeight: 3000,
+          maxHeight: 1800000,
+          startHeight: 900000
         },
         radar: {
           radiusFactor: 0.48,
@@ -158,34 +180,36 @@
           { name: "Aguascalientes", lon: -102.296, lat: 21.8853 },
           { name: "Chihuahua", lon: -106.0889, lat: 28.6353 }
         ],
-        hover: {
-          hitRadius: 12,
-          dotRadius: 5
-        }
+        hover: { hitRadius: 12, dotRadius: 5 }
       };
 
       const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
 
       function createViewer(containerId) {
-        return new Cesium.Viewer(containerId, { timeline: false, animation: false });
+        return new Cesium.Viewer(containerId, {
+          timeline: false,
+          animation: false
+        });
       }
 
-      function setZoomLimits(scene, maxHeight) {
+      function setZoomLimits(scene, minHeight, maxHeight) {
         const ssc = scene.screenSpaceCameraController;
+
+        // En Cesium: minimumZoomDistance = qué tan CERCA puedes (distancia mínima)
+        //           maximumZoomDistance = qué tan LEJOS puedes (distancia máxima)
+        ssc.minimumZoomDistance = minHeight;
         ssc.maximumZoomDistance = maxHeight;
-        ssc.minimumZoomDistance = 100.0; // mínimo seguro
+
         ssc.enableCollisionDetection = true;
       }
 
-      function lockCameraToRectangle(camera, rect, maxHeight) {
+      function lockCameraToRectangle(camera, rect, minHeight, maxHeight) {
         let correcting = false;
 
         const west = rect.west;
         const east = rect.east;
         const south = rect.south;
         const north = rect.north;
-
-        const SAFE_MIN_HEIGHT = 50.0;
 
         camera.changed.addEventListener(() => {
           if (correcting) return;
@@ -206,12 +230,12 @@
 
           const clampedLon = clamp(lon, west, east);
           const clampedLat = clamp(lat, south, north);
-          const clampedHeight = Math.max(SAFE_MIN_HEIGHT, Math.min(carto.height, maxHeight));
+
+          // ✅ Zoom realista: no te deja irte a infinito ni meterte al suelo
+          const clampedHeight = clamp(carto.height, minHeight, maxHeight);
 
           const moved =
-            clampedLon !== lon ||
-            clampedLat !== lat ||
-            clampedHeight !== carto.height;
+            clampedLon !== lon || clampedLat !== lat || clampedHeight !== carto.height;
 
           if (!moved) return;
 
@@ -427,19 +451,14 @@
         requestAnimationFrame(frame);
       }
 
-      /* ===== NUEVO: obtener lat/lon del centro de la vista (centro del radar) ===== */
       function getCenterLatLon(scene) {
         const canvas = scene.canvas;
-
-        // Centro de la pantalla
-        const center = new Cesium.Cartesian2(
-          canvas.clientWidth / 2,
-          canvas.clientHeight / 2
-        );
+        const center = new Cesium.Cartesian2(canvas.clientWidth / 2, canvas.clientHeight / 2);
 
         const ray = scene.camera.getPickRay(center);
         if (!ray) return null;
 
+        // OJO: si no hay globo renderizado aún, pick puede fallar
         const hit = scene.globe.pick(ray, scene);
         if (!hit) return null;
 
@@ -452,12 +471,57 @@
         };
       }
 
-      /* ===== MENU ABC LOGICA ===== */
       function setupMenuABC(scene) {
         const list = document.getElementById("pointList");
         const nameInput = document.getElementById("name");
         const latInput = document.getElementById("lat");
         const lonInput = document.getElementById("lon");
+        const centerReadout = document.getElementById("centerReadout");
+        const msg = document.getElementById("msg");
+
+        document.getElementById("zoomMin").textContent = `${(CONFIG.camera.minHeight / 1000).toFixed(1)}km`;
+        document.getElementById("zoomMax").textContent = `${(CONFIG.camera.maxHeight / 1000).toFixed(0)}km`;
+
+        function setMsg(text = "") {
+          msg.textContent = text;
+        }
+
+        function normName(s) {
+          return String(s || "").trim().toLowerCase();
+        }
+
+        function nameExists(name, ignoreIndex = -1) {
+          const n = normName(name);
+          if (!n) return false;
+          return CONFIG.points.some((p, i) => i !== ignoreIndex && normName(p.name) === n);
+        }
+
+        function startCenterTracking() {
+          let last = "";
+
+          function update() {
+            const c = getCenterLatLon(scene);
+            if (!c) {
+              centerReadout.textContent = "---";
+              return;
+            }
+            const lat = Math.round(c.lat * 1e5) / 1e5;
+            const lon = Math.round(c.lon * 1e5) / 1e5;
+
+            const s = `${lat}, ${lon}`;
+            centerReadout.textContent = s;
+
+            // actualiza inputs solo si cambió (para no pelear con el usuario)
+            if (s !== last) {
+              latInput.value = String(lat);
+              lonInput.value = String(lon);
+              last = s;
+            }
+          }
+
+          scene.preRender.addEventListener(update);
+          update();
+        }
 
         function refreshList(keepIndex = true) {
           const prev = keepIndex ? Number(list.value) : 0;
@@ -473,86 +537,76 @@
           if (CONFIG.points.length === 0) {
             list.innerHTML = `<option value="-1">(sin puntos)</option>`;
             nameInput.value = "";
-            latInput.value = "";
-            lonInput.value = "";
+            setMsg("");
             return;
           }
 
           const next = clamp(prev, 0, CONFIG.points.length - 1);
           list.value = String(next);
-          fillInputsFromSelection();
+          fillNameFromSelection();
         }
 
-        function fillInputsFromSelection() {
+        function fillNameFromSelection() {
           const idx = Number(list.value);
           const p = CONFIG.points[idx];
           if (!p) return;
           nameInput.value = p.name ?? "";
-          latInput.value = String(p.lat ?? "");
-          lonInput.value = String(p.lon ?? "");
+          setMsg("");
         }
 
-        function parseLatLon() {
-          const latStr = String(latInput.value || "").trim();
-          const lonStr = String(lonInput.value || "").trim();
-          if (!latStr || !lonStr) return null; // vacío => usar centro
-
-          const lat = parseFloat(latStr);
-          const lon = parseFloat(lonStr);
-
+        function parseLatLonInputs() {
+          const lat = parseFloat(String(latInput.value || "").trim());
+          const lon = parseFloat(String(lonInput.value || "").trim());
           if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
           if (lat < -90 || lat > 90) return null;
           if (lon < -180 || lon > 180) return null;
-
           return { lat, lon };
         }
 
-        list.addEventListener("change", fillInputsFromSelection);
+        list.addEventListener("change", fillNameFromSelection);
 
-        // ✅ AÑADIR: si lat/lon vacíos => centro del radar (centro de vista)
         document.getElementById("add").onclick = () => {
-          const name = String(nameInput.value || "").trim() || "Nuevo";
+          setMsg("");
 
-          const parsed = parseLatLon();
-          const center = getCenterLatLon(scene);
+          const name = String(nameInput.value || "").trim();
+          if (!name) return setMsg("Pon un nombre para el punto.");
+          if (nameExists(name)) return setMsg("Ese nombre ya existe. No se permiten repetidos.");
 
-          const data = parsed ?? center;
+          const coords = parseLatLonInputs() || getCenterLatLon(scene);
+          if (!coords) return setMsg("No pude obtener el centro (prueba acercarte al mapa).");
 
-          if (!data) {
-            alert("No pude obtener el centro (¿el globo no está visible?). Mueve la cámara hacia el mapa.");
-            return;
-          }
-
-          CONFIG.points.push({ name, lat: data.lat, lon: data.lon });
-
+          CONFIG.points.push({ name, lat: coords.lat, lon: coords.lon });
           refreshList(false);
           list.value = String(CONFIG.points.length - 1);
-          fillInputsFromSelection();
+          fillNameFromSelection();
         };
 
-        // CAMBIAR: aquí sí exige coords válidas (porque “cambiar” normalmente es editar)
         document.getElementById("update").onclick = () => {
+          setMsg("");
+
           const idx = Number(list.value);
           const p = CONFIG.points[idx];
           if (!p) return;
 
-          const name = String(nameInput.value || "").trim() || p.name || "Punto";
-          const parsed = parseLatLon();
-          if (!parsed) {
-            alert("Para CAMBIAR, escribe lat/lon válidos (o selecciona y edita).");
-            return;
-          }
+          const name = String(nameInput.value || "").trim();
+          if (!name) return setMsg("El nombre no puede estar vacío.");
+          if (nameExists(name, idx)) return setMsg("Ese nombre ya existe en otro punto.");
+
+          const coords = parseLatLonInputs() || getCenterLatLon(scene);
+          if (!coords) return setMsg("No pude obtener el centro (prueba acercarte al mapa).");
 
           p.name = name;
-          p.lat = parsed.lat;
-          p.lon = parsed.lon;
+          p.lat = coords.lat;
+          p.lon = coords.lon;
 
           refreshList(true);
           list.value = String(idx);
-          fillInputsFromSelection();
+          fillNameFromSelection();
         };
 
         document.getElementById("remove").onclick = () => {
+          setMsg("");
+
           const idx = Number(list.value);
           if (!Number.isFinite(idx) || idx < 0 || idx >= CONFIG.points.length) return;
 
@@ -561,6 +615,7 @@
         };
 
         refreshList(false);
+        startCenterTracking();
       }
 
       /* ===== INIT ===== */
@@ -574,8 +629,8 @@
         CONFIG.mexicoRect.north
       );
 
-      setZoomLimits(scene, CONFIG.camera.maxHeight);
-      lockCameraToRectangle(camera, mexicoRect, CONFIG.camera.maxHeight);
+      setZoomLimits(scene, CONFIG.camera.minHeight, CONFIG.camera.maxHeight);
+      lockCameraToRectangle(camera, mexicoRect, CONFIG.camera.minHeight, CONFIG.camera.maxHeight);
       setCameraStart(camera, mexicoRect, CONFIG.camera.startHeight);
 
       const hudCanvas = document.getElementById("hud");
