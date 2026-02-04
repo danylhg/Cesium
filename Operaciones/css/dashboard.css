@@ -1,0 +1,203 @@
+*{ box-sizing: border-box; }
+body{
+  margin:0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: #eef3ff;
+}
+
+.topbar{
+  background:#0b1220;
+  color:#fff;
+  padding:12px 16px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.topbarLeft{ display:flex; gap:10px; align-items:center; }
+.who{ opacity:.8; font-weight:600; }
+
+.topBtn{
+  border:0;
+  padding:8px 12px;
+  border-radius:8px;
+  cursor:pointer;
+}
+
+.layout{
+  display:grid;
+  grid-template-columns: 1.25fr 0.85fr;
+  gap:16px;
+  padding:16px;
+}
+
+.panel{
+  background:#fff;
+  border-radius:14px;
+  box-shadow:0 8px 24px rgba(0,0,0,.08);
+  padding:14px;
+}
+
+.panelHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:10px;
+}
+.panelHeader h2{ margin:0; font-size:18px; }
+
+.mapControls{
+  display:flex;
+  gap:10px;
+}
+.mapControls select{
+  padding:8px 10px;
+  border-radius:10px;
+  border:1px solid #e5e7eb;
+  background:#f3f4f6;
+  font-weight:600;
+}
+
+.mapBox{
+  height:420px;
+  border-radius:12px;
+  overflow:hidden;
+}
+
+.routeInfo{
+  margin-top:10px;
+  font-size:13px;
+  color:#374151;
+}
+
+/* ====== Operaciones estilo ====== */
+.ops h2{ margin:0 0 10px; }
+
+.opsInput{
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 0;
+  background: #cfd6d3;
+  margin-bottom: 10px;
+  outline: none;
+  font-weight: 700;
+}
+.opsInput::placeholder{ color:#2f2f2f; opacity:.85; }
+
+.latlngRow{
+  display:flex;
+  justify-content: space-between;
+  gap: 28px;
+  margin: 10px 0 12px;
+}
+
+.latlngBox{
+  width: 100%;
+  max-width: 240px;
+  text-align: center;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 0;
+  background: #cfd6d3;
+  font-weight: 800;
+  letter-spacing: .4px;
+  outline: none;
+}
+
+.btnGrid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 22px;
+  margin-top: 10px;
+}
+
+.btnBeige{
+  padding: 12px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: #98a9e6;
+  font-weight: 800;
+  cursor: pointer;
+}
+.btnBeige:hover{ filter: brightness(.97); }
+
+.historyBtn{
+  grid-column: 1 / -1;
+  justify-self: center;
+  width: 50%;
+  min-width: 260px;
+  max-width: 420px;
+}
+
+.msg{
+  margin: 8px 0 0;
+  color:#b91c1c;
+  font-weight:700;
+}
+
+/* ===== Lista ops ===== */
+.list{ margin-top:14px; display:flex; flex-direction:column; gap:12px; }
+.item{
+  border:1px solid #e5e7eb;
+  border-radius:12px;
+  padding:12px;
+}
+.item strong{ font-size:15px; }
+.item .meta{
+  margin-top:6px;
+  font-size:12px;
+  color:#4b5563;
+}
+.btns{ margin-top:10px; display:flex; gap:10px; }
+.btns button{
+  background:#0b1220;
+  color:#fff;
+  border:0;
+  padding:8px 10px;
+  border-radius:10px;
+  cursor:pointer;
+}
+
+/* ===== Barra táctica bajo el mapa ===== */
+.tacticalBar{
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.tacticalBar .tbRow{
+  display: grid;
+  grid-template-columns: 1fr 1.3fr 1.2fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tacticalBar .tbRow2{
+  grid-template-columns: 1fr 1fr 1fr;
+  margin-bottom: 0;
+}
+
+.tacticalBar select,
+.tacticalBar input{
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  outline: none;
+  font-weight: 600;
+}
+
+.tbHint{
+  margin-top: 8px;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+
+
+
+
+
