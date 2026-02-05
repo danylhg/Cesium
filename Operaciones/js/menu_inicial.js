@@ -228,7 +228,7 @@ btnOpenSelected.addEventListener("click", () => {
   localStorage.setItem("active_operation_id", op.id);
 
   // Redirigir a tu siguiente pantalla (cámbiala a la que tú uses)
-  window.location.href = "dashboard.html";
+  window.location.href = "asignacion.html";
 });
 
 

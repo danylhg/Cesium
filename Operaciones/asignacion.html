@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Asignación</title>
+  <link rel="stylesheet" href="css/asignacion.css" />
+</head>
+<body>
+  <div class="bg"></div>
+
+  <div class="wrap">
+    <div class="topbar">
+      <div class="pill">asignados para operación</div>
+      <div class="opinfo" id="opInfo">Operación: —</div>
+      <button class="btnGhost" id="btnBack">Volver</button>
+    </div>
+
+    <div class="panel">
+      <!-- IZQUIERDA -->
+      <section class="left">
+        <div class="stack">
+          <div class="box">
+            <div class="boxTitle">personal</div>
+            <ul class="list" id="assignedPersonal"></ul>
+          </div>
+
+          <div class="box">
+            <div class="boxTitle">vehículos</div>
+            <ul class="list" id="assignedVehiculos"></ul>
+          </div>
+
+          <div class="box">
+            <div class="boxTitle">equipo</div>
+            <ul class="list" id="assignedEquipo"></ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- DERECHA -->
+      <section class="right">
+        <div class="bar">
+          <button class="btnSmall" id="btnPrev">ant.</button>
+          <div class="barTitle" id="barTitle">personal</div>
+          <button class="btnSmall" id="btnNext">sig</button>
+        </div>
+
+        <div class="bigBox">
+          <ul class="list selectable" id="availableList"></ul>
+        </div>
+
+        <button class="btnPrimary" id="btnAssign">asignar</button>
+        <p class="msg" id="msg"></p>
+      </section>
+    </div>
+  </div>
+
+  <script src="js/asignacion.js"></script>
+</body>
+</html>
