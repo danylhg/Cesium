@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Menú inicial</title>
+  <link rel="stylesheet" href="css/menu_inicial.css" />
+</head>
+<body>
+  <div class="bg"></div>
+
+  <div class="wrap">
+    <div class="topbar">
+      <div class="welcome" id="welcomeText">Bienvenido(a)</div>
+      <button class="logout" id="btnLogout">Cerrar sesión</button>
+    </div>
+
+    <div class="panel">
+      <!-- IZQUIERDA: Información de operación -->
+      <section class="left">
+        <div class="pill">información de operación</div>
+
+        <div class="box">
+          <label class="lbl">Nombre</label>
+          <input id="opName" class="field" placeholder="Nombre de la operación" />
+
+          <label class="lbl">Descripción</label>
+          <textarea id="opDesc" class="field area" placeholder="Descripción de la operación"></textarea>
+
+          <div class="dates">
+            <div class="dateItem">
+                <label class="lbl">Fecha de creación</label>
+                <input id="opDateCreated" type="date" class="field" />
+            </div>
+
+            <div class="dateItem">
+                <label class="lbl">Fecha de inicio de operación</label>
+                <input id="opDateStart" type="date" class="field" />
+            </div>
+
+            <div class="dateItem">
+                <label class="lbl">Fecha de fin de operación</label>
+                <input id="opDateEnd" type="date" class="field" />
+            </div>
+            </div>
+
+          <button id="btnOpenSelected" class="primary hidden">Continuar con operación seleccionada</button>
+          <button id="btnFinalize" class="primary hidden">Finalizar creación inicial</button>
+          <p id="leftMsg" class="msg"></p>
+        </div>
+      </section>
+
+      <div class="divider"></div>
+
+      <!-- DERECHA: Acciones -->
+      <section class="right">
+        <div class="pill" id="rightTitle">bienvenido usuario(a)</div>
+
+        <h1 class="h1">¿Qué desea hacer?</h1>
+        <p class="h2">Seleccione una opción para continuar</p>
+
+        <div class="actions">
+          <button id="btnCreate" class="action">Crear operación</button>
+          <button id="btnSelect" class="action">Seleccionar operación</button>
+
+          <div id="selectArea" class="selectArea hidden">
+            <label class="lbl">Operaciones existentes</label>
+            <select id="opSelect" class="field"></select>
+          </div>
+
+          <p id="rightMsg" class="msg"></p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="js/menu_inicial.js"></script>
+</body>
+</html>

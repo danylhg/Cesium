@@ -4,16 +4,16 @@ document.getElementById("btnLogin").addEventListener("click", () => {
   const msg = document.getElementById("msg");
   msg.textContent = "";
 
-  // Credenciales demo
   const OK_USER = "admin";
   const OK_PASS = "1234";
 
   if (u === OK_USER && p === OK_PASS) {
     localStorage.setItem("session", "ok");
     localStorage.setItem("username", u);
-    window.location.href = "dashboard.html";
+    window.location.href = "menu_inicial.html"; // 👈 aquí
   } else {
     msg.textContent = "Usuario o contraseña incorrectos.";
   }
 });
+
 
