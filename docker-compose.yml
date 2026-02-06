@@ -9,7 +9,7 @@ services:
       POSTGRES_PASSWORD: apppass
       POSTGRES_DB: appdb
     ports:
-      - "5432:5432"
+      - "5434:5432"   # host:contenedor
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -25,18 +25,14 @@ services:
       - "3000:3000"
     environment:
       NODE_ENV: development
-      DB_HOST: db
-      DB_PORT: 5432
-      DB_USER: appuser
-      DB_PASSWORD: apppass
-      DB_NAME: appdb
-      # Opcional: una sola cadena:
-      # DATABASE_URL: postgres://appuser:apppass@db:5432/appdb
+      PGHOST: db
+      PGPORT: 5432
+      PGUSER: appuser
+      PGPASSWORD: apppass
+      PGDATABASE: appdb
     depends_on:
       db:
         condition: service_healthy
-    # Si tu app usa nodemon:
-    # command: npm run dev
 
 volumes:
   pgdata:
