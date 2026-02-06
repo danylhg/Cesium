@@ -1,19 +1,31 @@
-document.getElementById("btnLogin").addEventListener("click", () => {
+document.getElementById("btnLogin").addEventListener("click", async () => {
   const u = document.getElementById("username").value.trim();
   const p = document.getElementById("password").value;
   const msg = document.getElementById("msg");
   msg.textContent = "";
 
-  const OK_USER = "admin";
-  const OK_PASS = "1234";
+  try {
+    const r = await fetch("http://localhost:3001/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: u, password: p }),
+    });
 
-  if (u === OK_USER && p === OK_PASS) {
+    const data = await r.json();
+
+    if (!r.ok || !data.ok) {
+      msg.textContent = data?.mensaje ?? "Usuario o contraseña incorrectos.";
+      return;
+    }
+
+    // Guardar sesión
     localStorage.setItem("session", "ok");
+    localStorage.setItem("token", data.token);
     localStorage.setItem("username", u);
-    window.location.href = "menu_inicial.html"; // 👈 aquí
-  } else {
-    msg.textContent = "Usuario o contraseña incorrectos.";
+
+    // Ir al menú
+    window.location.href = "menu_inicial.html";
+  } catch (e) {
+    msg.textContent = "No se pudo conectar al servidor.";
   }
 });
-
-
