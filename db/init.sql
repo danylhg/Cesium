@@ -12,7 +12,7 @@
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_usuario_enum') THEN
-    CREATE TYPE rol_usuario_enum AS ENUM ('CUT', 'CET', 'CEL');
+    CREATE TYPE rol_usuario_enum AS ENUM ('CUT', 'CET', 'CELL');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_equipo_enum') THEN
