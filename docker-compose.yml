@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: tuapp_db
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppass
+      POSTGRES_DB: appdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    container_name: tuapp_api
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: appuser
+      DB_PASSWORD: apppass
+      DB_NAME: appdb
+      # Opcional: una sola cadena:
+      # DATABASE_URL: postgres://appuser:apppass@db:5432/appdb
+    depends_on:
+      db:
+        condition: service_healthy
+    # Si tu app usa nodemon:
+    # command: npm run dev
+
+volumes:
+  pgdata:
