@@ -1,34 +1,39 @@
-version: "3.9"
-
 services:
-  db:
+  postgres:
     image: postgres:16-alpine
-    container_name: tuapp_db
+    container_name: ops_postgres
     environment:
-      POSTGRES_USER: appuser
-      POSTGRES_PASSWORD: apppass
-      POSTGRES_DB: appdb
+      POSTGRES_USER: operaciones
+      POSTGRES_PASSWORD: operaciones123
+      POSTGRES_DB: operaciones_db
     ports:
-      - "5434:5432"
+      - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      test: ["CMD-SHELL", "pg_isready -U operaciones -d operaciones_db"]
       interval: 5s
-      timeout: 5s
-      retries: 10
+      timeout: 3s
+      retries: 20
 
-  app:
-    build: .
-    container_name: tuapp_api
+  api:
+    build:
+      context: ./Operaciones/api
+      dockerfile: Dockerfile
+    container_name: ops_api
+    environment:
+      PORT: 3000
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: operaciones
+      PGPASSWORD: operaciones123
+      PGDATABASE: operaciones_db
     ports:
-      - "3000:3000"
-    env_file:
-      - Operaciones/api/.env
+      - "3001:3000"
     depends_on:
-      db:
+      postgres:
         condition: service_healthy
 
 volumes:
-  - pgdata:/var/lib/postgresql/data
-  - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+  db_data: {}
