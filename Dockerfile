@@ -1,11 +1,16 @@
 FROM node:20-alpine
 
+# carpeta de trabajo dentro del contenedor
 WORKDIR /app
 
-COPY package*.json ./
-RUN npm ci
+# copiar package primero (mejor cache)
+COPY Operaciones/api/package*.json ./
 
-COPY . .
+RUN npm install
+
+# copiar el resto del código
+COPY Operaciones/api ./
 
 EXPOSE 3000
-CMD ["npm", "start"]
+
+CMD ["node", "server.js"]

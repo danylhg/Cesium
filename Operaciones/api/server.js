@@ -29,7 +29,8 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
-// levantar servidor
-app.listen(3001, () => {
-  console.log("API en http://localhost:3001");
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`API en http://localhost:${PORT}`);
 });
