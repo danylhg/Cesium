@@ -1,5 +1,5 @@
 -- =========================================================
--- ESQUEMA: Operaciones (PostgreSQL)
+-- ESQUEMA: Operaciones (PostgreSQL) - Usuarios CUT + Personal (CET/CELL)
 -- =========================================================
 
 -- (Opcional) si quieres limpiar todo y recrear:
@@ -11,52 +11,69 @@
 -- -------------------------
 DO $$
 BEGIN
-    --- usuario
+  -- usuario (solo CUT)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_usuario_enum') THEN
-    CREATE TYPE rol_usuario_enum AS ENUM ('CUT', 'CET', 'CELL');
+    CREATE TYPE rol_usuario_enum AS ENUM ('CUT');
   END IF;
 
--- -------------------------
--- CUT Comandante Unidad Tactica
--- CET Comandante Equipo de Trabajo
--- CELL CELULA	
--- -------------------------
+  -- personal (CET / CELL)  <-- OJO: aquí estabas revisando mal el typname
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_personal_enum') THEN
+    CREATE TYPE rol_personal_enum AS ENUM ('CET', 'CELL');
+  END IF;
 
-    --- equipo
+  -- participante chat (faltaba en tu script)
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_participante_enum') THEN
+    CREATE TYPE tipo_participante_enum AS ENUM ('USUARIO','PERSONAL');
+  END IF;
+
+  -- equipo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_equipo_enum') THEN
     CREATE TYPE estado_equipo_enum AS ENUM ('DISPONIBLE', 'ASIGNADO', 'MANTENIMIENTO', 'BAJA');
   END IF;
-    --- usuario_equipo
+
+  -- asignación equipo (personal_equipo)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_enum') THEN
     CREATE TYPE estado_asig_equipo_enum AS ENUM ('ASIGNADO', 'DEVUELTO', 'DAÑADO', 'PERDIDO');
   END IF;
-    --- vehiculo
+
+  -- vehiculo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_vehiculo_enum') THEN
     CREATE TYPE estado_vehiculo_enum AS ENUM ('DISPONIBLE', 'ASIGNADO', 'MANTENIMIENTO', 'BAJA');
   END IF;
-    --- vehiculo_equipo
+
+  -- vehiculo_equipo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_instalacion_enum') THEN
     CREATE TYPE estado_instalacion_enum AS ENUM ('INSTALADO', 'RETIRADO', 'DAÑADO');
   END IF;
-    --- operacion
+
+  -- operacion prioridad
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'prioridad_operacion_enum') THEN
     CREATE TYPE prioridad_operacion_enum AS ENUM ('BAJA', 'MEDIA', 'ALTA');
   END IF;
-    --- operacion
+
+  -- operacion estado  <-- en tu script faltaba el comentario "--" y eso rompe el DO
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_operacion_enum') THEN
     CREATE TYPE estado_operacion_enum AS ENUM ('PLANIFICADA', 'ACTIVA', 'CERRADA', 'CANCELADA');
   END IF;
-    --- asignacion_operacion
+
+  -- asignacion a operación (personal)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asignacion_enum') THEN
     CREATE TYPE estado_asignacion_enum AS ENUM ('ASIGNADO', 'CONFIRMADO', 'EN_CURSO', 'LIBERADO');
   END IF;
-    --- mensaje_chat
+
+  -- mensaje_chat
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_mensaje_enum') THEN
-    CREATE TYPE tipo_mensaje_enum AS ENUM ('NORMAL', 'SISTEMA','URGENTE');
+    CREATE TYPE tipo_mensaje_enum AS ENUM ('NORMAL', 'SISTEMA', 'URGENTE');
   END IF;
-    --- vehiculo_operacion
+
+  -- vehiculo_operacion
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_vehiculo_enum') THEN
     CREATE TYPE estado_asig_vehiculo_enum AS ENUM ('ASIGNADO', 'EN_USO', 'LIBERADO');
+  END IF;
+  
+  -- equipo operación
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_operacion_enum') THEN
+    CREATE TYPE estado_asig_equipo_operacion_enum AS ENUM ('ASIGNADO', 'EN_USO', 'LIBERADO', 'PERDIDO', 'DAÑADO');
   END IF;
 END $$;
 
@@ -74,6 +91,20 @@ CREATE TABLE IF NOT EXISTS usuario (
   password_hash   TEXT NOT NULL,
   activo          BOOLEAN NOT NULL DEFAULT TRUE,
   fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ultimo_acceso   TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS personal (
+  id_personal     SERIAL PRIMARY KEY,
+  rol             rol_personal_enum NOT NULL,
+  nombre          TEXT NOT NULL,
+  apellido        TEXT NOT NULL,
+  puesto          TEXT,
+  username        TEXT NOT NULL UNIQUE,
+  password_hash   TEXT NOT NULL,
+  activo          BOOLEAN NOT NULL DEFAULT TRUE,
+  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  creado_por      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
   ultimo_acceso   TIMESTAMPTZ
 );
 
@@ -117,8 +148,8 @@ CREATE TABLE IF NOT EXISTS operacion (
   descripcion     TEXT,
   prioridad       prioridad_operacion_enum NOT NULL DEFAULT 'MEDIA',
   estado          estado_operacion_enum NOT NULL DEFAULT 'PLANIFICADA',
-  fecha_inicio    TIMESTAMPTZ,              
-  fecha_fin       TIMESTAMPTZ,              
+  fecha_inicio    TIMESTAMPTZ,
+  fecha_fin       TIMESTAMPTZ,
   fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   creada_por      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
   CONSTRAINT chk_operacion_fechas
@@ -129,28 +160,35 @@ CREATE TABLE IF NOT EXISTS operacion (
     )
 );
 
+-- Participantes de chat (puede ser usuario CUT o personal CET/CELL)
+CREATE TABLE IF NOT EXISTS participante_chat (
+  id_participante  SERIAL PRIMARY KEY,
+  tipo             tipo_participante_enum NOT NULL,
+  id_usuario       INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal      INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+  CONSTRAINT chk_uno_solo
+    CHECK (
+      (tipo='USUARIO'  AND id_usuario IS NOT NULL AND id_personal IS NULL) OR
+      (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
+    )
+);
+
 -- -------------------------
 -- 3) TABLAS PUENTE / ASIGNACIONES
 -- -------------------------
 
--- Usuario <-> Equipo
-CREATE TABLE IF NOT EXISTS usuario_equipo (
-  id_usuario        INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+-- Personal <-> Equipo (con auditoría de quién asignó)
+CREATE TABLE IF NOT EXISTS personal_equipo (
+  id_personal       INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
   id_equipo         INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
-
   cantidad          INT NOT NULL DEFAULT 1,
   estado            estado_asig_equipo_enum NOT NULL DEFAULT 'ASIGNADO',
   fecha_asignacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_devolucion  TIMESTAMPTZ,
-  CONSTRAINT pk_usuario_equipo
-    PRIMARY KEY (id_usuario, id_equipo),
-  CONSTRAINT chk_usuario_equipo_cantidad
-    CHECK (cantidad > 0),
-  CONSTRAINT chk_usuario_equipo_fechas
-    CHECK (
-      fecha_devolucion IS NULL
-      OR fecha_devolucion >= fecha_asignacion
-    )
+  asignado_por      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  PRIMARY KEY (id_personal, id_equipo),
+  CHECK (cantidad > 0),
+  CHECK (fecha_devolucion IS NULL OR fecha_devolucion >= fecha_asignacion)
 );
 
 -- Vehiculo <-> Equipo
@@ -172,50 +210,42 @@ CREATE TABLE IF NOT EXISTS vehiculo_equipo (
     )
 );
 
--- Operacion <-> Usuario
-CREATE TABLE IF NOT EXISTS asignacion_operacion (
-  id_operacion        INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  id_usuario          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  rol_en_operacion    TEXT,
-  estado_asignacion   estado_asignacion_enum NOT NULL DEFAULT 'ASIGNADO',
-  fecha_asignacion    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_fin_asignacion TIMESTAMPTZ,
-  CONSTRAINT pk_asignacion_operacion
-    PRIMARY KEY (id_operacion, id_usuario),
-  CONSTRAINT chk_asig_op_fechas
-    CHECK (
-      fecha_fin_asignacion IS NULL
-      OR fecha_fin_asignacion >= fecha_asignacion
-    )
+-- Operacion <-> Personal (con auditoría de quién asignó)
+CREATE TABLE IF NOT EXISTS asignacion_operacion_personal (
+  id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_personal           INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
+  rol_en_operacion      TEXT,
+  estado_asignacion     estado_asignacion_enum NOT NULL DEFAULT 'ASIGNADO',
+  fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_fin_asignacion  TIMESTAMPTZ,
+  asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  PRIMARY KEY (id_operacion, id_personal),
+  CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
 -- Operacion <-> Vehiculo
 CREATE TABLE IF NOT EXISTS vehiculo_operacion (
-  id_operacion        INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  id_vehiculo         INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
-  uso_en_operacion    TEXT,
-  estado_asignacion   estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
-  fecha_asignacion    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_fin_asignacion TIMESTAMPTZ,
-  CONSTRAINT pk_vehiculo_operacion
-    PRIMARY KEY (id_operacion, id_vehiculo),
-  CONSTRAINT chk_veh_op_fechas
-    CHECK (
-      fecha_fin_asignacion IS NULL
-      OR fecha_fin_asignacion >= fecha_asignacion
-    )
+  id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_vehiculo           INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
+  uso_en_operacion      TEXT,
+  estado_asignacion     estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
+  fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_fin_asignacion  TIMESTAMPTZ,
+  asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  PRIMARY KEY (id_operacion, id_vehiculo),
+  CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
 -- -------------------------
 -- 4) CHAT
 -- -------------------------
 
--- 1 chat por operación: id_operacion UNIQUE
+-- 1 chat por operación
 CREATE TABLE IF NOT EXISTS chat_operacion (
   id_chat         SERIAL PRIMARY KEY,
   id_operacion    INT NOT NULL UNIQUE REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_cierre    TIMESTAMPTZ,        -- cuando se cierra el chat
+  fecha_cierre    TIMESTAMPTZ,
   activo          BOOLEAN NOT NULL DEFAULT TRUE,
   CONSTRAINT chk_chat_fechas
     CHECK (
@@ -225,18 +255,68 @@ CREATE TABLE IF NOT EXISTS chat_operacion (
 );
 
 CREATE TABLE IF NOT EXISTS mensaje_chat (
-  id_mensaje    SERIAL PRIMARY KEY,
-  id_chat       INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
-  id_usuario    INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  contenido     TEXT NOT NULL,
-  tipo_mensaje  tipo_mensaje_enum NOT NULL DEFAULT 'NORMAL',
-  fecha_envio   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id_mensaje       SERIAL PRIMARY KEY,
+  id_chat          INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
+  id_participante  INT NOT NULL REFERENCES participante_chat(id_participante) ON DELETE CASCADE,
+  contenido        TEXT NOT NULL,
+  tipo_mensaje     tipo_mensaje_enum NOT NULL DEFAULT 'NORMAL',
+  fecha_envio      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- -------------------------
 -- 5) ÍNDICES ÚTILES (rendimiento)
 -- -------------------------
-CREATE INDEX IF NOT EXISTS idx_poi_usuario       ON puntos_interes(id_usuario);
-CREATE INDEX IF NOT EXISTS idx_msg_chat_fecha    ON mensaje_chat(id_chat, fecha_envio DESC);
-CREATE INDEX IF NOT EXISTS idx_asig_op_usuario   ON asignacion_operacion(id_usuario);
-CREATE INDEX IF NOT EXISTS idx_veh_op_op         ON vehiculo_operacion(id_operacion);
+CREATE INDEX IF NOT EXISTS idx_poi_usuario         ON puntos_interes(id_usuario);
+CREATE INDEX IF NOT EXISTS idx_msg_chat_fecha      ON mensaje_chat(id_chat, fecha_envio DESC);
+CREATE INDEX IF NOT EXISTS idx_asig_op_personal    ON asignacion_operacion_personal(id_personal);
+CREATE INDEX IF NOT EXISTS idx_veh_op_op           ON vehiculo_operacion(id_operacion);
+
+-- ------------------------
+-- 6) INSERTS (inventario)
+-- ------------------------
+
+INSERT INTO equipo (numero_serie, nombre, categoria, marca, modelo, estado)
+VALUES
+('EQ-001','Radio Táctico','COMUNICACION','Motorola','XTS5000','DISPONIBLE'),
+('EQ-002','GPS Militar','NAVEGACION','Garmin','Foretrex','DISPONIBLE'),
+('EQ-003','Visor Nocturno','OPTICA','ATN','NVG-7','DISPONIBLE'),
+('EQ-004','Dron Reconocimiento','AEREO','DJI','Mavic','DISPONIBLE'),
+('EQ-005','Chaleco Balístico','PROTECCION','5.11','TacTec','DISPONIBLE'),
+('EQ-006','Casco Balístico','PROTECCION','Ops-Core','FAST','DISPONIBLE'),
+('EQ-007','Tablet Rugerizada','COMPUTO','Panasonic','Toughpad','DISPONIBLE'),
+('EQ-008','Cámara Óptica','OPTICA','Sony','Alpha','DISPONIBLE'),
+('EQ-009','Antena Táctica','COMUNICACION','Harris','RF-7800','DISPONIBLE'),
+('EQ-010','Laptop Operativa','COMPUTO','Dell','Latitude','DISPONIBLE'),
+('EQ-011','Binoculares','OPTICA','Bushnell','Legend','DISPONIBLE'),
+('EQ-012','Sensor Movimiento','SEGURIDAD','Bosch','MotionX','DISPONIBLE'),
+('EQ-013','Router Militar','RED','Cisco','ISR','DISPONIBLE'),
+('EQ-014','Batería Portátil','ENERGIA','Duracell','ProCell','DISPONIBLE'),
+('EQ-015','Generador Eléctrico','ENERGIA','Honda','EU2200','DISPONIBLE'),
+('EQ-016','Linterna Táctica','ILUMINACION','Streamlight','TLR-1','DISPONIBLE'),
+('EQ-017','Mochila Operativa','LOGISTICA','Camelbak','MilTac','DISPONIBLE'),
+('EQ-018','Arnés Seguridad','SEGURIDAD','Petzl','Tactical','DISPONIBLE'),
+('EQ-019','Repetidor Señal','COMUNICACION','Motorola','SLR','DISPONIBLE'),
+('EQ-020','Cámara Térmica','OPTICA','FLIR','Scout','DISPONIBLE');
+
+INSERT INTO vehiculo (codigo_interno, tipo, marca, modelo, estado)
+VALUES
+('VH-001','CAMIONETA','Toyota','Hilux','DISPONIBLE'),
+('VH-002','CAMIONETA','Ford','Ranger','DISPONIBLE'),
+('VH-003','BLINDADO','Jeep','J8','DISPONIBLE'),
+('VH-004','CAMION','Mercedes','Unimog','DISPONIBLE'),
+('VH-005','LANCHA','Yamaha','Defender','DISPONIBLE'),
+('VH-006','CAMIONETA','Nissan','Frontier','DISPONIBLE'),
+('VH-007','BLINDADO','Oshkosh','M-ATV','DISPONIBLE'),
+('VH-008','CAMION','MAN','HX','DISPONIBLE'),
+('VH-009','MOTO','BMW','GS','DISPONIBLE'),
+('VH-010','CAMIONETA','Chevrolet','Colorado','DISPONIBLE'),
+('VH-011','BLINDADO','Iveco','LMV','DISPONIBLE'),
+('VH-012','CAMION','Volvo','FMX','DISPONIBLE'),
+('VH-013','LANCHA','Zodiac','Pro','DISPONIBLE'),
+('VH-014','MOTO','Honda','XR','DISPONIBLE'),
+('VH-015','CAMIONETA','RAM','2500','DISPONIBLE'),
+('VH-016','CAMION','Scania','XT','DISPONIBLE'),
+('VH-017','BLINDADO','Toyota','Land Cruiser','DISPONIBLE'),
+('VH-018','MOTO','Yamaha','XTZ','DISPONIBLE'),
+('VH-019','LANCHA','Boston Whaler','Guardian','DISPONIBLE'),
+('VH-020','CAMIONETA','Isuzu','D-Max','DISPONIBLE');
