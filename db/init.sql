@@ -162,14 +162,20 @@ CREATE TABLE IF NOT EXISTS operacion (
 
 CREATE TABLE IF NOT EXISTS participante_chat (
   id_participante  SERIAL PRIMARY KEY,
+  id_chat          INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
   tipo             tipo_participante_enum NOT NULL,
   id_usuario       INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
   id_personal      INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
   CONSTRAINT chk_uno_solo
     CHECK (
       (tipo='USUARIO'  AND id_usuario IS NOT NULL AND id_personal IS NULL) OR
       (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
-    )
+    ),
+
+  -- Evita duplicados dentro del mismo chat
+  CONSTRAINT uq_participante_usuario_chat UNIQUE (id_chat, id_usuario),
+  CONSTRAINT uq_participante_personal_chat UNIQUE (id_chat, id_personal)
 );
 
 -- -------------------------
@@ -236,7 +242,7 @@ CREATE TABLE IF NOT EXISTS vehiculo_operacion (
 );
 
 -- Operacion <-> Equipo
-CREATE TABLE operacion_equipo (
+CREATE TABLE IF NOT EXISTS operacion_equipo (
   id_operacion_equipo   SERIAL PRIMARY KEY,
   id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   id_equipo             INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
@@ -246,11 +252,13 @@ CREATE TABLE operacion_equipo (
   fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_fin_asignacion  TIMESTAMPTZ,
   asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+
+  CONSTRAINT uq_operacion_equipo UNIQUE (id_operacion, id_equipo),
   CHECK (cantidad > 0),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
-CREATE INDEX idx_op_eq_unique_active
+CREATE INDEX IF NOT EXISTS idx_op_eq_busqueda
   ON operacion_equipo(id_operacion, id_equipo);
 
 -- -------------------------
@@ -313,7 +321,8 @@ VALUES
 ('EQ-017','Mochila Operativa','LOGISTICA','Camelbak','MilTac','DISPONIBLE'),
 ('EQ-018','Arnés Seguridad','SEGURIDAD','Petzl','Tactical','DISPONIBLE'),
 ('EQ-019','Repetidor Señal','COMUNICACION','Motorola','SLR','DISPONIBLE'),
-('EQ-020','Cámara Térmica','OPTICA','FLIR','Scout','DISPONIBLE');
+('EQ-020','Cámara Térmica','OPTICA','FLIR','Scout','DISPONIBLE')
+ON CONFLICT (numero_serie) DO NOTHING;
 
 INSERT INTO vehiculo (codigo_interno, tipo, marca, modelo, estado)
 VALUES
@@ -336,4 +345,5 @@ VALUES
 ('VH-017','BLINDADO','Toyota','Land Cruiser','DISPONIBLE'),
 ('VH-018','MOTO','Yamaha','XTZ','DISPONIBLE'),
 ('VH-019','LANCHA','Boston Whaler','Guardian','DISPONIBLE'),
-('VH-020','CAMIONETA','Isuzu','D-Max','DISPONIBLE');
+('VH-020','CAMIONETA','Isuzu','D-Max','DISPONIBLE')
+ON CONFLICT (codigo_interno) DO NOTHING;

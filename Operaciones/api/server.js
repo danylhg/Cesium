@@ -91,3 +91,53 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`API en http://localhost:${PORT}`);
 });
+
+// ====== LISTADOS (TEMP, sin auth todavía) ======
+
+// usuarios (para asignar personal)
+app.get("/usuarios", async (req, res) => {
+  try {
+    const q = `
+      SELECT id_usuario, rol, nombre, apellido, puesto, username, activo
+      FROM usuario
+      WHERE activo = TRUE
+      ORDER BY rol, apellido, nombre
+    `;
+    const { rows } = await pool.query(q);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error listando usuarios", error: err.message });
+  }
+});
+
+// equipo
+app.get("/equipo", async (req, res) => {
+  try {
+    const q = `
+      SELECT id_equipo, numero_serie, nombre, categoria, marca, modelo, estado, activo
+      FROM equipo
+      WHERE activo = TRUE
+      ORDER BY nombre
+    `;
+    const { rows } = await pool.query(q);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error listando equipo", error: err.message });
+  }
+});
+
+// vehiculos
+app.get("/vehiculos", async (req, res) => {
+  try {
+    const q = `
+      SELECT id_vehiculo, codigo_interno, tipo, marca, modelo, estado, activo
+      FROM vehiculo
+      WHERE activo = TRUE
+      ORDER BY tipo, codigo_interno
+    `;
+    const { rows } = await pool.query(q);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error listando vehiculos", error: err.message });
+  }
+});

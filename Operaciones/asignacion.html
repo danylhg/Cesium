@@ -19,21 +19,27 @@
     <div class="panel">
       <!-- IZQUIERDA -->
       <section class="left">
-        <div class="stack">
-          <div class="box">
-            <div class="boxTitle">personal</div>
-            <ul class="list" id="assignedPersonal"></ul>
-          </div>
+        <div class="box">
+          <div class="boxTitle">información de operación</div>
 
-          <div class="box">
-            <div class="boxTitle">vehículos</div>
-            <ul class="list" id="assignedVehiculos"></ul>
-          </div>
+          <label class="lbl">Nombre</label>
+          <input id="opName" class="field" placeholder="Nombre de la operación" />
 
-          <div class="box">
-            <div class="boxTitle">equipo</div>
-            <ul class="list" id="assignedEquipo"></ul>
-          </div>
+          <label class="lbl">Descripción</label>
+          <textarea id="opDesc" class="field area" placeholder="Descripción de la operación"></textarea>
+
+          <label class="lbl">Fecha de creación</label>
+          <input id="opDateCreated" type="date" class="field" />
+
+          <label class="lbl">Fecha de inicio de operación</label>
+          <input id="opDateStart" type="date" class="field" />
+
+          <label class="lbl">Fecha de fin de operación</label>
+          <input id="opDateEnd" type="date" class="field" />
+
+          <button id="btnFinalize" class="btnPrimary">finalizar creación inicial</button>
+          <p id="leftMsg" class="msg"></p>
+          <p class="hint">Captura el nombre, la descripción y las fechas para crear la operación.</p>
         </div>
       </section>
 
@@ -41,18 +47,60 @@
 
       <!-- DERECHA -->
       <section class="right">
-        <div class="bar">
-          <button class="btnSmall" id="btnPrev">ant.</button>
-          <div class="barTitle" id="barTitle">personal</div>
-          <button class="btnSmall" id="btnNext">sig</button>
-        </div>
+        <div class="assignCard">
+          <div class="assignHeader">
+            <div class="assignTitle" id="assignTitle">Asignar</div>
+            <button class="assignDot" id="btnAssignBack" title="Regresar" aria-label="Regresar">←</button>
+          </div>
 
-        <div class="bigBox">
-          <ul class="list selectable" id="availableList"></ul>
-        </div>
+          <!-- HOME: Personal / Equipo / Vehículos -->
+          <div id="assignHome" class="assignHome">
+            <button class="tabBtn" id="btnTabPersonal" type="button">Personal</button>
+            <button class="tabBtn" id="btnTabEquipo" type="button">Equipo</button>
+            <button class="tabBtn" id="btnTabVehiculos" type="button">Vehículos</button>
 
-        <button class="btnPrimary" id="btnAssign">asignar</button>
-        <p class="msg" id="msg"></p>
+            <div class="bigBox emptyState">
+              <div class="emptyText">Selecciona una categoría para ver sus opciones.</div>
+            </div>
+
+            <button id="btnNext" class="btnPrimary">Siguiente</button>
+            <p id="rightMsg" class="msg"></p>
+          </div>
+
+          <!-- VISTA LISTA -->
+          <div id="assignList" class="assignCategory hidden">
+            <div class="bigBox">
+              <!-- Panel inline: agregar / editar / eliminar (sin popups) -->
+              <div id="inlineEditor" class="inlineEditor hidden">
+                <div class="inlineRow">
+                  <div class="inlineLabel" id="inlineTitle">Agregar</div>
+                  <button id="btnInlineClose" class="miniBtn" type="button">Cerrar</button>
+                </div>
+
+                <input id="inlineInput" class="field inlineField" placeholder="Escribe el nombre..." />
+                <div class="inlineActions">
+                  <button id="btnInlineSave" class="miniBtn miniBtnOk" type="button">Guardar</button>
+                  <button id="btnInlineCancel" class="miniBtn" type="button">Cancelar</button>
+                </div>
+
+                <div id="inlineConfirm" class="inlineConfirm hidden">
+                  <div class="confirmText" id="confirmText">¿Eliminar?</div>
+                  <div class="inlineActions">
+                    <button id="btnConfirmYes" class="miniBtn miniBtnDanger" type="button">Eliminar</button>
+                    <button id="btnConfirmNo" class="miniBtn" type="button">Cancelar</button>
+                  </div>
+                </div>
+              </div>
+
+              <button id="btnAddName" class="addBtn hidden" type="button">+ Agregar</button>
+
+              <ul class="pickList" id="pickList"></ul>
+            </div>
+
+            <button id="btnAssign" class="btnPrimary">asignar</button>
+            <p id="pickMsg" class="msg"></p>
+          </div>
+        </div>
       </section>
     </div>
   </div>
@@ -60,3 +108,10 @@
   <script src="js/asignacion.js"></script>
 </body>
 </html>
+
+
+
+
+
+
+
