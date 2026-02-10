@@ -160,7 +160,6 @@ CREATE TABLE IF NOT EXISTS operacion (
     )
 );
 
--- Participantes de chat (puede ser usuario CUT o personal CET/CELL)
 CREATE TABLE IF NOT EXISTS participante_chat (
   id_participante  SERIAL PRIMARY KEY,
   tipo             tipo_participante_enum NOT NULL,
@@ -235,6 +234,24 @@ CREATE TABLE IF NOT EXISTS vehiculo_operacion (
   PRIMARY KEY (id_operacion, id_vehiculo),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
+
+-- Operacion <-> Equipo
+CREATE TABLE operacion_equipo (
+  id_operacion_equipo   SERIAL PRIMARY KEY,
+  id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_equipo             INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
+  cantidad              INT NOT NULL DEFAULT 1,
+  uso_en_operacion      TEXT,
+  estado_asignacion     estado_asig_equipo_operacion_enum NOT NULL DEFAULT 'ASIGNADO',
+  fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_fin_asignacion  TIMESTAMPTZ,
+  asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  CHECK (cantidad > 0),
+  CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
+);
+
+CREATE INDEX idx_op_eq_unique_active
+  ON operacion_equipo(id_operacion, id_equipo);
 
 -- -------------------------
 -- 4) CHAT
