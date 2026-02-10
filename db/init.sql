@@ -1,5 +1,7 @@
 -- =========================================================
 -- ESQUEMA: Operaciones (PostgreSQL) - Usuarios CUT + Personal (CET/CELL)
+-- + Subtipos de equipo: equipo_comunicacion / equipo_tactico
+-- + Uso de equipo dentro de operación: uso_equipo_operacion
 -- =========================================================
 
 -- (Opcional) si quieres limpiar todo y recrear:
@@ -16,12 +18,12 @@ BEGIN
     CREATE TYPE rol_usuario_enum AS ENUM ('CUT');
   END IF;
 
-  -- personal (CET / CELL)  <-- OJO: aquí estabas revisando mal el typname
+  -- personal (CET / CELL)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_personal_enum') THEN
     CREATE TYPE rol_personal_enum AS ENUM ('CET', 'CELL');
   END IF;
 
-  -- participante chat (faltaba en tu script)
+  -- participante chat
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_participante_enum') THEN
     CREATE TYPE tipo_participante_enum AS ENUM ('USUARIO','PERSONAL');
   END IF;
@@ -51,7 +53,7 @@ BEGIN
     CREATE TYPE prioridad_operacion_enum AS ENUM ('BAJA', 'MEDIA', 'ALTA');
   END IF;
 
-  -- operacion estado  <-- en tu script faltaba el comentario "--" y eso rompe el DO
+  -- operacion estado
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_operacion_enum') THEN
     CREATE TYPE estado_operacion_enum AS ENUM ('PLANIFICADA', 'ACTIVA', 'CERRADA', 'CANCELADA');
   END IF;
@@ -70,9 +72,9 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_vehiculo_enum') THEN
     CREATE TYPE estado_asig_vehiculo_enum AS ENUM ('ASIGNADO', 'EN_USO', 'LIBERADO');
   END IF;
-  
+
   -- equipo operación
-    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_operacion_enum') THEN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_operacion_enum') THEN
     CREATE TYPE estado_asig_equipo_operacion_enum AS ENUM ('ASIGNADO', 'EN_USO', 'LIBERADO', 'PERDIDO', 'DAÑADO');
   END IF;
 END $$;
@@ -131,6 +133,29 @@ CREATE TABLE IF NOT EXISTS equipo (
   activo         BOOLEAN NOT NULL DEFAULT TRUE
 );
 
+-- -------------------------
+-- 2.1) SUBTIPOS DE EQUIPO
+-- -------------------------
+
+-- Comunicación (1:1 con equipo)
+CREATE TABLE IF NOT EXISTS equipo_comunicacion (
+  id_equipo      INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
+  banda          TEXT,
+  frecuencia_mhz NUMERIC(10,3),
+  cifrado        BOOLEAN NOT NULL DEFAULT FALSE,
+  alcance_km     NUMERIC(10,2),
+  notas          TEXT
+);
+
+-- Táctico (1:1 con equipo)
+CREATE TABLE IF NOT EXISTS equipo_tactico (
+  id_equipo      INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
+  tipo_tactico   TEXT,
+  calibre        TEXT,
+  nivel          TEXT,
+  notas          TEXT
+);
+
 CREATE TABLE IF NOT EXISTS vehiculo (
   id_vehiculo     SERIAL PRIMARY KEY,
   codigo_interno  TEXT NOT NULL UNIQUE,
@@ -177,6 +202,26 @@ CREATE TABLE IF NOT EXISTS personal_equipo (
   CHECK (cantidad > 0),
   CHECK (fecha_devolucion IS NULL OR fecha_devolucion >= fecha_asignacion)
 );
+
+-- Uso de equipo dentro de una operación (quién lo trae/usa)
+CREATE TABLE IF NOT EXISTS uso_equipo_operacion (
+  id_operacion     INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_equipo        INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
+  id_personal      INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  cantidad         INT NOT NULL DEFAULT 1,
+  fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_devolucion TIMESTAMPTZ,
+  asignado_por     INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  notas            TEXT,
+
+  PRIMARY KEY (id_operacion, id_equipo, id_personal),
+  CHECK (cantidad > 0),
+  CHECK (fecha_devolucion IS NULL OR fecha_devolucion >= fecha_asignacion)
+);
+
+CREATE INDEX IF NOT EXISTS idx_uso_eq_op_operacion ON uso_equipo_operacion(id_operacion);
+CREATE INDEX IF NOT EXISTS idx_uso_eq_op_personal  ON uso_equipo_operacion(id_personal);
 
 -- Vehiculo <-> Equipo
 CREATE TABLE IF NOT EXISTS vehiculo_equipo (
@@ -243,6 +288,21 @@ CREATE TABLE IF NOT EXISTS operacion_equipo (
 CREATE INDEX IF NOT EXISTS idx_op_eq_busqueda
   ON operacion_equipo(id_operacion, id_equipo);
 
+-- (Opcional) Asegura que el equipo usado en operación esté previamente asignado a la operación
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'fk_uso_equipo_operacion_a_operacion_equipo'
+  ) THEN
+    ALTER TABLE uso_equipo_operacion
+      ADD CONSTRAINT fk_uso_equipo_operacion_a_operacion_equipo
+      FOREIGN KEY (id_operacion, id_equipo)
+      REFERENCES operacion_equipo (id_operacion, id_equipo)
+      ON DELETE CASCADE;
+  END IF;
+END $$;
+
 -- -------------------------
 -- 4) CHAT
 -- -------------------------
@@ -274,7 +334,7 @@ CREATE TABLE IF NOT EXISTS participante_chat (
       (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
     ),
 
-  -- Evita duplicados dentro del mismo chat
+  -- Evita duplicados dentro del mismo chat (nota: UNIQUE permite múltiples NULL, pero el CHECK controla la lógica)
   CONSTRAINT uq_participante_usuario_chat UNIQUE (id_chat, id_usuario),
   CONSTRAINT uq_participante_personal_chat UNIQUE (id_chat, id_personal)
 );
@@ -295,6 +355,9 @@ CREATE INDEX IF NOT EXISTS idx_poi_usuario         ON puntos_interes(id_usuario)
 CREATE INDEX IF NOT EXISTS idx_msg_chat_fecha      ON mensaje_chat(id_chat, fecha_envio DESC);
 CREATE INDEX IF NOT EXISTS idx_asig_op_personal    ON asignacion_operacion_personal(id_personal);
 CREATE INDEX IF NOT EXISTS idx_veh_op_op           ON vehiculo_operacion(id_operacion);
+
+CREATE INDEX IF NOT EXISTS idx_equipo_com_banda     ON equipo_comunicacion(banda);
+CREATE INDEX IF NOT EXISTS idx_equipo_tac_tipo      ON equipo_tactico(tipo_tactico);
 
 -- ------------------------
 -- 6) INSERTS (inventario)
