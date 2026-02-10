@@ -160,24 +160,6 @@ CREATE TABLE IF NOT EXISTS operacion (
     )
 );
 
-CREATE TABLE IF NOT EXISTS participante_chat (
-  id_participante  SERIAL PRIMARY KEY,
-  id_chat          INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
-  tipo             tipo_participante_enum NOT NULL,
-  id_usuario       INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  id_personal      INT REFERENCES personal(id_personal) ON DELETE CASCADE,
-
-  CONSTRAINT chk_uno_solo
-    CHECK (
-      (tipo='USUARIO'  AND id_usuario IS NOT NULL AND id_personal IS NULL) OR
-      (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
-    ),
-
-  -- Evita duplicados dentro del mismo chat
-  CONSTRAINT uq_participante_usuario_chat UNIQUE (id_chat, id_usuario),
-  CONSTRAINT uq_participante_personal_chat UNIQUE (id_chat, id_personal)
-);
-
 -- -------------------------
 -- 3) TABLAS PUENTE / ASIGNACIONES
 -- -------------------------
@@ -277,6 +259,24 @@ CREATE TABLE IF NOT EXISTS chat_operacion (
       fecha_cierre IS NULL
       OR fecha_cierre >= fecha_creacion
     )
+);
+
+CREATE TABLE IF NOT EXISTS participante_chat (
+  id_participante  SERIAL PRIMARY KEY,
+  id_chat          INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
+  tipo             tipo_participante_enum NOT NULL,
+  id_usuario       INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal      INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  CONSTRAINT chk_uno_solo
+    CHECK (
+      (tipo='USUARIO'  AND id_usuario IS NOT NULL AND id_personal IS NULL) OR
+      (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
+    ),
+
+  -- Evita duplicados dentro del mismo chat
+  CONSTRAINT uq_participante_usuario_chat UNIQUE (id_chat, id_usuario),
+  CONSTRAINT uq_participante_personal_chat UNIQUE (id_chat, id_personal)
 );
 
 CREATE TABLE IF NOT EXISTS mensaje_chat (
