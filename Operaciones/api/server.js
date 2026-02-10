@@ -6,16 +6,19 @@ import jwt from "jsonwebtoken";
 
 const app = express();
 
-// middlewares
+// ===============================
+// MIDDLEWARES
+// ===============================
 app.use(cors());
 app.use(express.json());
 
-// ruta de prueba
+// ===============================
+// RUTAS DE PRUEBA
+// ===============================
 app.get("/health", (req, res) => {
   res.json({ ok: true, mensaje: "API funcionando" });
 });
 
-// prueba de DB
 app.get("/db-test", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -31,6 +34,9 @@ app.get("/db-test", async (req, res) => {
   }
 });
 
+// ===============================
+// AUTH
+// ===============================
 app.post("/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body ?? {};
@@ -86,15 +92,9 @@ app.post("/auth/login", async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`API en http://localhost:${PORT}`);
-});
-
-// ====== LISTADOS (TEMP, sin auth todavía) ======
-
-// usuarios (para asignar personal)
+// ===============================
+// LISTADOS (TEMP, sin auth todavía)
+// ===============================
 app.get("/usuarios", async (req, res) => {
   try {
     const q = `
@@ -110,7 +110,6 @@ app.get("/usuarios", async (req, res) => {
   }
 });
 
-// equipo
 app.get("/equipo", async (req, res) => {
   try {
     const q = `
@@ -126,7 +125,6 @@ app.get("/equipo", async (req, res) => {
   }
 });
 
-// vehiculos
 app.get("/vehiculos", async (req, res) => {
   try {
     const q = `
@@ -140,4 +138,57 @@ app.get("/vehiculos", async (req, res) => {
   } catch (err) {
     return res.status(500).json({ ok: false, mensaje: "Error listando vehiculos", error: err.message });
   }
+});
+
+// ===============================
+// CATALOGO (para tu botón CUT/CET/CELL)
+// ===============================
+app.get("/catalog/personal", async (req, res) => {
+  try {
+    const cutQ = `
+      SELECT id_usuario AS id,
+             (nombre || ' ' || apellido) AS nombre
+      FROM usuario
+      WHERE activo = TRUE AND rol = 'CUT'
+      ORDER BY apellido, nombre;
+    `;
+
+    const cetQ = `
+      SELECT id_personal AS id,
+             (nombre || ' ' || apellido) AS nombre
+      FROM personal
+      WHERE activo = TRUE AND rol = 'CET'
+      ORDER BY apellido, nombre;
+    `;
+
+    const celQ = `
+      SELECT id_personal AS id,
+             (nombre || ' ' || apellido) AS nombre
+      FROM personal
+      WHERE activo = TRUE AND rol = 'CELL'
+      ORDER BY apellido, nombre;
+    `;
+
+    const [cut, cet, celulas] = await Promise.all([
+      pool.query(cutQ),
+      pool.query(cetQ),
+      pool.query(celQ),
+    ]);
+
+    return res.json({
+      cut: cut.rows,
+      cet: cet.rows,
+      celulas: celulas.rows,
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error en catálogo", error: err.message });
+  }
+});
+
+// ===============================
+// LISTEN (SIEMPRE AL FINAL)
+// ===============================
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`API en http://localhost:${PORT}`);
 });

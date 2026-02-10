@@ -1,26 +1,126 @@
-// ====== SESIÓN ======
-if (localStorage.getItem("session") !== "ok") {
-  window.location.href = "login.html";
-}
+// ===============================
+// ====== CONFIG / SESIÓN ========
+// ===============================
+const API = "http://localhost:3001";
+
+const token = localStorage.getItem("token");
+if (!token) window.location.href = "login.html";
+
 function qs(id){ return document.getElementById(id); }
 
-// ====== TOP ======
+// Helper fetch con JWT
+async function api(path, { method="GET", body } = {}) {
+  const t = localStorage.getItem("token");
+  const r = await fetch(`${API}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(t ? { Authorization: `Bearer ${t}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  let data = null;
+  try { data = await r.json(); } catch {}
+
+  if (!r.ok || (data && data.ok === false)) {
+    const msg = data?.mensaje || `Error ${r.status}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// ===============================
+// ====== STATE GLOBAL ===========
+// ===============================
+const state = {
+  ops: [],
+  activeOpId: localStorage.getItem("active_operation_id") || null,
+
+  // catálogo desde BD -> ahora son OBJETOS: {id, nombre}
+  names: { cut: [], cet: [], celulas: [] },
+
+  // asignaciones desde BD (por operación) -> siguen siendo strings (nombre)
+  selected: {
+    cut: null,
+    cet: [],
+    celulasByCET: {},
+    activeCETIndex: 0,
+    celulasDraft: []
+  },
+
+  loading: {
+    ops: false,
+    names: false,
+    selected: false,
+  }
+};
+
+// Guardado “suave” (debounce) para no spamear PUTs
+let saveTimer = null;
+function scheduleSaveSelected(delayMs = 250) {
+  if (!state.activeOpId) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await saveSelectedDB(state.activeOpId, state.selected);
+    } catch (e) {
+      const rightMsg = qs("rightMsg");
+      if (rightMsg) rightMsg.textContent = e.message;
+    }
+  }, delayMs);
+}
+
+// ===============================
+// ====== API WRAPPERS ===========
+// ===============================
+async function getOpsDB() {
+  const data = await api("/ops");
+  return Array.isArray(data) ? data : (data.ops || []);
+}
+
+async function createOpDB(payload) {
+  const data = await api("/ops", { method: "POST", body: payload });
+  return data.op ? data.op : data;
+}
+
+async function getNamesDB() {
+  // esperado: { cut:[{id,nombre}], cet:[{id,nombre}], celulas:[{id,nombre}] }
+  const data = await api("/catalog/personal");
+  return {
+    cut: Array.isArray(data.cut) ? data.cut : [],
+    cet: Array.isArray(data.cet) ? data.cet : [],
+    celulas: Array.isArray(data.celulas) ? data.celulas : [],
+  };
+}
+
+async function loadSelectedDB(opId) {
+  const data = await api(`/ops/${encodeURIComponent(opId)}/assignments`);
+  const a = data.assignments ? data.assignments : data;
+
+  return {
+    cut: a?.cut ?? null,
+    cet: Array.isArray(a?.cet) ? a.cet : [],
+    celulasByCET: a?.celulasByCET && typeof a.celulasByCET === "object" ? a.celulasByCET : {},
+    activeCETIndex: Number.isFinite(a?.activeCETIndex) ? a.activeCETIndex : 0,
+    celulasDraft: Array.isArray(a?.celulasDraft) ? a.celulasDraft : [],
+  };
+}
+
+async function saveSelectedDB(opId, obj) {
+  await api(`/ops/${encodeURIComponent(opId)}/assignments`, { method: "PUT", body: obj });
+}
+
+// ===============================
+// ====== TOP BAR ================
+// ===============================
 const opBadge = qs("opBadge");
 const btnBack = qs("btnBack");
 btnBack.addEventListener("click", () => window.location.href = "menu_inicial.html");
 
-// ====== STORAGE OPS ======
-const STORAGE_OPS = "operations";
-function getOps() {
-  const raw = localStorage.getItem(STORAGE_OPS);
-  if (!raw) return [];
-  try { return JSON.parse(raw); } catch { return []; }
-}
-function setOps(list) {
-  localStorage.setItem(STORAGE_OPS, JSON.stringify(list));
-}
-
-// ====== IZQUIERDA: CREAR OPERACIÓN ======
+// ===============================
+// ====== IZQUIERDA: CREAR OP ====
+// ===============================
 const opName = qs("opName");
 const opDesc = qs("opDesc");
 const opDateCreated = qs("opDateCreated");
@@ -29,15 +129,13 @@ const opDateEnd = qs("opDateEnd");
 const btnFinalize = qs("btnFinalize");
 const leftMsg = qs("leftMsg");
 
-let ops = getOps();
-
 function setDefaultDates() {
   const today = new Date().toISOString().slice(0, 10);
   if (!opDateCreated.value) opDateCreated.value = today;
 }
 setDefaultDates();
 
-btnFinalize.addEventListener("click", () => {
+btnFinalize.addEventListener("click", async () => {
   leftMsg.textContent = "";
 
   const name = opName.value.trim();
@@ -50,81 +148,41 @@ btnFinalize.addEventListener("click", () => {
   if (!created_at || !start_at || !end_at) { leftMsg.textContent = "Completa las tres fechas."; return; }
   if (end_at < start_at) { leftMsg.textContent = "La fecha de fin no puede ser anterior a la fecha de inicio."; return; }
 
-  const newOp = {
-    id: crypto.randomUUID?.() ?? String(Date.now()),
-    name, desc, created_at, start_at, end_at
-  };
+  try {
+    const op = await createOpDB({ name, desc, created_at, start_at, end_at });
 
-  ops = [newOp, ...ops];
-  setOps(ops);
+    await loadOps();
 
-  localStorage.setItem("active_operation_id", newOp.id);
-  refreshActiveOp();
-  leftMsg.textContent = "Operación creada y seleccionada. Ya puedes asignar.";
+    state.activeOpId = String(op.id);
+    localStorage.setItem("active_operation_id", state.activeOpId);
+
+    await refreshActiveOp();
+    await loadSelectedForActiveOp();
+
+    leftMsg.textContent = "Operación creada y seleccionada. Ya puedes asignar.";
+  } catch (e) {
+    leftMsg.textContent = e.message;
+  }
 });
 
-// Mostrar operación activa
-function refreshActiveOp(){
-  const activeId = localStorage.getItem("active_operation_id");
+// Mostrar operación activa (usa state.ops)
+async function refreshActiveOp(){
+  const activeId = state.activeOpId;
   if (!activeId) { opBadge.textContent = "Operación: —"; return; }
-  const list = getOps();
-  const current = list.find(o => o.id === activeId);
+
+  const current = (state.ops || []).find(o => String(o.id) === String(activeId));
   opBadge.textContent = current ? `Operación: ${current.name}` : `Operación: ${activeId}`;
 }
-refreshActiveOp();
 
-
-// =====================================================
-// ====== DERECHA: ASIGNAR (FLOW EN EL MISMO PANEL) =====
-// =====================================================
+// ===============================
+// ====== DERECHA: ASIGNAR =======
+// ===============================
 const rightTitle = qs("rightTitle");
 const rightBody = qs("rightBody");
 const btnRightAction = qs("btnRightAction");
 const btnRightBack = qs("btnRightBack");
 const rightMsg = qs("rightMsg");
 const subLine = qs("subLine");
-
-// ---- STORAGE para nombres y selecciones
-const STORE_NAMES = "assign_names_v2";
-const STORE_SELECTED = "assign_selected_v2";
-
-function getNames(){
-  const raw = localStorage.getItem(STORE_NAMES);
-  if (!raw) {
-    // Pools por defecto
-    const base = {
-      cut: ["Luis Hernandez", "Uriel gallegos", "Santiago Mirón"],
-      cet: ["Luis Hernandez", "Uriel gallegos", "Santiago Mirón"],
-      celulas: [
-        "Alfa 01","Alfa 02","Alfa 03","Alfa 04","Alfa 05","Alfa 06",
-        "Bravo 01","Bravo 02","Bravo 03","Bravo 04","Bravo 05","Bravo 06",
-        "Charlie 01","Charlie 02","Charlie 03","Charlie 04","Charlie 05","Charlie 06",
-        "Delta 01","Delta 02","Delta 03","Delta 04","Delta 05","Delta 06",
-      ],
-    };
-    localStorage.setItem(STORE_NAMES, JSON.stringify(base));
-    return base;
-  }
-  try { return JSON.parse(raw); } catch { return {cut:[], cet:[], celulas:[]}; }
-}
-function setNames(obj){ localStorage.setItem(STORE_NAMES, JSON.stringify(obj)); }
-
-function getSelected(){
-  const raw = localStorage.getItem(STORE_SELECTED);
-  if (!raw) {
-    return {
-      cut: null,
-      cet: [],              // 3 personas
-      celulasByCET: {},     // { "NombreCET": ["x","y"...] }
-      activeCETIndex: 0,    // 0..2
-      celulasDraft: []      // selección temporal para el CET actual
-    };
-  }
-  try { return JSON.parse(raw); } catch {
-    return { cut:null, cet:[], celulasByCET:{}, activeCETIndex:0, celulasDraft:[] };
-  }
-}
-function setSelected(obj){ localStorage.setItem(STORE_SELECTED, JSON.stringify(obj)); }
 
 // ---- Vistas
 const VIEW = {
@@ -159,7 +217,50 @@ function hideSubLine(){
   subLine.textContent = "";
 }
 
-// ===== Back button logic =====
+// ===============================
+// ====== CARGAS INICIALES =======
+// ===============================
+async function loadOps(){
+  state.loading.ops = true;
+  try {
+    state.ops = await getOpsDB();
+  } finally {
+    state.loading.ops = false;
+  }
+}
+
+async function loadNames(){
+  state.loading.names = true;
+  try {
+    state.names = await getNamesDB();
+  } finally {
+    state.loading.names = false;
+  }
+}
+
+async function loadSelectedForActiveOp(){
+  if (!state.activeOpId) {
+    state.selected = {
+      cut: null,
+      cet: [],
+      celulasByCET: {},
+      activeCETIndex: 0,
+      celulasDraft: []
+    };
+    return;
+  }
+
+  state.loading.selected = true;
+  try {
+    state.selected = await loadSelectedDB(state.activeOpId);
+  } finally {
+    state.loading.selected = false;
+  }
+}
+
+// ===============================
+// ===== Back button logic =======
+// ===============================
 btnRightBack.addEventListener("click", () => {
   rightMsg.textContent = "";
 
@@ -173,10 +274,16 @@ btnRightBack.addEventListener("click", () => {
   render();
 });
 
-// ===== Main action button logic =====
-btnRightAction.addEventListener("click", () => {
+// ===============================
+// ===== Main action button ======
+// ===============================
+btnRightAction.addEventListener("click", async () => {
   rightMsg.textContent = "";
-  const sel = getSelected();
+
+  if (!state.activeOpId) {
+    rightMsg.textContent = "Primero crea/selecciona una operación.";
+    return;
+  }
 
   if (view === VIEW.ROOT) {
     rightMsg.textContent = "Selecciona una opción (Personal, Equipo o Vehículos).";
@@ -189,24 +296,22 @@ btnRightAction.addEventListener("click", () => {
   }
 
   if (view === VIEW.CUT_LIST) {
-    if (!sel.cut) { rightMsg.textContent = "Selecciona 1 persona para CUT."; return; }
-    // pasa a CET
+    if (!state.selected.cut) { rightMsg.textContent = "Selecciona 1 persona para CUT."; return; }
     view = VIEW.CET_LIST;
     render();
     return;
   }
 
   if (view === VIEW.CET_LIST) {
-    if (!sel.cut) { rightMsg.textContent = "Primero selecciona CUT."; return; }
-    if (!Array.isArray(sel.cet) || sel.cet.length !== 3) {
+    if (!state.selected.cut) { rightMsg.textContent = "Primero selecciona CUT."; return; }
+    if (!Array.isArray(state.selected.cet) || state.selected.cet.length !== 3) {
       rightMsg.textContent = "Selecciona exactamente 3 personas para CET.";
       return;
     }
 
-    // Cuando ya hay 3, manda a CÉLULAS
-    sel.activeCETIndex = 0;
-    sel.celulasDraft = [];
-    setSelected(sel);
+    state.selected.activeCETIndex = 0;
+    state.selected.celulasDraft = [];
+    scheduleSaveSelected();
 
     view = VIEW.CELULAS;
     render();
@@ -214,48 +319,47 @@ btnRightAction.addEventListener("click", () => {
   }
 
   if (view === VIEW.CELULAS) {
-    const cetList = sel.cet || [];
-    if (!sel.cut || cetList.length !== 3) {
+    const cetList = state.selected.cet || [];
+    if (!state.selected.cut || cetList.length !== 3) {
       rightMsg.textContent = "Primero asigna CUT y 3 CET.";
       return;
     }
 
-    const idx = sel.activeCETIndex ?? 0;
+    const idx = state.selected.activeCETIndex ?? 0;
     const currentCET = cetList[idx];
-    const draft = sel.celulasDraft || [];
+    const draft = state.selected.celulasDraft || [];
 
     if (draft.length < 6) {
       rightMsg.textContent = "Debes seleccionar mínimo 6 para este CET.";
       return;
     }
 
-    // guardar asignación para el CET actual
-    sel.celulasByCET = sel.celulasByCET || {};
-    sel.celulasByCET[currentCET] = [...draft];
+    state.selected.celulasByCET = state.selected.celulasByCET || {};
+    state.selected.celulasByCET[currentCET] = [...draft];
 
-    // avanzar al siguiente CET pendiente
     const nextIdx = idx + 1;
 
     if (nextIdx <= 2) {
-      sel.activeCETIndex = nextIdx;
-      sel.celulasDraft = [];
-      setSelected(sel);
+      state.selected.activeCETIndex = nextIdx;
+      state.selected.celulasDraft = [];
+      scheduleSaveSelected();
       render();
       return;
     }
 
-    // finalizó los 3 CET
-    sel.celulasDraft = [];
-    setSelected(sel);
+    state.selected.celulasDraft = [];
+    scheduleSaveSelected();
     rightMsg.textContent = "✅ Células asignadas a los 3 CET.";
+    render();
     return;
   }
 
   rightMsg.textContent = "Acción disponible próximamente.";
 });
 
-
-// ====== UI blocks ======
+// ===============================
+// ===== UI blocks ===============
+// ===============================
 function buildBigMenu(items){
   const wrap = el("div", "bigStack");
   items.forEach(({label, onClick}) => {
@@ -267,49 +371,25 @@ function buildBigMenu(items){
   return wrap;
 }
 
-// List (CUT/CET) editable + selectable
+// ✅ Ahora pinta nombres desde BD (objetos {id, nombre})
 function buildEditableSelectableList({ listKey, selectMode, multiMax = Infinity }){
-  const names = getNames();
-  const selected = getSelected();
+  const names = state.names;      // {cut:[{id,nombre}], cet:[...], celulas:[...]}
+  const selected = state.selected;
 
   const box = el("div", "list");
 
-  // + Agregar (inline)
   const addBtn = el("button", "bigBtn");
   addBtn.textContent = "+ Agregar";
   addBtn.addEventListener("click", () => {
-    const existing = box.querySelector(".addRow");
-    if (existing) return;
-
-    const row = el("div", "addRow");
-    const input = document.createElement("input");
-    input.type = "text";
-    input.placeholder = "Escribe el nombre…";
-    const btnOk = el("button", "smallBtn", "Guardar");
-    const btnNo = el("button", "smallBtn danger", "Cancelar");
-
-    btnOk.addEventListener("click", () => {
-      const v = input.value.trim();
-      if (!v) return;
-      names[listKey] = [v, ...(names[listKey] || [])];
-      setNames(names);
-      render();
-    });
-    btnNo.addEventListener("click", () => row.remove());
-
-    row.appendChild(input);
-    row.appendChild(btnOk);
-    row.appendChild(btnNo);
-    box.prepend(row);
-    input.focus();
+    rightMsg.textContent = "Aún no conectado (solo prueba de carga desde BD).";
   });
-
   box.appendChild(addBtn);
 
-  (names[listKey] || []).forEach((name) => {
+  (names[listKey] || []).forEach((obj) => {
+    const name = obj?.nombre ?? String(obj);
+
     const item = el("div", "listItem");
 
-    // seleccionado?
     const isSelected =
       selectMode === "single"
         ? (selected[listKey] === name)
@@ -320,26 +400,29 @@ function buildEditableSelectableList({ listKey, selectMode, multiMax = Infinity 
     clickable.style.flex = "1";
 
     clickable.addEventListener("click", () => {
-      const sel = getSelected();
+      if (!state.activeOpId) {
+        rightMsg.textContent = "Primero crea/selecciona una operación.";
+        return;
+      }
 
       if (selectMode === "single") {
-        sel[listKey] = name;
+        state.selected[listKey] = name;
       } else {
-        sel[listKey] = Array.isArray(sel[listKey]) ? sel[listKey] : [];
-        const exists = sel[listKey].includes(name);
+        state.selected[listKey] = Array.isArray(state.selected[listKey]) ? state.selected[listKey] : [];
+        const exists = state.selected[listKey].includes(name);
 
         if (exists) {
-          sel[listKey] = sel[listKey].filter(x => x !== name);
+          state.selected[listKey] = state.selected[listKey].filter(x => x !== name);
         } else {
-          if (sel[listKey].length >= multiMax) {
+          if (state.selected[listKey].length >= multiMax) {
             rightMsg.textContent = `Máximo ${multiMax} seleccionados.`;
             return;
           }
-          sel[listKey].push(name);
+          state.selected[listKey].push(name);
         }
       }
 
-      setSelected(sel);
+      scheduleSaveSelected();
       render();
     });
 
@@ -347,65 +430,8 @@ function buildEditableSelectableList({ listKey, selectMode, multiMax = Infinity 
     const btnEdit = el("button", "smallBtn", "Editar");
     const btnDel = el("button", "smallBtn danger", "Eliminar");
 
-    // eliminar directo
-    btnDel.addEventListener("click", () => {
-      const nn = getNames();
-      nn[listKey] = (nn[listKey] || []).filter(x => x !== name);
-      setNames(nn);
-
-      const sel = getSelected();
-      if (selectMode === "single") {
-        if (sel[listKey] === name) sel[listKey] = null;
-      } else {
-        sel[listKey] = (sel[listKey] || []).filter(x => x !== name);
-      }
-      setSelected(sel);
-      render();
-    });
-
-    // editar inline en el mismo item
-    btnEdit.addEventListener("click", () => {
-      item.innerHTML = "";
-
-      const editWrap = el("div", "inlineEdit");
-      const input = document.createElement("input");
-      input.value = name;
-
-      const rightActions = el("div", "actionsRow");
-      const btnSave = el("button", "smallBtn", "Guardar");
-      const btnCancel = el("button", "smallBtn danger", "Cancelar");
-
-      btnSave.addEventListener("click", () => {
-        const v = input.value.trim();
-        if (!v) return;
-
-        const nn = getNames();
-        nn[listKey] = (nn[listKey] || []).map(x => x === name ? v : x);
-        setNames(nn);
-
-        const sel = getSelected();
-        if (selectMode === "single") {
-          if (sel[listKey] === name) sel[listKey] = v;
-        } else {
-          sel[listKey] = (sel[listKey] || []).map(x => x === name ? v : x);
-        }
-        setSelected(sel);
-
-        render();
-      });
-
-      btnCancel.addEventListener("click", () => render());
-
-      editWrap.appendChild(input);
-      rightActions.appendChild(btnSave);
-      rightActions.appendChild(btnCancel);
-
-      item.appendChild(editWrap);
-      item.appendChild(rightActions);
-
-      input.focus();
-      input.setSelectionRange(input.value.length, input.value.length);
-    });
+    btnEdit.addEventListener("click", () => rightMsg.textContent = "Aún no conectado (solo prueba).");
+    btnDel.addEventListener("click", () => rightMsg.textContent = "Aún no conectado (solo prueba).");
 
     actions.appendChild(btnEdit);
     actions.appendChild(btnDel);
@@ -421,13 +447,11 @@ function buildEditableSelectableList({ listKey, selectMode, multiMax = Infinity 
     box.appendChild(item);
   });
 
-  // footer count
-  const selectedNow = getSelected();
   const footer = el("div", "hint");
   if (selectMode === "single") {
-    footer.textContent = selectedNow[listKey] ? `Seleccionado: ${selectedNow[listKey]}` : "Selecciona 1.";
+    footer.textContent = selected[listKey] ? `Seleccionado: ${selected[listKey]}` : "Selecciona 1.";
   } else {
-    const count = Array.isArray(selectedNow[listKey]) ? selectedNow[listKey].length : 0;
+    const count = Array.isArray(selected[listKey]) ? selected[listKey].length : 0;
     footer.textContent = `Seleccionados: ${count}/${multiMax}`;
   }
 
@@ -437,19 +461,17 @@ function buildEditableSelectableList({ listKey, selectMode, multiMax = Infinity 
   return wrap;
 }
 
-
 // ======= CÉLULAS VIEW =======
+// ✅ también ajustado a objetos {id, nombre}
 function buildCelulasView(){
-  const names = getNames();
-  const sel = getSelected();
+  const names = state.names;
+  const sel = state.selected;
 
   const cetList = sel.cet || [];
   const idx = sel.activeCETIndex ?? 0;
   const currentCET = cetList[idx];
 
-  // HEADER LINES: CUT + 3 CET
   const topInfo = el("div", "cetTopInfo");
-
   const cutLine = el("div", "cetLine", `CUT: ${sel.cut || "—"}`);
   topInfo.appendChild(cutLine);
 
@@ -458,16 +480,14 @@ function buildCelulasView(){
   cetList.forEach((cetName, i) => {
     const chip = el("button", "cetChip" + (i === idx ? " active" : ""), `CET: ${cetName}`);
     chip.addEventListener("click", () => {
-      const s = getSelected();
-      s.activeCETIndex = i;
-      s.celulasDraft = []; // draft cambia por CET para no mezclar
-      setSelected(s);
+      state.selected.activeCETIndex = i;
+      state.selected.celulasDraft = [];
+      scheduleSaveSelected();
       render();
     });
     chips.appendChild(chip);
   });
 
-  // Botón para ver la pantalla de selección CET
   const btnSeeCET = el("button", "smallBtn", "Ver selección CET");
   btnSeeCET.addEventListener("click", () => {
     view = VIEW.CET_LIST;
@@ -478,15 +498,12 @@ function buildCelulasView(){
   row.appendChild(chips);
   row.appendChild(btnSeeCET);
 
-  // LISTA DE CÉLULAS
-  // deshabilitar las ya asignadas por otros CET
   const assignedMap = sel.celulasByCET || {};
   const used = new Set();
   Object.keys(assignedMap).forEach(k => {
     (assignedMap[k] || []).forEach(v => used.add(v));
   });
 
-  // permitir seleccionar los ya asignados al CET actual (para visualización), pero no dejarlos “seleccionables” si ya están guardados.
   const alreadyForThisCET = new Set(assignedMap[currentCET] || []);
   const draft = sel.celulasDraft || [];
 
@@ -494,8 +511,10 @@ function buildCelulasView(){
   const listTitle = el("div", "hint", `Asignar células para: CET ${idx+1} (${currentCET}) — mínimo 6`);
   list.appendChild(listTitle);
 
-  // Botones tipo lista
-  (names.celulas || []).forEach((person) => {
+  // ✅ itemObj = {id, nombre}
+  (names.celulas || []).forEach((itemObj) => {
+    const person = itemObj?.nombre ?? String(itemObj);
+
     const item = el("div", "listItem");
 
     const nameBox = el("div", "name", person);
@@ -503,10 +522,9 @@ function buildCelulasView(){
     nameBox.style.cursor = "pointer";
 
     const isPicked = draft.includes(person);
-    const isBlocked = used.has(person) && !alreadyForThisCET.has(person); // ya fue usada en otro CET
+    const isBlocked = used.has(person) && !alreadyForThisCET.has(person);
     const isAlreadyAssignedHere = alreadyForThisCET.has(person);
 
-    // estilo
     if (isPicked){
       item.style.borderColor = "rgba(37,99,235,.45)";
       item.style.boxShadow = "0 18px 26px rgba(37,99,235,.12)";
@@ -519,25 +537,19 @@ function buildCelulasView(){
       item.classList.add("assignedHere");
     }
 
-    // toggle select (solo si no está bloqueado)
     nameBox.addEventListener("click", () => {
       if (isBlocked) return;
 
-      const s = getSelected();
-      s.celulasDraft = Array.isArray(s.celulasDraft) ? s.celulasDraft : [];
-      const exists = s.celulasDraft.includes(person);
+      state.selected.celulasDraft = Array.isArray(state.selected.celulasDraft) ? state.selected.celulasDraft : [];
+      const exists = state.selected.celulasDraft.includes(person);
 
-      if (exists) {
-        s.celulasDraft = s.celulasDraft.filter(x => x !== person);
-      } else {
-        s.celulasDraft.push(person);
-      }
+      if (exists) state.selected.celulasDraft = state.selected.celulasDraft.filter(x => x !== person);
+      else state.selected.celulasDraft.push(person);
 
-      setSelected(s);
+      scheduleSaveSelected();
       render();
     });
 
-    // indicador derecha
     const badge = el("div", "miniBadge");
     if (isBlocked) badge.textContent = "Asignado";
     else if (isAlreadyAssignedHere) badge.textContent = "En este CET";
@@ -549,7 +561,6 @@ function buildCelulasView(){
     list.appendChild(item);
   });
 
-  // footer count
   const footer = el("div", "hint");
   footer.textContent = `Seleccionados para este CET: ${(draft || []).length}`;
 
@@ -562,13 +573,14 @@ function buildCelulasView(){
   return wrap;
 }
 
-
-// ===== render =====
+// ===============================
+// ===== render ===================
+// ===============================
 function render(){
   rightBody.innerHTML = "";
   rightMsg.textContent = "";
 
-  const sel = getSelected();
+  const sel = state.selected;
 
   if (view === VIEW.ROOT){
     setHeader("Asignar", false);
@@ -592,17 +604,40 @@ function render(){
 
     rightBody.appendChild(
       buildBigMenu([
-        { label: "Comandante Unidad Táctica", onClick: () => { view = VIEW.CUT_LIST; render(); } },
-        { label: "Comandante Equipo de Trabajo", onClick: () => { view = VIEW.CET_LIST; render(); } },
-        { label: "Células", onClick: () => {
-            // si ya tiene 3 CET, deja entrar
-            const s = getSelected();
-            if (!s.cut || !Array.isArray(s.cet) || s.cet.length !== 3) {
+        // ✅ AQUÍ el cambio clave: carga desde BD antes de mostrar CUT
+        { label: "Comandante Unidad Táctica", onClick: async () => {
+            try {
+              rightMsg.textContent = "Cargando CUT desde BD...";
+              await loadNames();           // pega a /catalog/personal
+              view = VIEW.CUT_LIST;
+              render();
+            } catch (e) {
+              rightMsg.textContent = e.message;
+            }
+        }},
+        { label: "Comandante Equipo de Trabajo", onClick: async () => {
+            try {
+              rightMsg.textContent = "Cargando CET desde BD...";
+              await loadNames();
+              view = VIEW.CET_LIST;
+              render();
+            } catch (e) {
+              rightMsg.textContent = e.message;
+            }
+        }},
+        { label: "Células", onClick: async () => {
+            if (!sel.cut || !Array.isArray(sel.cet) || sel.cet.length !== 3) {
               rightMsg.textContent = "Primero asigna CUT y 3 CET.";
               return;
             }
-            view = VIEW.CELULAS;
-            render();
+            try {
+              rightMsg.textContent = "Cargando Células desde BD...";
+              await loadNames();
+              view = VIEW.CELULAS;
+              render();
+            } catch (e) {
+              rightMsg.textContent = e.message;
+            }
         }},
       ])
     );
@@ -628,15 +663,13 @@ function render(){
   if (view === VIEW.CELULAS){
     setHeader("células", true);
 
-    // acción depende si terminó o no
     const idx = sel.activeCETIndex ?? 0;
     const currentCET = (sel.cet || [])[idx];
-    setActionLabel(currentCET ? "Asignar" : "Asignar");
+    setActionLabel("Asignar");
 
     hideSubLine();
     rightBody.appendChild(buildCelulasView());
 
-    // mensaje de bloqueo del flujo si falta algo
     if (!sel.cut || !Array.isArray(sel.cet) || sel.cet.length !== 3) {
       rightMsg.textContent = "Primero asigna CUT y 3 CET.";
     }
@@ -660,7 +693,27 @@ function render(){
   }
 }
 
-// default
-view = VIEW.ROOT;
-render();
+// ===============================
+// ===== INIT =====================
+// ===============================
+(async function init(){
+  try {
+    await loadOps();
 
+    // si no hay op activa, intenta poner la más reciente
+    if (!state.activeOpId && state.ops.length > 0) {
+      state.activeOpId = String(state.ops[0].id);
+      localStorage.setItem("active_operation_id", state.activeOpId);
+    }
+
+    await refreshActiveOp();
+    await loadSelectedForActiveOp();
+
+  } catch (e) {
+    rightMsg.textContent = e.message;
+    opBadge.textContent = "Operación: —";
+  }
+
+  view = VIEW.ROOT;
+  render();
+})();
