@@ -15,12 +15,12 @@ DO $$
 BEGIN
   -- usuario (solo CUT)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_usuario_enum') THEN
-    CREATE TYPE rol_usuario_enum AS ENUM ('CUT');
+    CREATE TYPE rol_usuario_enum AS ENUM ('ADMIN');
   END IF;
 
   -- personal (CET / CELL)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_personal_enum') THEN
-    CREATE TYPE rol_personal_enum AS ENUM ('CET', 'CELL');
+    CREATE TYPE rol_personal_enum AS ENUM ('CUT','CET', 'CELL');
   END IF;
 
   -- participante chat

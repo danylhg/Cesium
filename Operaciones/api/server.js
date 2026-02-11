@@ -146,9 +146,9 @@ app.get("/vehiculos", async (req, res) => {
 app.get("/catalog/personal", async (req, res) => {
   try {
     const cutQ = `
-      SELECT id_usuario AS id,
+      SELECT id_personal AS id,
              (nombre || ' ' || apellido) AS nombre
-      FROM usuario
+      FROM personal
       WHERE activo = TRUE AND rol = 'CUT'
       ORDER BY apellido, nombre;
     `;
@@ -184,6 +184,84 @@ app.get("/catalog/personal", async (req, res) => {
     return res.status(500).json({ ok: false, mensaje: "Error en catálogo", error: err.message });
   }
 });
+
+function requireAuth(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : null;
+  if (!token) return res.status(401).json({ ok: false, mensaje: "Falta token" });
+
+  try {
+    const payload = jwt.verify(token, process.env.JWT_SECRET || "cambia_esto");
+    req.user = payload; // { sub, username, rol }
+    next();
+  } catch (e) {
+    return res.status(401).json({ ok: false, mensaje: "Token inválido" });
+  }
+}
+
+app.get("/ops", requireAuth, async (req, res) => {
+  try {
+    const q = `
+      SELECT 
+        o.id_operacion AS id,
+        o.codigo,
+        o.nombre AS name,
+        o.descripcion AS desc,
+        o.fecha_creacion,
+        (u.nombre || ' ' || u.apellido) AS creada_por_nombre
+      FROM operacion o
+      JOIN usuario u ON u.id_usuario = o.creada_por
+      ORDER BY o.id_operacion DESC
+    `;
+    const { rows } = await pool.query(q);
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error listando ops", error: err.message });
+  }
+});
+
+app.post("/ops", requireAuth, async (req, res) => {
+  try {
+    const { name, desc, created_at, start_at, end_at } = req.body ?? {};
+
+    if (!name || !desc) {
+      return res.status(400).json({ ok: false, mensaje: "Faltan name/desc" });
+    }
+    if (!created_at || !start_at || !end_at) {
+      return res.status(400).json({ ok: false, mensaje: "Faltan fechas" });
+    }
+    if (end_at < start_at) {
+      return res.status(400).json({ ok: false, mensaje: "Fin no puede ser menor que inicio" });
+    }
+
+    // codigo único simple
+    const codigo = `OP-${Date.now()}`;
+
+    const q = `
+      INSERT INTO operacion
+        (codigo, nombre, descripcion, fecha_creacion, fecha_inicio, fecha_fin, creada_por)
+      VALUES
+        ($1, $2, $3, $4::timestamptz, $5::timestamptz, $6::timestamptz, $7)
+      RETURNING id_operacion AS id, codigo, nombre AS name
+    `;
+
+    const createdBy = req.user.sub; // ID del usuario logueado (del token)
+    const { rows } = await pool.query(q, [
+      codigo,
+      name.trim(),
+      desc.trim(),
+      `${created_at}T00:00:00Z`,
+      `${start_at}T00:00:00Z`,
+      `${end_at}T00:00:00Z`,
+      createdBy
+    ]);
+
+    return res.json({ ok: true, op: rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error creando operación", error: err.message });
+  }
+});
+
 
 // ===============================
 // LISTEN (SIEMPRE AL FINAL)

@@ -8,7 +8,8 @@ const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || "1234";
 
 const users = [
-  { rol: "CUT",  nombre: "Admin",  apellido: "Principal", puesto: "Sistema",                    username: "admin" },
+  { rol: "ADMIN",  nombre: "Admin",  apellido: "Principal", puesto: "Sistema",  username: "admin" },
+
   { rol: "CUT",  nombre: "Carlos", apellido: "Ramírez",   puesto: "Comandante Unidad Táctica",  username: "cramirez" },
   { rol: "CUT",  nombre: "Ana",    apellido: "Torres",    puesto: "Comandante Unidad Táctica",  username: "atorres" },
 
@@ -50,8 +51,8 @@ async function main() {
 
   await client.connect();
 
-  const cutUsers = users.filter((u) => u.rol === "CUT");
-  const personalUsers = users.filter((u) => u.rol === "CET" || u.rol === "CELL");
+  const cutUsers = users.filter((u) => u.rol === "ADMIN");
+  const personalUsers = users.filter((u) => u.rol === "CUT" || u.rol === "CET" || u.rol === "CELL");
 
   try {
     await client.query("BEGIN");
@@ -82,7 +83,7 @@ async function main() {
       ["admin"]
     );
     if (adminRow.rowCount === 0) {
-      throw new Error(`No existe el CUT "admin". Asegúrate de que esté en el array users.`);
+      throw new Error(`No existe el administrador "admin". Asegúrate de que esté en el array users.`);
     }
     const creadoPor = adminRow.rows[0].id_usuario;
 
@@ -108,7 +109,7 @@ async function main() {
     }
 
     await client.query("COMMIT");
-    console.log("Seed OK (usuario CUT + personal CET/CELL)");
+    console.log("Seed OK (usuario ADMIN + personal CUT/CET/CELL)");
     console.log(`Password para todos: ${DEFAULT_PASSWORD}`);
   } catch (e) {
     await client.query("ROLLBACK");
