@@ -113,6 +113,7 @@ CREATE TABLE IF NOT EXISTS personal (
 CREATE TABLE IF NOT EXISTS puntos_interes (
   id_poi          SERIAL PRIMARY KEY,
   id_usuario      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal     INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
   nombre          TEXT NOT NULL,
   tipo_poi        TEXT NOT NULL,
   latitud         NUMERIC(9,6) NOT NULL,
@@ -127,8 +128,6 @@ CREATE TABLE IF NOT EXISTS equipo (
   numero_serie   TEXT NOT NULL UNIQUE,
   nombre         TEXT NOT NULL,
   categoria      TEXT NOT NULL,
-  marca          TEXT,
-  modelo         TEXT,
   estado         estado_equipo_enum NOT NULL DEFAULT 'DISPONIBLE',
   activo         BOOLEAN NOT NULL DEFAULT TRUE
 );
@@ -140,10 +139,8 @@ CREATE TABLE IF NOT EXISTS equipo (
 -- Comunicación (1:1 con equipo)
 CREATE TABLE IF NOT EXISTS equipo_comunicacion (
   id_equipo      INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
-  banda          TEXT,
-  frecuencia_mhz NUMERIC(10,3),
-  cifrado        BOOLEAN NOT NULL DEFAULT FALSE,
-  alcance_km     NUMERIC(10,2),
+  marca          TEXT,
+  modelo         TEXT,
   notas          TEXT
 );
 
@@ -348,6 +345,15 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
   fecha_envio      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Asignación (CUT/CET/CELL) por operación (JSON)
+CREATE TABLE IF NOT EXISTS operacion_asignaciones (
+  id_operacion INT PRIMARY KEY
+    REFERENCES operacion(id_operacion)
+    ON DELETE CASCADE,
+  assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- -------------------------
 -- 5) ÍNDICES ÚTILES (rendimiento)
 -- -------------------------
@@ -356,36 +362,12 @@ CREATE INDEX IF NOT EXISTS idx_msg_chat_fecha      ON mensaje_chat(id_chat, fech
 CREATE INDEX IF NOT EXISTS idx_asig_op_personal    ON asignacion_operacion_personal(id_personal);
 CREATE INDEX IF NOT EXISTS idx_veh_op_op           ON vehiculo_operacion(id_operacion);
 
-CREATE INDEX IF NOT EXISTS idx_equipo_com_banda     ON equipo_comunicacion(banda);
+CREATE INDEX IF NOT EXISTS idx_equipo_com_banda     ON equipo_comunicacion(marca);
 CREATE INDEX IF NOT EXISTS idx_equipo_tac_tipo      ON equipo_tactico(tipo_tactico);
 
 -- ------------------------
 -- 6) INSERTS (inventario)
 -- ------------------------
-
-INSERT INTO equipo (numero_serie, nombre, categoria, marca, modelo, estado)
-VALUES
-('EQ-001','Radio Táctico','COMUNICACION','Motorola','XTS5000','DISPONIBLE'),
-('EQ-002','GPS Militar','NAVEGACION','Garmin','Foretrex','DISPONIBLE'),
-('EQ-003','Visor Nocturno','OPTICA','ATN','NVG-7','DISPONIBLE'),
-('EQ-004','Dron Reconocimiento','AEREO','DJI','Mavic','DISPONIBLE'),
-('EQ-005','Chaleco Balístico','PROTECCION','5.11','TacTec','DISPONIBLE'),
-('EQ-006','Casco Balístico','PROTECCION','Ops-Core','FAST','DISPONIBLE'),
-('EQ-007','Tablet Rugerizada','COMPUTO','Panasonic','Toughpad','DISPONIBLE'),
-('EQ-008','Cámara Óptica','OPTICA','Sony','Alpha','DISPONIBLE'),
-('EQ-009','Antena Táctica','COMUNICACION','Harris','RF-7800','DISPONIBLE'),
-('EQ-010','Laptop Operativa','COMPUTO','Dell','Latitude','DISPONIBLE'),
-('EQ-011','Binoculares','OPTICA','Bushnell','Legend','DISPONIBLE'),
-('EQ-012','Sensor Movimiento','SEGURIDAD','Bosch','MotionX','DISPONIBLE'),
-('EQ-013','Router Militar','RED','Cisco','ISR','DISPONIBLE'),
-('EQ-014','Batería Portátil','ENERGIA','Duracell','ProCell','DISPONIBLE'),
-('EQ-015','Generador Eléctrico','ENERGIA','Honda','EU2200','DISPONIBLE'),
-('EQ-016','Linterna Táctica','ILUMINACION','Streamlight','TLR-1','DISPONIBLE'),
-('EQ-017','Mochila Operativa','LOGISTICA','Camelbak','MilTac','DISPONIBLE'),
-('EQ-018','Arnés Seguridad','SEGURIDAD','Petzl','Tactical','DISPONIBLE'),
-('EQ-019','Repetidor Señal','COMUNICACION','Motorola','SLR','DISPONIBLE'),
-('EQ-020','Cámara Térmica','OPTICA','FLIR','Scout','DISPONIBLE')
-ON CONFLICT (numero_serie) DO NOTHING;
 
 INSERT INTO vehiculo (codigo_interno, tipo, marca, modelo, estado)
 VALUES

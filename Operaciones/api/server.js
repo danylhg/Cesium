@@ -256,12 +256,87 @@ app.post("/ops", requireAuth, async (req, res) => {
       createdBy
     ]);
 
+    await pool.query(
+      `INSERT INTO operacion_asignaciones (id_operacion, assignments)
+      VALUES ($1, $2::jsonb)
+      ON CONFLICT (id_operacion) DO NOTHING`,
+      [rows[0].id, JSON.stringify({
+        cut: null,
+        cet: [],
+        celulasByCET: {},
+        activeCETIndex: 0,
+        celulasDraft: []
+      })]
+    );
+
     return res.json({ ok: true, op: rows[0] });
   } catch (err) {
     return res.status(500).json({ ok: false, mensaje: "Error creando operación", error: err.message });
   }
 });
 
+// ===============================
+// ASIGNACIONES POR OPERACIÓN (JSON)
+// ===============================
+app.get("/ops/:id/assignments", requireAuth, async (req, res) => {
+  try {
+    const opId = Number(req.params.id);
+    if (!Number.isFinite(opId)) {
+      return res.status(400).json({ ok: false, mensaje: "id inválido" });
+    }
+
+    const q = `
+      SELECT assignments
+      FROM operacion_asignaciones
+      WHERE id_operacion = $1
+      LIMIT 1
+    `;
+    const { rows } = await pool.query(q, [opId]);
+
+    const fallback = {
+      cut: null,
+      cet: [],
+      celulasByCET: {},
+      activeCETIndex: 0,
+      celulasDraft: []
+    };
+
+    return res.json({ ok: true, assignments: rows[0]?.assignments ?? fallback });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error cargando asignaciones", error: err.message });
+  }
+});
+
+app.put("/ops/:id/assignments", requireAuth, async (req, res) => {
+  try {
+    const opId = Number(req.params.id);
+    if (!Number.isFinite(opId)) {
+      return res.status(400).json({ ok: false, mensaje: "id inválido" });
+    }
+
+    const obj = req.body ?? {};
+    const clean = {
+      cut: obj.cut ?? null,
+      cet: Array.isArray(obj.cet) ? obj.cet : [],
+      celulasByCET: (obj.celulasByCET && typeof obj.celulasByCET === "object") ? obj.celulasByCET : {},
+      activeCETIndex: Number.isFinite(obj.activeCETIndex) ? obj.activeCETIndex : 0,
+      celulasDraft: Array.isArray(obj.celulasDraft) ? obj.celulasDraft : [],
+    };
+
+    const q = `
+      INSERT INTO operacion_asignaciones (id_operacion, assignments, updated_at)
+      VALUES ($1, $2::jsonb, NOW())
+      ON CONFLICT (id_operacion)
+      DO UPDATE SET assignments = EXCLUDED.assignments, updated_at = NOW()
+      RETURNING assignments
+    `;
+    const { rows } = await pool.query(q, [opId, JSON.stringify(clean)]);
+
+    return res.json({ ok: true, assignments: rows[0].assignments });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error guardando asignaciones", error: err.message });
+  }
+});
 
 // ===============================
 // LISTEN (SIEMPRE AL FINAL)

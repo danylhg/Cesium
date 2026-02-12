@@ -32,6 +32,9 @@ const users = [
   { rol: "CELL", nombre: "Iván",   apellido: "Pérez",     puesto: "Célula", username: "iperez" },
   { rol: "CELL", nombre: "Diana",  apellido: "Ortega",    puesto: "Célula", username: "dortega" },
   { rol: "CELL", nombre: "Óscar",  apellido: "Reyes",     puesto: "Célula", username: "oreyes" },
+  { rol: "CELL", nombre: "Daniela",   apellido: "Pérez",  puesto: "Célula", username: "dperez" },
+  { rol: "CELL", nombre: "Diana",  apellido: "Ortiz",    puesto: "Célula", username: "dortiz" },
+  { rol: "CELL", nombre: "Odalis",  apellido: "lopez",     puesto: "Célula", username: "olopez" },
 ];
 
 function requireEnv(name) {
