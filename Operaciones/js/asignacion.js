@@ -1,6 +1,14 @@
-// ===============================
-// ====== CONFIG / SESIÓN ========
-// ===============================
+/* =========================================================
+   ASIGNACIÓN - Integrado con BD/API (JWT)
+   - Usa /ops, /catalog/personal, /ops/:id/assignments
+   - Catálogos (CUT/CET/Células) desde BD (objetos {id,nombre})
+   - Asignaciones por operación se guardan con debounce (PUT)
+   - Mantiene tu UI original: sticky + agregar, editar inline, eliminar
+========================================================= */
+
+/* ===============================
+   ====== CONFIG / SESIÓN ========
+=============================== */
 const API = "http://localhost:3001";
 
 const token = localStorage.getItem("token");
@@ -30,50 +38,9 @@ async function api(path, { method="GET", body } = {}) {
   return data;
 }
 
-// ===============================
-// ====== STATE GLOBAL ===========
-// ===============================
-const state = {
-  ops: [],
-  activeOpId: localStorage.getItem("active_operation_id") || null,
-
-  // catálogo desde BD -> ahora son OBJETOS: {id, nombre}
-  names: { cut: [], cet: [], celulas: [] },
-
-  // asignaciones desde BD (por operación) -> siguen siendo strings (nombre)
-  selected: {
-    cut: null,
-    cet: [],
-    celulasByCET: {},
-    activeCETIndex: 0,
-    celulasDraft: []
-  },
-
-  loading: {
-    ops: false,
-    names: false,
-    selected: false,
-  }
-};
-
-// Guardado “suave” (debounce) para no spamear PUTs
-let saveTimer = null;
-function scheduleSaveSelected(delayMs = 250) {
-  if (!state.activeOpId) return;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(async () => {
-    try {
-      await saveSelectedDB(state.activeOpId, state.selected);
-    } catch (e) {
-      const rightMsg = qs("rightMsg");
-      if (rightMsg) rightMsg.textContent = e.message;
-    }
-  }, delayMs);
-}
-
-// ===============================
-// ====== API WRAPPERS ===========
-// ===============================
+/* ===============================
+   ====== API WRAPPERS ===========
+=============================== */
 async function getOpsDB() {
   const data = await api("/ops");
   return Array.isArray(data) ? data : (data.ops || []);
@@ -111,592 +78,773 @@ async function saveSelectedDB(opId, obj) {
   await api(`/ops/${encodeURIComponent(opId)}/assignments`, { method: "PUT", body: obj });
 }
 
-// ===============================
-// ====== TOP BAR ================
-// ===============================
-const opBadge = qs("opBadge");
-const btnBack = qs("btnBack");
-btnBack.addEventListener("click", () => window.location.href = "menu_inicial.html");
-
-// ===============================
-// ====== IZQUIERDA: CREAR OP ====
-// ===============================
-const opName = qs("opName");
-const opDesc = qs("opDesc");
-const opDateCreated = qs("opDateCreated");
-const opDateStart = qs("opDateStart");
-const opDateEnd = qs("opDateEnd");
-const btnFinalize = qs("btnFinalize");
-const leftMsg = qs("leftMsg");
-
-function setDefaultDates() {
-  const today = new Date().toISOString().slice(0, 10);
-  if (!opDateCreated.value) opDateCreated.value = today;
+// (Opcional, si ya tienes endpoints para catálogo personal)
+async function addCatalogPersonDB(roleKey, nombre){
+  // ejemplo esperado (ajusta a tu API real):
+  // POST /catalog/personal  body: { role: "CUT"|"CET"|"CELULA", nombre }
+  const roleMap = { cut: "CUT", cet: "CET", celulas: "CELULA" };
+  return api("/catalog/personal", { method:"POST", body:{ role: roleMap[roleKey], nombre }});
 }
-setDefaultDates();
-
-btnFinalize.addEventListener("click", async () => {
-  leftMsg.textContent = "";
-
-  const name = opName.value.trim();
-  const desc = opDesc.value.trim();
-  const created_at = opDateCreated.value;
-  const start_at = opDateStart.value;
-  const end_at = opDateEnd.value;
-
-  if (!name || !desc) { leftMsg.textContent = "Completa el nombre y la descripción."; return; }
-  if (!created_at || !start_at || !end_at) { leftMsg.textContent = "Completa las tres fechas."; return; }
-  if (end_at < start_at) { leftMsg.textContent = "La fecha de fin no puede ser anterior a la fecha de inicio."; return; }
-
-  try {
-    const op = await createOpDB({ name, desc, created_at, start_at, end_at });
-
-    await loadOps();
-
-    state.activeOpId = String(op.id);
-    localStorage.setItem("active_operation_id", state.activeOpId);
-
-    await refreshActiveOp();
-    await loadSelectedForActiveOp();
-
-    leftMsg.textContent = "Operación creada y seleccionada. Ya puedes asignar.";
-  } catch (e) {
-    leftMsg.textContent = e.message;
-  }
-});
-
-// Mostrar operación activa (usa state.ops)
-async function refreshActiveOp(){
-  const activeId = state.activeOpId;
-  if (!activeId) { opBadge.textContent = "Operación: —"; return; }
-
-  const current = (state.ops || []).find(o => String(o.id) === String(activeId));
-  opBadge.textContent = current ? `Operación: ${current.name}` : `Operación: ${activeId}`;
+async function updateCatalogPersonDB(id, nombre){
+  // PUT /catalog/personal/:id
+  return api(`/catalog/personal/${encodeURIComponent(id)}`, { method:"PUT", body:{ nombre }});
+}
+async function deleteCatalogPersonDB(id){
+  // DELETE /catalog/personal/:id
+  return api(`/catalog/personal/${encodeURIComponent(id)}`, { method:"DELETE" });
 }
 
-// ===============================
-// ====== DERECHA: ASIGNAR =======
-// ===============================
-const rightTitle = qs("rightTitle");
-const rightBody = qs("rightBody");
-const btnRightAction = qs("btnRightAction");
-const btnRightBack = qs("btnRightBack");
-const rightMsg = qs("rightMsg");
-const subLine = qs("subLine");
+/* --------------------------
+   DOM (tu UI original)
+-------------------------- */
+const panel = document.getElementById("panel");
+const rightTitle = document.getElementById("rightTitle");
+const rightHint = document.getElementById("rightHint");
+const btnAccion = document.getElementById("btnAccion");
+const btnBack = document.getElementById("btnBack");
+const btnVolver = document.getElementById("btnVolver");
+const lblOperacion = document.getElementById("lblOperacion");
 
-// ---- Vistas
-const VIEW = {
-  ROOT: "root",
-  PERSONAL_MENU: "personal_menu",
-  CUT_LIST: "cut_list",
-  CET_LIST: "cet_list",
-  CELULAS: "celulas",
-  EQUIPO: "equipo",
-  VEHICULOS: "vehiculos",
+/* ===============================
+   ====== STATE GLOBAL ===========
+=============================== */
+const state = {
+  // navegación
+  categoria: null, // 'personal' | 'equipo' | 'vehiculos'
+  pasoPersonal: "home", // home | cut | cet | celulas
+
+  // operaciones
+  ops: [],
+  activeOpId: localStorage.getItem("active_operation_id") || null,
+
+  // catálogos desde BD (OBJETOS {id, nombre})
+  names: { cut: [], cet: [], celulas: [] },
+
+  // selección por operación (strings: nombre)
+  selected: {
+    cut: null,
+    cet: [],             // 3
+    celulasByCET: {},    // { [cetNombre]: [celulaNombre...] }
+    activeCETIndex: 0,
+    celulasDraft: []
+  },
+
+  loading: { ops:false, names:false, selected:false }
 };
-let view = VIEW.ROOT;
 
-// ===== UI helpers =====
-function el(tag, cls, text){
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (text !== undefined) n.textContent = text;
-  return n;
-}
-function setHeader(title, showBack){
-  rightTitle.textContent = title;
-  btnRightBack.classList.toggle("hidden", !showBack);
-}
-function setActionLabel(text){ btnRightAction.textContent = text; }
-function showSubLine(text){
-  subLine.textContent = text;
-  subLine.classList.remove("hidden");
-}
-function hideSubLine(){
-  subLine.classList.add("hidden");
-  subLine.textContent = "";
+/* --------------------------
+   Guardado “suave” debounce
+-------------------------- */
+let saveTimer = null;
+function scheduleSaveSelected(delayMs = 250) {
+  if (!state.activeOpId) return;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    try {
+      await saveSelectedDB(state.activeOpId, state.selected);
+    } catch (e) {
+      setHeader(rightTitle.textContent, e.message || "Error al guardar");
+    }
+  }, delayMs);
 }
 
-// ===============================
-// ====== CARGAS INICIALES =======
-// ===============================
+/* --------------------------
+   Helpers UI
+-------------------------- */
+function capFirst(str){
+  if(!str) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+function setHeader(title, hint){
+  rightTitle.textContent = capFirst(title);
+  rightHint.textContent = capFirst(hint || "");
+}
+
+function setAccion(text, disabled=false){
+  btnAccion.textContent = capFirst(text);
+  btnAccion.disabled = !!disabled;
+}
+
+function showBack(show){
+  btnBack.style.visibility = show ? "visible" : "hidden";
+}
+
+function clearPanel(){ panel.innerHTML = ""; }
+
+function opNameById(){
+  const id = state.activeOpId;
+  if(!id) return "—";
+  const found = (state.ops||[]).find(o => String(o.id) === String(id));
+  return found?.name || found?.nombre || String(id);
+}
+
+/* ===============================
+   ====== LOADERS ================
+=============================== */
 async function loadOps(){
   state.loading.ops = true;
-  try {
-    state.ops = await getOpsDB();
-  } finally {
-    state.loading.ops = false;
-  }
+  try { state.ops = await getOpsDB(); }
+  finally { state.loading.ops = false; }
 }
 
 async function loadNames(){
   state.loading.names = true;
-  try {
-    state.names = await getNamesDB();
-  } finally {
-    state.loading.names = false;
-  }
+  try { state.names = await getNamesDB(); }
+  finally { state.loading.names = false; }
 }
 
 async function loadSelectedForActiveOp(){
   if (!state.activeOpId) {
-    state.selected = {
-      cut: null,
-      cet: [],
-      celulasByCET: {},
-      activeCETIndex: 0,
-      celulasDraft: []
-    };
+    state.selected = { cut:null, cet:[], celulasByCET:{}, activeCETIndex:0, celulasDraft:[] };
     return;
   }
-
   state.loading.selected = true;
-  try {
-    state.selected = await loadSelectedDB(state.activeOpId);
-  } finally {
-    state.loading.selected = false;
-  }
+  try { state.selected = await loadSelectedDB(state.activeOpId); }
+  finally { state.loading.selected = false; }
 }
 
-// ===============================
-// ===== Back button logic =======
-// ===============================
-btnRightBack.addEventListener("click", () => {
-  rightMsg.textContent = "";
+/* ===============================
+   ====== HOME ===================
+=============================== */
+function renderHome(){
+  clearPanel();
+  state.categoria = null;
+  state.pasoPersonal = "home";
 
-  if (view === VIEW.PERSONAL_MENU) view = VIEW.ROOT;
-  else if (view === VIEW.CUT_LIST) view = VIEW.PERSONAL_MENU;
-  else if (view === VIEW.CET_LIST) view = VIEW.PERSONAL_MENU;
-  else if (view === VIEW.CELULAS) view = VIEW.PERSONAL_MENU;
-  else if (view === VIEW.EQUIPO) view = VIEW.ROOT;
-  else if (view === VIEW.VEHICULOS) view = VIEW.ROOT;
+  // muestra operación activa (si existe)
+  const opLabel = state.activeOpId ? `Operación: ${opNameById()}` : "Operación: —";
+  setHeader("Asignar", opLabel);
 
-  render();
-});
+  setAccion("Siguiente", true);
+  showBack(false);
 
-// ===============================
-// ===== Main action button ======
-// ===============================
-btnRightAction.addEventListener("click", async () => {
-  rightMsg.textContent = "";
+  const grid = document.createElement("div");
+  grid.className = "optGrid";
 
-  if (!state.activeOpId) {
-    rightMsg.textContent = "Primero crea/selecciona una operación.";
-    return;
-  }
+  const btnPersonal = mkOpt("Personal");
+  const btnEquipo = mkOpt("Equipo");
+  const btnVehiculos = mkOpt("Vehículos");
 
-  if (view === VIEW.ROOT) {
-    rightMsg.textContent = "Selecciona una opción (Personal, Equipo o Vehículos).";
-    return;
-  }
-
-  if (view === VIEW.PERSONAL_MENU) {
-    rightMsg.textContent = "Selecciona un apartado de Personal.";
-    return;
-  }
-
-  if (view === VIEW.CUT_LIST) {
-    if (!state.selected.cut) { rightMsg.textContent = "Selecciona 1 persona para CUT."; return; }
-    view = VIEW.CET_LIST;
-    render();
-    return;
-  }
-
-  if (view === VIEW.CET_LIST) {
-    if (!state.selected.cut) { rightMsg.textContent = "Primero selecciona CUT."; return; }
-    if (!Array.isArray(state.selected.cet) || state.selected.cet.length !== 3) {
-      rightMsg.textContent = "Selecciona exactamente 3 personas para CET.";
+  btnPersonal.addEventListener("click", async () => {
+    if(!state.activeOpId){
+      setHeader("Asignar", "Primero crea/selecciona una operación");
       return;
     }
-
-    state.selected.activeCETIndex = 0;
-    state.selected.celulasDraft = [];
-    scheduleSaveSelected();
-
-    view = VIEW.CELULAS;
-    render();
-    return;
-  }
-
-  if (view === VIEW.CELULAS) {
-    const cetList = state.selected.cet || [];
-    if (!state.selected.cut || cetList.length !== 3) {
-      rightMsg.textContent = "Primero asigna CUT y 3 CET.";
-      return;
-    }
-
-    const idx = state.selected.activeCETIndex ?? 0;
-    const currentCET = cetList[idx];
-    const draft = state.selected.celulasDraft || [];
-
-    if (draft.length < 6) {
-      rightMsg.textContent = "Debes seleccionar mínimo 6 para este CET.";
-      return;
-    }
-
-    state.selected.celulasByCET = state.selected.celulasByCET || {};
-    state.selected.celulasByCET[currentCET] = [...draft];
-
-    const nextIdx = idx + 1;
-
-    if (nextIdx <= 2) {
-      state.selected.activeCETIndex = nextIdx;
-      state.selected.celulasDraft = [];
-      scheduleSaveSelected();
-      render();
-      return;
-    }
-
-    state.selected.celulasDraft = [];
-    scheduleSaveSelected();
-    rightMsg.textContent = "✅ Células asignadas a los 3 CET.";
-    render();
-    return;
-  }
-
-  rightMsg.textContent = "Acción disponible próximamente.";
-});
-
-// ===============================
-// ===== UI blocks ===============
-// ===============================
-function buildBigMenu(items){
-  const wrap = el("div", "bigStack");
-  items.forEach(({label, onClick}) => {
-    const b = el("button", "bigBtn");
-    b.textContent = label;
-    b.addEventListener("click", onClick);
-    wrap.appendChild(b);
+    state.categoria = "personal";
+    state.pasoPersonal = "cut";
+    await ensureCatalogLoaded();
+    renderCUT();
   });
-  return wrap;
+
+  btnEquipo.addEventListener("click", () => {
+    state.categoria = "equipo";
+    renderPlaceholder("Equipo", "Aquí irá el flujo de Equipo.");
+  });
+
+  btnVehiculos.addEventListener("click", () => {
+    state.categoria = "vehiculos";
+    renderVehiculos();
+  });
+
+  grid.append(btnPersonal, btnVehiculos, btnEquipo);
+  panel.appendChild(grid);
 }
 
-// ✅ Ahora pinta nombres desde BD (objetos {id, nombre})
-function buildEditableSelectableList({ listKey, selectMode, multiMax = Infinity }){
-  const names = state.names;      // {cut:[{id,nombre}], cet:[...], celulas:[...]}
-  const selected = state.selected;
+function mkOpt(txt){
+  const b = document.createElement("button");
+  b.className = "optBtn";
+  b.textContent = capFirst(txt);
+  return b;
+}
 
-  const box = el("div", "list");
+function renderPlaceholder(title){
+  clearPanel();
+  setHeader(title, `Operación: ${opNameById()}`);
+  showBack(true);
+  setAccion("Siguiente", true);
+}
 
-  const addBtn = el("button", "bigBtn");
-  addBtn.textContent = "+ Agregar";
-  addBtn.addEventListener("click", () => {
-    rightMsg.textContent = "Aún no conectado (solo prueba de carga desde BD).";
-  });
-  box.appendChild(addBtn);
+/* ===============================
+   ====== PERSONAL: CUT ==========
+=============================== */
+async function ensureCatalogLoaded(){
+  if (
+    (state.names.cut && state.names.cut.length) ||
+    (state.names.cet && state.names.cet.length) ||
+    (state.names.celulas && state.names.celulas.length)
+  ) return;
+  setHeader("Cargando...", "Catálogo desde BD");
+  await loadNames();
+}
 
-  (names[listKey] || []).forEach((obj) => {
+function renderCUT(){
+  clearPanel();
+  showBack(true);
+
+  setHeader("Comandante de Unidad Táctica", `Operación: ${opNameById()}`);
+  setAccion("Siguiente", !state.selected.cut);
+
+  const listBox = document.createElement("div");
+  listBox.className = "listBox";
+
+  // sticky add (BD)
+  listBox.appendChild(stickyAddButton("Agregar", () => {
+    inlineAddRow(listBox, async (val) => {
+      // si no tienes endpoint de catálogo, comenta estas 2 líneas y usa reload local
+      await addCatalogPersonDB("cut", val);
+      await loadNames();
+      renderCUT();
+    });
+  }));
+
+  // items (desde BD: {id,nombre})
+  (state.names.cut || []).forEach((obj) => {
     const name = obj?.nombre ?? String(obj);
+    const id = obj?.id;
 
-    const item = el("div", "listItem");
+    listBox.appendChild(personRow({
+      name,
+      selected: state.selected.cut === name,
+      onSelect: () => {
+        state.selected.cut = name;
+        // reset dependencias
+        state.selected.cet = [];
+        state.selected.activeCETIndex = 0;
+        state.selected.celulasByCET = {};
+        state.selected.celulasDraft = [];
+        scheduleSaveSelected();
+        renderCUT();
+      },
+      onDelete: async () => {
+        // quita selección si aplica
+        if(state.selected.cut === name) state.selected.cut = null;
+        state.selected.cet = (state.selected.cet || []).filter(n => n !== name);
+        delete state.selected.celulasByCET[name];
 
-    const isSelected =
-      selectMode === "single"
-        ? (selected[listKey] === name)
-        : (Array.isArray(selected[listKey]) && selected[listKey].includes(name));
+        // BD
+        if (id != null) await deleteCatalogPersonDB(id);
+        await loadNames();
 
-    const clickable = el("div", "name", name);
-    clickable.style.cursor = "pointer";
-    clickable.style.flex = "1";
+        scheduleSaveSelected();
+        renderCUT();
+      },
+      onEdit: async (newName) => {
+        // BD
+        if (id != null) await updateCatalogPersonDB(id, newName);
+        await loadNames();
 
-    clickable.addEventListener("click", () => {
-      if (!state.activeOpId) {
-        rightMsg.textContent = "Primero crea/selecciona una operación.";
-        return;
+        // actualizar selección por nombre (porque assignments guardan nombre)
+        const oldName = name;
+        if(state.selected.cut === oldName) state.selected.cut = newName;
+        state.selected.cet = (state.selected.cet || []).map(n => n === oldName ? newName : n);
+
+        if(state.selected.celulasByCET?.[oldName]){
+          state.selected.celulasByCET[newName] = state.selected.celulasByCET[oldName];
+          delete state.selected.celulasByCET[oldName];
+        }
+        scheduleSaveSelected();
+        renderCUT();
       }
+    }));
+  });
 
-      if (selectMode === "single") {
-        state.selected[listKey] = name;
-      } else {
-        state.selected[listKey] = Array.isArray(state.selected[listKey]) ? state.selected[listKey] : [];
-        const exists = state.selected[listKey].includes(name);
+  panel.appendChild(listBox);
 
-        if (exists) {
-          state.selected[listKey] = state.selected[listKey].filter(x => x !== name);
-        } else {
-          if (state.selected[listKey].length >= multiMax) {
-            rightMsg.textContent = `Máximo ${multiMax} seleccionados.`;
+  btnAccion.onclick = () => {
+    if(!state.selected.cut) return;
+    state.pasoPersonal = "cet";
+    renderCET();
+  };
+}
+
+/* ===============================
+   ====== PERSONAL: CET (3) ======
+=============================== */
+function renderCET(){
+  clearPanel();
+  showBack(true);
+
+  setHeader("Comandante de Equipo de Trabajo", `Operación: ${opNameById()}`);
+  setAccion("Siguiente", (state.selected.cet || []).length !== 3);
+
+  // chips arriba (CUT + CET seleccionados)
+  const chips = document.createElement("div");
+  chips.className = "chipRow";
+
+  const cutChip = document.createElement("div");
+  cutChip.className = "chip";
+  cutChip.textContent = `CUT: ${state.selected.cut || "—"}`;
+  chips.appendChild(cutChip);
+
+  (state.selected.cet || []).forEach((n) => {
+    const c = document.createElement("div");
+    c.className = "chip active";
+    c.textContent = `CET: ${n}`;
+    chips.appendChild(c);
+  });
+
+  panel.appendChild(chips);
+
+  const listBox = document.createElement("div");
+  listBox.className = "listBox";
+
+  listBox.appendChild(stickyAddButton("Agregar", () => {
+    inlineAddRow(listBox, async (val) => {
+      await addCatalogPersonDB("cet", val);
+      await loadNames();
+      renderCET();
+    });
+  }));
+
+  (state.names.cet || []).forEach((obj) => {
+    const name = obj?.nombre ?? String(obj);
+    const id = obj?.id;
+
+    const isSel = (state.selected.cet || []).includes(name);
+
+    listBox.appendChild(personRow({
+      name,
+      selected: isSel,
+      onSelect: () => {
+        state.selected.cet = Array.isArray(state.selected.cet) ? state.selected.cet : [];
+
+        if(isSel){
+          state.selected.cet = state.selected.cet.filter(n => n !== name);
+          // limpia asignación si lo quitaste
+          delete state.selected.celulasByCET?.[name];
+        }else{
+          if(state.selected.cet.length >= 3){
+            setHeader("CET", "Máximo 3 seleccionados");
             return;
           }
-          state.selected[listKey].push(name);
+          state.selected.cet.push(name);
+          if(!state.selected.celulasByCET[name]) state.selected.celulasByCET[name] = [];
         }
+
+        scheduleSaveSelected();
+        renderCET();
+      },
+      onDelete: async () => {
+        state.selected.cet = (state.selected.cet || []).filter(n => n !== name);
+        delete state.selected.celulasByCET?.[name];
+
+        if (id != null) await deleteCatalogPersonDB(id);
+        await loadNames();
+
+        scheduleSaveSelected();
+        renderCET();
+      },
+      onEdit: async (newName) => {
+        if (id != null) await updateCatalogPersonDB(id, newName);
+        await loadNames();
+
+        const oldName = name;
+        state.selected.cet = (state.selected.cet || []).map(n => n === oldName ? newName : n);
+
+        if(state.selected.celulasByCET?.[oldName]){
+          state.selected.celulasByCET[newName] = state.selected.celulasByCET[oldName];
+          delete state.selected.celulasByCET[oldName];
+        }
+
+        scheduleSaveSelected();
+        renderCET();
       }
-
-      scheduleSaveSelected();
-      render();
-    });
-
-    const actions = el("div", "actionsRow");
-    const btnEdit = el("button", "smallBtn", "Editar");
-    const btnDel = el("button", "smallBtn danger", "Eliminar");
-
-    btnEdit.addEventListener("click", () => rightMsg.textContent = "Aún no conectado (solo prueba).");
-    btnDel.addEventListener("click", () => rightMsg.textContent = "Aún no conectado (solo prueba).");
-
-    actions.appendChild(btnEdit);
-    actions.appendChild(btnDel);
-
-    item.appendChild(clickable);
-    item.appendChild(actions);
-
-    if (isSelected){
-      item.style.borderColor = "rgba(37,99,235,.45)";
-      item.style.boxShadow = "0 18px 26px rgba(37,99,235,.12)";
-    }
-
-    box.appendChild(item);
+    }));
   });
 
-  const footer = el("div", "hint");
-  if (selectMode === "single") {
-    footer.textContent = selected[listKey] ? `Seleccionado: ${selected[listKey]}` : "Selecciona 1.";
-  } else {
-    const count = Array.isArray(selected[listKey]) ? selected[listKey].length : 0;
-    footer.textContent = `Seleccionados: ${count}/${multiMax}`;
-  }
+  panel.appendChild(listBox);
 
-  const wrap = document.createElement("div");
-  wrap.appendChild(box);
-  wrap.appendChild(footer);
-  return wrap;
+  btnAccion.onclick = () => {
+    if((state.selected.cet || []).length !== 3) return;
+
+    // asegura map
+    state.selected.cet.forEach(n => {
+      if(!state.selected.celulasByCET[n]) state.selected.celulasByCET[n] = [];
+    });
+
+    state.pasoPersonal = "celulas";
+    state.selected.activeCETIndex = 0;
+
+    // si ya había guardado, puedes cargar draft vacío
+    state.selected.celulasDraft = [];
+    scheduleSaveSelected();
+    renderCelulas();
+  };
 }
 
-// ======= CÉLULAS VIEW =======
-// ✅ también ajustado a objetos {id, nombre}
-function buildCelulasView(){
-  const names = state.names;
-  const sel = state.selected;
+/* ===============================
+   ====== PERSONAL: CÉLULAS ======
+=============================== */
+function renderCelulas(){
+  clearPanel();
+  showBack(true);
 
-  const cetList = sel.cet || [];
-  const idx = sel.activeCETIndex ?? 0;
-  const currentCET = cetList[idx];
+  const cetList = state.selected.cet || [];
+  const idx = state.selected.activeCETIndex ?? 0;
+  const cetActivo = cetList[idx];
+  const asignadasEsteCET = (state.selected.celulasByCET?.[cetActivo]) || [];
+  const draft = state.selected.celulasDraft || [];
 
-  const topInfo = el("div", "cetTopInfo");
-  const cutLine = el("div", "cetLine", `CUT: ${sel.cut || "—"}`);
-  topInfo.appendChild(cutLine);
+  setHeader("Células", `Operación: ${opNameById()}`);
 
-  const chips = el("div", "cetChips");
+  const min = 6;
+  const isLast = idx >= cetList.length - 1;
+  const okDraft = draft.length >= min;
+  setAccion(isLast ? "Finalizar" : "Siguiente", !okDraft);
 
-  cetList.forEach((cetName, i) => {
-    const chip = el("button", "cetChip" + (i === idx ? " active" : ""), `CET: ${cetName}`);
-    chip.addEventListener("click", () => {
+  // chips CUT y CETs
+  const chips = document.createElement("div");
+  chips.className = "chipRow";
+
+  const cutChip = document.createElement("div");
+  cutChip.className = "chip";
+  cutChip.textContent = `CUT: ${state.selected.cut || "—"}`;
+  chips.appendChild(cutChip);
+
+  cetList.forEach((n, i) => {
+    const c = document.createElement("div");
+    c.className = "chip" + (i === idx ? " active" : "");
+    c.textContent = `CET: ${n}`;
+    c.addEventListener("click", () => {
       state.selected.activeCETIndex = i;
       state.selected.celulasDraft = [];
       scheduleSaveSelected();
-      render();
+      renderCelulas();
     });
-    chips.appendChild(chip);
+    chips.appendChild(c);
   });
 
-  const btnSeeCET = el("button", "smallBtn", "Ver selección CET");
-  btnSeeCET.addEventListener("click", () => {
-    view = VIEW.CET_LIST;
-    render();
+  panel.appendChild(chips);
+
+  // listbox
+  const listBox = document.createElement("div");
+  listBox.className = "listBox";
+
+  listBox.appendChild(stickyAddButton("Agregar", () => {
+    inlineAddRow(listBox, async (val) => {
+      await addCatalogPersonDB("celulas", val);
+      await loadNames();
+      renderCelulas();
+    });
+  }));
+
+  // células usadas por otros CET
+  const usedByOthers = new Set();
+  Object.keys(state.selected.celulasByCET || {}).forEach(cetName => {
+    if(cetName === cetActivo) return;
+    (state.selected.celulasByCET[cetName] || []).forEach(x => usedByOthers.add(x));
   });
 
-  const row = el("div", "cetRowTools");
-  row.appendChild(chips);
-  row.appendChild(btnSeeCET);
+  const alreadyAssignedHere = new Set(asignadasEsteCET);
 
-  const assignedMap = sel.celulasByCET || {};
-  const used = new Set();
-  Object.keys(assignedMap).forEach(k => {
-    (assignedMap[k] || []).forEach(v => used.add(v));
+  // Si draft está vacío pero ya había asignadas, puedes precargarlo con las asignadas (opcional)
+  // (esto hace más cómodo editar)
+  const effectiveDraft = (draft.length === 0 && asignadasEsteCET.length > 0) ? [...asignadasEsteCET] : [...draft];
+
+  // sincroniza draft si se precargó (solo una vez por render)
+  if (draft.length === 0 && asignadasEsteCET.length > 0) {
+    state.selected.celulasDraft = effectiveDraft;
+  }
+
+  (state.names.celulas || []).forEach((obj) => {
+    const cel = obj?.nombre ?? String(obj);
+
+    const bloqueada = usedByOthers.has(cel);
+    const enEste = alreadyAssignedHere.has(cel);
+    const picked = effectiveDraft.includes(cel);
+
+    const row = celulaRow({
+      name: cel,
+      selected: picked,
+      disabled: bloqueada,
+      status: bloqueada ? "Asignado" : (enEste ? "En este CET" : (picked ? "Seleccionado" : "Disponible")),
+      onToggle: () => {
+        if(bloqueada) return;
+
+        const exists = state.selected.celulasDraft.includes(cel);
+        if(exists){
+          state.selected.celulasDraft = state.selected.celulasDraft.filter(x => x !== cel);
+        }else{
+          state.selected.celulasDraft = [...state.selected.celulasDraft, cel];
+        }
+        scheduleSaveSelected();
+        renderCelulas();
+      }
+    });
+
+    listBox.appendChild(row);
   });
 
-  const alreadyForThisCET = new Set(assignedMap[currentCET] || []);
-  const draft = sel.celulasDraft || [];
+  panel.appendChild(listBox);
 
-  const list = el("div", "list");
-  const listTitle = el("div", "hint", `Asignar células para: CET ${idx+1} (${currentCET}) — mínimo 6`);
-  list.appendChild(listTitle);
+  btnAccion.onclick = () => {
+    const cetNow = cetList[state.selected.activeCETIndex] || null;
+    if(!cetNow) return;
 
-  // ✅ itemObj = {id, nombre}
-  (names.celulas || []).forEach((itemObj) => {
-    const person = itemObj?.nombre ?? String(itemObj);
+    const count = (state.selected.celulasDraft || []).length;
+    if(count < min) return;
 
-    const item = el("div", "listItem");
+    // persiste draft en map
+    state.selected.celulasByCET = state.selected.celulasByCET || {};
+    state.selected.celulasByCET[cetNow] = [...state.selected.celulasDraft];
 
-    const nameBox = el("div", "name", person);
-    nameBox.style.flex = "1";
-    nameBox.style.cursor = "pointer";
+    // limpia draft
+    state.selected.celulasDraft = [];
 
-    const isPicked = draft.includes(person);
-    const isBlocked = used.has(person) && !alreadyForThisCET.has(person);
-    const isAlreadyAssignedHere = alreadyForThisCET.has(person);
-
-    if (isPicked){
-      item.style.borderColor = "rgba(37,99,235,.45)";
-      item.style.boxShadow = "0 18px 26px rgba(37,99,235,.12)";
-    }
-    if (isBlocked){
-      item.classList.add("disabledItem");
-      nameBox.style.cursor = "not-allowed";
-    }
-    if (isAlreadyAssignedHere){
-      item.classList.add("assignedHere");
-    }
-
-    nameBox.addEventListener("click", () => {
-      if (isBlocked) return;
-
-      state.selected.celulasDraft = Array.isArray(state.selected.celulasDraft) ? state.selected.celulasDraft : [];
-      const exists = state.selected.celulasDraft.includes(person);
-
-      if (exists) state.selected.celulasDraft = state.selected.celulasDraft.filter(x => x !== person);
-      else state.selected.celulasDraft.push(person);
-
+    if(!isLast){
+      state.selected.activeCETIndex += 1;
       scheduleSaveSelected();
-      render();
-    });
+      renderCelulas();
+      return;
+    }
 
-    const badge = el("div", "miniBadge");
-    if (isBlocked) badge.textContent = "Asignado";
-    else if (isAlreadyAssignedHere) badge.textContent = "En este CET";
-    else if (isPicked) badge.textContent = "Seleccionado";
-    else badge.textContent = "";
+    scheduleSaveSelected();
+    // vuelve al home sin limpiar
+    state.categoria = null;
+    state.pasoPersonal = "home";
+    renderHome();
+  };
+}
 
-    item.appendChild(nameBox);
-    item.appendChild(badge);
-    list.appendChild(item);
+/* ===============================
+   ====== VEHÍCULOS ==============
+=============================== */
+function renderVehiculos(){
+  clearPanel();
+  showBack(true);
+
+  setHeader("Vehículos", `Operación: ${opNameById()}`);
+  setAccion("Siguiente", true);
+
+  const chips = document.createElement("div");
+  chips.className = "chipRow";
+
+  const cutChip = document.createElement("div");
+  cutChip.className = "chip";
+  cutChip.textContent = `CUT: ${state.selected.cut || "—"}`;
+  chips.appendChild(cutChip);
+
+  (state.selected.cet || []).forEach((n) => {
+    const c = document.createElement("div");
+    c.className = "chip active";
+    c.textContent = `CET: ${n}`;
+    chips.appendChild(c);
   });
 
-  const footer = el("div", "hint");
-  footer.textContent = `Seleccionados para este CET: ${(draft || []).length}`;
+  panel.appendChild(chips);
 
+  const content = document.createElement("div");
+  content.className = "listBox";
+  content.innerHTML = "<p style='text-align: center; padding: 20px; color: #666;'>Contenido de Vehículos</p>";
+  panel.appendChild(content);
+
+  btnAccion.onclick = () => {
+    state.categoria = null;
+    state.pasoPersonal = "home";
+    renderHome();
+  };
+}
+
+/* ===============================
+   ====== UI Components ==========
+=============================== */
+function stickyAddButton(label, onClick){
   const wrap = document.createElement("div");
-  wrap.appendChild(topInfo);
-  wrap.appendChild(row);
-  wrap.appendChild(list);
-  wrap.appendChild(footer);
+  wrap.className = "stickyAdd";
 
+  const b = document.createElement("button");
+  b.className = "addBtn";
+  b.textContent = `+ ${capFirst(label)}`;
+  b.addEventListener("click", onClick);
+
+  wrap.appendChild(b);
   return wrap;
 }
 
-// ===============================
-// ===== render ===================
-// ===============================
-function render(){
-  rightBody.innerHTML = "";
-  rightMsg.textContent = "";
+function personRow({name, selected=false, onSelect, onDelete, onEdit}){
+  const row = document.createElement("div");
+  row.className = "item" + (selected ? " selected" : "");
 
-  const sel = state.selected;
+  const left = document.createElement("div");
+  left.className = "itemName";
+  left.textContent = name;
 
-  if (view === VIEW.ROOT){
-    setHeader("Asignar", false);
-    hideSubLine();
-    setActionLabel("Siguiente");
+  left.style.cursor = "pointer";
+  left.addEventListener("click", onSelect);
 
-    rightBody.appendChild(
-      buildBigMenu([
-        { label: "Personal", onClick: () => { view = VIEW.PERSONAL_MENU; render(); } },
-        { label: "Equipo", onClick: () => { view = VIEW.EQUIPO; render(); } },
-        { label: "Vehículos", onClick: () => { view = VIEW.VEHICULOS; render(); } },
-      ])
-    );
-    return;
-  }
+  const right = document.createElement("div");
+  right.className = "itemRight";
 
-  if (view === VIEW.PERSONAL_MENU){
-    setHeader("personal", true);
-    hideSubLine();
-    setActionLabel("Siguiente");
+  const btnEdit = document.createElement("button");
+  btnEdit.className = "smallBtn";
+  btnEdit.textContent = "Editar";
 
-    rightBody.appendChild(
-      buildBigMenu([
-        // ✅ AQUÍ el cambio clave: carga desde BD antes de mostrar CUT
-        { label: "Comandante Unidad Táctica", onClick: async () => {
-            try {
-              rightMsg.textContent = "Cargando CUT desde BD...";
-              await loadNames();           // pega a /catalog/personal
-              view = VIEW.CUT_LIST;
-              render();
-            } catch (e) {
-              rightMsg.textContent = e.message;
-            }
-        }},
-        { label: "Comandante Equipo de Trabajo", onClick: async () => {
-            try {
-              rightMsg.textContent = "Cargando CET desde BD...";
-              await loadNames();
-              view = VIEW.CET_LIST;
-              render();
-            } catch (e) {
-              rightMsg.textContent = e.message;
-            }
-        }},
-        { label: "Células", onClick: async () => {
-            if (!sel.cut || !Array.isArray(sel.cet) || sel.cet.length !== 3) {
-              rightMsg.textContent = "Primero asigna CUT y 3 CET.";
-              return;
-            }
-            try {
-              rightMsg.textContent = "Cargando Células desde BD...";
-              await loadNames();
-              view = VIEW.CELULAS;
-              render();
-            } catch (e) {
-              rightMsg.textContent = e.message;
-            }
-        }},
-      ])
-    );
-    return;
-  }
+  const btnDel = document.createElement("button");
+  btnDel.className = "smallBtn danger";
+  btnDel.textContent = "Eliminar";
 
-  if (view === VIEW.CUT_LIST){
-    setHeader("comandante unidad tactica", true);
-    hideSubLine();
-    setActionLabel("Asignar");
-    rightBody.appendChild(buildEditableSelectableList({ listKey: "cut", selectMode: "single" }));
-    return;
-  }
+  btnDel.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onDelete();
+  });
 
-  if (view === VIEW.CET_LIST){
-    setHeader("comandante equipo de trabajo", true);
-    showSubLine(`CUT: ${sel.cut || "—"}`);
-    setActionLabel("Asignar");
-    rightBody.appendChild(buildEditableSelectableList({ listKey: "cet", selectMode: "multi", multiMax: 3 }));
-    return;
-  }
+  btnEdit.addEventListener("click", (e) => {
+    e.stopPropagation();
+    inlineEditRow(row, name, onEdit);
+  });
 
-  if (view === VIEW.CELULAS){
-    setHeader("células", true);
+  right.append(btnEdit, btnDel);
+  row.append(left, right);
 
-    const idx = sel.activeCETIndex ?? 0;
-    const currentCET = (sel.cet || [])[idx];
-    setActionLabel("Asignar");
-
-    hideSubLine();
-    rightBody.appendChild(buildCelulasView());
-
-    if (!sel.cut || !Array.isArray(sel.cet) || sel.cet.length !== 3) {
-      rightMsg.textContent = "Primero asigna CUT y 3 CET.";
-    }
-    return;
-  }
-
-  if (view === VIEW.EQUIPO){
-    setHeader("equipo", true);
-    hideSubLine();
-    setActionLabel("Siguiente");
-    rightBody.appendChild(buildBigMenu([{ label: "Próximamente (equipo)", onClick: () => rightMsg.textContent = "Aquí seguimos después." }]));
-    return;
-  }
-
-  if (view === VIEW.VEHICULOS){
-    setHeader("vehículos", true);
-    hideSubLine();
-    setActionLabel("Siguiente");
-    rightBody.appendChild(buildBigMenu([{ label: "Próximamente (vehículos)", onClick: () => rightMsg.textContent = "Aquí seguimos después." }]));
-    return;
-  }
+  return row;
 }
 
-// ===============================
-// ===== INIT =====================
-// ===============================
+function inlineEditRow(row, oldName, onSave){
+  row.innerHTML = "";
+
+  const edit = document.createElement("div");
+  edit.className = "editInline";
+
+  const inp = document.createElement("input");
+  inp.value = oldName;
+
+  const btnGuardar = document.createElement("button");
+  btnGuardar.className = "smallBtn";
+  btnGuardar.textContent = "Guardar";
+
+  const btnCancelar = document.createElement("button");
+  btnCancelar.className = "smallBtn danger";
+  btnCancelar.textContent = "Cancelar";
+
+  btnGuardar.addEventListener("click", () => {
+    const val = inp.value.trim();
+    if(!val) return;
+    onSave(val);
+  });
+
+  btnCancelar.addEventListener("click", () => {
+    // vuelve a pintar desde quien llamó (guardando igual)
+    onSave(oldName);
+  });
+
+  edit.append(inp, btnGuardar, btnCancelar);
+  row.appendChild(edit);
+
+  inp.focus();
+  inp.select();
+}
+
+// ✅ ahora inlineAddRow recibe un callback async (saveFn)
+function inlineAddRow(listBox, saveFn){
+  const container = document.createElement("div");
+  container.className = "item";
+
+  const edit = document.createElement("div");
+  edit.className = "editInline";
+
+  const inp = document.createElement("input");
+  inp.placeholder = "Nombre";
+  inp.value = "";
+
+  const btnGuardar = document.createElement("button");
+  btnGuardar.className = "smallBtn";
+  btnGuardar.textContent = "Guardar";
+
+  const btnCancelar = document.createElement("button");
+  btnCancelar.className = "smallBtn danger";
+  btnCancelar.textContent = "Cancelar";
+
+  btnGuardar.addEventListener("click", async () => {
+    const val = inp.value.trim();
+    if(!val) return;
+
+    try {
+      btnGuardar.disabled = true;
+      btnCancelar.disabled = true;
+      await saveFn(val);
+    } catch (e) {
+      setHeader(rightTitle.textContent, e.message || "Error al agregar");
+    } finally {
+      btnGuardar.disabled = false;
+      btnCancelar.disabled = false;
+    }
+  });
+
+  btnCancelar.addEventListener("click", () => {
+    // re-render lo hace quien llamó después de onDone
+    if(container.parentNode) container.parentNode.removeChild(container);
+  });
+
+  edit.append(inp, btnGuardar, btnCancelar);
+  container.appendChild(edit);
+
+  const afterSticky = listBox.children[0]?.nextSibling;
+  listBox.insertBefore(container, afterSticky);
+
+  inp.focus();
+}
+
+function celulaRow({name, selected=false, disabled=false, status="Disponible", onToggle}){
+  const row = document.createElement("div");
+  row.className = "item" + (selected ? " selected" : "") + (disabled ? " disabled" : "");
+
+  const left = document.createElement("div");
+  left.className = "itemName";
+  left.textContent = name;
+
+  const right = document.createElement("div");
+  right.className = "badgeRight";
+  right.textContent = status;
+
+  row.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if(!disabled) onToggle();
+  });
+
+  row.append(left, right);
+  return row;
+}
+
+/* --------------------------
+   Navegación back
+-------------------------- */
+btnBack.addEventListener("click", () => {
+  if(state.categoria !== "personal"){
+    renderHome();
+    return;
+  }
+
+  if(state.pasoPersonal === "celulas"){
+    state.pasoPersonal = "cet";
+    renderCET();
+    return;
+  }
+  if(state.pasoPersonal === "cet"){
+    state.pasoPersonal = "cut";
+    renderCUT();
+    return;
+  }
+  if(state.pasoPersonal === "cut"){
+    renderHome();
+    return;
+  }
+});
+
+btnVolver.addEventListener("click", () => {
+  window.location.href = "menu_inicial.html";
+});
+
+/* ===============================
+   ===== INIT =====================
+=============================== */
 (async function init(){
+  // Ejemplo: si traes nombre de operación por querystring
+  const qsp = new URLSearchParams(window.location.search);
+  const op = qsp.get("op");
+  if(op) lblOperacion.textContent = op;
+
   try {
     await loadOps();
 
@@ -706,14 +854,12 @@ function render(){
       localStorage.setItem("active_operation_id", state.activeOpId);
     }
 
-    await refreshActiveOp();
     await loadSelectedForActiveOp();
+    await loadNames(); // precarga catálogos
 
   } catch (e) {
-    rightMsg.textContent = e.message;
-    opBadge.textContent = "Operación: —";
+    setHeader("Asignar", e.message || "Error de carga");
   }
 
-  view = VIEW.ROOT;
-  render();
+  renderHome();
 })();

@@ -119,7 +119,6 @@ CREATE TABLE IF NOT EXISTS puntos_interes (
   latitud         NUMERIC(9,6) NOT NULL,
   longitud        NUMERIC(9,6) NOT NULL,
   descripcion     TEXT,
-  activo          BOOLEAN NOT NULL DEFAULT TRUE,
   fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -129,7 +128,6 @@ CREATE TABLE IF NOT EXISTS equipo (
   nombre         TEXT NOT NULL,
   categoria      TEXT NOT NULL,
   estado         estado_equipo_enum NOT NULL DEFAULT 'DISPONIBLE',
-  activo         BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 -- -------------------------
@@ -156,11 +154,9 @@ CREATE TABLE IF NOT EXISTS equipo_tactico (
 CREATE TABLE IF NOT EXISTS vehiculo (
   id_vehiculo     SERIAL PRIMARY KEY,
   codigo_interno  TEXT NOT NULL UNIQUE,
-  tipo            TEXT NOT NULL,
   marca           TEXT,
   modelo          TEXT,
   estado          estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE',
-  activo          BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 CREATE TABLE IF NOT EXISTS operacion (

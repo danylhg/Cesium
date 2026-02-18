@@ -4,95 +4,93 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Asignación</title>
+
+  <!-- OJO: estas rutas deben existir -->
   <link rel="stylesheet" href="css/asignacion.css" />
 </head>
 <body>
 
-  <!-- Topbar -->
+  <!-- Top -->
   <header class="topbar">
-    <div class="brand">
-      <div class="logo"></div>
-      <div class="brandText">
-        <div class="brandName">Centro de Operaciones</div>
-        <div class="brandSub">Asignaciones</div>
-      </div>
+    <div class="topLeft">
+      <span class="pill">Asignados para operación</span>
+      <span class="opName">Operación: <strong id="lblOperacion">—</strong></span>
     </div>
 
-    <div class="topRight">
-      <div class="pillTop" id="opBadge">Operación: —</div>
-      <button id="btnBack" class="btnTop">Volver</button>
-    </div>
+    <button class="btnGhost" id="btnVolver">Volver</button>
   </header>
 
-  <!-- Background accents -->
-  <div class="bgOrbs" aria-hidden="true">
-    <span class="orb orb1"></span>
-    <span class="orb orb2"></span>
-    <span class="orb orb3"></span>
-  </div>
-
+  <!-- Layout -->
   <main class="wrap">
-
     <section class="shell">
-      <div class="shellGrid">
+      <div class="cols">
 
         <!-- LEFT -->
-        <aside class="panel">
-          <div class="panelHeader">
-            <div class="pill">Información de operación</div>
-          </div>
+        <aside class="card leftCard">
+          <div class="cardTitle">Información de operación</div>
 
           <div class="form">
             <label class="lbl">Nombre</label>
-            <input id="opName" class="inp" type="text" placeholder="Nombre de la operación" />
+            <input class="inp" id="opNombre" placeholder="Nombre de la operación" />
 
             <label class="lbl">Descripción</label>
-            <textarea id="opDesc" class="txt" placeholder="Descripción de la operación"></textarea>
+            <textarea class="inp area" id="opDesc" placeholder="Descripción de la operación"></textarea>
 
             <label class="lbl">Fecha de creación</label>
-            <input id="opDateCreated" class="inp" type="date" />
+            <input class="inp" type="date" id="opCreacion" />
 
             <label class="lbl">Fecha de inicio de operación</label>
-            <input id="opDateStart" class="inp" type="date" />
+            <input class="inp" type="date" id="opInicio" />
 
             <label class="lbl">Fecha de fin de operación</label>
-            <input id="opDateEnd" class="inp" type="date" />
+            <input class="inp" type="date" id="opFin" />
 
-            <button id="btnFinalize" class="btn primary full">Finalizar creación inicial</button>
-            <div class="hint">Captura el nombre, la descripción y las fechas para crear la operación.</div>
-            <div id="leftMsg" class="msg"></div>
+            <label class="lbl">Prioridad</label>
+            <select class="inp" id="opPrioridad">
+              <option value="" selected>Seleccionar prioridad</option>
+              <option value="BAJA">Baja</option>
+              <option value="MEDIA">Media</option>
+              <option value="ALTA">Alta</option>
+            </select>
+
+            <button class="btnPrimary" id="btnFinalizar">Finalizar creación inicial</button>
           </div>
         </aside>
 
-        <!-- DIVIDER -->
-        <div class="divider" aria-hidden="true"></div>
+        <div class="divider"></div>
 
         <!-- RIGHT -->
-        <section class="panel">
-          <div class="panelHeader rowBetween">
-            <div class="titleBar" id="rightTitle">Asignar</div>
+        <section class="card rightCard">
+          <div class="rightHeader">
+            <div class="rightTitle" id="rightTitle">Asignar</div>
 
-            <button id="btnRightBack" class="iconBtn hidden" title="Regresar">
+            <button class="btnCircle" id="btnBack" title="Regresar" aria-label="Regresar">
               ←
             </button>
           </div>
 
-          <!-- Sub title line (CUT: X) -->
-          <div id="subLine" class="subLine hidden"></div>
+          <!-- Panel (contenido dinámico) -->
+          <div class="panel" id="panel"></div>
 
-          <!-- Right content (dynamic) -->
-          <div class="rightBody" id="rightBody"></div>
-
-          <button id="btnRightAction" class="btn primary full">Siguiente</button>
-          <div id="rightMsg" class="msg"></div>
+          <!-- Footer fixed (no se va hasta abajo) -->
+          <div class="rightFooter">
+            <button class="btnPrimary" id="btnAccion">Siguiente</button>
+            <p class="hint" id="rightHint"></p>
+          </div>
         </section>
 
       </div>
     </section>
-
   </main>
 
   <script src="js/asignacion.js"></script>
 </body>
 </html>
+
+
+
+
+
+
+
 
