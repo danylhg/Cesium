@@ -1,390 +1,303 @@
 -- =========================================================
--- ESQUEMA: Operaciones (PostgreSQL) - Usuarios CUT + Personal (CET/CELL)
--- + Subtipos de equipo: equipo_comunicacion / equipo_tactico
--- + Uso de equipo dentro de operación: uso_equipo_operacion
+-- 1) DEFINICIÓN DE TIPOS ENUM (DOMINIOS CONTROLADOS)
 -- =========================================================
 
--- (Opcional) si quieres limpiar todo y recrear:
--- DROP SCHEMA public CASCADE;
--- CREATE SCHEMA public;
-
--- -------------------------
--- 1) TIPOS ENUM
--- -------------------------
 DO $$
 BEGIN
-  -- usuario (solo CUT)
+  -- Roles del sistema (usuarios administradores CUT)
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_usuario_enum') THEN
     CREATE TYPE rol_usuario_enum AS ENUM ('ADMIN');
   END IF;
 
-  -- personal (CET / CELL)
+  -- Roles del personal operativo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'rol_personal_enum') THEN
-    CREATE TYPE rol_personal_enum AS ENUM ('CUT','CET', 'CELL');
+    CREATE TYPE rol_personal_enum AS ENUM ('CUT','CET','CELL');
   END IF;
 
-  -- participante chat
+  -- Tipo de participante en chat
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_participante_enum') THEN
     CREATE TYPE tipo_participante_enum AS ENUM ('USUARIO','PERSONAL');
   END IF;
 
-  -- equipo
+  -- Estados generales de equipo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_equipo_enum') THEN
-    CREATE TYPE estado_equipo_enum AS ENUM ('DISPONIBLE', 'ASIGNADO', 'MANTENIMIENTO', 'BAJA');
+    CREATE TYPE estado_equipo_enum AS ENUM ('DISPONIBLE','ASIGNADO','MANTENIMIENTO','BAJA');
   END IF;
 
-  -- asignación equipo (personal_equipo)
+  -- Estados de asignación de equipo a personal
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_enum') THEN
-    CREATE TYPE estado_asig_equipo_enum AS ENUM ('ASIGNADO', 'DEVUELTO', 'DAÑADO', 'PERDIDO');
+    CREATE TYPE estado_asig_equipo_enum AS ENUM ('ASIGNADO','DEVUELTO','DAÑADO','PERDIDO');
   END IF;
 
-  -- vehiculo
+  -- Estados generales de vehículo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_vehiculo_enum') THEN
-    CREATE TYPE estado_vehiculo_enum AS ENUM ('DISPONIBLE', 'ASIGNADO', 'MANTENIMIENTO', 'BAJA');
+    CREATE TYPE estado_vehiculo_enum AS ENUM ('DISPONIBLE','ASIGNADO','MANTENIMIENTO','BAJA');
   END IF;
 
-  -- vehiculo_equipo
+  -- Estados de instalación de equipo en vehículo
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_instalacion_enum') THEN
-    CREATE TYPE estado_instalacion_enum AS ENUM ('INSTALADO', 'RETIRADO', 'DAÑADO');
+    CREATE TYPE estado_instalacion_enum AS ENUM ('INSTALADO','RETIRADO','DAÑADO');
   END IF;
 
-  -- operacion prioridad
+  -- Prioridad operativa
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'prioridad_operacion_enum') THEN
-    CREATE TYPE prioridad_operacion_enum AS ENUM ('BAJA', 'MEDIA', 'ALTA');
+    CREATE TYPE prioridad_operacion_enum AS ENUM ('BAJA','MEDIA','ALTA');
   END IF;
 
-  -- operacion estado
+  -- Estado de operación
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_operacion_enum') THEN
-    CREATE TYPE estado_operacion_enum AS ENUM ('PLANIFICADA', 'ACTIVA', 'CERRADA', 'CANCELADA');
+    CREATE TYPE estado_operacion_enum AS ENUM ('PLANIFICADA','ACTIVA','CERRADA','CANCELADA');
   END IF;
 
-  -- asignacion a operación (personal)
+  -- Estado de asignación de personal a operación
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asignacion_enum') THEN
-    CREATE TYPE estado_asignacion_enum AS ENUM ('ASIGNADO', 'CONFIRMADO', 'EN_CURSO', 'LIBERADO');
+    CREATE TYPE estado_asignacion_enum AS ENUM ('ASIGNADO','CONFIRMADO','EN_CURSO','LIBERADO');
   END IF;
 
-  -- mensaje_chat
+  -- Tipo de mensaje en chat
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_mensaje_enum') THEN
-    CREATE TYPE tipo_mensaje_enum AS ENUM ('NORMAL', 'SISTEMA', 'URGENTE');
+    CREATE TYPE tipo_mensaje_enum AS ENUM ('NORMAL','SISTEMA','URGENTE');
   END IF;
 
-  -- vehiculo_operacion
+  -- Estado de asignación de vehículo a operación
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_vehiculo_enum') THEN
-    CREATE TYPE estado_asig_vehiculo_enum AS ENUM ('ASIGNADO', 'EN_USO', 'LIBERADO');
+    CREATE TYPE estado_asig_vehiculo_enum AS ENUM ('ASIGNADO','EN_USO','LIBERADO');
   END IF;
 
-  -- equipo operación
+  -- Estado de equipo dentro de operación
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_operacion_enum') THEN
-    CREATE TYPE estado_asig_equipo_operacion_enum AS ENUM ('ASIGNADO', 'EN_USO', 'LIBERADO', 'PERDIDO', 'DAÑADO');
+    CREATE TYPE estado_asig_equipo_operacion_enum AS ENUM ('ASIGNADO','EN_USO','LIBERADO','PERDIDO','DAÑADO');
   END IF;
 END $$;
 
--- -------------------------
--- 2) TABLAS BASE
--- -------------------------
 
+-- =========================================================
+-- 2) TABLAS BASE DEL SISTEMA
+-- =========================================================
+
+-- Usuarios administradores (CUT)
 CREATE TABLE IF NOT EXISTS usuario (
-  id_usuario      SERIAL PRIMARY KEY,
-  rol             rol_usuario_enum NOT NULL,
-  nombre          TEXT NOT NULL,
-  apellido        TEXT NOT NULL,
-  puesto          TEXT,
-  username        TEXT NOT NULL UNIQUE,
-  password_hash   TEXT NOT NULL,
-  activo          BOOLEAN NOT NULL DEFAULT TRUE,
-  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  ultimo_acceso   TIMESTAMPTZ
+  id_usuario SERIAL PRIMARY KEY,
+  rol rol_usuario_enum NOT NULL,
+  nombre TEXT NOT NULL,
+  apellido TEXT NOT NULL,
+  puesto TEXT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  ultimo_acceso TIMESTAMPTZ
 );
 
+-- Personal operativo (CUT/CET/CELL)
 CREATE TABLE IF NOT EXISTS personal (
-  id_personal     SERIAL PRIMARY KEY,
-  rol             rol_personal_enum NOT NULL,
-  nombre          TEXT NOT NULL,
-  apellido        TEXT NOT NULL,
-  puesto          TEXT,
-  username        TEXT NOT NULL UNIQUE,
-  password_hash   TEXT NOT NULL,
-  activo          BOOLEAN NOT NULL DEFAULT TRUE,
-  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  creado_por      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  ultimo_acceso   TIMESTAMPTZ
+  id_personal SERIAL PRIMARY KEY,
+  rol rol_personal_enum NOT NULL,
+  nombre TEXT NOT NULL,
+  apellido TEXT NOT NULL,
+  puesto TEXT,
+  username TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  creado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  ultimo_acceso TIMESTAMPTZ
 );
 
+-- Puntos geográficos de interés
 CREATE TABLE IF NOT EXISTS puntos_interes (
-  id_poi          SERIAL PRIMARY KEY,
-  id_usuario      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  id_personal     INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
-  nombre          TEXT NOT NULL,
-  tipo_poi        TEXT NOT NULL,
-  latitud         NUMERIC(9,6) NOT NULL,
-  longitud        NUMERIC(9,6) NOT NULL,
-  descripcion     TEXT,
-  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id_poi SERIAL PRIMARY KEY,
+  id_usuario INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
+  nombre TEXT NOT NULL,
+  tipo_poi TEXT NOT NULL,
+  latitud NUMERIC(9,6) NOT NULL,
+  longitud NUMERIC(9,6) NOT NULL,
+  descripcion TEXT,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+
+-- =========================================================
+-- 3) INVENTARIO: EQUIPO Y VEHÍCULOS
+-- =========================================================
+
+-- Tabla base de equipo
 CREATE TABLE IF NOT EXISTS equipo (
-  id_equipo      SERIAL PRIMARY KEY,
-  numero_serie   TEXT NOT NULL UNIQUE,
-  nombre         TEXT NOT NULL,
-  categoria      TEXT NOT NULL,
-  estado         estado_equipo_enum NOT NULL DEFAULT 'DISPONIBLE',
+  id_equipo SERIAL PRIMARY KEY,
+  numero_serie TEXT NOT NULL UNIQUE,
+  nombre TEXT NOT NULL,
+  categoria TEXT NOT NULL,
+  estado estado_equipo_enum NOT NULL DEFAULT 'DISPONIBLE'
 );
 
--- -------------------------
--- 2.1) SUBTIPOS DE EQUIPO
--- -------------------------
-
--- Comunicación (1:1 con equipo)
+-- Subtipo: Equipo de comunicación
 CREATE TABLE IF NOT EXISTS equipo_comunicacion (
-  id_equipo      INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
-  marca          TEXT,
-  modelo         TEXT,
-  notas          TEXT
+  id_equipo INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
+  imagen_eqcom TEXT,
+  marca TEXT,
+  modelo TEXT,
+  notas TEXT
 );
 
--- Táctico (1:1 con equipo)
+-- Subtipo: Equipo táctico
 CREATE TABLE IF NOT EXISTS equipo_tactico (
-  id_equipo      INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
-  tipo_tactico   TEXT,
-  calibre        TEXT,
-  nivel          TEXT,
-  notas          TEXT
+  id_equipo INT PRIMARY KEY REFERENCES equipo(id_equipo) ON DELETE CASCADE,
+  imagen_eqtac TEXT,
+  tipo_tactico TEXT,
+  calibre TEXT,
+  nivel TEXT,
+  notas TEXT
 );
 
+-- Inventario de vehículos
 CREATE TABLE IF NOT EXISTS vehiculo (
-  id_vehiculo     SERIAL PRIMARY KEY,
-  codigo_interno  TEXT NOT NULL UNIQUE,
-  marca           TEXT,
-  modelo          TEXT,
-  estado          estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE',
+  id_vehiculo SERIAL PRIMARY KEY,
+  imagen_veh TEXT,
+  codigo_interno TEXT NOT NULL UNIQUE,
+  marca TEXT,
+  modelo TEXT,
+  estado estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE'
 );
+
+
+-- =========================================================
+-- 4) GESTIÓN DE OPERACIONES
+-- =========================================================
 
 CREATE TABLE IF NOT EXISTS operacion (
-  id_operacion    SERIAL PRIMARY KEY,
-  codigo          TEXT NOT NULL UNIQUE,
-  nombre          TEXT NOT NULL,
-  descripcion     TEXT,
-  prioridad       prioridad_operacion_enum NOT NULL DEFAULT 'MEDIA',
-  estado          estado_operacion_enum NOT NULL DEFAULT 'PLANIFICADA',
-  fecha_inicio    TIMESTAMPTZ,
-  fecha_fin       TIMESTAMPTZ,
-  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  creada_por      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  CONSTRAINT chk_operacion_fechas
-    CHECK (
-      fecha_inicio IS NULL
-      OR fecha_fin IS NULL
-      OR fecha_fin >= fecha_inicio
-    )
+  id_operacion SERIAL PRIMARY KEY,
+  codigo TEXT NOT NULL UNIQUE,
+  nombre TEXT NOT NULL,
+  descripcion TEXT,
+  prioridad prioridad_operacion_enum NOT NULL DEFAULT 'MEDIA',
+  estado estado_operacion_enum NOT NULL DEFAULT 'PLANIFICADA',
+  fecha_inicio TIMESTAMPTZ,
+  fecha_fin TIMESTAMPTZ,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  creada_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  CHECK (fecha_inicio IS NULL OR fecha_fin IS NULL OR fecha_fin >= fecha_inicio)
 );
 
--- -------------------------
--- 3) TABLAS PUENTE / ASIGNACIONES
--- -------------------------
 
--- Personal <-> Equipo (con auditoría de quién asignó)
-CREATE TABLE IF NOT EXISTS personal_equipo (
-  id_personal       INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
-  id_equipo         INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
-  cantidad          INT NOT NULL DEFAULT 1,
-  estado            estado_asig_equipo_enum NOT NULL DEFAULT 'ASIGNADO',
-  fecha_asignacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_devolucion  TIMESTAMPTZ,
-  asignado_por      INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  PRIMARY KEY (id_personal, id_equipo),
-  CHECK (cantidad > 0),
-  CHECK (fecha_devolucion IS NULL OR fecha_devolucion >= fecha_asignacion)
-);
+-- =========================================================
+-- 5) RELACIONES Y ASIGNACIONES OPERATIVAS
+-- =========================================================
 
--- Uso de equipo dentro de una operación (quién lo trae/usa)
-CREATE TABLE IF NOT EXISTS uso_equipo_operacion (
-  id_operacion     INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  id_equipo        INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
-  id_personal      INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
-
-  cantidad         INT NOT NULL DEFAULT 1,
-  fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_devolucion TIMESTAMPTZ,
-  asignado_por     INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  notas            TEXT,
-
-  PRIMARY KEY (id_operacion, id_equipo, id_personal),
-  CHECK (cantidad > 0),
-  CHECK (fecha_devolucion IS NULL OR fecha_devolucion >= fecha_asignacion)
-);
-
-CREATE INDEX IF NOT EXISTS idx_uso_eq_op_operacion ON uso_equipo_operacion(id_operacion);
-CREATE INDEX IF NOT EXISTS idx_uso_eq_op_personal  ON uso_equipo_operacion(id_personal);
-
--- Vehiculo <-> Equipo
-CREATE TABLE IF NOT EXISTS vehiculo_equipo (
-  id_vehiculo        INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE CASCADE,
-  id_equipo          INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
-  cantidad           INT NOT NULL DEFAULT 1,
-  estado             estado_instalacion_enum NOT NULL DEFAULT 'INSTALADO',
-  fecha_instalacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_retiro       TIMESTAMPTZ,
-  CONSTRAINT pk_vehiculo_equipo
-    PRIMARY KEY (id_vehiculo, id_equipo),
-  CONSTRAINT chk_vehiculo_equipo_cantidad
-    CHECK (cantidad > 0),
-  CONSTRAINT chk_vehiculo_equipo_fechas
-    CHECK (
-      fecha_retiro IS NULL
-      OR fecha_retiro >= fecha_instalacion
-    )
-);
-
--- Operacion <-> Personal (con auditoría de quién asignó)
+-- Personal asignado a operación
 CREATE TABLE IF NOT EXISTS asignacion_operacion_personal (
-  id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  id_personal           INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
-  rol_en_operacion      TEXT,
-  estado_asignacion     estado_asignacion_enum NOT NULL DEFAULT 'ASIGNADO',
-  fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_fin_asignacion  TIMESTAMPTZ,
-  asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  PRIMARY KEY (id_operacion, id_personal),
+  id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
+  rol_en_operacion TEXT,
+  estado_asignacion estado_asignacion_enum NOT NULL DEFAULT 'ASIGNADO',
+  fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_fin_asignacion TIMESTAMPTZ,
+  asignado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  PRIMARY KEY (id_operacion,id_personal),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
--- Operacion <-> Vehiculo
+-- Vehículos asignados a operación
 CREATE TABLE IF NOT EXISTS vehiculo_operacion (
-  id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  id_vehiculo           INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
-  uso_en_operacion      TEXT,
-  estado_asignacion     estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
-  fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_fin_asignacion  TIMESTAMPTZ,
-  asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  PRIMARY KEY (id_operacion, id_vehiculo),
+  id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_vehiculo INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
+  uso_en_operacion TEXT,
+  estado_asignacion estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
+  fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_fin_asignacion TIMESTAMPTZ,
+  asignado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  PRIMARY KEY (id_operacion,id_vehiculo),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
--- Operacion <-> Equipo
+-- Equipo asignado a operación
 CREATE TABLE IF NOT EXISTS operacion_equipo (
-  id_operacion_equipo   SERIAL PRIMARY KEY,
-  id_operacion          INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  id_equipo             INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
-  cantidad              INT NOT NULL DEFAULT 1,
-  uso_en_operacion      TEXT,
-  estado_asignacion     estado_asig_equipo_operacion_enum NOT NULL DEFAULT 'ASIGNADO',
-  fecha_asignacion      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_fin_asignacion  TIMESTAMPTZ,
-  asignado_por          INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-
-  CONSTRAINT uq_operacion_equipo UNIQUE (id_operacion, id_equipo),
+  id_operacion_equipo SERIAL PRIMARY KEY,
+  id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_equipo INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
+  cantidad INT NOT NULL DEFAULT 1,
+  uso_en_operacion TEXT,
+  estado_asignacion estado_asig_equipo_operacion_enum NOT NULL DEFAULT 'ASIGNADO',
+  fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_fin_asignacion TIMESTAMPTZ,
+  asignado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  UNIQUE (id_operacion,id_equipo),
   CHECK (cantidad > 0),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
-CREATE INDEX IF NOT EXISTS idx_op_eq_busqueda
-  ON operacion_equipo(id_operacion, id_equipo);
 
--- (Opcional) Asegura que el equipo usado en operación esté previamente asignado a la operación
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'fk_uso_equipo_operacion_a_operacion_equipo'
-  ) THEN
-    ALTER TABLE uso_equipo_operacion
-      ADD CONSTRAINT fk_uso_equipo_operacion_a_operacion_equipo
-      FOREIGN KEY (id_operacion, id_equipo)
-      REFERENCES operacion_equipo (id_operacion, id_equipo)
-      ON DELETE CASCADE;
-  END IF;
-END $$;
+-- =========================================================
+-- 6) MÓDULO DE CHAT OPERACIONAL
+-- =========================================================
 
--- -------------------------
--- 4) CHAT
--- -------------------------
-
--- 1 chat por operación
 CREATE TABLE IF NOT EXISTS chat_operacion (
-  id_chat         SERIAL PRIMARY KEY,
-  id_operacion    INT NOT NULL UNIQUE REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  fecha_cierre    TIMESTAMPTZ,
-  activo          BOOLEAN NOT NULL DEFAULT TRUE,
-  CONSTRAINT chk_chat_fechas
-    CHECK (
-      fecha_cierre IS NULL
-      OR fecha_cierre >= fecha_creacion
-    )
+  id_chat SERIAL PRIMARY KEY,
+  id_operacion INT NOT NULL UNIQUE REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_cierre TIMESTAMPTZ,
+  activo BOOLEAN NOT NULL DEFAULT TRUE,
+  CHECK (fecha_cierre IS NULL OR fecha_cierre >= fecha_creacion)
 );
 
 CREATE TABLE IF NOT EXISTS participante_chat (
-  id_participante  SERIAL PRIMARY KEY,
-  id_chat          INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
-  tipo             tipo_participante_enum NOT NULL,
-  id_usuario       INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  id_personal      INT REFERENCES personal(id_personal) ON DELETE CASCADE,
-
-  CONSTRAINT chk_uno_solo
-    CHECK (
-      (tipo='USUARIO'  AND id_usuario IS NOT NULL AND id_personal IS NULL) OR
-      (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
-    ),
-
-  -- Evita duplicados dentro del mismo chat (nota: UNIQUE permite múltiples NULL, pero el CHECK controla la lógica)
-  CONSTRAINT uq_participante_usuario_chat UNIQUE (id_chat, id_usuario),
-  CONSTRAINT uq_participante_personal_chat UNIQUE (id_chat, id_personal)
+  id_participante SERIAL PRIMARY KEY,
+  id_chat INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
+  tipo tipo_participante_enum NOT NULL,
+  id_usuario INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+  CHECK (
+    (tipo='USUARIO' AND id_usuario IS NOT NULL AND id_personal IS NULL) OR
+    (tipo='PERSONAL' AND id_personal IS NOT NULL AND id_usuario IS NULL)
+  ),
+  UNIQUE (id_chat,id_usuario),
+  UNIQUE (id_chat,id_personal)
 );
 
 CREATE TABLE IF NOT EXISTS mensaje_chat (
-  id_mensaje       SERIAL PRIMARY KEY,
-  id_chat          INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
-  id_participante  INT NOT NULL REFERENCES participante_chat(id_participante) ON DELETE CASCADE,
-  contenido        TEXT NOT NULL,
-  tipo_mensaje     tipo_mensaje_enum NOT NULL DEFAULT 'NORMAL',
-  fecha_envio      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id_mensaje SERIAL PRIMARY KEY,
+  id_chat INT NOT NULL REFERENCES chat_operacion(id_chat) ON DELETE CASCADE,
+  id_participante INT NOT NULL REFERENCES participante_chat(id_participante) ON DELETE CASCADE,
+  contenido TEXT NOT NULL,
+  tipo_mensaje tipo_mensaje_enum NOT NULL DEFAULT 'NORMAL',
+  fecha_envio TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Asignación (CUT/CET/CELL) por operación (JSON)
+
+-- =========================================================
+-- 7) CONFIGURACIÓN JSON DE ASIGNACIONES (ESTRUCTURA AUXILIAR)
+-- =========================================================
+
 CREATE TABLE IF NOT EXISTS operacion_asignaciones (
-  id_operacion INT PRIMARY KEY
-    REFERENCES operacion(id_operacion)
-    ON DELETE CASCADE,
+  id_operacion INT PRIMARY KEY REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   assignments JSONB NOT NULL DEFAULT '{}'::jsonb,
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- -------------------------
--- 5) ÍNDICES ÚTILES (rendimiento)
--- -------------------------
-CREATE INDEX IF NOT EXISTS idx_poi_usuario         ON puntos_interes(id_usuario);
-CREATE INDEX IF NOT EXISTS idx_msg_chat_fecha      ON mensaje_chat(id_chat, fecha_envio DESC);
-CREATE INDEX IF NOT EXISTS idx_asig_op_personal    ON asignacion_operacion_personal(id_personal);
-CREATE INDEX IF NOT EXISTS idx_veh_op_op           ON vehiculo_operacion(id_operacion);
 
-CREATE INDEX IF NOT EXISTS idx_equipo_com_banda     ON equipo_comunicacion(marca);
-CREATE INDEX IF NOT EXISTS idx_equipo_tac_tipo      ON equipo_tactico(tipo_tactico);
+-- =========================================================
+-- 8) DATOS INICIALES (SEED)
+-- =========================================================
 
--- ------------------------
--- 6) INSERTS (inventario)
--- ------------------------
-
-INSERT INTO vehiculo (codigo_interno, tipo, marca, modelo, estado)
+-- Vehículos preconfigurados
+INSERT INTO vehiculo (imagen_veh, codigo_interno, marca, modelo, estado)
 VALUES
-('VH-001','CAMIONETA','Toyota','Hilux','DISPONIBLE'),
-('VH-002','CAMIONETA','Ford','Ranger','DISPONIBLE'),
-('VH-003','BLINDADO','Jeep','J8','DISPONIBLE'),
-('VH-004','CAMION','Mercedes','Unimog','DISPONIBLE'),
-('VH-005','LANCHA','Yamaha','Defender','DISPONIBLE'),
-('VH-006','CAMIONETA','Nissan','Frontier','DISPONIBLE'),
-('VH-007','BLINDADO','Oshkosh','M-ATV','DISPONIBLE'),
-('VH-008','CAMION','MAN','HX','DISPONIBLE'),
-('VH-009','MOTO','BMW','GS','DISPONIBLE'),
-('VH-010','CAMIONETA','Chevrolet','Colorado','DISPONIBLE'),
-('VH-011','BLINDADO','Iveco','LMV','DISPONIBLE'),
-('VH-012','CAMION','Volvo','FMX','DISPONIBLE'),
-('VH-013','LANCHA','Zodiac','Pro','DISPONIBLE'),
-('VH-014','MOTO','Honda','XR','DISPONIBLE'),
-('VH-015','CAMIONETA','RAM','2500','DISPONIBLE'),
-('VH-016','CAMION','Scania','XT','DISPONIBLE'),
-('VH-017','BLINDADO','Toyota','Land Cruiser','DISPONIBLE'),
-('VH-018','MOTO','Yamaha','XTZ','DISPONIBLE'),
-('VH-019','LANCHA','Boston Whaler','Guardian','DISPONIBLE'),
-('VH-020','CAMIONETA','Isuzu','D-Max','DISPONIBLE')
+('./uploads/vehiculo/Alacran.jpeg','VH-001','Alacran','Táctico','DISPONIBLE'),
+('./uploads/vehiculo/Dron vant 01.jpeg','VH-002','Dron','VANT 01','DISPONIBLE'),
+('./uploads/vehiculo/Ford F-150.jpeg','VH-003','Ford','F-150','DISPONIBLE'),
+('./uploads/vehiculo/Panther.jpeg','VH-004','Panther','Blindado','DISPONIBLE'),
+('./uploads/vehiculo/Scualo.jpeg','VH-005','Scualo','Interceptor','DISPONIBLE')
 ON CONFLICT (codigo_interno) DO NOTHING;
+
+-- Equipo de comunicación preconfigurado
+INSERT INTO equipo (numero_serie, nombre, categoria, estado)
+VALUES ('HFC-001','Harris Falcon','COMUNICACION','DISPONIBLE');
+
+INSERT INTO equipo_comunicacion (id_equipo, imagen_eqcom, marca, modelo, notas)
+VALUES (
+  currval('equipo_id_equipo_seq'),
+  './uploads/equipo/comunicacion/Harris Falcon.jpeg',
+  'Harris',
+  'Falcon III',
+  'Radio táctico multibanda'
+);
