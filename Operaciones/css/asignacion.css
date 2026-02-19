@@ -284,6 +284,56 @@ input[type="date"]{
   box-shadow: 0 0 0 3px rgba(36,87,230,.10);
 }
 
+/* ------------------ VEHICLE CARDS ------------------ */
+
+.vehicleGrid{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px;
+  padding: 16px 0;
+}
+
+.vehicleCard{
+  background: var(--card);
+  border: 1px solid var(--stroke2);
+  border-radius: var(--radius2);
+  padding: 8px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.vehicleCard img{
+  width: 100%;
+  height: 100px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.vehicleCard p{
+  margin: 8px 0 0;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.vehicleBtnRow{
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+/* VEHICLE CARD SELECTED/DISABLED */
+.vehicleCard.selected{
+  border-color:var(--blue);
+  background:rgba(36,87,230,.08);
+  border-bottom:3px solid var(--blue);
+}
+
+.vehicleCard.disabled{
+  opacity:0.6;
+  cursor:not-allowed;
+}
+
 /* ------------------ ITEMS ------------------ */
 
 .item{
@@ -369,6 +419,10 @@ input[type="date"]{
   display:flex;
   gap:8px;
   width:100%;
+}
+
+.vehicleCard .editInline{
+  flex-direction: column;
 }
 
 .editInline input{

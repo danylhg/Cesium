@@ -308,18 +308,6 @@ CREATE TABLE IF NOT EXISTS grupo_equipo (
     ON DELETE CASCADE
 );
 
--- Asegura consistencia: el id_operacion del grupo_equipo debe ser el mismo del grupo_operacion
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_grupo_equipo_grupo_operacion_consistente') THEN
-    ALTER TABLE grupo_equipo
-      ADD CONSTRAINT fk_grupo_equipo_grupo_operacion_consistente
-      FOREIGN KEY (id_grupo_operacion, id_operacion)
-      REFERENCES grupo_operacion (id_grupo_operacion, id_operacion)
-      ON DELETE CASCADE;
-  END IF;
-END $$;
-
 -- Vehículo asignado a un grupo, pero solo si ya está asignado a la operación (confirmación)
 CREATE TABLE IF NOT EXISTS grupo_vehiculo (
   id_grupo_operacion INT NOT NULL REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
@@ -342,18 +330,6 @@ CREATE TABLE IF NOT EXISTS grupo_vehiculo (
     ON DELETE CASCADE
 );
 
--- Asegura consistencia: el id_operacion del grupo_vehiculo debe ser el mismo del grupo_operacion
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_grupo_vehiculo_grupo_operacion_consistente') THEN
-    ALTER TABLE grupo_vehiculo
-      ADD CONSTRAINT fk_grupo_vehiculo_grupo_operacion_consistente
-      FOREIGN KEY (id_grupo_operacion, id_operacion)
-      REFERENCES grupo_operacion (id_grupo_operacion, id_operacion)
-      ON DELETE CASCADE;
-  END IF;
-END $$;
-
 -- Regla útil: un vehículo NO puede estar en 2 grupos de la misma operación
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_vehiculo_unico_por_operacion
   ON grupo_vehiculo (id_operacion, id_vehiculo);
@@ -361,6 +337,45 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_vehiculo_unico_por_operacion
 -- Regla útil: un equipo NO puede estar en 2 grupos de la misma operación (si quieres permitirlo, quita este índice)
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_equipo_unico_por_operacion
   ON grupo_equipo (id_operacion, id_equipo);
+
+CREATE OR REPLACE FUNCTION fn_validar_grupo_operacion_consistente()
+RETURNS TRIGGER AS $$
+DECLARE
+  op_grupo INT;
+BEGIN
+  SELECT id_operacion INTO op_grupo
+  FROM grupo_operacion
+  WHERE id_grupo_operacion = NEW.id_grupo_operacion;
+
+  IF op_grupo IS NULL THEN
+    RAISE EXCEPTION 'No existe grupo_operacion id=%', NEW.id_grupo_operacion;
+  END IF;
+
+  IF NEW.id_operacion <> op_grupo THEN
+    RAISE EXCEPTION 'id_operacion (%) no coincide con la operación del grupo (%)', NEW.id_operacion, op_grupo;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_equipo_op_consistente') THEN
+    CREATE TRIGGER tr_grupo_equipo_op_consistente
+    BEFORE INSERT OR UPDATE ON grupo_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_grupo_operacion_consistente();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_vehiculo_op_consistente') THEN
+    CREATE TRIGGER tr_grupo_vehiculo_op_consistente
+    BEFORE INSERT OR UPDATE ON grupo_vehiculo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_grupo_operacion_consistente();
+  END IF;
+END $$;
+
 
 -- =========================================================
 -- 6.X) JERARQUÍA DE MANDO EN OPERACIÓN (CELL -> CET)
