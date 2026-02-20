@@ -1,7 +1,10 @@
 /* =========================================================
-   ASIGNACIÓN - Flujo con BD (Postgres)
+   ASIGNACIÓN - Flujo con BD (Postgres) + UI Mejorada
    - Selección por IDs (no por nombres)
    - Carga listas desde API
+   - Sticky "+ Agregar" (crea en BD)
+   - Editar inline (actualiza en BD)
+   - Eliminar (borra en BD)
    - Guarda: operacion, asignacion_operacion_personal, mando_operacion
    - Vehículos: vehiculo_operacion + grupos (auto)
 ========================================================= */
@@ -62,37 +65,65 @@ function clearPanel(){ panel.innerHTML = ""; }
 function getScrollTopInPanel(){ return panel.querySelector(".listBox")?.scrollTop ?? 0; }
 function restoreScrollTop(listBoxEl, scrollTop){ if(!listBoxEl) return; requestAnimationFrame(() => { listBoxEl.scrollTop = scrollTop; }); }
 
+function stickyAddButton(label, onClick){
+  const wrap = document.createElement("div");
+  wrap.className = "stickyAdd";
+
+  const b = document.createElement("button");
+  b.className = "addBtn";
+  b.textContent = `+ ${capFirst(label)}`;
+  b.addEventListener("click", onClick);
+
+  wrap.appendChild(b);
+  return wrap;
+}
+
+function stickyInfo(text){
+  const wrap = document.createElement("div");
+  wrap.className = "stickyAdd";
+  const p = document.createElement("div");
+  p.style.fontSize = "12px";
+  p.style.opacity = "0.8";
+  p.style.padding = "8px 0";
+  p.textContent = text;
+  wrap.appendChild(p);
+  return wrap;
+}
+
+// Parse "Nombre Apellido" -> {nombre, apellido}
+// (si solo ponen 1 palabra, apellido queda vacío)
+function parseNombreApellido(full){
+  const s = (full || "").trim().replace(/\s+/g, " ");
+  if(!s) return { nombre: "", apellido: "" };
+  const parts = s.split(" ");
+  if(parts.length === 1) return { nombre: parts[0], apellido: "" };
+  return { nombre: parts.slice(0, -1).join(" "), apellido: parts.slice(-1).join("") };
+}
+
 // ===============================
 // ====== STATE GLOBAL ============
 // ===============================
 const state = {
-  // operación actual (ID real)
   id_operacion: null,
   operacionCodigo: null,
 
-  // quien asigna (usuario logueado)
   id_usuario: null,
 
   categoria: null, // 'personal' | 'equipo' | 'vehiculos'
   pasoPersonal: "home", // home | cut | cet | celulas
 
-  // catálogos desde BD
   catalog: {
-    CUT: [],  // [{id_personal, nombre, apellido, rol}]
+    CUT: [],
     CET: [],
     CELL: [],
-    vehiculos: [], // [{id_vehiculo, codigo_interno, marca, modelo, imagen_veh, estado}]
+    vehiculos: [],
   },
 
-  // selecciones por ID
-  cutSeleccionadoId: null,      // id_personal (rol CUT)
-  cetSeleccionadosIds: [],      // [id_personal] (rol CET)
+  cutSeleccionadoId: null,
+  cetSeleccionadosIds: [],
   cetActivoIndex: 0,
 
-  // asignación de células por CET: { [id_cet]: [id_cell, ...] }
   asignacionCelulas: {},
-
-  // vehículos por CET (tu UI actual): { [id_cet]: [id_vehiculo, ...] }
   asignacionVehiculos: {},
   cetActivoIndexVeh: 0,
 };
@@ -103,11 +134,9 @@ function fullName(p){ return `${p.nombre} ${p.apellido}`.trim(); }
 // ====== CARGA INICIAL ===========
 // ===============================
 async function loadCatalogs(){
-  // usuario actual (para asignado_por)
   const me = await api("/me");
   state.id_usuario = me.id_usuario;
 
-  // Traemos personal por rol
   const [cuts, cets, cells, vehs] = await Promise.all([
     api("/catalog/personal?rol=CUT"),
     api("/catalog/personal?rol=CET"),
@@ -119,6 +148,11 @@ async function loadCatalogs(){
   state.catalog.CET = cets.items || cets || [];
   state.catalog.CELL = cells.items || cells || [];
   state.catalog.vehiculos = vehs.items || vehs || [];
+}
+
+async function reloadPersonalCatalog(rol){
+  const data = await api(`/catalog/personal?rol=${encodeURIComponent(rol)}`);
+  state.catalog[rol] = data.items || data || [];
 }
 
 // Si vienes con ?op_id=123 o ?op_codigo=OP-001
@@ -145,7 +179,6 @@ async function loadOperacionFromQS(){
     return;
   }
 
-  // si no hay operación, solo muestra “—”
   lblOperacion.textContent = "—";
 }
 
@@ -154,9 +187,8 @@ function paintOperacionForm(op){
   opDesc.value = op.descripcion || "";
   opPrioridad.value = op.prioridad || "";
 
-  // fechas (input type=date usa YYYY-MM-DD)
   const toDate = (v) => v ? new Date(v).toISOString().slice(0,10) : "";
-  opCreacion.value = toDate(op.fecha_creacion); // solo display (tu BD la genera)
+  opCreacion.value = toDate(op.fecha_creacion);
   opInicio.value = toDate(op.fecha_inicio);
   opFin.value = toDate(op.fecha_fin);
 }
@@ -190,6 +222,35 @@ async function saveOperacion(){
     paintOperacionForm(op);
     return op;
   }
+}
+
+// ===============================
+// ====== CRUD PERSONAL (BD) ======
+// ===============================
+async function createPersonal({ rol, nombreCompleto }){
+  const { nombre, apellido } = parseNombreApellido(nombreCompleto);
+  if(!nombre || !apellido) throw new Error("Escribe nombre y apellido");
+
+  const resp = await api("/catalog/personal", {
+    method: "POST",
+    body: { rol, nombre, apellido }
+  });
+  return resp.item; // <- importante
+}
+
+async function updatePersonal({ id_personal, nombreCompleto }){
+  const { nombre, apellido } = parseNombreApellido(nombreCompleto);
+  if(!nombre || !apellido) throw new Error("Escribe nombre y apellido");
+
+  const resp = await api(`/catalog/personal/${id_personal}`, {
+    method: "PUT",
+    body: { nombre, apellido }
+  });
+  return resp.item; // <- importante
+}
+
+async function deletePersonal(id_personal){
+  await api(`/catalog/personal/${id_personal}`, { method: "DELETE" });
 }
 
 // ===============================
@@ -235,7 +296,6 @@ function renderHome(){
       alert("Primero guarda la operación (izquierda).");
       return;
     }
-    // Solo deja entrar si ya hay CET/células (tu flujo)
     if(state.cetSeleccionadosIds.length === 0){
       alert("Primero asigna CET y Células.");
       return;
@@ -263,12 +323,117 @@ function renderPlaceholder(title){
 }
 
 // ===============================
+// ====== UI row con Edit/Delete ==
+// ===============================
+function personRowCrud({ name, selected=false, onSelect, onDelete, onEdit }){
+  const row = document.createElement("div");
+  row.className = "item" + (selected ? " selected" : "");
+
+  const left = document.createElement("div");
+  left.className = "itemName";
+  left.textContent = name;
+  left.style.cursor = "pointer";
+  left.addEventListener("click", onSelect);
+
+  const right = document.createElement("div");
+  right.className = "itemRight";
+
+  const btnEdit = document.createElement("button");
+  btnEdit.className = "smallBtn";
+  btnEdit.textContent = "Editar";
+
+  const btnDel = document.createElement("button");
+  btnDel.className = "smallBtn danger";
+  btnDel.textContent = "Eliminar";
+
+  btnDel.addEventListener("click", (e) => {
+    e.stopPropagation();
+    onDelete?.();
+  });
+
+  btnEdit.addEventListener("click", (e) => {
+    e.stopPropagation();
+    inlineEditRow(row, name, onEdit);
+  });
+
+  right.append(btnEdit, btnDel);
+  row.append(left, right);
+  return row;
+}
+
+function inlineEditRow(row, oldName, onSave){
+  row.innerHTML = "";
+
+  const edit = document.createElement("div");
+  edit.className = "editInline";
+
+  const inp = document.createElement("input");
+  inp.value = oldName;
+
+  const btnGuardar = document.createElement("button");
+  btnGuardar.className = "smallBtn";
+  btnGuardar.textContent = "Guardar";
+
+  const btnCancelar = document.createElement("button");
+  btnCancelar.className = "smallBtn danger";
+  btnCancelar.textContent = "Cancelar";
+
+  btnGuardar.addEventListener("click", async () => {
+    const val = inp.value.trim();
+    if(!val) return;
+    await onSave(val);
+  });
+
+  btnCancelar.addEventListener("click", () => {
+    // cancel => re-render normal
+    onSave(oldName);
+  });
+
+  edit.append(inp, btnGuardar, btnCancelar);
+  row.appendChild(edit);
+
+  inp.focus();
+  inp.select();
+}
+
+function inlineAddRow(listBox, { placeholder="Nombre", onSave, onCancel }){
+  const container = document.createElement("div");
+  container.className = "item";
+
+  const edit = document.createElement("div");
+  edit.className = "editInline";
+
+  const inp = document.createElement("input");
+  inp.placeholder = placeholder;
+  inp.value = "";
+
+  const btnGuardar = document.createElement("button");
+  btnGuardar.className = "smallBtn";
+  btnGuardar.textContent = "Guardar";
+
+  const btnCancelar = document.createElement("button");
+  btnCancelar.className = "smallBtn danger";
+  btnCancelar.textContent = "Cancelar";
+
+  btnGuardar.addEventListener("click", async () => {
+    const val = inp.value.trim();
+    if(!val) return;
+    await onSave(val);
+  });
+
+  btnCancelar.addEventListener("click", () => onCancel?.());
+
+  edit.append(inp, btnGuardar, btnCancelar);
+  container.appendChild(edit);
+
+  const afterSticky = listBox.children[0]?.nextSibling;
+  listBox.insertBefore(container, afterSticky);
+  inp.focus();
+}
+
+// ===============================
 // ====== PERSONAL: CUT ===========
-/*
-  En BD:
-  - CUT/CET/CELL están en tabla personal
-  - Se guardan en asignacion_operacion_personal al finalizar (o por paso)
-*/
+// ===============================
 function renderCUT(){
   const prevScroll = getScrollTopInPanel();
   clearPanel();
@@ -280,24 +445,50 @@ function renderCUT(){
   const listBox = document.createElement("div");
   listBox.className = "listBox";
 
-  // Aquí NO “agregamos” personal desde UI porque personal vive en catálogo/BD.
-  // Si quieres crear personal desde aquí, se hace con endpoint POST /catalog/personal
-  // Por ahora: solo seleccionar.
-  listBox.appendChild(stickyInfo("Selecciona 1 CUT del catálogo"));
+  listBox.appendChild(stickyAddButton("Agregar", () => {
+    inlineAddRow(listBox, {
+      placeholder: "Nombre Apellido",
+      onSave: async (nombreCompleto) => {
+        try{
+          await createPersonal({ rol: "CUT", nombreCompleto });
+          await reloadPersonalCatalog("CUT");
+          renderCUT();
+        }catch(e){ alert(e.message || "Error creando CUT"); renderCUT(); }
+      },
+      onCancel: () => renderCUT()
+    });
+  }));
+
+  listBox.appendChild(stickyInfo("Selecciona 1 CUT del catálogo (BD)"));
 
   state.catalog.CUT.forEach((p) => {
-    listBox.appendChild(personRow({
+    listBox.appendChild(personRowCrud({
       name: fullName(p),
       selected: state.cutSeleccionadoId === p.id_personal,
       onSelect: () => {
         state.cutSeleccionadoId = p.id_personal;
-        // reset dependencias
         state.cetSeleccionadosIds = [];
         state.cetActivoIndex = 0;
         state.asignacionCelulas = {};
         state.asignacionVehiculos = {};
         state.cetActivoIndexVeh = 0;
         renderCUT();
+      },
+      onDelete: async () => {
+        if(!confirm(`Eliminar a ${fullName(p)} del catálogo?`)) return;
+        try{
+          await deletePersonal(p.id_personal);
+          if(state.cutSeleccionadoId === p.id_personal) state.cutSeleccionadoId = null;
+          await reloadPersonalCatalog("CUT");
+          renderCUT();
+        }catch(e){ alert(e.message || "Error eliminando CUT"); }
+      },
+      onEdit: async (nuevoNombreCompleto) => {
+        try{
+          await updatePersonal({ id_personal: p.id_personal, nombreCompleto: nuevoNombreCompleto });
+          await reloadPersonalCatalog("CUT");
+          renderCUT();
+        }catch(e){ alert(e.message || "Error editando CUT"); renderCUT(); }
       }
     }));
   });
@@ -314,6 +505,7 @@ function renderCUT(){
 
 // ===============================
 // ====== PERSONAL: CET ===========
+// ===============================
 function renderCET(){
   const prevScroll = getScrollTopInPanel();
   clearPanel();
@@ -322,7 +514,6 @@ function renderCET(){
   setHeader("Comandante de Equipo de Trabajo", "");
   setAccion("Siguiente", state.cetSeleccionadosIds.length === 0);
 
-  // chips arriba
   const chips = document.createElement("div");
   chips.className = "chipRow";
 
@@ -344,11 +535,27 @@ function renderCET(){
 
   const listBox = document.createElement("div");
   listBox.className = "listBox";
+
+  listBox.appendChild(stickyAddButton("Agregar", () => {
+    inlineAddRow(listBox, {
+      placeholder: "Nombre Apellido",
+      onSave: async (nombreCompleto) => {
+        try{
+          await createPersonal({ rol: "CET", nombreCompleto });
+          await reloadPersonalCatalog("CET");
+          renderCET();
+        }catch(e){ alert(e.message || "Error creando CET"); renderCET(); }
+      },
+      onCancel: () => renderCET()
+    });
+  }));
+
   listBox.appendChild(stickyInfo("Selecciona CET (tu regla: mínimo 3)"));
 
   state.catalog.CET.forEach((p) => {
     const isSel = state.cetSeleccionadosIds.includes(p.id_personal);
-    listBox.appendChild(personRow({
+
+    listBox.appendChild(personRowCrud({
       name: fullName(p),
       selected: isSel,
       onSelect: () => {
@@ -361,6 +568,24 @@ function renderCET(){
         }
         state.cetSeleccionadosIds.push(p.id_personal);
         renderCET();
+      },
+      onDelete: async () => {
+        if(!confirm(`Eliminar a ${fullName(p)} del catálogo?`)) return;
+        try{
+          await deletePersonal(p.id_personal);
+          state.cetSeleccionadosIds = state.cetSeleccionadosIds.filter(x => x !== p.id_personal);
+          delete state.asignacionCelulas[p.id_personal];
+          delete state.asignacionVehiculos[p.id_personal];
+          await reloadPersonalCatalog("CET");
+          renderCET();
+        }catch(e){ alert(e.message || "Error eliminando CET"); }
+      },
+      onEdit: async (nuevoNombreCompleto) => {
+        try{
+          await updatePersonal({ id_personal: p.id_personal, nombreCompleto: nuevoNombreCompleto });
+          await reloadPersonalCatalog("CET");
+          renderCET();
+        }catch(e){ alert(e.message || "Error editando CET"); renderCET(); }
       }
     }));
   });
@@ -371,7 +596,6 @@ function renderCET(){
   btnAccion.onclick = () => {
     if(state.cetSeleccionadosIds.length === 0) return;
 
-    // inicializa buckets
     state.cetSeleccionadosIds.forEach(id => {
       if(!state.asignacionCelulas[id]) state.asignacionCelulas[id] = [];
       if(!state.asignacionVehiculos[id]) state.asignacionVehiculos[id] = [];
@@ -385,6 +609,29 @@ function renderCET(){
 
 // ===============================
 // ====== PERSONAL: CÉLULAS =======
+// ===============================
+function celulaRow({name, selected=false, disabled=false, status="Disponible", onToggle}){
+  const row = document.createElement("div");
+  row.className = "item" + (selected ? " selected" : "") + (disabled ? " disabled" : "");
+
+  const left = document.createElement("div");
+  left.className = "itemName";
+  left.textContent = name;
+
+  const right = document.createElement("div");
+  right.className = "badgeRight";
+  right.textContent = status;
+
+  row.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if(!disabled) onToggle();
+  });
+
+  row.append(left, right);
+  return row;
+}
+
 function renderCelulas(){
   const prevScroll = getScrollTopInPanel();
   clearPanel();
@@ -400,7 +647,6 @@ function renderCelulas(){
     asignadas.length < 6
   );
 
-  // chips
   const chips = document.createElement("div");
   chips.className = "chipRow";
 
@@ -421,12 +667,25 @@ function renderCelulas(){
 
   panel.appendChild(chips);
 
-  // listbox
   const listBox = document.createElement("div");
   listBox.className = "listBox";
+
+  listBox.appendChild(stickyAddButton("Agregar", () => {
+    inlineAddRow(listBox, {
+      placeholder: "Nombre Apellido (CELL)",
+      onSave: async (nombreCompleto) => {
+        try{
+          await createPersonal({ rol: "CELL", nombreCompleto });
+          await reloadPersonalCatalog("CELL");
+          renderCelulas();
+        }catch(e){ alert(e.message || "Error creando CELL"); renderCelulas(); }
+      },
+      onCancel: () => renderCelulas()
+    });
+  }));
+
   listBox.appendChild(stickyInfo(`Selecciona mínimo 6 Células para: ${cet ? fullName(cet) : "CET"}`));
 
-  // celdas ya usadas en otros CET
   const yaUsadas = new Set();
   state.cetSeleccionadosIds.forEach((otherCetId, i) => {
     if(i === state.cetActivoIndex) return;
@@ -437,6 +696,9 @@ function renderCelulas(){
     const enEste = asignadas.includes(cell.id_personal);
     const bloqueada = yaUsadas.has(cell.id_personal);
 
+    // aquí “editar/eliminar” sería del catálogo CELL (no de la asignación)
+    // Para no ensuciar UI, lo dejamos como selección; si quieres CRUD también en CELL,
+    // dímelo y te lo dejo como en CUT/CET.
     listBox.appendChild(celulaRow({
       name: fullName(cell),
       selected: enEste,
@@ -467,7 +729,6 @@ function renderCelulas(){
       return;
     }
 
-    // Último CET => guardar en BD
     try{
       await persistPersonalAssignments();
       alert("Personal guardado: CUT/CET/CELL + mandos (CELL→CET).");
@@ -488,7 +749,6 @@ async function persistPersonalAssignments(){
   if(!state.cutSeleccionadoId) throw new Error("Selecciona CUT");
   if(state.cetSeleccionadosIds.length === 0) throw new Error("Selecciona CET");
 
-  // 1) asig_op_personal: CUT + CET + CELL
   const personalIds = new Set();
   personalIds.add(state.cutSeleccionadoId);
   state.cetSeleccionadosIds.forEach(id => personalIds.add(id));
@@ -505,13 +765,10 @@ async function persistPersonalAssignments(){
 
   await api(`/ops/${state.id_operacion}/personal`, { method: "POST", body: payloadPersonal });
 
-  // 2) mando_operacion: por cada CET, sus cells
   const mandoItems = [];
   state.cetSeleccionadosIds.forEach((id_cet) => {
     const cells = state.asignacionCelulas[id_cet] || [];
-    cells.forEach((id_cell) => {
-      mandoItems.push({ id_cet, id_cell });
-    });
+    cells.forEach((id_cell) => mandoItems.push({ id_cet, id_cell }));
   });
 
   await api(`/ops/${state.id_operacion}/mando`, {
@@ -521,7 +778,7 @@ async function persistPersonalAssignments(){
 }
 
 // ===============================
-// ====== VEHÍCULOS (UI) ==========
+// ====== VEHÍCULOS (como Código 1)
 // ===============================
 function renderVehiculos(){
   const prevScroll = getScrollTopInPanel();
@@ -535,7 +792,6 @@ function renderVehiculos(){
   setHeader("Vehículos", "");
   setAccion(state.cetActivoIndexVeh < state.cetSeleccionadosIds.length - 1 ? "Siguiente" : "Finalizar y Guardar", false);
 
-  // chips
   const chips = document.createElement("div");
   chips.className = "chipRow";
 
@@ -562,7 +818,6 @@ function renderVehiculos(){
   const content = document.createElement("div");
   content.className = "vehicleGrid";
 
-  // Vehículos ya usados en otros CET (en tu UI actual)
   const yaUsadas = new Set();
   state.cetSeleccionadosIds.forEach((otherCetId, i) => {
     if(i === state.cetActivoIndexVeh) return;
@@ -577,12 +832,10 @@ function renderVehiculos(){
     card.className = "vehicleCard" + (enEste ? " selected" : "") + (bloqueada ? " disabled" : "");
 
     const imgUrl = (v.imagen_veh || "").trim();
-
     if (imgUrl) {
       const img = document.createElement("img");
       img.src = imgUrl;
       img.alt = v.codigo_interno;
-      // por si falla la URL:
       img.onerror = () => { img.remove(); };
       card.appendChild(img);
     }
@@ -615,7 +868,6 @@ function renderVehiculos(){
       return;
     }
 
-    // Guardar vehículos + auto-grupos
     try{
       await persistVehiculosYGrupos();
       alert("Vehículos guardados y grupos generados.");
@@ -628,12 +880,10 @@ function renderVehiculos(){
   };
 }
 
-// Guarda:
 async function persistVehiculosYGrupos(){
   if(!state.id_operacion) throw new Error("No hay operación");
   if(state.cetSeleccionadosIds.length === 0) throw new Error("No hay CET");
 
-  // 1) mete vehículos a la operación (vehiculo_operacion)
   const vehSet = new Set();
   Object.values(state.asignacionVehiculos).forEach(arr => arr.forEach(id => vehSet.add(id)));
 
@@ -649,9 +899,6 @@ async function persistVehiculosYGrupos(){
     }
   });
 
-  // 2) Crea grupos automáticamente para tu regla “vehículo para subconjuntos de células”
-  //    Aquí delego al backend porque en BD ya tienes todo para hacerlo bien.
-  //    Input: por cada CET -> cells (mando) y -> vehiculos seleccionados.
   const gruposInput = state.cetSeleccionadosIds.map((id_cet) => ({
     id_cet,
     cells: (state.asignacionCelulas[id_cet] || []),
@@ -666,57 +913,6 @@ async function persistVehiculosYGrupos(){
       grupos: gruposInput
     }
   });
-}
-
-// ===============================
-// ====== COMPONENTES UI ==========
-// ===============================
-function stickyInfo(text){
-  const wrap = document.createElement("div");
-  wrap.className = "stickyAdd";
-  const p = document.createElement("div");
-  p.style.fontSize = "12px";
-  p.style.opacity = "0.8";
-  p.style.padding = "8px 0";
-  p.textContent = text;
-  wrap.appendChild(p);
-  return wrap;
-}
-
-function personRow({name, selected=false, onSelect}){
-  const row = document.createElement("div");
-  row.className = "item" + (selected ? " selected" : "");
-
-  const left = document.createElement("div");
-  left.className = "itemName";
-  left.textContent = name;
-  left.style.cursor = "pointer";
-  left.addEventListener("click", onSelect);
-
-  row.append(left);
-  return row;
-}
-
-function celulaRow({name, selected=false, disabled=false, status="Disponible", onToggle}){
-  const row = document.createElement("div");
-  row.className = "item" + (selected ? " selected" : "") + (disabled ? " disabled" : "");
-
-  const left = document.createElement("div");
-  left.className = "itemName";
-  left.textContent = name;
-
-  const right = document.createElement("div");
-  right.className = "badgeRight";
-  right.textContent = status;
-
-  row.addEventListener("click", (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if(!disabled) onToggle();
-  });
-
-  row.append(left, right);
-  return row;
 }
 
 // ===============================
@@ -744,7 +940,6 @@ btnVolver.addEventListener("click", () => {
     await loadCatalogs();
     await loadOperacionFromQS();
 
-    // Botón izquierdo: guardar operación
     btnFinalizar.addEventListener("click", async () => {
       try{
         const op = await saveOperacion();

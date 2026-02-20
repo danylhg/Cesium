@@ -178,6 +178,176 @@ app.get("/catalog/vehiculos", requireAuth, async (req, res) => {
 });
 
 // ===============================
+// CATÁLOGOS - CRUD PERSONAL (para asignacion.js)
+// ===============================
+
+// Helper: generar username único tipo: cut.luishernandez.1234
+function slug(s = "") {
+  return s
+    .toString()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // quita acentos
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ".")
+    .replace(/^\.+|\.+$/g, "")
+    .slice(0, 30);
+}
+
+async function generateUniqueUsername(base, client) {
+  // base ya viene "cut.nombreapellido"
+  let attempt = 0;
+  while (attempt < 20) {
+    const suffix = attempt === 0 ? "" : `.${Math.floor(1000 + Math.random() * 9000)}`;
+    const username = `${base}${suffix}`.slice(0, 40);
+
+    const { rows } = await client.query(
+      `SELECT 1 FROM personal WHERE username = $1 LIMIT 1`,
+      [username]
+    );
+    if (rows.length === 0) return username;
+    attempt++;
+  }
+  // última opción
+  return `${base}.${Date.now()}`.slice(0, 40);
+}
+
+/**
+ * POST /catalog/personal
+ * body: { rol: "CUT"|"CET"|"CELL", nombre: string, apellido: string, puesto?: string }
+ * crea en tabla personal.
+ */
+app.post("/catalog/personal", requireAuth, async (req, res) => {
+  try {
+    const rol = (req.body?.rol || "").toString().toUpperCase();
+    const nombre = (req.body?.nombre || "").toString().trim();
+    const apellido = (req.body?.apellido || "").toString().trim();
+    const puesto = (req.body?.puesto || "").toString().trim() || null;
+
+    if (!["CUT", "CET", "CELL"].includes(rol)) {
+      return res.status(400).json({ ok: false, mensaje: "rol inválido (CUT|CET|CELL)" });
+    }
+    if (!nombre) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
+    if (!apellido) return res.status(400).json({ ok: false, mensaje: "Falta apellido" });
+
+    const creado_por = Number(req.user.sub);
+    if (!isInt(creado_por)) return res.status(401).json({ ok: false, mensaje: "Usuario inválido" });
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // username y password temporal
+      const base = `${rol}.${slug(nombre)}${slug(apellido) ? "." + slug(apellido) : ""}`.slice(0, 35);
+      const username = await generateUniqueUsername(base, client);
+
+      // password temporal (puedes cambiar la política después)
+      const tempPassword = `Temp-${Math.floor(100000 + Math.random() * 900000)}`;
+      const password_hash = await bcrypt.hash(tempPassword, 10);
+
+      const { rows } = await client.query(
+        `INSERT INTO personal (rol, nombre, apellido, puesto, username, password_hash, creado_por)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id_personal, rol, nombre, apellido, puesto, activo, fecha_creacion, username`,
+        [rol, nombre, apellido, puesto, username, password_hash, creado_por]
+      );
+
+      await client.query("COMMIT");
+
+      // Nota: por seguridad normalmente NO regresas contraseñas.
+      // Pero si quieres mostrarla una sola vez para que luego cambien la contraseña:
+      return res.json({ ok: true, item: rows[0], tempPassword });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error creando personal", error: err.message });
+  }
+});
+
+/**
+ * PUT /catalog/personal/:id
+ * body: { nombre?, apellido?, puesto?, activo? }
+ * NO cambia rol ni username aquí (para evitar problemas).
+ */
+app.put("/catalog/personal/:id", requireAuth, async (req, res) => {
+  const id_personal = Number(req.params.id);
+  if (!isInt(id_personal)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    const nombre = req.body?.nombre != null ? String(req.body.nombre).trim() : null;
+    const apellido = req.body?.apellido != null ? String(req.body.apellido).trim() : null;
+    const puesto = req.body?.puesto != null ? (String(req.body.puesto).trim() || null) : null;
+    const activo = req.body?.activo != null ? !!req.body.activo : null;
+
+    if (nombre !== null && !nombre) return res.status(400).json({ ok: false, mensaje: "nombre inválido" });
+    if (apellido !== null && !apellido) return res.status(400).json({ ok: false, mensaje: "apellido inválido" });
+
+    // Construir UPDATE dinámico
+    const sets = [];
+    const vals = [];
+    let i = 1;
+
+    if (nombre !== null) { sets.push(`nombre = $${i++}`); vals.push(nombre); }
+    if (apellido !== null) { sets.push(`apellido = $${i++}`); vals.push(apellido); }
+    if (req.body?.puesto !== undefined) { sets.push(`puesto = $${i++}`); vals.push(puesto); }
+    if (req.body?.activo !== undefined) { sets.push(`activo = $${i++}`); vals.push(activo); }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
+    }
+
+    vals.push(id_personal);
+
+    const { rows } = await pool.query(
+      `UPDATE personal
+       SET ${sets.join(", ")}
+       WHERE id_personal = $${i}
+       RETURNING id_personal, rol, nombre, apellido, puesto, activo, username`,
+      vals
+    );
+
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Personal no existe" });
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error editando personal", error: err.message });
+  }
+});
+
+/**
+ * DELETE /catalog/personal/:id
+ * En vez de borrar duro (porque puede estar referenciado por asignaciones),
+ * lo desactivamos (activo=false). Si quieres borrar duro, te lo dejo abajo comentado.
+ */
+app.delete("/catalog/personal/:id", requireAuth, async (req, res) => {
+  const id_personal = Number(req.params.id);
+  if (!isInt(id_personal)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    // soft delete
+    const { rows } = await pool.query(
+      `UPDATE personal
+       SET activo = FALSE
+       WHERE id_personal = $1
+       RETURNING id_personal, activo`,
+      [id_personal]
+    );
+
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Personal no existe" });
+
+    return res.json({ ok: true, item: rows[0] });
+
+    // Si quisieras hard delete (NO recomendado por FK), sería:
+    // await pool.query(`DELETE FROM personal WHERE id_personal=$1`, [id_personal]);
+    // return res.json({ ok: true });
+  } catch (err) {
+    // Si falla por FK en hard delete, aquí igual puede fallar por triggers/reglas.
+    return res.status(500).json({ ok: false, mensaje: "Error eliminando personal", error: err.message });
+  }
+});
+
+// ===============================
 // OPERACIONES
 // ===============================
 app.get("/ops", requireAuth, async (req, res) => {
