@@ -134,7 +134,8 @@ CREATE TABLE IF NOT EXISTS vehiculo (
   codigo_interno TEXT NOT NULL UNIQUE,
   marca TEXT,
   modelo TEXT,
-  estado estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE'
+  estado estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE',
+  capacidad INT
 );
 
 
