@@ -1,4 +1,16 @@
 -- =========================================================
+-- INIT.SQL — Operaciones (PostgreSQL)
+-- Usuarios (CUT/admin) + Personal (CET/CELL)
+-- Inventario (equipo/vehiculo) + Operación + Asignaciones
+-- Grupos jerárquicos: Grupo padre (apodo) -> Subgrupos (Águila 1, Águila 2)
+-- Asignación de equipo/vehículo SOLO a subgrupos
+-- =========================================================
+
+-- (Opcional) si quieres limpiar todo y recrear:
+-- DROP SCHEMA public CASCADE;
+-- CREATE SCHEMA public;
+
+-- =========================================================
 -- 1) TIPOS ENUM
 -- =========================================================
 DO $$
@@ -76,6 +88,7 @@ CREATE TABLE IF NOT EXISTS usuario (
 CREATE TABLE IF NOT EXISTS personal (
   id_personal SERIAL PRIMARY KEY,
   rol rol_personal_enum NOT NULL,
+  apodo TEXT NOT NULL UNIQUE,
   nombre TEXT NOT NULL,
   apellido TEXT NOT NULL,
   puesto TEXT,
@@ -161,7 +174,7 @@ CREATE TABLE IF NOT EXISTS operacion (
 -- 5) TABLAS PUENTE / ASIGNACIONES (OPERACIÓN)
 -- =========================================================
 
--- Personal <-> Equipo (inventario entregado a personal, fuera o dentro de operación)
+-- Personal <-> Equipo (inventario entregado a personal)
 CREATE TABLE IF NOT EXISTS personal_equipo (
   id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
   id_equipo INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
@@ -261,21 +274,40 @@ END $$;
 
 
 -- =========================================================
--- 6) GRUPOS DENTRO DE OPERACIÓN (N GRUPOS POR OPERACIÓN)
+-- 6) GRUPOS DENTRO DE OPERACIÓN (PADRE -> SUBGRUPOS)
 -- =========================================================
 
--- Un grupo pertenece a una operación
+-- Grupo padre: id_grupo_padre = NULL (apodo ej: "Águila")
+-- Subgrupo: id_grupo_padre = id del padre (nombre ej: "Águila 1")
 CREATE TABLE IF NOT EXISTS grupo_operacion (
   id_grupo_operacion SERIAL PRIMARY KEY,
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
   nombre TEXT NOT NULL,
+  apodo TEXT, -- recomendado para el padre
+
+  id_grupo_padre INT REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
+
   descripcion TEXT,
   creado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  CONSTRAINT uq_grupo_operacion_nombre UNIQUE (id_operacion, nombre)
+
+  CONSTRAINT uq_grupo_operacion_nombre UNIQUE (id_operacion, nombre),
+
+  -- Si es subgrupo, obliga a que el padre sea de la misma operación
+  CONSTRAINT fk_grupo_padre_misma_operacion
+    FOREIGN KEY (id_operacion, id_grupo_padre)
+    REFERENCES grupo_operacion (id_operacion, id_grupo_operacion)
+    ON DELETE CASCADE,
+
+  CONSTRAINT chk_grupo_no_autopadre
+    CHECK (id_grupo_padre IS NULL OR id_grupo_padre <> id_grupo_operacion)
 );
 
--- Miembros del grupo (CET/CELL/CUT si quieres), y rol dentro del grupo
+CREATE INDEX IF NOT EXISTS idx_grupo_operacion_padre
+  ON grupo_operacion (id_grupo_padre);
+
+-- Miembros del grupo (puedes decidir: asignar al padre o solo a subgrupos)
 CREATE TABLE IF NOT EXISTS grupo_personal (
   id_grupo_operacion INT NOT NULL REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
   id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
@@ -302,7 +334,7 @@ CREATE TABLE IF NOT EXISTS grupo_equipo (
   CHECK (cantidad > 0),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion),
 
-  -- “Confirmación”: este equipo debe existir en operacion_equipo para esa operación
+  -- Confirmación: debe existir en operacion_equipo para esa operación
   CONSTRAINT fk_grupo_equipo_a_operacion_equipo
     FOREIGN KEY (id_operacion, id_equipo)
     REFERENCES operacion_equipo (id_operacion, id_equipo)
@@ -324,21 +356,24 @@ CREATE TABLE IF NOT EXISTS grupo_vehiculo (
   PRIMARY KEY (id_grupo_operacion, id_vehiculo),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion),
 
-  -- “Confirmación”: este vehículo debe existir en vehiculo_operacion para esa operación
+  -- Confirmación: debe existir en vehiculo_operacion para esa operación
   CONSTRAINT fk_grupo_vehiculo_a_vehiculo_operacion
     FOREIGN KEY (id_operacion, id_vehiculo)
     REFERENCES vehiculo_operacion (id_operacion, id_vehiculo)
     ON DELETE CASCADE
 );
 
--- Regla útil: un vehículo NO puede estar en 2 grupos de la misma operación
+-- Regla útil: un vehículo NO puede estar en 2 subgrupos de la misma operación
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_vehiculo_unico_por_operacion
   ON grupo_vehiculo (id_operacion, id_vehiculo);
 
--- Regla útil: un equipo NO puede estar en 2 grupos de la misma operación (si quieres permitirlo, quita este índice)
+-- Regla útil: un equipo NO puede estar en 2 subgrupos de la misma operación
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_equipo_unico_por_operacion
   ON grupo_equipo (id_operacion, id_equipo);
 
+-- =========================================================
+-- VALIDACIÓN: id_operacion en grupo_equipo/grupo_vehiculo debe coincidir con la operación del grupo
+-- =========================================================
 CREATE OR REPLACE FUNCTION fn_validar_grupo_operacion_consistente()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -377,11 +412,55 @@ BEGIN
   END IF;
 END $$;
 
+-- =========================================================
+-- VALIDACIÓN: SOLO SUBGRUPOS (hijos) reciben equipo/vehículo
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_solo_subgrupos_reciben_asignaciones()
+RETURNS TRIGGER AS $$
+DECLARE
+  padre INT;
+BEGIN
+  SELECT id_grupo_padre INTO padre
+  FROM grupo_operacion
+  WHERE id_grupo_operacion = NEW.id_grupo_operacion;
+
+  IF padre IS NULL THEN
+    RAISE EXCEPTION 'No se permite asignar recursos al GRUPO PADRE (id_grupo_operacion=%). Asigna a un subgrupo.', NEW.id_grupo_operacion;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_equipo_solo_hijos') THEN
+    CREATE TRIGGER tr_grupo_equipo_solo_hijos
+    BEFORE INSERT OR UPDATE ON grupo_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_vehiculo_solo_hijos') THEN
+    CREATE TRIGGER tr_grupo_vehiculo_solo_hijos
+    BEFORE INSERT OR UPDATE ON grupo_vehiculo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
+  END IF;
+
+  -- Si quieres que el personal también SOLO se asigne a subgrupos, descomenta:
+  -- IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_personal_solo_hijos') THEN
+  --   CREATE TRIGGER tr_grupo_personal_solo_hijos
+  --   BEFORE INSERT OR UPDATE ON grupo_personal
+  --   FOR EACH ROW
+  --   EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
+  -- END IF;
+END $$;
+
 
 -- =========================================================
 -- 6.X) JERARQUÍA DE MANDO EN OPERACIÓN (CELL -> CET)
 -- =========================================================
-
 CREATE TABLE IF NOT EXISTS mando_operacion (
   id_operacion  INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   id_cet        INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
@@ -408,18 +487,13 @@ CREATE TABLE IF NOT EXISTS mando_operacion (
     ON DELETE CASCADE
 );
 
--- Índices útiles para consultas (ver cells de un CET, etc.)
 CREATE INDEX IF NOT EXISTS idx_mando_operacion_cet
   ON mando_operacion (id_operacion, id_cet);
 
 CREATE INDEX IF NOT EXISTS idx_mando_operacion_cell
   ON mando_operacion (id_operacion, id_cell);
 
--- =========================================================
--- VALIDACIÓN: el mando debe ser CET y el subordinado debe ser CELL
--- (CHECK no puede consultar otras tablas, por eso usamos trigger)
--- =========================================================
-
+-- Validación: el mando debe ser CET y el subordinado debe ser CELL
 CREATE OR REPLACE FUNCTION fn_validar_mando_operacion()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -467,6 +541,7 @@ BEGIN
     EXECUTE FUNCTION fn_validar_mando_operacion();
   END IF;
 END $$;
+
 
 -- =========================================================
 -- 7) CHAT OPERACIONAL
@@ -531,10 +606,7 @@ INSERT INTO equipo (numero_serie, nombre, categoria, estado)
 VALUES ('HFC-001','Harris Falcon','COMUNICACION','DISPONIBLE')
 ON CONFLICT (numero_serie) DO NOTHING;
 
--- Nota: currval funciona si el INSERT anterior realmente insertó en esta ejecución.
--- Si ya existía (ON CONFLICT DO NOTHING), currval NO cambia.
--- Para seed robusto, insertamos el subtipo apuntando por lookup al número_serie:
-
+-- Seed robusto del subtipo por lookup al número_serie:
 INSERT INTO equipo_comunicacion (id_equipo, imagen_eqcom, marca, modelo, notas)
 SELECT
   e.id_equipo,
