@@ -415,6 +415,11 @@ END $$;
 -- =========================================================
 -- VALIDACIÓN: SOLO SUBGRUPOS (hijos) reciben equipo/vehículo
 -- =========================================================
+
+
+-- =========================================================
+-- VALIDACIÓN: SOLO SUBGRUPOS (hijos) reciben equipo/vehículo
+-- =========================================================
 CREATE OR REPLACE FUNCTION fn_solo_subgrupos_reciben_asignaciones()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -617,3 +622,266 @@ SELECT
 FROM equipo e
 WHERE e.numero_serie = 'HFC-001'
 ON CONFLICT (id_equipo) DO NOTHING;
+
+-- =========================================================
+-- EXTRA: VALIDACIÓN DE STOCK POR SUBGRUPOS
+-- Regla: SUM(grupo_equipo.cantidad) <= operacion_equipo.cantidad
+-- =========================================================
+
+CREATE OR REPLACE FUNCTION fn_validar_stock_equipo_grupo()
+RETURNS TRIGGER AS $$
+DECLARE
+  total_operacion INT;
+  total_ya_asignado_grupos INT;
+BEGIN
+  -- Total reservado para la operación
+  SELECT oe.cantidad
+    INTO total_operacion
+  FROM operacion_equipo oe
+  WHERE oe.id_operacion = NEW.id_operacion
+    AND oe.id_equipo    = NEW.id_equipo;
+
+  IF total_operacion IS NULL THEN
+    RAISE EXCEPTION
+      'No existe operacion_equipo para (id_operacion=%, id_equipo=%). Primero asigna el equipo a la operación.',
+      NEW.id_operacion, NEW.id_equipo;
+  END IF;
+
+  -- Total ya repartido a otros subgrupos (excluyendo el mismo grupo si es UPDATE)
+  SELECT COALESCE(SUM(ge.cantidad), 0)
+    INTO total_ya_asignado_grupos
+  FROM grupo_equipo ge
+  WHERE ge.id_operacion = NEW.id_operacion
+    AND ge.id_equipo    = NEW.id_equipo
+    AND ge.id_grupo_operacion <> NEW.id_grupo_operacion;
+
+  IF (total_ya_asignado_grupos + NEW.cantidad) > total_operacion THEN
+    RAISE EXCEPTION
+      'Exceso de stock: Operación tiene %, ya repartido %, intento de añadir % (id_operacion=%, id_equipo=%).',
+      total_operacion, total_ya_asignado_grupos, NEW.cantidad, NEW.id_operacion, NEW.id_equipo;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_validar_stock_equipo_grupo') THEN
+    CREATE TRIGGER tr_validar_stock_equipo_grupo
+    BEFORE INSERT OR UPDATE ON grupo_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_stock_equipo_grupo();
+  END IF;
+END $$;
+
+-- =========================================================
+-- VISTAS 
+-- =========================================================
+
+-- 1) Resumen de operación (dashboard)
+CREATE OR REPLACE VIEW v_operacion_resumen AS
+SELECT
+  o.id_operacion,
+  o.codigo,
+  o.nombre,
+  o.estado,
+  o.prioridad,
+  o.fecha_inicio,
+  o.fecha_fin,
+  o.fecha_creacion,
+  o.creada_por,
+
+  -- conteos (DISTINCT para evitar duplicados por joins)
+  (SELECT COUNT(*) FROM asignacion_operacion_personal a
+    WHERE a.id_operacion = o.id_operacion) AS total_personal,
+
+  (SELECT COUNT(*) FROM vehiculo_operacion vo
+    WHERE vo.id_operacion = o.id_operacion) AS total_vehiculos,
+
+  (SELECT COALESCE(SUM(oe.cantidad),0) FROM operacion_equipo oe
+    WHERE oe.id_operacion = o.id_operacion) AS total_equipos_reservados,
+
+  (SELECT COUNT(*) FROM grupo_operacion g
+    WHERE g.id_operacion = o.id_operacion) AS total_grupos
+FROM operacion o;
+
+
+-- 2) Árbol de grupos (padre/hijo) + etiqueta útil
+CREATE OR REPLACE VIEW v_grupo_arbol AS
+SELECT
+  g.id_operacion,
+  g.id_grupo_operacion,
+  g.id_grupo_padre,
+  gp.nombre  AS nombre_padre,
+  gp.apodo   AS apodo_padre,
+  g.nombre   AS nombre_grupo,
+  g.apodo    AS apodo_grupo,
+  CASE
+    WHEN g.id_grupo_padre IS NULL THEN 'PADRE'
+    ELSE 'SUBGRUPO'
+  END AS tipo_grupo,
+  -- etiqueta para UI
+  CASE
+    WHEN g.id_grupo_padre IS NULL THEN COALESCE(g.apodo, g.nombre)
+    ELSE g.nombre
+  END AS label_ui,
+  g.descripcion,
+  g.fecha_creacion,
+  g.creado_por
+FROM grupo_operacion g
+LEFT JOIN grupo_operacion gp
+  ON gp.id_grupo_operacion = g.id_grupo_padre;
+
+
+-- 3) Recursos por grupo (equipo + vehículo en una vista)
+CREATE OR REPLACE VIEW v_grupo_recursos AS
+SELECT
+  ge.id_operacion,
+  ge.id_grupo_operacion,
+  'EQUIPO'::text AS tipo_recurso,
+  ge.id_equipo::int AS id_recurso,
+  e.nombre AS recurso_nombre,
+  e.categoria AS recurso_categoria,
+  ge.cantidad,
+  ge.estado_asignacion::text AS estado_asignacion,
+  ge.uso_en_grupo,
+  ge.fecha_asignacion,
+  ge.fecha_fin_asignacion,
+  ge.asignado_por
+FROM grupo_equipo ge
+JOIN equipo e ON e.id_equipo = ge.id_equipo
+
+UNION ALL
+
+SELECT
+  gv.id_operacion,
+  gv.id_grupo_operacion,
+  'VEHICULO'::text AS tipo_recurso,
+  gv.id_vehiculo::int AS id_recurso,
+  v.codigo_interno AS recurso_nombre,
+  COALESCE(v.marca,'') || ' ' || COALESCE(v.modelo,'') AS recurso_categoria,
+  1 AS cantidad,
+  gv.estado_asignacion::text AS estado_asignacion,
+  gv.uso_en_grupo,
+  gv.fecha_asignacion,
+  gv.fecha_fin_asignacion,
+  gv.asignado_por
+FROM grupo_vehiculo gv
+JOIN vehiculo v ON v.id_vehiculo = gv.id_vehiculo;
+
+
+-- 4) Stock por operación/equipo: reservado vs repartido vs restante
+CREATE OR REPLACE VIEW v_stock_operacion_equipo AS
+SELECT
+  oe.id_operacion,
+  oe.id_equipo,
+  e.numero_serie,
+  e.nombre,
+  e.categoria,
+  oe.cantidad AS reservado_operacion,
+  COALESCE((
+    SELECT SUM(ge.cantidad)
+    FROM grupo_equipo ge
+    WHERE ge.id_operacion = oe.id_operacion
+      AND ge.id_equipo = oe.id_equipo
+  ),0) AS repartido_a_grupos,
+  (oe.cantidad - COALESCE((
+    SELECT SUM(ge.cantidad)
+    FROM grupo_equipo ge
+    WHERE ge.id_operacion = oe.id_operacion
+      AND ge.id_equipo = oe.id_equipo
+  ),0)) AS restante_sin_repartir
+FROM operacion_equipo oe
+JOIN equipo e ON e.id_equipo = oe.id_equipo;
+
+
+-- 5) Uso de equipo por personal en operación (detalle listo para UI)
+CREATE OR REPLACE VIEW v_uso_equipo_operacion_detalle AS
+SELECT
+  ueo.id_operacion,
+  ueo.id_personal,
+  p.rol AS rol_personal,
+  p.apodo,
+  p.nombre,
+  p.apellido,
+
+  ueo.id_equipo,
+  e.numero_serie,
+  e.nombre AS equipo_nombre,
+  e.categoria AS equipo_categoria,
+
+  ueo.cantidad,
+  ueo.fecha_asignacion,
+  ueo.fecha_devolucion,
+  ueo.asignado_por,
+  ueo.notas
+FROM uso_equipo_operacion ueo
+JOIN personal p ON p.id_personal = ueo.id_personal
+JOIN equipo e   ON e.id_equipo   = ueo.id_equipo;
+
+
+-- 6) Jerarquía de mando (CET -> CELL) con nombres
+CREATE OR REPLACE VIEW v_mando_operacion_detalle AS
+SELECT
+  mo.id_operacion,
+  mo.id_cet,
+  cet.apodo AS cet_apodo,
+  cet.nombre AS cet_nombre,
+  cet.apellido AS cet_apellido,
+
+  mo.id_cell,
+  cell.apodo AS cell_apodo,
+  cell.nombre AS cell_nombre,
+  cell.apellido AS cell_apellido,
+
+  mo.fecha_asignacion,
+  mo.asignado_por
+FROM mando_operacion mo
+JOIN personal cet  ON cet.id_personal  = mo.id_cet
+JOIN personal cell ON cell.id_personal = mo.id_cell;
+
+
+-- 7) Feed de chat (mensaje + quién lo mandó)
+CREATE OR REPLACE VIEW v_chat_feed AS
+SELECT
+  co.id_chat,
+  co.id_operacion,
+  m.id_mensaje,
+  m.fecha_envio,
+  m.tipo_mensaje,
+  m.contenido,
+
+  pc.tipo AS tipo_participante,
+  pc.id_usuario,
+  pc.id_personal,
+
+  -- display name
+  CASE
+    WHEN pc.tipo = 'USUARIO' THEN (u.nombre || ' ' || u.apellido)
+    ELSE (p.apodo || ' (' || p.rol::text || ')')
+  END AS display_name
+FROM chat_operacion co
+JOIN mensaje_chat m         ON m.id_chat = co.id_chat
+JOIN participante_chat pc   ON pc.id_participante = m.id_participante
+LEFT JOIN usuario u         ON u.id_usuario = pc.id_usuario
+LEFT JOIN personal p        ON p.id_personal = pc.id_personal;
+
+
+-- 8) POIs listos para mapa (con nombres de creador)
+CREATE OR REPLACE VIEW v_poi_detalle AS
+SELECT
+  poi.id_poi,
+  poi.id_usuario,
+  (u.nombre || ' ' || u.apellido) AS usuario_nombre,
+  poi.id_personal,
+  (p.apodo || ' (' || p.rol::text || ')') AS personal_nombre,
+  poi.nombre,
+  poi.tipo_poi,
+  poi.latitud,
+  poi.longitud,
+  poi.descripcion,
+  poi.fecha_creacion
+FROM puntos_interes poi
+JOIN usuario u  ON u.id_usuario = poi.id_usuario
+JOIN personal p ON p.id_personal = poi.id_personal;
