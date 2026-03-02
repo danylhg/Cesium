@@ -1,260 +1,187 @@
-/* =========================================================
-   ASIGNACIÓN - Flujo con BD (Postgres) + UI Mejorada
-   - Selección por IDs (no por nombres)
-   - Carga listas desde API
-   - Sticky "+ Agregar" (crea en BD)
-   - Editar inline (actualiza en BD)
-   - Eliminar (borra en BD)
-   - Guarda: operacion, asignacion_operacion_personal, mando_operacion
-   - Vehículos: vehiculo_operacion + grupos (auto)
-========================================================= */
+/// asignacion.js (BACKEND READY)
 
-// ===============================
-// ====== CONFIG / SESIÓN ========
-// ===============================
-const API = "http://localhost:3001";
-const token = localStorage.getItem("token");
-if (!token) window.location.href = "login.html";
-
-async function api(path, { method = "GET", body } = {}) {
-  const r = await fetch(`${API}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  let data = null;
-  try { data = await r.json(); } catch {}
-  if (!r.ok || (data && data.ok === false)) {
-    throw new Error(data?.mensaje || `Error ${r.status}`);
-  }
-  return data;
-}
-
-// ===============================
-// ====== DOM =====================
-// ===============================
 const panel = document.getElementById("panel");
 const rightTitle = document.getElementById("rightTitle");
 const rightHint = document.getElementById("rightHint");
 const btnAccion = document.getElementById("btnAccion");
 const btnBack = document.getElementById("btnBack");
 const btnVolver = document.getElementById("btnVolver");
-
 const lblOperacion = document.getElementById("lblOperacion");
 
-// Form izq
-const opNombre = document.getElementById("opNombre");
-const opDesc = document.getElementById("opDesc");
-const opCreacion = document.getElementById("opCreacion");
-const opInicio = document.getElementById("opInicio");
-const opFin = document.getElementById("opFin");
-const opPrioridad = document.getElementById("opPrioridad");
-const btnFinalizar = document.getElementById("btnFinalizar");
-
 // ===============================
-// ====== HELPERS UI ==============
+// API helper
 // ===============================
-function capFirst(str){ return str ? str.charAt(0).toUpperCase() + str.slice(1) : str; }
-function setHeader(title, hint){ rightTitle.textContent = capFirst(title); rightHint.textContent = capFirst(hint); }
-function setAccion(text, disabled=false){ btnAccion.textContent = capFirst(text); btnAccion.disabled = !!disabled; }
-function showBack(show){ btnBack.style.visibility = show ? "visible" : "hidden"; }
-function clearPanel(){ panel.innerHTML = ""; }
-function getScrollTopInPanel(){ return panel.querySelector(".listBox")?.scrollTop ?? 0; }
-function restoreScrollTop(listBoxEl, scrollTop){ if(!listBoxEl) return; requestAnimationFrame(() => { listBoxEl.scrollTop = scrollTop; }); }
+const API_BASE = (window.API_BASE || "http://localhost:3001");
 
-function stickyAddButton(label, onClick){
-  const wrap = document.createElement("div");
-  wrap.className = "stickyAdd";
-
-  const b = document.createElement("button");
-  b.className = "addBtn";
-  b.textContent = `+ ${capFirst(label)}`;
-  b.addEventListener("click", onClick);
-
-  wrap.appendChild(b);
-  return wrap;
+function getToken() {
+  return localStorage.getItem("token") || "";
 }
 
-function stickyInfo(text){
-  const wrap = document.createElement("div");
-  wrap.className = "stickyAdd";
-  const p = document.createElement("div");
-  p.style.fontSize = "12px";
-  p.style.opacity = "0.8";
-  p.style.padding = "8px 0";
-  p.textContent = text;
-  wrap.appendChild(p);
-  return wrap;
+async function api(path, { method = "GET", body } = {}) {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  let data = null;
+  try { data = await res.json(); } catch { /* ignore */ }
+
+  if (!res.ok) {
+    const msg = data?.mensaje || `HTTP ${res.status} ${res.statusText}`;
+    throw new Error(msg);
+  }
+  return data;
 }
 
-// Parse "Nombre Apellido" -> {nombre, apellido}
-// (si solo ponen 1 palabra, apellido queda vacío)
-function parseNombreApellido(full){
-  const s = (full || "").trim().replace(/\s+/g, " ");
-  if(!s) return { nombre: "", apellido: "" };
-  const parts = s.split(" ");
-  if(parts.length === 1) return { nombre: parts[0], apellido: "" };
-  return { nombre: parts.slice(0, -1).join(" "), apellido: parts.slice(-1).join("") };
+function fullName(p) {
+  const n = (p?.nombre || "").trim();
+  const a = (p?.apellido || "").trim();
+  return `${n}${a ? " " + a : ""}`.trim();
 }
 
 // ===============================
-// ====== STATE GLOBAL ============
+// State (YA CON IDs)
 // ===============================
 const state = {
-  id_operacion: null,
-  operacionCodigo: null,
+  categoria: null,
+  pasoPersonal: "home",
 
-  id_usuario: null,
+  opCodigo: null,
+  opId: null,
 
-  categoria: null, // 'personal' | 'equipo' | 'vehiculos'
-  pasoPersonal: "home", // home | cut | cet | celulas
+  // Catálogos backend:
+  cutList: [], // [{id_personal, nombre, apellido, label}]
+  cetList: [],
+  cellList: [],
 
-  catalog: {
-    CUT: [],
-    CET: [],
-    CELL: [],
-    vehiculos: [],
-  },
+  vehiclesList: [], // [{id_vehiculo, codigo_interno, marca, modelo, imagen_veh, estado, label, capacity?}]
 
+  // Selecciones por ID:
   cutSeleccionadoId: null,
-  cetSeleccionadosIds: [],
-  cetActivoIndex: 0,
+  cetSeleccionadosIds: [], // [id_personal]
 
+  // { [cetId]: [cellId, ...] }
   asignacionCelulas: {},
+
+  // flotilla por CET
+  flotillaByCet: {}, // { [cetId]: string }
+  searchByCet: {}, // { [cetId]: string }
+
+  // grupos por CET: { names:[], active:string|null, map:{[groupName]: cellId[]}, idx:number, vehActive:string|null }
+  gruposByCet: {},
+
+  // Vehículos:
+  // { [id_personal]: id_vehiculo }
   asignacionVehiculos: {},
+
+  cetActivoIndex: 0,
   cetActivoIndexVeh: 0,
+
+  selectedVehicleId: null,
+  selectedPersonIds: [], // selección temporal para asignar vehículo
 };
 
-function fullName(p){ return `${p.nombre} ${p.apellido}`.trim(); }
-
 // ===============================
-// ====== CARGA INICIAL ===========
+// UI helpers
 // ===============================
-async function loadCatalogs(){
-  const me = await api("/me");
-  state.id_usuario = me.id_usuario;
+function capFirst(str){
+  if(!str) return str;
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+function setHeader(title, hint){
+  rightTitle.textContent = capFirst(title);
+  rightHint.textContent = capFirst(hint);
+}
+function setAccion(text, disabled=false){
+  btnAccion.textContent = capFirst(text);
+  btnAccion.disabled = !!disabled;
+}
+function showBack(show){
+  btnBack.style.visibility = show ? "visible" : "hidden";
+}
+function clearPanel(){ panel.innerHTML = ""; }
 
-  const [cuts, cets, cells, vehs] = await Promise.all([
-    api("/catalog/personal?rol=CUT"),
-    api("/catalog/personal?rol=CET"),
-    api("/catalog/personal?rol=CELL"),
-    api("/catalog/vehiculos"),
-  ]);
-
-  state.catalog.CUT = cuts.items || cuts || [];
-  state.catalog.CET = cets.items || cets || [];
-  state.catalog.CELL = cells.items || cells || [];
-  state.catalog.vehiculos = vehs.items || vehs || [];
+function getScrollTopInPanel(){
+  return panel.querySelector(".listBox")?.scrollTop ?? 0;
+}
+function restoreScrollTop(listBoxEl, scrollTop){
+  if(!listBoxEl) return;
+  requestAnimationFrame(() => { listBoxEl.scrollTop = scrollTop; });
 }
 
-async function reloadPersonalCatalog(rol){
-  const data = await api(`/catalog/personal?rol=${encodeURIComponent(rol)}`);
-  state.catalog[rol] = data.items || data || [];
+function mkOpt(txt){
+  const b = document.createElement("button");
+  b.className = "optBtn";
+  b.textContent = capFirst(txt);
+  return b;
 }
 
-// Si vienes con ?op_id=123 o ?op_codigo=OP-001
-async function loadOperacionFromQS(){
-  const qs = new URLSearchParams(window.location.search);
-  const opId = qs.get("op_id");
-  const opCodigo = qs.get("op_codigo");
-
-  if(opId){
-    const op = await api(`/ops/${opId}`);
-    state.id_operacion = op.id_operacion;
-    state.operacionCodigo = op.codigo;
-    paintOperacionForm(op);
-    lblOperacion.textContent = op.nombre || op.codigo || `#${op.id_operacion}`;
-    return;
+function ensureCetState(cetId){
+  if(state.flotillaByCet[cetId] === undefined) state.flotillaByCet[cetId] = "";
+  if(state.searchByCet[cetId] === undefined) state.searchByCet[cetId] = "";
+  if(!state.gruposByCet[cetId]){
+    state.gruposByCet[cetId] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
+  } else {
+    const gi = state.gruposByCet[cetId];
+    if(gi.idx === undefined) gi.idx = 0;
+    if(gi.vehActive === undefined) gi.vehActive = null;
+    if(!gi.map) gi.map = {};
   }
+}
 
+function getCetIdByIndex(idx){
+  return state.cetSeleccionadosIds[idx];
+}
+
+function getPersonalById(id){
+  const all = [...state.cutList, ...state.cetList, ...state.cellList];
+  return all.find(x => x.id_personal === id) || null;
+}
+
+// ===============================
+// CARGA INICIAL DESDE BACKEND
+// ===============================
+async function loadCatalogsAndOp() {
+  const qs = new URLSearchParams(window.location.search);
+  const opCodigo = qs.get("op"); // en tu UI ya viene ?op=OP-...
+  state.opCodigo = opCodigo || null;
+  if (opCodigo) lblOperacion.textContent = opCodigo;
+
+  // 1) operación -> id_operacion
   if(opCodigo){
     const op = await api(`/ops/by-codigo/${encodeURIComponent(opCodigo)}`);
-    state.id_operacion = op.id_operacion;
-    state.operacionCodigo = op.codigo;
-    paintOperacionForm(op);
-    lblOperacion.textContent = op.nombre || op.codigo || `#${op.id_operacion}`;
-    return;
+    state.opId = op.id_operacion;
   }
 
-  lblOperacion.textContent = "—";
-}
+  // 2) personal CUT/CET/CELL
+  const [cutRes, cetRes, cellRes] = await Promise.all([
+    api(`/catalog/personal?rol=CUT`),
+    api(`/catalog/personal?rol=CET`),
+    api(`/catalog/personal?rol=CELL`),
+  ]);
 
-function paintOperacionForm(op){
-  opNombre.value = op.nombre || "";
-  opDesc.value = op.descripcion || "";
-  opPrioridad.value = op.prioridad || "";
+  state.cutList = (cutRes.items || []).map(p => ({ ...p, label: fullName(p) }));
+  state.cetList = (cetRes.items || []).map(p => ({ ...p, label: fullName(p) }));
+  state.cellList = (cellRes.items || []).map(p => ({ ...p, label: fullName(p) }));
 
-  const toDate = (v) => v ? new Date(v).toISOString().slice(0,10) : "";
-  opCreacion.value = toDate(op.fecha_creacion);
-  opInicio.value = toDate(op.fecha_inicio);
-  opFin.value = toDate(op.fecha_fin);
-}
-
-// ===============================
-// ====== GUARDAR OPERACIÓN =======
-// ===============================
-async function saveOperacion(){
-  const payload = {
-    nombre: opNombre.value.trim(),
-    descripcion: opDesc.value.trim() || null,
-    prioridad: opPrioridad.value || "MEDIA",
-    fecha_inicio: opInicio.value ? new Date(opInicio.value).toISOString() : null,
-    fecha_fin: opFin.value ? new Date(opFin.value).toISOString() : null,
-  };
-
-  if(!payload.nombre){
-    alert("Ponle nombre a la operación.");
-    return;
-  }
-
-  if(state.id_operacion){
-    const op = await api(`/ops/${state.id_operacion}`, { method: "PUT", body: payload });
-    lblOperacion.textContent = op.nombre || op.codigo || `#${op.id_operacion}`;
-    return op;
-  } else {
-    const op = await api(`/ops`, { method: "POST", body: payload });
-    state.id_operacion = op.id_operacion;
-    state.operacionCodigo = op.codigo;
-    lblOperacion.textContent = op.nombre || op.codigo || `#${op.id_operacion}`;
-    paintOperacionForm(op);
-    return op;
-  }
+  // 3) vehículos
+  const vehRes = await api(`/catalog/vehiculos`);
+  state.vehiclesList = (vehRes.items || []).map(v => ({
+    ...v,
+    label: `${v.codigo_interno} — ${v.marca} ${v.modelo}`.trim(),
+    // capacity: si no está en BD, puedes agregar luego. Por ahora dejamos null y NO validamos cap.
+    capacity: null,
+    image: v.imagen_veh || "",
+  }));
 }
 
 // ===============================
-// ====== CRUD PERSONAL (BD) ======
-// ===============================
-async function createPersonal({ rol, nombreCompleto }){
-  const { nombre, apellido } = parseNombreApellido(nombreCompleto);
-  if(!nombre || !apellido) throw new Error("Escribe nombre y apellido");
-
-  const resp = await api("/catalog/personal", {
-    method: "POST",
-    body: { rol, nombre, apellido }
-  });
-  return resp.item; // <- importante
-}
-
-async function updatePersonal({ id_personal, nombreCompleto }){
-  const { nombre, apellido } = parseNombreApellido(nombreCompleto);
-  if(!nombre || !apellido) throw new Error("Escribe nombre y apellido");
-
-  const resp = await api(`/catalog/personal/${id_personal}`, {
-    method: "PUT",
-    body: { nombre, apellido }
-  });
-  return resp.item; // <- importante
-}
-
-async function deletePersonal(id_personal){
-  await api(`/catalog/personal/${id_personal}`, { method: "DELETE" });
-}
-
-// ===============================
-// ====== RENDER HOME =============
+// HOME
 // ===============================
 function renderHome(){
   clearPanel();
@@ -272,47 +199,35 @@ function renderHome(){
   const btnEquipo = mkOpt("Equipo");
   const btnVehiculos = mkOpt("Vehículos");
 
-  btnPersonal.addEventListener("click", async () => {
-    if(!state.id_operacion){
-      alert("Primero guarda la operación (izquierda).");
-      return;
-    }
+  btnPersonal.addEventListener("click", () => {
     state.categoria = "personal";
     state.pasoPersonal = "cut";
     renderCUT();
   });
 
   btnEquipo.addEventListener("click", () => {
-    if(!state.id_operacion){
-      alert("Primero guarda la operación (izquierda).");
-      return;
-    }
     state.categoria = "equipo";
-    renderPlaceholder("Equipo", "Aquí irá el flujo de Equipo.");
+    renderPlaceholder("Equipo");
   });
 
   btnVehiculos.addEventListener("click", () => {
-    if(!state.id_operacion){
-      alert("Primero guarda la operación (izquierda).");
-      return;
-    }
-    if(state.cetSeleccionadosIds.length === 0){
-      alert("Primero asigna CET y Células.");
-      return;
-    }
     state.categoria = "vehiculos";
+    // si no hay personal aún, mandamos al flujo personal primero
+    if(!state.cutSeleccionadoId || state.cetSeleccionadosIds.length === 0){
+      alert("Primero asigna CUT y CET/CELL.");
+      state.categoria = "personal";
+      state.pasoPersonal = "cut";
+      renderCUT();
+      return;
+    }
+    state.cetActivoIndexVeh = 0;
+    state.selectedVehicleId = null;
+    state.selectedPersonIds = [];
     renderVehiculos();
   });
 
   grid.append(btnPersonal, btnVehiculos, btnEquipo);
   panel.appendChild(grid);
-}
-
-function mkOpt(txt){
-  const b = document.createElement("button");
-  b.className = "optBtn";
-  b.textContent = capFirst(txt);
-  return b;
 }
 
 function renderPlaceholder(title){
@@ -323,116 +238,7 @@ function renderPlaceholder(title){
 }
 
 // ===============================
-// ====== UI row con Edit/Delete ==
-// ===============================
-function personRowCrud({ name, selected=false, onSelect, onDelete, onEdit }){
-  const row = document.createElement("div");
-  row.className = "item" + (selected ? " selected" : "");
-
-  const left = document.createElement("div");
-  left.className = "itemName";
-  left.textContent = name;
-  left.style.cursor = "pointer";
-  left.addEventListener("click", onSelect);
-
-  const right = document.createElement("div");
-  right.className = "itemRight";
-
-  const btnEdit = document.createElement("button");
-  btnEdit.className = "smallBtn";
-  btnEdit.textContent = "Editar";
-
-  const btnDel = document.createElement("button");
-  btnDel.className = "smallBtn danger";
-  btnDel.textContent = "Eliminar";
-
-  btnDel.addEventListener("click", (e) => {
-    e.stopPropagation();
-    onDelete?.();
-  });
-
-  btnEdit.addEventListener("click", (e) => {
-    e.stopPropagation();
-    inlineEditRow(row, name, onEdit);
-  });
-
-  right.append(btnEdit, btnDel);
-  row.append(left, right);
-  return row;
-}
-
-function inlineEditRow(row, oldName, onSave){
-  row.innerHTML = "";
-
-  const edit = document.createElement("div");
-  edit.className = "editInline";
-
-  const inp = document.createElement("input");
-  inp.value = oldName;
-
-  const btnGuardar = document.createElement("button");
-  btnGuardar.className = "smallBtn";
-  btnGuardar.textContent = "Guardar";
-
-  const btnCancelar = document.createElement("button");
-  btnCancelar.className = "smallBtn danger";
-  btnCancelar.textContent = "Cancelar";
-
-  btnGuardar.addEventListener("click", async () => {
-    const val = inp.value.trim();
-    if(!val) return;
-    await onSave(val);
-  });
-
-  btnCancelar.addEventListener("click", () => {
-    // cancel => re-render normal
-    onSave(oldName);
-  });
-
-  edit.append(inp, btnGuardar, btnCancelar);
-  row.appendChild(edit);
-
-  inp.focus();
-  inp.select();
-}
-
-function inlineAddRow(listBox, { placeholder="Nombre", onSave, onCancel }){
-  const container = document.createElement("div");
-  container.className = "item";
-
-  const edit = document.createElement("div");
-  edit.className = "editInline";
-
-  const inp = document.createElement("input");
-  inp.placeholder = placeholder;
-  inp.value = "";
-
-  const btnGuardar = document.createElement("button");
-  btnGuardar.className = "smallBtn";
-  btnGuardar.textContent = "Guardar";
-
-  const btnCancelar = document.createElement("button");
-  btnCancelar.className = "smallBtn danger";
-  btnCancelar.textContent = "Cancelar";
-
-  btnGuardar.addEventListener("click", async () => {
-    const val = inp.value.trim();
-    if(!val) return;
-    await onSave(val);
-  });
-
-  btnCancelar.addEventListener("click", () => onCancel?.());
-
-  edit.append(inp, btnGuardar, btnCancelar);
-  container.appendChild(edit);
-
-  const afterSticky = listBox.children[0]?.nextSibling;
-  listBox.insertBefore(container, afterSticky);
-  inp.focus();
-}
-
-// ===============================
-// ====== PERSONAL: CUT ===========
+// PERSONAL (CUT)
 // ===============================
 function renderCUT(){
   const prevScroll = getScrollTopInPanel();
@@ -445,55 +251,57 @@ function renderCUT(){
   const listBox = document.createElement("div");
   listBox.className = "listBox";
 
-  listBox.appendChild(stickyAddButton("Agregar", () => {
-    inlineAddRow(listBox, {
-      placeholder: "Nombre Apellido",
-      onSave: async (nombreCompleto) => {
-        try{
-          await createPersonal({ rol: "CUT", nombreCompleto });
-          await reloadPersonalCatalog("CUT");
-          renderCUT();
-        }catch(e){ alert(e.message || "Error creando CUT"); renderCUT(); }
-      },
-      onCancel: () => renderCUT()
-    });
-  }));
+  const search = document.createElement("input");
+  search.className = "inp";
+  search.placeholder = "Buscar CUT...";
+  search.style.marginBottom = "10px";
 
-  listBox.appendChild(stickyInfo("Selecciona 1 CUT del catálogo (BD)"));
+  const data = state.cutList.slice();
 
-  state.catalog.CUT.forEach((p) => {
-    listBox.appendChild(personRowCrud({
-      name: fullName(p),
-      selected: state.cutSeleccionadoId === p.id_personal,
-      onSelect: () => {
-        state.cutSeleccionadoId = p.id_personal;
-        state.cetSeleccionadosIds = [];
-        state.cetActivoIndex = 0;
-        state.asignacionCelulas = {};
-        state.asignacionVehiculos = {};
-        state.cetActivoIndexVeh = 0;
-        renderCUT();
-      },
-      onDelete: async () => {
-        if(!confirm(`Eliminar a ${fullName(p)} del catálogo?`)) return;
-        try{
-          await deletePersonal(p.id_personal);
-          if(state.cutSeleccionadoId === p.id_personal) state.cutSeleccionadoId = null;
-          await reloadPersonalCatalog("CUT");
-          renderCUT();
-        }catch(e){ alert(e.message || "Error eliminando CUT"); }
-      },
-      onEdit: async (nuevoNombreCompleto) => {
-        try{
-          await updatePersonal({ id_personal: p.id_personal, nombreCompleto: nuevoNombreCompleto });
-          await reloadPersonalCatalog("CUT");
-          renderCUT();
-        }catch(e){ alert(e.message || "Error editando CUT"); renderCUT(); }
-      }
-    }));
-  });
+  const rowsWrap = document.createElement("div");
+  rowsWrap.style.display = "flex";
+  rowsWrap.style.flexDirection = "column";
+  rowsWrap.style.gap = "10px";
 
+  function paint(filterText){
+    const ft = (filterText || "").toLowerCase().trim();
+    rowsWrap.innerHTML = "";
+    data
+      .filter(p => !ft || p.label.toLowerCase().includes(ft))
+      .forEach((p) => {
+        const row = document.createElement("div");
+        row.className = "item" + (state.cutSeleccionadoId === p.id_personal ? " selected" : "");
+
+        const left = document.createElement("div");
+        left.className = "itemName";
+        left.textContent = p.label;
+        left.style.cursor = "pointer";
+        left.addEventListener("click", () => {
+          state.cutSeleccionadoId = p.id_personal;
+
+          // resetea todo lo dependiente
+          state.cetSeleccionadosIds = [];
+          state.cetActivoIndex = 0;
+          state.asignacionCelulas = {};
+          state.asignacionVehiculos = {};
+          state.gruposByCet = {};
+          state.flotillaByCet = {};
+          state.searchByCet = {};
+
+          renderCUT();
+        });
+
+        row.appendChild(left);
+        rowsWrap.appendChild(row);
+      });
+  }
+
+  search.addEventListener("input", () => paint(search.value));
+  listBox.appendChild(search);
+  listBox.appendChild(rowsWrap);
   panel.appendChild(listBox);
+
+  paint("");
   restoreScrollTop(listBox, prevScroll);
 
   btnAccion.onclick = () => {
@@ -504,7 +312,7 @@ function renderCUT(){
 }
 
 // ===============================
-// ====== PERSONAL: CET ===========
+// PERSONAL (CET)
 // ===============================
 function renderCET(){
   const prevScroll = getScrollTopInPanel();
@@ -517,17 +325,17 @@ function renderCET(){
   const chips = document.createElement("div");
   chips.className = "chipRow";
 
-  const cut = state.catalog.CUT.find(x => x.id_personal === state.cutSeleccionadoId);
+  const cutObj = state.cutList.find(x => x.id_personal === state.cutSeleccionadoId);
   const cutChip = document.createElement("div");
   cutChip.className = "chip";
-  cutChip.textContent = `CUT: ${cut ? fullName(cut) : "—"}`;
+  cutChip.textContent = `CUT: ${cutObj?.label || "—"}`;
   chips.appendChild(cutChip);
 
   state.cetSeleccionadosIds.forEach((id) => {
-    const p = state.catalog.CET.find(x => x.id_personal === id);
+    const p = getPersonalById(id);
     const c = document.createElement("div");
     c.className = "chip active";
-    c.textContent = `CET: ${p ? fullName(p) : id}`;
+    c.textContent = `CET: ${p?.label || id}`;
     chips.appendChild(c);
   });
 
@@ -536,80 +344,885 @@ function renderCET(){
   const listBox = document.createElement("div");
   listBox.className = "listBox";
 
-  listBox.appendChild(stickyAddButton("Agregar", () => {
-    inlineAddRow(listBox, {
-      placeholder: "Nombre Apellido",
-      onSave: async (nombreCompleto) => {
-        try{
-          await createPersonal({ rol: "CET", nombreCompleto });
-          await reloadPersonalCatalog("CET");
-          renderCET();
-        }catch(e){ alert(e.message || "Error creando CET"); renderCET(); }
-      },
-      onCancel: () => renderCET()
-    });
-  }));
+  const search = document.createElement("input");
+  search.className = "inp";
+  search.placeholder = "Buscar CET...";
+  search.style.marginBottom = "10px";
 
-  listBox.appendChild(stickyInfo("Selecciona CET (tu regla: mínimo 3)"));
+  const data = state.cetList.slice();
 
-  state.catalog.CET.forEach((p) => {
-    const isSel = state.cetSeleccionadosIds.includes(p.id_personal);
+  const rowsWrap = document.createElement("div");
+  rowsWrap.style.display = "flex";
+  rowsWrap.style.flexDirection = "column";
+  rowsWrap.style.gap = "10px";
 
-    listBox.appendChild(personRowCrud({
-      name: fullName(p),
-      selected: isSel,
-      onSelect: () => {
-        if(isSel){
-          state.cetSeleccionadosIds = state.cetSeleccionadosIds.filter(x => x !== p.id_personal);
-          delete state.asignacionCelulas[p.id_personal];
-          delete state.asignacionVehiculos[p.id_personal];
-          renderCET();
-          return;
-        }
-        state.cetSeleccionadosIds.push(p.id_personal);
-        renderCET();
-      },
-      onDelete: async () => {
-        if(!confirm(`Eliminar a ${fullName(p)} del catálogo?`)) return;
-        try{
-          await deletePersonal(p.id_personal);
-          state.cetSeleccionadosIds = state.cetSeleccionadosIds.filter(x => x !== p.id_personal);
-          delete state.asignacionCelulas[p.id_personal];
-          delete state.asignacionVehiculos[p.id_personal];
-          await reloadPersonalCatalog("CET");
-          renderCET();
-        }catch(e){ alert(e.message || "Error eliminando CET"); }
-      },
-      onEdit: async (nuevoNombreCompleto) => {
-        try{
-          await updatePersonal({ id_personal: p.id_personal, nombreCompleto: nuevoNombreCompleto });
-          await reloadPersonalCatalog("CET");
-          renderCET();
-        }catch(e){ alert(e.message || "Error editando CET"); renderCET(); }
-      }
-    }));
-  });
+  function paint(filterText){
+    const ft = (filterText || "").toLowerCase().trim();
+    rowsWrap.innerHTML = "";
+    data
+      .filter(p => !ft || p.label.toLowerCase().includes(ft))
+      .forEach((p) => {
+        const isSel = state.cetSeleccionadosIds.includes(p.id_personal);
 
+        const row = document.createElement("div");
+        row.className = "item" + (isSel ? " selected" : "");
+
+        const left = document.createElement("div");
+        left.className = "itemName";
+        left.textContent = p.label;
+        left.style.cursor = "pointer";
+        left.addEventListener("click", () => {
+          if(isSel){
+            state.cetSeleccionadosIds = state.cetSeleccionadosIds.filter(id => id !== p.id_personal);
+          }else{
+            state.cetSeleccionadosIds.push(p.id_personal);
+            ensureCetState(p.id_personal);
+          }
+          renderCET();
+        });
+
+        row.appendChild(left);
+        rowsWrap.appendChild(row);
+      });
+  }
+
+  search.addEventListener("input", () => paint(search.value));
+  listBox.appendChild(search);
+  listBox.appendChild(rowsWrap);
   panel.appendChild(listBox);
+
+  paint("");
   restoreScrollTop(listBox, prevScroll);
 
   btnAccion.onclick = () => {
     if(state.cetSeleccionadosIds.length === 0) return;
 
-    state.cetSeleccionadosIds.forEach(id => {
-      if(!state.asignacionCelulas[id]) state.asignacionCelulas[id] = [];
-      if(!state.asignacionVehiculos[id]) state.asignacionVehiculos[id] = [];
+    state.cetSeleccionadosIds.forEach(cetId => {
+      if(!state.asignacionCelulas[cetId]) state.asignacionCelulas[cetId] = [];
+      ensureCetState(cetId);
     });
 
     state.pasoPersonal = "celulas";
     state.cetActivoIndex = 0;
+
+    const firstCet = getCetIdByIndex(0);
+    const gi = state.gruposByCet[firstCet];
+    if(gi && (gi.names || []).length > 0){
+      gi.idx = Math.max(0, Math.min(gi.idx || 0, gi.names.length - 1));
+      gi.active = gi.names[gi.idx];
+      if(!gi.vehActive) gi.vehActive = gi.active;
+    }
+
     renderCelulas();
   };
 }
 
 // ===============================
-// ====== PERSONAL: CÉLULAS =======
+// CHIPS DE GRUPOS (CÉLULAS)
 // ===============================
+function pintarChipsGrupos(cetId, container){
+  container.innerHTML = "";
+
+  ensureCetState(cetId);
+  const info = state.gruposByCet[cetId];
+
+  const hasGroups = (info.names || []).length > 0;
+  if(hasGroups){
+    info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
+    if(!info.active) info.active = info.names[info.idx];
+    if(info.active && !info.names.includes(info.active)){
+      info.active = info.names[info.idx];
+    }
+    if(!info.vehActive) info.vehActive = info.active;
+  }else{
+    info.active = null;
+    info.idx = 0;
+    info.vehActive = null;
+  }
+
+  info.names.forEach((gName, index) => {
+    const chip = document.createElement("button");
+    chip.className = "chip" + (info.active === gName ? " active" : "");
+    chip.textContent = gName;
+
+    chip.addEventListener("click", () => {
+      info.idx = index;
+      info.active = gName;
+      renderCelulas();
+    });
+
+    container.appendChild(chip);
+  });
+}
+
+// ===============================
+// CÉLULAS (CELL)
+// ===============================
+function renderCelulas(){
+  const prevScroll = getScrollTopInPanel();
+  clearPanel();
+  showBack(true);
+
+  const cetId = getCetIdByIndex(state.cetActivoIndex);
+  const cetObj = getPersonalById(cetId);
+  const asignadas = state.asignacionCelulas[cetId] || [];
+
+  ensureCetState(cetId);
+  const info = state.gruposByCet[cetId];
+
+  const hasGroups = (info.names || []).length > 0;
+  if(hasGroups){
+    info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
+    if(!info.active) info.active = info.names[info.idx];
+    if(info.active && !info.names.includes(info.active)){
+      info.active = info.names[info.idx];
+    }
+    if(!info.vehActive) info.vehActive = info.active;
+  }else{
+    info.active = null;
+    info.idx = 0;
+    info.vehActive = null;
+  }
+
+  setHeader("Células", "");
+
+  const lastCet = state.cetActivoIndex === state.cetSeleccionadosIds.length - 1;
+  const lastGroup = !hasGroups ? true : (info.idx === info.names.length - 1);
+  setAccion((lastCet && lastGroup) ? "Siguiente" : "Siguiente", false); // aquí siempre "Siguiente" hacia vehículos
+
+  const chips = document.createElement("div");
+  chips.className = "chipRow";
+
+  const cutObj = state.cutList.find(x => x.id_personal === state.cutSeleccionadoId);
+  const cutChip = document.createElement("div");
+  cutChip.className = "chip";
+  cutChip.textContent = `CUT: ${cutObj?.label || "—"}`;
+  chips.appendChild(cutChip);
+
+  state.cetSeleccionadosIds.forEach((id, i) => {
+    const p = getPersonalById(id);
+    const c = document.createElement("div");
+    c.className = "chip" + (i === state.cetActivoIndex ? " active" : "");
+    c.textContent = `CET: ${p?.label || id}`;
+    c.addEventListener("click", () => {
+      state.cetActivoIndex = i;
+      renderCelulas();
+    });
+    chips.appendChild(c);
+  });
+
+  panel.appendChild(chips);
+
+  const listBox = document.createElement("div");
+  listBox.className = "listBox";
+
+  const sticky = document.createElement("div");
+  sticky.className = "stickyTop";
+
+  // flotilla
+  const flotillaRow = document.createElement("div");
+  flotillaRow.className = "flotillaRow";
+
+  const flotWrap = document.createElement("div");
+  flotWrap.style.flex = "1";
+  const flotLbl = document.createElement("div");
+  flotLbl.className = "lbl";
+  flotLbl.style.marginBottom = "6px";
+  flotLbl.textContent = "Nombre de la flotilla";
+
+  const flotInp = document.createElement("input");
+  flotInp.className = "inp";
+  flotInp.value = state.flotillaByCet[cetId] || "";
+
+  flotInp.addEventListener("input", () => {
+    state.flotillaByCet[cetId] = flotInp.value;
+  });
+
+  flotWrap.appendChild(flotLbl);
+  flotWrap.appendChild(flotInp);
+
+  const btnCrearGrupo = document.createElement("button");
+  btnCrearGrupo.className = "btnSoft";
+  btnCrearGrupo.textContent = "Crear grupo";
+  btnCrearGrupo.addEventListener("click", () => abrirModalCrearGrupo(cetId));
+
+  flotillaRow.appendChild(flotWrap);
+  flotillaRow.appendChild(btnCrearGrupo);
+
+  // chips grupos
+  const groupsRow = document.createElement("div");
+  groupsRow.className = "groupsRow";
+  pintarChipsGrupos(cetId, groupsRow);
+
+  // search
+  const searchInp = document.createElement("input");
+  searchInp.className = "inp";
+  searchInp.placeholder = "Buscar CELL...";
+  searchInp.value = state.searchByCet[cetId] || "";
+
+  sticky.appendChild(flotillaRow);
+  sticky.appendChild(groupsRow);
+  sticky.appendChild(searchInp);
+  listBox.appendChild(sticky);
+
+  const rowsWrap = document.createElement("div");
+  rowsWrap.style.display = "flex";
+  rowsWrap.style.flexDirection = "column";
+  rowsWrap.style.gap = "10px";
+
+  // para bloquear cells repetidas entre CETs
+  const yaUsadas = new Set();
+  state.cetSeleccionadosIds.forEach((otherCetId, i) => {
+    if(i === state.cetActivoIndex) return;
+    (state.asignacionCelulas[otherCetId] || []).forEach(x => yaUsadas.add(x));
+  });
+
+  function paintCells(){
+    const term = (state.searchByCet[cetId] || "").toLowerCase().trim();
+    rowsWrap.innerHTML = "";
+
+    state.cellList
+      .filter(p => !term || p.label.toLowerCase().includes(term))
+      .forEach((p) => {
+        const cellId = p.id_personal;
+        const enEste = asignadas.includes(cellId);
+        const bloqueada = yaUsadas.has(cellId);
+
+        const row = celulaRow({
+          name: p.label,
+          selected: enEste,
+          disabled: bloqueada,
+          status: bloqueada ? "Asignado" : (enEste ? "En este CET" : "Disponible"),
+          onToggle: () => {
+            if(bloqueada) return;
+
+            const grupoActivo = info?.active || null;
+
+            if(grupoActivo){
+              if(!info.map[grupoActivo]) info.map[grupoActivo] = []; // ✅ array, no Set
+
+              if(enEste){
+                state.asignacionCelulas[cetId] = asignadas.filter(x => x !== cellId);
+
+                // borrar ese cellId de TODOS los grupos
+                Object.keys(info.map).forEach(g => {
+                  info.map[g] = (info.map[g] || []).filter(x => x !== cellId);
+                });
+              }else{
+                state.asignacionCelulas[cetId] = [...asignadas, cellId];
+
+                if(!info.map[grupoActivo].includes(cellId)) info.map[grupoActivo].push(cellId);
+              }
+            }else{
+              if(enEste){
+                state.asignacionCelulas[cetId] = asignadas.filter(x => x !== cellId);
+              }else{
+                state.asignacionCelulas[cetId] = [...asignadas, cellId];
+              }
+            }
+
+            renderCelulas();
+          }
+        });
+
+        rowsWrap.appendChild(row);
+      });
+  }
+
+  searchInp.addEventListener("input", () => {
+    state.searchByCet[cetId] = searchInp.value;
+    paintCells();
+  });
+
+  listBox.appendChild(rowsWrap);
+  panel.appendChild(listBox);
+
+  paintCells();
+  restoreScrollTop(listBox, prevScroll);
+
+  // avanzar: (si hay grupos) primero por grupo, luego por CET, y al final -> Vehículos
+  btnAccion.onclick = () => {
+    if(hasGroups){
+      if(info.idx < info.names.length - 1){
+        info.idx += 1;
+        info.active = info.names[info.idx];
+        if(!info.vehActive) info.vehActive = info.active;
+        renderCelulas();
+        return;
+      }
+    }
+
+    if(state.cetActivoIndex < state.cetSeleccionadosIds.length - 1){
+      state.cetActivoIndex += 1;
+      renderCelulas();
+      return;
+    }
+
+    // fin células -> vehículos
+    state.categoria = "vehiculos";
+    state.cetActivoIndexVeh = 0;
+    state.selectedVehicleId = null;
+    state.selectedPersonIds = [];
+    renderVehiculos();
+  };
+}
+
+// ===============================
+// MODAL CREAR GRUPOS (arrays)
+// ===============================
+function abrirModalCrearGrupo(cetId){
+  const overlay = document.createElement("div");
+  overlay.style.position = "fixed";
+  overlay.style.inset = "0";
+  overlay.style.background = "rgba(15,23,42,.35)";
+  overlay.style.display = "flex";
+  overlay.style.alignItems = "center";
+  overlay.style.justifyContent = "center";
+  overlay.style.zIndex = "9999";
+  overlay.addEventListener("click", (e) => { if(e.target === overlay) overlay.remove(); });
+
+  const modal = document.createElement("div");
+  modal.style.width = "520px";
+  modal.style.maxWidth = "92vw";
+  modal.style.background = "#fff";
+  modal.style.borderRadius = "16px";
+  modal.style.border = "1px solid #d7e3ff";
+  modal.style.boxShadow = "0 24px 60px rgba(15,23,42,.20)";
+  modal.style.padding = "16px";
+
+  const title = document.createElement("div");
+  title.style.fontWeight = "900";
+  title.style.fontSize = "18px";
+  title.style.textAlign = "center";
+  title.style.marginBottom = "12px";
+  title.textContent = "Crear Grupos";
+
+  const row1 = document.createElement("div");
+  row1.style.display = "flex";
+  row1.style.gap = "10px";
+  row1.style.alignItems = "center";
+  row1.style.marginBottom = "10px";
+
+  const lbl = document.createElement("div");
+  lbl.style.fontWeight = "800";
+  lbl.textContent = "Cuantos";
+
+  const inpNum = document.createElement("input");
+  inpNum.type = "number";
+  inpNum.min = "1";
+  inpNum.className = "inp";
+  inpNum.style.width = "120px";
+
+  row1.append(lbl, inpNum);
+
+  const formWrap = document.createElement("div");
+  formWrap.style.display = "flex";
+  formWrap.style.flexDirection = "column";
+  formWrap.style.gap = "10px";
+  formWrap.style.marginTop = "6px";
+
+  const btnRow = document.createElement("div");
+  btnRow.style.display = "flex";
+  btnRow.style.gap = "8px";
+  btnRow.style.justifyContent = "flex-end";
+  btnRow.style.marginTop = "14px";
+
+  const btnCancel = document.createElement("button");
+  btnCancel.className = "btnGhost";
+  btnCancel.textContent = "Cancelar";
+  btnCancel.addEventListener("click", () => overlay.remove());
+
+  const btnCreate = document.createElement("button");
+  btnCreate.className = "btnPrimary";
+  btnCreate.textContent = "Crear grupos";
+  btnCreate.style.width = "180px";
+
+  let nameInputs = [];
+
+  function buildFields(){
+    formWrap.innerHTML = "";
+    nameInputs = [];
+
+    const n = Number(inpNum.value || 0);
+    if(!n || n < 1) return;
+
+    for(let i=0; i<n; i++){
+      const line = document.createElement("div");
+      line.style.display = "flex";
+      line.style.gap = "10px";
+      line.style.alignItems = "center";
+
+      const l = document.createElement("div");
+      l.style.fontWeight = "800";
+      l.style.width = "140px";
+      l.textContent = "Nombre del grupo";
+
+      const inp = document.createElement("input");
+      inp.className = "inp";
+      inp.value = "";
+      nameInputs.push(inp);
+
+      line.append(l, inp);
+      formWrap.appendChild(line);
+    }
+  }
+
+  inpNum.addEventListener("input", buildFields);
+
+  btnCreate.addEventListener("click", () => {
+    const names = nameInputs.map(i => i.value.trim()).filter(Boolean);
+    const nExpected = Number(inpNum.value || 0);
+
+    if(!nExpected || nExpected < 1) return alert("Pon un número válido en 'Cuantos'.");
+    if(names.length !== nExpected) return alert("Completa todos los nombres de grupo.");
+
+    ensureCetState(cetId);
+    const info = state.gruposByCet[cetId];
+
+    names.forEach(g => {
+      if(!info.names.includes(g)){
+        info.names.push(g);
+        if(!info.map[g]) info.map[g] = []; // ✅ array
+      }
+    });
+
+    if(info.names.length > 0 && (!info.active || !info.names.includes(info.active))){
+      info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
+      info.active = info.names[info.idx];
+    }
+    if(!info.vehActive && info.names.length > 0){
+      info.vehActive = info.active || info.names[0];
+    }
+
+    overlay.remove();
+    renderCelulas();
+  });
+
+  btnRow.append(btnCancel, btnCreate);
+  modal.append(title, row1, formWrap, btnRow);
+  overlay.appendChild(modal);
+  document.body.appendChild(overlay);
+  inpNum.focus();
+}
+
+// ===============================
+// VEHÍCULOS (CET cuenta ✅)
+// ===============================
+function renderVehiculos(){
+  clearPanel();
+  showBack(true);
+
+  // contador por vehículo (CET cuenta porque es id_personal igual)
+  const vehCount = {};
+  Object.values(state.asignacionVehiculos || {}).forEach(vId => {
+    if(!vId) return;
+    vehCount[vId] = (vehCount[vId] || 0) + 1;
+  });
+
+  const cetId = getCetIdByIndex(state.cetActivoIndexVeh);
+  const cetObj = getPersonalById(cetId);
+
+  ensureCetState(cetId);
+  const ginfo = state.gruposByCet[cetId];
+
+  const hasGroups = (ginfo.names || []).length > 0;
+  if(hasGroups){
+    if(!ginfo.vehActive || !ginfo.names.includes(ginfo.vehActive)){
+      ginfo.vehActive = (ginfo.active && ginfo.names.includes(ginfo.active)) ? ginfo.active : ginfo.names[0];
+    }
+  } else {
+    ginfo.vehActive = null;
+  }
+
+  const groupIndex = hasGroups ? Math.max(0, ginfo.names.indexOf(ginfo.vehActive)) : 0;
+  const lastGroupIndex = hasGroups ? (ginfo.names.length - 1) : 0;
+
+  setHeader("Asignación de Vehículos", "");
+  const lastCet = state.cetActivoIndexVeh === state.cetSeleccionadosIds.length - 1;
+  const isLastOverall = lastCet && (!hasGroups || groupIndex === lastGroupIndex);
+  setAccion(isLastOverall ? "Finalizar" : "Siguiente", false);
+
+  // Izquierda: chips CET
+  const leftCardTitle = document.getElementById("leftCardTitle");
+  const leftCardContent = document.getElementById("leftCardContent");
+  if(leftCardTitle) leftCardTitle.textContent = "Asignación de personal al vehículo";
+  if(leftCardContent) leftCardContent.innerHTML = "";
+
+  const cetButtons = document.createElement("div");
+  cetButtons.className = "chipRow";
+  cetButtons.style.marginBottom = "12px";
+
+  state.cetSeleccionadosIds.forEach((id, i) => {
+    const p = getPersonalById(id);
+    const btn = document.createElement("button");
+    btn.className = "chip" + (i === state.cetActivoIndexVeh ? " active" : "");
+    btn.textContent = `CET: ${p?.label || id}`;
+    btn.style.cursor = "pointer";
+    btn.addEventListener("click", () => {
+      state.cetActivoIndexVeh = i;
+      state.selectedPersonIds = [];
+      state.selectedVehicleId = null;
+      renderVehiculos();
+    });
+    cetButtons.appendChild(btn);
+  });
+  leftCardContent?.appendChild(cetButtons);
+
+  // Header flotilla + grupos
+  const headerBox = document.createElement("div");
+  headerBox.className = "stickyTop";
+  headerBox.style.position = "relative";
+  headerBox.style.top = "auto";
+  headerBox.style.padding = "10px 0 10px";
+  headerBox.style.background = "#fff";
+  headerBox.style.borderBottom = "1px solid #d7e3ff";
+  headerBox.style.marginBottom = "10px";
+
+  const flotillaLbl = document.createElement("div");
+  flotillaLbl.className = "lbl";
+  flotillaLbl.style.marginBottom = "8px";
+  flotillaLbl.textContent = "Nombre de la flotilla";
+
+  const flotillaChip = document.createElement("div");
+  flotillaChip.className = "chip active";
+  flotillaChip.style.display = "inline-block";
+  flotillaChip.style.cursor = "default";
+  flotillaChip.textContent = state.flotillaByCet[cetId] ? state.flotillaByCet[cetId] : "—";
+
+  headerBox.appendChild(flotillaLbl);
+  headerBox.appendChild(flotillaChip);
+
+  if(hasGroups){
+    const grpLbl = document.createElement("div");
+    grpLbl.className = "lbl";
+    grpLbl.style.margin = "12px 0 8px";
+    grpLbl.textContent = "Grupos";
+
+    const grpRow = document.createElement("div");
+    grpRow.className = "groupsRow";
+
+    ginfo.names.forEach((gName) => {
+      const chip = document.createElement("button");
+      chip.className = "chip" + (ginfo.vehActive === gName ? " active" : "");
+      chip.textContent = gName;
+
+      chip.addEventListener("click", () => {
+        ginfo.vehActive = gName;
+        state.selectedPersonIds = [];
+        state.selectedVehicleId = null;
+        renderVehiculos();
+      });
+
+      grpRow.appendChild(chip);
+    });
+
+    headerBox.appendChild(grpLbl);
+    headerBox.appendChild(grpRow);
+  }
+
+  leftCardContent?.appendChild(headerBox);
+
+  // lista izquierda (checkboxes): CET + cells del CET (filtrado por grupo)
+  const cellulasList = document.createElement("div");
+  cellulasList.style.maxHeight = "350px";
+  cellulasList.style.overflowY = "auto";
+
+  const cellsForCet = state.asignacionCelulas[cetId] || [];
+  let cellsToShow = cellsForCet.slice();
+
+  if(hasGroups && ginfo.vehActive){
+    const arr = (ginfo.map[ginfo.vehActive] || []);
+    cellsToShow = arr.filter(id => cellsForCet.includes(id));
+  }
+
+  function toggleSelectedId(id, checked){
+    const set = new Set(state.selectedPersonIds || []);
+    if(checked) set.add(id);
+    else set.delete(id);
+    state.selectedPersonIds = Array.from(set);
+  }
+
+  function mkCheckRow({ labelText, idKey, disabled=false, checked=false, onChange }){
+    const label = document.createElement("label");
+    label.style.display = "flex";
+    label.style.alignItems = "center";
+    label.style.gap = "10px";
+    label.style.marginBottom = "10px";
+    label.style.padding = "10px";
+    label.style.cursor = disabled ? "not-allowed" : "pointer";
+    label.style.borderRadius = "8px";
+    label.style.backgroundColor = "#f5f5f5";
+    if(disabled) label.style.opacity = "0.65";
+
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.checked = checked;
+    chk.disabled = disabled;
+    chk.addEventListener("change", (e) => onChange?.(e.target.checked));
+
+    const textSpan = document.createElement("span");
+    textSpan.style.flex = "1";
+    textSpan.textContent = labelText;
+
+    label.appendChild(chk);
+    label.appendChild(textSpan);
+    return label;
+  }
+
+  // CET seleccionable (si ya tiene vehículo, lock)
+  const cetAssignedVeh = state.asignacionVehiculos[cetId];
+  const cetLocked = !!cetAssignedVeh;
+
+  cellulasList.appendChild(
+    mkCheckRow({
+      labelText: cetLocked ? `CET: ${cetObj?.label || cetId} (Asignado)` : `CET: ${cetObj?.label || cetId}`,
+      idKey: cetId,
+      disabled: cetLocked,
+      checked: (state.selectedPersonIds || []).includes(cetId),
+      onChange: (checked) => { toggleSelectedId(cetId, checked); renderVehiculos(); }
+    })
+  );
+
+  // seleccionar todo visible (CET + cells visibles)
+  if(cellsToShow.length > 0){
+    const visibleIds = [cetId, ...cellsToShow];
+    const unlockedVisible = visibleIds.filter(id => !state.asignacionVehiculos[id]);
+
+    const allSelectedVisible = unlockedVisible.length > 0 && unlockedVisible.every(id => (state.selectedPersonIds || []).includes(id));
+    const someSelectedVisible = unlockedVisible.some(id => (state.selectedPersonIds || []).includes(id));
+
+    const rowAll = mkCheckRow({
+      labelText: "Seleccionar todo lo visible",
+      idKey: -1,
+      disabled: unlockedVisible.length === 0,
+      checked: allSelectedVisible,
+      onChange: (checked) => {
+        const set = new Set(state.selectedPersonIds || []);
+        if(checked) unlockedVisible.forEach(id => set.add(id));
+        else unlockedVisible.forEach(id => set.delete(id));
+        state.selectedPersonIds = Array.from(set);
+        renderVehiculos();
+      }
+    });
+
+    rowAll.querySelector("input").indeterminate = (!allSelectedVisible && someSelectedVisible);
+    cellulasList.appendChild(rowAll);
+  }
+
+  // cells visibles
+  cellsToShow.forEach(cellId => {
+    const p = getPersonalById(cellId);
+    const assignedVeh = state.asignacionVehiculos[cellId];
+    const locked = !!assignedVeh;
+
+    cellulasList.appendChild(
+      mkCheckRow({
+        labelText: locked ? `${p?.label || cellId} (Asignado)` : (p?.label || cellId),
+        idKey: cellId,
+        disabled: locked,
+        checked: (state.selectedPersonIds || []).includes(cellId),
+        onChange: (checked) => { toggleSelectedId(cellId, checked); renderVehiculos(); }
+      })
+    );
+  });
+
+  leftCardContent?.appendChild(cellulasList);
+
+  // RIGHT: tarjetas vehículos (sin capacidad si tu BD no tiene)
+  const vehiclesWrap = document.createElement("div");
+  vehiclesWrap.className = "listBox";
+  vehiclesWrap.style.gap = "12px";
+
+  const vehicleGrid = document.createElement("div");
+  vehicleGrid.className = "vehicleGrid";
+  vehicleGrid.style.maxHeight = "300px";
+  vehicleGrid.style.overflowY = "auto";
+
+  state.vehiclesList.forEach((veh) => {
+    const card = document.createElement("div");
+    card.className = "vehicleCard";
+    card.style.cursor = "pointer";
+
+    const isSelected = state.selectedVehicleId === veh.id_vehiculo;
+    if(isSelected) card.classList.add("selected");
+
+    // estado
+    const isDisabledByEstado = (veh.estado || "").toString().toUpperCase() !== "DISPONIBLE"
+      && (veh.estado || "").toString().toUpperCase() !== "OPERATIVO"
+      && (veh.estado || "").toString().toUpperCase() !== "EN_SERVICIO"; // ajusta a tu enum real
+    if(isDisabledByEstado){
+      card.classList.add("disabled");
+      card.style.cursor = "not-allowed";
+    }
+
+    const img = document.createElement("img");
+    img.src = veh.image || "";
+    img.alt = veh.label;
+
+    const nameP = document.createElement("p");
+    nameP.textContent = veh.label;
+
+    const used = vehCount[veh.id_vehiculo] || 0;
+    const infoP = document.createElement("p");
+    infoP.style.margin = "6px 0 0";
+    infoP.style.fontWeight = "700";
+    infoP.style.fontSize = "12px";
+    infoP.style.opacity = "0.85";
+    infoP.textContent = `Asignados: ${used}`;
+
+    card.appendChild(img);
+    card.appendChild(nameP);
+    card.appendChild(infoP);
+
+    card.addEventListener("click", () => {
+      if(isDisabledByEstado) return;
+      state.selectedVehicleId = (state.selectedVehicleId === veh.id_vehiculo) ? null : veh.id_vehiculo;
+      renderVehiculos();
+    });
+
+    vehicleGrid.appendChild(card);
+  });
+
+  vehiclesWrap.appendChild(vehicleGrid);
+  panel.appendChild(vehiclesWrap);
+
+  // botón asignar
+  const assignBtn = document.createElement("button");
+  assignBtn.className = "btnPrimary";
+  assignBtn.style.marginTop = "20px";
+  assignBtn.style.width = "100%";
+  assignBtn.textContent = "Asignar vehículo";
+
+  const selectedAssignable = (state.selectedPersonIds || []).filter(id => Number.isInteger(id) || typeof id === "number");
+  const lockedSelected = selectedAssignable.filter(id => !!state.asignacionVehiculos[id]);
+
+  const canAssign =
+    !!state.selectedVehicleId &&
+    selectedAssignable.length > 0 &&
+    lockedSelected.length === 0;
+
+  assignBtn.disabled = !canAssign;
+
+  assignBtn.addEventListener("click", () => {
+    if(!state.selectedVehicleId) return alert("Selecciona un vehículo");
+    if(selectedAssignable.length === 0) return alert("Selecciona al menos CET o una CELL");
+
+    const locked = selectedAssignable.filter(id => !!state.asignacionVehiculos[id]);
+    if(locked.length > 0) return alert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
+
+    selectedAssignable.forEach((id_personal) => {
+      state.asignacionVehiculos[id_personal] = state.selectedVehicleId;
+    });
+
+    state.selectedVehicleId = null;
+    state.selectedPersonIds = [];
+    renderVehiculos();
+  });
+
+  panel.appendChild(assignBtn);
+
+  // avance: por grupos -> por CET -> al final guardar + regresar home
+  btnAccion.onclick = async () => {
+    if(hasGroups && groupIndex < lastGroupIndex){
+      ginfo.vehActive = ginfo.names[groupIndex + 1];
+      state.selectedVehicleId = null;
+      state.selectedPersonIds = [];
+      renderVehiculos();
+      return;
+    }
+
+    if(state.cetActivoIndexVeh < state.cetSeleccionadosIds.length - 1){
+      state.cetActivoIndexVeh += 1;
+
+      const nextCetId = getCetIdByIndex(state.cetActivoIndexVeh);
+      ensureCetState(nextCetId);
+
+      const ngi = state.gruposByCet[nextCetId];
+      const hasNextGroups = (ngi.names || []).length > 0;
+      if(hasNextGroups){
+        if(!ngi.vehActive || !ngi.names.includes(ngi.vehActive)){
+          ngi.vehActive = (ngi.active && ngi.names.includes(ngi.active)) ? ngi.active : ngi.names[0];
+        }
+      }else{
+        ngi.vehActive = null;
+      }
+
+      state.selectedVehicleId = null;
+      state.selectedPersonIds = [];
+      renderVehiculos();
+      return;
+    }
+
+    // último grupo del último CET => GUARDAR EN BACKEND
+    try {
+      await saveToBackend();
+      alert("Asignaciones guardadas.");
+      state.categoria = null;
+      state.pasoPersonal = "home";
+      renderHome();
+    } catch (e) {
+      alert(`Error guardando: ${e.message}`);
+    }
+  };
+}
+
+// ===============================
+// GUARDAR EN BACKEND (tu server.js)
+// ===============================
+async function saveToBackend(){
+  if(!state.opId) throw new Error("No se pudo resolver la operación (id_operacion). Revisa ?op=OP-...");
+  if(!state.cutSeleccionadoId) throw new Error("Falta CUT.");
+  if(state.cetSeleccionadosIds.length === 0) throw new Error("Falta CET.");
+
+  // 1) /ops/:id/personal  (CUT + CET + CELL)
+  const uniquePersonalIds = new Set();
+
+  uniquePersonalIds.add(state.cutSeleccionadoId);
+  state.cetSeleccionadosIds.forEach(id => uniquePersonalIds.add(id));
+  Object.values(state.asignacionCelulas || {}).forEach(arr => (arr || []).forEach(id => uniquePersonalIds.add(id)));
+
+  const personalItems = [];
+  for (const id_personal of uniquePersonalIds) {
+    const p = getPersonalById(id_personal);
+    // rol_en_operacion (opcional) -> usamos su rol real
+    personalItems.push({
+      id_personal,
+      rol_en_operacion: p?.rol || null,
+      estado_asignacion: "ASIGNADO"
+    });
+  }
+
+  await api(`/ops/${state.opId}/personal`, {
+    method: "POST",
+    body: { items: personalItems }
+  });
+
+  // 2) /ops/:id/mando (mapeo CET -> CELL)
+  const mandoItems = [];
+  state.cetSeleccionadosIds.forEach(cetId => {
+    const cells = state.asignacionCelulas[cetId] || [];
+    cells.forEach(cellId => {
+      mandoItems.push({ id_cet: cetId, id_cell: cellId });
+    });
+  });
+
+  await api(`/ops/${state.opId}/mando`, {
+    method: "POST",
+    body: { items: mandoItems }
+  });
+
+  // 3) Vehículos: necesita endpoint nuevo (te lo dejo abajo para pegarlo en server.js)
+  const vehItems = Object.entries(state.asignacionVehiculos || {}).map(([id_personal, id_vehiculo]) => ({
+    id_personal: Number(id_personal),
+    id_vehiculo: Number(id_vehiculo),
+  }));
+
+  await api(`/ops/${state.opId}/vehiculos`, {
+    method: "POST",
+    body: { items: vehItems }
+  });
+}
+
 function celulaRow({name, selected=false, disabled=false, status="Disponible", onToggle}){
   const row = document.createElement("div");
   row.className = "item" + (selected ? " selected" : "") + (disabled ? " disabled" : "");
@@ -632,300 +1245,37 @@ function celulaRow({name, selected=false, disabled=false, status="Disponible", o
   return row;
 }
 
-function renderCelulas(){
-  const prevScroll = getScrollTopInPanel();
-  clearPanel();
-  showBack(true);
-
-  const cetId = state.cetSeleccionadosIds[state.cetActivoIndex];
-  const cet = state.catalog.CET.find(x => x.id_personal === cetId);
-  const asignadas = state.asignacionCelulas[cetId] || [];
-
-  setHeader("Células", "");
-  setAccion(
-    state.cetActivoIndex < state.cetSeleccionadosIds.length - 1 ? "Siguiente" : "Finalizar y Guardar",
-    asignadas.length < 6
-  );
-
-  const chips = document.createElement("div");
-  chips.className = "chipRow";
-
-  const cut = state.catalog.CUT.find(x => x.id_personal === state.cutSeleccionadoId);
-  const cutChip = document.createElement("div");
-  cutChip.className = "chip";
-  cutChip.textContent = `CUT: ${cut ? fullName(cut) : "—"}`;
-  chips.appendChild(cutChip);
-
-  state.cetSeleccionadosIds.forEach((id, i) => {
-    const p = state.catalog.CET.find(x => x.id_personal === id);
-    const c = document.createElement("div");
-    c.className = "chip" + (i === state.cetActivoIndex ? " active" : "");
-    c.textContent = `CET: ${p ? fullName(p) : id}`;
-    c.addEventListener("click", () => { state.cetActivoIndex = i; renderCelulas(); });
-    chips.appendChild(c);
-  });
-
-  panel.appendChild(chips);
-
-  const listBox = document.createElement("div");
-  listBox.className = "listBox";
-
-  listBox.appendChild(stickyAddButton("Agregar", () => {
-    inlineAddRow(listBox, {
-      placeholder: "Nombre Apellido (CELL)",
-      onSave: async (nombreCompleto) => {
-        try{
-          await createPersonal({ rol: "CELL", nombreCompleto });
-          await reloadPersonalCatalog("CELL");
-          renderCelulas();
-        }catch(e){ alert(e.message || "Error creando CELL"); renderCelulas(); }
-      },
-      onCancel: () => renderCelulas()
-    });
-  }));
-
-  listBox.appendChild(stickyInfo(`Selecciona mínimo 6 Células para: ${cet ? fullName(cet) : "CET"}`));
-
-  const yaUsadas = new Set();
-  state.cetSeleccionadosIds.forEach((otherCetId, i) => {
-    if(i === state.cetActivoIndex) return;
-    (state.asignacionCelulas[otherCetId] || []).forEach(x => yaUsadas.add(x));
-  });
-
-  state.catalog.CELL.forEach((cell) => {
-    const enEste = asignadas.includes(cell.id_personal);
-    const bloqueada = yaUsadas.has(cell.id_personal);
-
-    // aquí “editar/eliminar” sería del catálogo CELL (no de la asignación)
-    // Para no ensuciar UI, lo dejamos como selección; si quieres CRUD también en CELL,
-    // dímelo y te lo dejo como en CUT/CET.
-    listBox.appendChild(celulaRow({
-      name: fullName(cell),
-      selected: enEste,
-      disabled: bloqueada,
-      status: bloqueada ? "Asignado" : (enEste ? "En este CET" : "Disponible"),
-      onToggle: () => {
-        if(bloqueada) return;
-        if(enEste){
-          state.asignacionCelulas[cetId] = asignadas.filter(x => x !== cell.id_personal);
-        } else {
-          state.asignacionCelulas[cetId] = [...asignadas, cell.id_personal];
-        }
-        renderCelulas();
-      }
-    }));
-  });
-
-  panel.appendChild(listBox);
-  restoreScrollTop(listBox, prevScroll);
-
-  btnAccion.onclick = async () => {
-    const count = (state.asignacionCelulas[cetId] || []).length;
-    if(count < 6) return;
-
-    if(state.cetActivoIndex < state.cetSeleccionadosIds.length - 1){
-      state.cetActivoIndex += 1;
-      renderCelulas();
-      return;
-    }
-
-    try{
-      await persistPersonalAssignments();
-      alert("Personal guardado: CUT/CET/CELL + mandos (CELL→CET).");
-      state.categoria = null;
-      state.pasoPersonal = "home";
-      renderHome();
-    }catch(e){
-      alert(e.message || "Error guardando personal");
-    }
-  };
-}
-
 // ===============================
-// ====== GUARDAR PERSONAL BD =====
-// ===============================
-async function persistPersonalAssignments(){
-  if(!state.id_operacion) throw new Error("No hay operación");
-  if(!state.cutSeleccionadoId) throw new Error("Selecciona CUT");
-  if(state.cetSeleccionadosIds.length === 0) throw new Error("Selecciona CET");
-
-  const personalIds = new Set();
-  personalIds.add(state.cutSeleccionadoId);
-  state.cetSeleccionadosIds.forEach(id => personalIds.add(id));
-  Object.values(state.asignacionCelulas).forEach(arr => arr.forEach(id => personalIds.add(id)));
-
-  const payloadPersonal = {
-    asignado_por: state.id_usuario,
-    items: Array.from(personalIds).map((id_personal) => ({
-      id_personal,
-      rol_en_operacion: null,
-      estado_asignacion: "ASIGNADO",
-    })),
-  };
-
-  await api(`/ops/${state.id_operacion}/personal`, { method: "POST", body: payloadPersonal });
-
-  const mandoItems = [];
-  state.cetSeleccionadosIds.forEach((id_cet) => {
-    const cells = state.asignacionCelulas[id_cet] || [];
-    cells.forEach((id_cell) => mandoItems.push({ id_cet, id_cell }));
-  });
-
-  await api(`/ops/${state.id_operacion}/mando`, {
-    method: "POST",
-    body: { asignado_por: state.id_usuario, items: mandoItems }
-  });
-}
-
-// ===============================
-// ====== VEHÍCULOS (como Código 1)
-// ===============================
-function renderVehiculos(){
-  const prevScroll = getScrollTopInPanel();
-  clearPanel();
-  showBack(true);
-
-  const cetId = state.cetSeleccionadosIds[state.cetActivoIndexVeh];
-  const cet = state.catalog.CET.find(x => x.id_personal === cetId);
-  const asignadas = state.asignacionVehiculos[cetId] || [];
-
-  setHeader("Vehículos", "");
-  setAccion(state.cetActivoIndexVeh < state.cetSeleccionadosIds.length - 1 ? "Siguiente" : "Finalizar y Guardar", false);
-
-  const chips = document.createElement("div");
-  chips.className = "chipRow";
-
-  const cut = state.catalog.CUT.find(x => x.id_personal === state.cutSeleccionadoId);
-  const cutChip = document.createElement("div");
-  cutChip.className = "chip";
-  cutChip.textContent = `CUT: ${cut ? fullName(cut) : "—"}`;
-  chips.appendChild(cutChip);
-
-  state.cetSeleccionadosIds.forEach((id, i) => {
-    const p = state.catalog.CET.find(x => x.id_personal === id);
-    const c = document.createElement("div");
-    c.className = "chip" + (i === state.cetActivoIndexVeh ? " active" : "");
-    c.textContent = `CET: ${p ? fullName(p) : id}`;
-    c.addEventListener("click", () => { state.cetActivoIndexVeh = i; renderVehiculos(); });
-    chips.appendChild(c);
-  });
-  panel.appendChild(chips);
-
-  const listBox = document.createElement("div");
-  listBox.className = "listBox";
-  listBox.appendChild(stickyInfo(`Selecciona vehículos para ${cet ? fullName(cet) : "CET"} (luego se forman grupos)`));
-
-  const content = document.createElement("div");
-  content.className = "vehicleGrid";
-
-  const yaUsadas = new Set();
-  state.cetSeleccionadosIds.forEach((otherCetId, i) => {
-    if(i === state.cetActivoIndexVeh) return;
-    (state.asignacionVehiculos[otherCetId] || []).forEach(idVeh => yaUsadas.add(idVeh));
-  });
-
-  state.catalog.vehiculos.forEach((v) => {
-    const enEste = asignadas.includes(v.id_vehiculo);
-    const bloqueada = yaUsadas.has(v.id_vehiculo);
-
-    const card = document.createElement("div");
-    card.className = "vehicleCard" + (enEste ? " selected" : "") + (bloqueada ? " disabled" : "");
-
-    const imgUrl = (v.imagen_veh || "").trim();
-    if (imgUrl) {
-      const img = document.createElement("img");
-      img.src = imgUrl;
-      img.alt = v.codigo_interno;
-      img.onerror = () => { img.remove(); };
-      card.appendChild(img);
-    }
-
-    const nameP = document.createElement("p");
-    nameP.textContent = `${v.codigo_interno} ${v.marca ? "· "+v.marca : ""} ${v.modelo ? v.modelo : ""}`.trim();
-
-    card.addEventListener("click", () => {
-      if(bloqueada) return;
-      if(enEste){
-        state.asignacionVehiculos[cetId] = asignadas.filter(x => x !== v.id_vehiculo);
-      } else {
-        state.asignacionVehiculos[cetId] = [...asignadas, v.id_vehiculo];
-      }
-      renderVehiculos();
-    });
-
-    card.append(nameP);
-    content.appendChild(card);
-  });
-
-  listBox.appendChild(content);
-  panel.appendChild(listBox);
-  restoreScrollTop(listBox, prevScroll);
-
-  btnAccion.onclick = async () => {
-    if(state.cetActivoIndexVeh < state.cetSeleccionadosIds.length - 1){
-      state.cetActivoIndexVeh += 1;
-      renderVehiculos();
-      return;
-    }
-
-    try{
-      await persistVehiculosYGrupos();
-      alert("Vehículos guardados y grupos generados.");
-      state.categoria = null;
-      state.pasoPersonal = "home";
-      renderHome();
-    }catch(e){
-      alert(e.message || "Error guardando vehículos/grupos");
-    }
-  };
-}
-
-async function persistVehiculosYGrupos(){
-  if(!state.id_operacion) throw new Error("No hay operación");
-  if(state.cetSeleccionadosIds.length === 0) throw new Error("No hay CET");
-
-  const vehSet = new Set();
-  Object.values(state.asignacionVehiculos).forEach(arr => arr.forEach(id => vehSet.add(id)));
-
-  await api(`/ops/${state.id_operacion}/vehiculos`, {
-    method: "POST",
-    body: {
-      asignado_por: state.id_usuario,
-      items: Array.from(vehSet).map(id_vehiculo => ({
-        id_vehiculo,
-        uso_en_operacion: null,
-        estado_asignacion: "ASIGNADO"
-      }))
-    }
-  });
-
-  const gruposInput = state.cetSeleccionadosIds.map((id_cet) => ({
-    id_cet,
-    cells: (state.asignacionCelulas[id_cet] || []),
-    vehiculos: (state.asignacionVehiculos[id_cet] || []),
-  }));
-
-  await api(`/ops/${state.id_operacion}/grupos/auto`, {
-    method: "POST",
-    body: {
-      creado_por: state.id_usuario,
-      asignado_por: state.id_usuario,
-      grupos: gruposInput
-    }
-  });
-}
-
-// ===============================
-// ====== NAV BACK/EXIT ============
+// Back / Volver
 // ===============================
 btnBack.addEventListener("click", () => {
+  // ✅ si estás en vehículos, regresa a células
+  if(state.categoria === "vehiculos"){
+    state.categoria = "personal";
+    state.pasoPersonal = "celulas";
+    renderCelulas();
+    return;
+  }
+
   if(state.categoria !== "personal"){
     renderHome();
     return;
   }
-  if(state.pasoPersonal === "celulas"){ state.pasoPersonal = "cet"; renderCET(); return; }
-  if(state.pasoPersonal === "cet"){ state.pasoPersonal = "cut"; renderCUT(); return; }
-  if(state.pasoPersonal === "cut"){ renderHome(); return; }
+
+  if(state.pasoPersonal === "celulas"){
+    state.pasoPersonal = "cet";
+    renderCET();
+    return;
+  }
+  if(state.pasoPersonal === "cet"){
+    state.pasoPersonal = "cut";
+    renderCUT();
+    return;
+  }
+  if(state.pasoPersonal === "cut"){
+    renderHome();
+    return;
+  }
 });
 
 btnVolver.addEventListener("click", () => {
@@ -933,24 +1283,13 @@ btnVolver.addEventListener("click", () => {
 });
 
 // ===============================
-// ====== INIT ====================
+// Init
 // ===============================
 (async function init(){
-  try{
-    await loadCatalogs();
-    await loadOperacionFromQS();
-
-    btnFinalizar.addEventListener("click", async () => {
-      try{
-        const op = await saveOperacion();
-        alert(`Operación guardada: ${op.nombre}`);
-      }catch(e){
-        alert(e.message || "Error guardando operación");
-      }
-    });
-
+  try {
+    await loadCatalogsAndOp();
     renderHome();
-  }catch(e){
-    alert(e.message || "Error inicializando");
+  } catch (e) {
+    alert(`Error inicializando asignación: ${e.message}\n\n¿Hay token en localStorage.token? ¿API en ${API_BASE}?`);
   }
 })();

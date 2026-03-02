@@ -294,6 +294,10 @@ CREATE TABLE IF NOT EXISTS grupo_operacion (
 
   CONSTRAINT uq_grupo_operacion_nombre UNIQUE (id_operacion, nombre),
 
+  -- Necesario para que el FK compuesto sea válido
+  CONSTRAINT uq_grupo_operacion_operacion_grupo UNIQUE (id_operacion, id_grupo_operacion),
+
+
   -- Si es subgrupo, obliga a que el padre sea de la misma operación
   CONSTRAINT fk_grupo_padre_misma_operacion
     FOREIGN KEY (id_operacion, id_grupo_padre)

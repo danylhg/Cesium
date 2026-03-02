@@ -54,14 +54,14 @@ async function main() {
 
   await client.connect();
 
-  const cutUsers = users.filter((u) => u.rol === "ADMIN");
+  const adminUsers = users.filter((u) => u.rol === "ADMIN");
   const personalUsers = users.filter((u) => u.rol === "CUT" || u.rol === "CET" || u.rol === "CELL");
 
   try {
     await client.query("BEGIN");
 
-    // 1) Inserta/actualiza CUT en tabla usuario
-    for (const u of cutUsers) {
+    // 1) Inserta/actualiza ADMIN en tabla usuario
+    for (const u of adminUsers) {
       const hash = await bcrypt.hash(DEFAULT_PASSWORD, BCRYPT_ROUNDS);
 
       await client.query(
@@ -80,7 +80,7 @@ async function main() {
       );
     }
 
-    // 2) Agarra el id del usuario admin (creador) para personal.creado_por
+    // 2) id del usuario admin (creador) para personal.creado_por
     const adminRow = await client.query(
       `SELECT id_usuario FROM usuario WHERE username = $1 LIMIT 1`,
       ["admin"]
@@ -90,16 +90,20 @@ async function main() {
     }
     const creadoPor = adminRow.rows[0].id_usuario;
 
-    // 3) Inserta/actualiza CET/CELL en tabla personal
+    // 3) Inserta/actualiza CUT/CET/CELL en tabla personal
     for (const p of personalUsers) {
       const hash = await bcrypt.hash(DEFAULT_PASSWORD, BCRYPT_ROUNDS);
 
+      // ✅ apodo obligatorio en tu schema: usamos username (único y no-null)
+      const apodo = p.username;
+
       await client.query(
         `
-        INSERT INTO personal (rol, nombre, apellido, puesto, username, password_hash, activo, creado_por)
-        VALUES ($1,$2,$3,$4,$5,$6, TRUE, $7)
+        INSERT INTO personal (rol, apodo, nombre, apellido, puesto, username, password_hash, activo, creado_por)
+        VALUES ($1,$2,$3,$4,$5,$6,$7, TRUE, $8)
         ON CONFLICT (username) DO UPDATE
           SET rol = EXCLUDED.rol,
+              apodo = EXCLUDED.apodo,
               nombre = EXCLUDED.nombre,
               apellido = EXCLUDED.apellido,
               puesto = EXCLUDED.puesto,
@@ -107,7 +111,7 @@ async function main() {
               activo = TRUE,
               creado_por = EXCLUDED.creado_por
         `,
-        [p.rol, p.nombre, p.apellido, p.puesto, p.username, hash, creadoPor]
+        [p.rol, apodo, p.nombre, p.apellido, p.puesto, p.username, hash, creadoPor]
       );
     }
 
@@ -116,7 +120,7 @@ async function main() {
     console.log(`Password para todos: ${DEFAULT_PASSWORD}`);
   } catch (e) {
     await client.query("ROLLBACK");
-    console.error("Seed falló (detalle):", e); // <-- importante para ver TODO
+    console.error("Seed falló (detalle):", e);
     process.exitCode = 1;
   } finally {
     await client.end();

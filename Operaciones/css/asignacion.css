@@ -184,7 +184,7 @@ input[type="date"]{
   display:flex;
   flex-direction:column;
   min-height:560px;
-  max-height:calc(100vh - 200px); /* altura máxima relativa a viewport */
+  max-height:calc(100vh - 200px);
 }
 
 .rightHeader{
@@ -213,8 +213,8 @@ input[type="date"]{
   padding:12px;
   display:flex;
   flex-direction:column;
-  overflow-y:auto; /* permite scroll interno */
-  min-height:0; /* permite que flex:1 funcione correctamente */
+  overflow-y:auto;
+  min-height:0;
 }
 
 /* CONTENIDO SCROLL INTERNO */
@@ -224,28 +224,6 @@ input[type="date"]{
   display:flex;
   flex-direction:column;
   gap:10px;
-}
-
-/* AGREGAR FIJO ARRIBA */
-.stickyAdd{
-  position:sticky;
-  top:0;
-  background:#fff;
-  padding-bottom:10px;
-  z-index:10;
-  display:flex;
-  justify-content:center;
-}
-
-.addBtn{
-  width:100%;
-  max-width:300px;
-  border:1px solid var(--stroke);
-  background:var(--blueSoft);
-  padding:11px;
-  border-radius:12px;
-  font-weight:900;
-  cursor:pointer;
 }
 
 /* BOTÓN ABAJO FIJO */
@@ -322,7 +300,6 @@ input[type="date"]{
   margin-top: 8px;
 }
 
-/* VEHICLE CARD SELECTED/DISABLED */
 .vehicleCard.selected{
   border-color:var(--blue);
   background:rgba(36,87,230,.08);
@@ -459,6 +436,44 @@ input[type="date"]{
 .item.disabled .badgeRight{
   background:#f3f4f6;
   color:#6b7280;
+}
+
+/* ✅ NUEVO: header sticky para flotilla + grupos + búsqueda */
+.stickyTop{
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: #fbfdff;
+  padding: 10px 0 10px;
+  border-bottom: 1px solid var(--stroke2);
+}
+
+.flotillaRow{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-bottom:10px;
+}
+
+.flotillaRow .inp{
+  flex:1;
+}
+
+.btnSoft{
+  border:1px solid var(--stroke);
+  background:#f7faff;
+  padding:10px 14px;
+  border-radius:999px;
+  cursor:pointer;
+  font-weight:900;
+  white-space:nowrap;
+}
+
+.groupsRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  margin: 0 0 10px;
 }
 
 /* ------------------ RESPONSIVE ------------------ */

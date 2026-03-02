@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Control de Personal</title>
+  <link rel="stylesheet" href="css/control_personal.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="brandText">
+        <div class="brandName">Centro de Operaciones</div>
+        <div class="brandSub">Control de personal</div>
+      </div>
+    </div>
+
+    <div class="topActions">
+      <button id="btnBack" class="btnTop">Volver</button>
+      <button id="btnLogout" class="btnTop">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <div class="bgOrbs" aria-hidden="true">
+    <span class="orb orb1"></span>
+    <span class="orb orb2"></span>
+    <span class="orb orb3"></span>
+  </div>
+
+  <main class="wrap">
+    <section class="panel">
+      <div class="panelHead">
+        <div>
+          <h1 class="title">Control de Personal</h1>
+          <p class="subtitle">Administra usuarios, roles y accesos (localStorage)</p>
+        </div>
+
+        <div class="headBtns">
+          <button id="btnAdd" class="btn primary">
+            <span class="btnIcon">＋</span>
+            Agregar
+          </button>
+          <button id="btnEdit" class="btn soft" disabled>
+            <span class="btnIcon">✎</span>
+            Modificar
+          </button>
+          <button id="btnDelete" class="btn danger" disabled>
+            <span class="btnIcon">🗑</span>
+            Eliminar
+          </button>
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filtersCard">
+        <div class="field">
+          <label>Buscar</label>
+          <div class="searchRow">
+            <input id="searchInput" type="text" placeholder="Buscar por apodo, nombre, rol, puesto, username..." />
+            <button id="btnSearch" class="btn mini soft" type="button">
+              <span class="btnIcon miniIcon">⌕</span>
+              Buscar
+            </button>
+            <button id="btnClear" class="btn mini" type="button">
+              Limpiar
+            </button>
+          </div>
+        </div>
+
+        <div class="grid3">
+          <div class="field">
+            <label>Filtro por Rol</label>
+            <select id="filterRol">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Filtro por Puesto</label>
+            <select id="filterPuesto">
+              <option value="">Todos</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Filtro por Activo</label>
+            <select id="filterActivo">
+              <option value="">Todos</option>
+              <option value="true">Activos</option>
+              <option value="false">Inactivos</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hintRow">
+          <span id="resultHint" class="hint"></span>
+          <span class="hint">Tip: da clic en una fila para seleccionarla.</span>
+        </div>
+      </div>
+
+      <!-- Tabla -->
+      <div class="tableCard">
+        <div class="tableWrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Apodo</th>
+                <th>Nombre</th>
+                <th>Apellido</th>
+                <th>Rol</th>
+                <th>Puesto</th>
+                <th>Username</th>
+                <th>Contraseña</th>
+                <th>Activo</th>
+                <th>Último acceso</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden" aria-hidden="true">
+      <div class="modalBackdrop" data-close="true"></div>
+      <div class="modalCard" role="dialog" aria-modal="true">
+        <div class="modalHead">
+          <div class="modalTitle" id="modalTitle">Agregar personal</div>
+          <button class="iconBtn" id="btnCloseModal" title="Cerrar">✕</button>
+        </div>
+
+        <form id="form" class="modalBody">
+          <div class="grid2">
+            <div class="field">
+              <label>Apodo</label>
+              <input id="fApodo" type="text" required maxlength="40" />
+            </div>
+
+            <div class="field">
+              <label>Rol</label>
+              <select id="fRol" required></select>
+            </div>
+
+            <div class="field">
+              <label>Nombre</label>
+              <input id="fNombre" type="text" required maxlength="60" />
+            </div>
+
+            <div class="field">
+              <label>Apellido</label>
+              <input id="fApellido" type="text" required maxlength="60" />
+            </div>
+
+            <div class="field">
+              <label>Puesto</label>
+              <select id="fPuesto" required></select>
+            </div>
+
+            <div class="field">
+              <label>Username</label>
+              <input id="fUsername" type="text" required maxlength="40" />
+            </div>
+
+            <div class="field">
+              <label>Contraseña</label>
+              <input id="fPassword" type="text" required maxlength="60" />
+            </div>
+
+            <div class="field">
+              <label>Activo</label>
+              <select id="fActivo">
+                <option value="true">Sí</option>
+                <option value="false">No</option>
+              </select>
+            </div>
+
+            <div class="field full">
+              <label>Último acceso</label>
+              <input id="fLastAccess" type="text" placeholder="Se llena automáticamente si lo dejas vacío" />
+              <div class="miniHelp">Formato sugerido: YYYY-MM-DD HH:mm</div>
+            </div>
+          </div>
+
+          <div class="modalActions">
+            <button type="button" id="btnCancel" class="btn soft">Cancelar</button>
+            <button type="submit" id="btnSave" class="btn primary">
+              <span class="btnIcon">✔</span>
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="js/control_personal.js"></script>
+</body>
+</html>

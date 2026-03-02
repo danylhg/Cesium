@@ -1,30 +1,21 @@
-// ===== SESIÓN =====
 if (localStorage.getItem("session") !== "ok") {
   window.location.href = "login.html";
 }
 
 const btnCreate = document.getElementById("btnCreate");
 const btnSelect = document.getElementById("btnSelect");
+const btnPersonal = document.getElementById("btnPersonal"); // ✅ NUEVO
 const btnLogout = document.getElementById("btnLogout");
 
 const opsList = document.getElementById("opsList");
 const opsUl = document.getElementById("opsUl");
 
-const API = "http://localhost:3001";
+const STORAGE_OPS = "operations";
 
-async function getOpsDB() {
-  const token = localStorage.getItem("token");
-  const r = await fetch(`${API}/ops`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-
-  const data = await r.json().catch(() => null);
-
-  if (!r.ok || (data && data.ok === false)) {
-    throw new Error(data?.mensaje || `Error ${r.status}`);
-  }
-
-  return Array.isArray(data) ? data : (data.ops || []);
+function getOps() {
+  const raw = localStorage.getItem(STORAGE_OPS);
+  if (!raw) return [];
+  try { return JSON.parse(raw); } catch { return []; }
 }
 
 // logout
@@ -40,24 +31,9 @@ btnCreate.addEventListener("click", () => {
 });
 
 // seleccionar
-btnSelect.addEventListener("click", async () => {
+btnSelect.addEventListener("click", () => {
   opsUl.innerHTML = "";
-
-  let ops = [];
-  try {
-    ops = await getOpsDB();
-  } catch (e) {
-    const li = document.createElement("li");
-    li.textContent = "Error cargando operaciones";
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = e.message;
-    li.appendChild(tag);
-    opsUl.appendChild(li);
-
-    opsList.classList.remove("hidden");
-    return;
-  }
+  const ops = getOps();
 
   if (!ops.length) {
     const li = document.createElement("li");
@@ -89,3 +65,8 @@ btnSelect.addEventListener("click", async () => {
   opsList.classList.remove("hidden");
 });
 
+// ✅ Control de personal
+btnPersonal.addEventListener("click", () => {
+  // Cambia esta ruta al nombre real de tu archivo si es diferente
+  window.location.href = "control_personal.html";
+});

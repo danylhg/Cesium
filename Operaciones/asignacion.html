@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Asignación</title>
 
-  <!-- OJO: estas rutas deben existir -->
   <link rel="stylesheet" href="css/asignacion.css" />
 </head>
 <body>
@@ -26,10 +25,10 @@
       <div class="cols">
 
         <!-- LEFT -->
-        <aside class="card leftCard">
-          <div class="cardTitle">Información de operación</div>
+        <aside class="card leftCard" id="leftCard">
+          <div class="cardTitle" id="leftCardTitle">Información de operación</div>
 
-          <div class="form">
+          <div class="form" id="leftCardContent">
             <label class="lbl">Nombre</label>
             <input class="inp" id="opNombre" placeholder="Nombre de la operación" />
 
@@ -52,8 +51,6 @@
               <option value="MEDIA">Media</option>
               <option value="ALTA">Alta</option>
             </select>
-
-            <button class="btnPrimary" id="btnFinalizar">Finalizar creación inicial</button>
           </div>
         </aside>
 
@@ -72,7 +69,7 @@
           <!-- Panel (contenido dinámico) -->
           <div class="panel" id="panel"></div>
 
-          <!-- Footer fixed (no se va hasta abajo) -->
+          <!-- Footer fixed -->
           <div class="rightFooter">
             <button class="btnPrimary" id="btnAccion">Siguiente</button>
             <p class="hint" id="rightHint"></p>
@@ -86,6 +83,8 @@
   <script src="js/asignacion.js"></script>
 </body>
 </html>
+
+
 
 
 

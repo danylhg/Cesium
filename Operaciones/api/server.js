@@ -539,6 +539,55 @@ app.post("/ops/:id/mando", requireAuth, async (req, res) => {
   }
 });
 
+app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    const { asignado_por, items } = req.body ?? {};
+    const who = Number(asignado_por || req.user.sub);
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ ok: false, mensaje: "items inválido" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      // Si quieres recalcular desde cero:
+      await client.query(`DELETE FROM vehiculo_operacion_personal WHERE id_operacion = $1`, [id_operacion]);
+
+      for (const it of items) {
+        const id_personal = Number(it.id_personal);
+        const id_vehiculo = Number(it.id_vehiculo);
+        if (!isInt(id_personal) || !isInt(id_vehiculo)) continue;
+
+        await client.query(
+          `INSERT INTO vehiculo_operacion_personal
+            (id_operacion, id_personal, id_vehiculo, asignado_por)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (id_operacion, id_personal)
+           DO UPDATE SET
+             id_vehiculo = EXCLUDED.id_vehiculo,
+             asignado_por = EXCLUDED.asignado_por,
+             fecha_asignacion = NOW()`,
+          [id_operacion, id_personal, id_vehiculo, who]
+        );
+      }
+
+      await client.query("COMMIT");
+      return res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error guardando vehículos", error: err.message });
+  }
+});
 
 // ===============================
 // 404 handler (para ver qué falla)
