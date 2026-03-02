@@ -331,13 +331,16 @@ btnAdd.addEventListener("click", () => openModal("add"));
 btnEdit.addEventListener("click", () => selectedId && openModal("edit"));
 
 btnDelete.addEventListener("click", async () => {
-  if(!selectedId) return;
+  if (!selectedId) return;
+
   const p = personal.find(x => x.id_personal === selectedId);
   const name = p ? `${p.nombre} ${p.apellido}` : "este registro";
-  if(!confirm(`¿Eliminar (desactivar) a ${name}?`)) return;
+
+  // Si quieres hard delete real:
+  if (!confirm(`¿BORRAR definitivamente a ${name}?\n(Si tiene asignaciones, no te dejará.)`)) return;
 
   try {
-    await api(`/catalog/personal/${selectedId}`, { method: "DELETE" });
+    await api(`/catalog/personal/${selectedId}?hard=1`, { method: "DELETE" });
     await loadFromApi();
     selectedId = null;
     renderTable();

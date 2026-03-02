@@ -8,39 +8,69 @@ const BCRYPT_ROUNDS = Number(process.env.BCRYPT_ROUNDS || 10);
 const DEFAULT_PASSWORD = process.env.DEFAULT_PASSWORD || "1234";
 
 const users = [
-  { rol: "ADMIN",  nombre: "Admin",  apellido: "Principal", puesto: "Sistema",  username: "admin" },
+  // Usuario administrador (tabla usuario)
+  { rol: "ADMIN", nombre: "Admin", apellido: "Principal", puesto: "Sistema", username: "admin" },
 
-  { rol: "CUT",  nombre: "Carlos", apellido: "Ramírez",   puesto: "Comandante Unidad Táctica",  username: "cramirez" },
-  { rol: "CUT",  nombre: "Ana",    apellido: "Torres",    puesto: "Comandante Unidad Táctica",  username: "atorres" },
+  // ===== Personal (tabla personal) =====
+  // CUT
+  { rol: "CUT",  nombre: "Carlos",  apellido: "Ramírez", puesto: "Coronel",           username: "cramirez",  apodo: "Ramírez" },
+  { rol: "CUT",  nombre: "Ana",     apellido: "Torres",  puesto: "Teniente Coronel",  username: "atorres",   apodo: "Torres" },
 
-  { rol: "CET",  nombre: "Luis",   apellido: "Hernández", puesto: "Comandante Equipo de Trabajo", username: "lhernandez" },
-  { rol: "CET",  nombre: "María",  apellido: "López",     puesto: "Comandante Equipo de Trabajo", username: "mlopez" },
-  { rol: "CET",  nombre: "Ricardo",apellido: "Vega",      puesto: "Comandante Equipo de Trabajo", username: "rvega" },
+  // CET
+  { rol: "CET",  nombre: "Luis",    apellido: "Hernández", puesto: "Mayor",    username: "lhernandez", apodo: "Hernández" },
+  { rol: "CET",  nombre: "María",   apellido: "López",     puesto: "Capitán",  username: "mlopez",     apodo: "López" },
+  { rol: "CET",  nombre: "Ricardo", apellido: "Vega",      puesto: "Teniente", username: "rvega",      apodo: "Vega" },
 
-  { rol: "CELL", nombre: "José",   apellido: "Martínez",  puesto: "Célula", username: "jmartinez" },
-  { rol: "CELL", nombre: "Pedro",  apellido: "Sánchez",   puesto: "Célula", username: "psanchez" },
-  { rol: "CELL", nombre: "Miguel", apellido: "Cruz",      puesto: "Célula", username: "mcruz" },
-  { rol: "CELL", nombre: "Laura",  apellido: "Gómez",     puesto: "Célula", username: "lgomez" },
-  { rol: "CELL", nombre: "Juan",   apellido: "Flores",    puesto: "Célula", username: "jflores" },
-  { rol: "CELL", nombre: "Sofía",  apellido: "Morales",   puesto: "Célula", username: "smorales" },
-  { rol: "CELL", nombre: "Daniel", apellido: "Ríos",      puesto: "Célula", username: "drios" },
-  { rol: "CELL", nombre: "Fernanda",apellido:"Silva",     puesto: "Célula", username: "fsilva" },
-  { rol: "CELL", nombre: "Andrés", apellido: "Navarro",   puesto: "Célula", username: "anavarro" },
-  { rol: "CELL", nombre: "Paola",  apellido: "Mendoza",   puesto: "Célula", username: "pmendoza" },
-  { rol: "CELL", nombre: "Hugo",   apellido: "Castillo",  puesto: "Célula", username: "hcastillo" },
-  { rol: "CELL", nombre: "Elena",  apellido: "Ruiz",      puesto: "Célula", username: "eruiz" },
-  { rol: "CELL", nombre: "Iván",   apellido: "Pérez",     puesto: "Célula", username: "iperez" },
-  { rol: "CELL", nombre: "Diana",  apellido: "Ortega",    puesto: "Célula", username: "dortega" },
-  { rol: "CELL", nombre: "Óscar",  apellido: "Reyes",     puesto: "Célula", username: "oreyes" },
-  { rol: "CELL", nombre: "Daniela",   apellido: "Pérez",  puesto: "Célula", username: "dperez" },
-  { rol: "CELL", nombre: "Diana",  apellido: "Ortiz",    puesto: "Célula", username: "dortiz" },
-  { rol: "CELL", nombre: "Odalis",  apellido: "lopez",     puesto: "Célula", username: "olopez" },
+  // CELL
+  { rol: "CELL", nombre: "José",     apellido: "Martínez", puesto: "Sargento Primero",  username: "jmartinez", apodo: "Martínez" },
+  { rol: "CELL", nombre: "Pedro",    apellido: "Sánchez",  puesto: "Sargento Segundo",  username: "psanchez",  apodo: "Sánchez" },
+  { rol: "CELL", nombre: "Miguel",   apellido: "Cruz",     puesto: "Cabo",              username: "mcruz",     apodo: "Cruz" },
+  { rol: "CELL", nombre: "Laura",    apellido: "Gómez",    puesto: "Soldado / Marinero",username: "lgomez",    apodo: "Gómez" },
+  { rol: "CELL", nombre: "Juan",     apellido: "Flores",   puesto: "Soldado / Marinero",username: "jflores",   apodo: "Flores" },
+  { rol: "CELL", nombre: "Sofía",    apellido: "Morales",  puesto: "Cabo",              username: "smorales",  apodo: "Morales" },
+  { rol: "CELL", nombre: "Daniel",   apellido: "Ríos",     puesto: "Soldado / Marinero",username: "drios",     apodo: "Ríos" },
+  { rol: "CELL", nombre: "Fernanda", apellido: "Silva",    puesto: "Soldado / Marinero",username: "fsilva",    apodo: "Silva" },
+  { rol: "CELL", nombre: "Andrés",   apellido: "Navarro",  puesto: "Cabo",              username: "anavarro",  apodo: "Navarro" },
+  { rol: "CELL", nombre: "Paola",    apellido: "Mendoza",  puesto: "Soldado / Marinero",username: "pmendoza",  apodo: "Mendoza" },
+  { rol: "CELL", nombre: "Hugo",     apellido: "Castillo", puesto: "Sargento Segundo",  username: "hcastillo", apodo: "Castillo" },
+  { rol: "CELL", nombre: "Elena",    apellido: "Ruiz",     puesto: "Soldado / Marinero",username: "eruiz",     apodo: "Ruiz" },
+  { rol: "CELL", nombre: "Iván",     apellido: "Pérez",    puesto: "Cabo",              username: "iperez",    apodo: "Pérez" },
+  { rol: "CELL", nombre: "Diana",    apellido: "Ortega",   puesto: "Soldado / Marinero",username: "dortega",   apodo: "Ortega" },
+  { rol: "CELL", nombre: "Óscar",    apellido: "Reyes",    puesto: "Cabo",              username: "oreyes",    apodo: "Reyes" },
+  { rol: "CELL", nombre: "Daniela",  apellido: "Pérez",    puesto: "Soldado / Marinero",username: "dperez",    apodo: "Pérez" }, // <- duplicado a propósito (se resolverá)
+  { rol: "CELL", nombre: "Diana",    apellido: "Ortiz",    puesto: "Soldado / Marinero",username: "dortiz",    apodo: "Ortiz" },
+  { rol: "CELL", nombre: "Odalis",   apellido: "Lopez",    puesto: "Soldado / Marinero",username: "olopez",    apodo: "López" }, // <- puede chocar con "López" CET (se resolverá)
 ];
 
+// ===== Helpers =====
 function requireEnv(name) {
   const v = process.env[name];
   if (!v) throw new Error(`Falta variable de entorno ${name} en tu .env`);
   return v;
+}
+
+function cleanApodo(s) {
+  return (s ?? "").toString().trim().replace(/\s+/g, " ").slice(0, 40);
+}
+
+async function generateUniqueApodo(client, wanted) {
+  // NOT NULL + UNIQUE (personal.apodo)
+  let base = cleanApodo(wanted);
+  if (!base) base = "SinApodo";
+
+  // Si ya existe, intenta "base 2", "base 3", ...
+  for (let n = 0; n < 200; n++) {
+    const apodo = (n === 0 ? base : `${base} ${n + 1}`).slice(0, 40);
+
+    const { rows } = await client.query(
+      `SELECT 1 FROM personal WHERE apodo = $1 LIMIT 1`,
+      [apodo]
+    );
+    if (rows.length === 0) return apodo;
+  }
+
+  // Último recurso
+  return `${base}-${Date.now()}`.slice(0, 40);
 }
 
 async function main() {
@@ -55,12 +85,12 @@ async function main() {
   await client.connect();
 
   const adminUsers = users.filter((u) => u.rol === "ADMIN");
-  const personalUsers = users.filter((u) => u.rol === "CUT" || u.rol === "CET" || u.rol === "CELL");
+  const personalUsers = users.filter((u) => ["CUT", "CET", "CELL"].includes(u.rol));
 
   try {
     await client.query("BEGIN");
 
-    // 1) Inserta/actualiza ADMIN en tabla usuario
+    // 1) ADMIN -> tabla usuario
     for (const u of adminUsers) {
       const hash = await bcrypt.hash(DEFAULT_PASSWORD, BCRYPT_ROUNDS);
 
@@ -80,22 +110,26 @@ async function main() {
       );
     }
 
-    // 2) id del usuario admin (creador) para personal.creado_por
+    // 2) creado_por
     const adminRow = await client.query(
       `SELECT id_usuario FROM usuario WHERE username = $1 LIMIT 1`,
       ["admin"]
     );
-    if (adminRow.rowCount === 0) {
-      throw new Error(`No existe el administrador "admin". Asegúrate de que esté en el array users.`);
-    }
+    if (adminRow.rowCount === 0) throw new Error(`No existe el administrador "admin".`);
     const creadoPor = adminRow.rows[0].id_usuario;
 
-    // 3) Inserta/actualiza CUT/CET/CELL en tabla personal
+    // 3) Personal -> tabla personal
     for (const p of personalUsers) {
       const hash = await bcrypt.hash(DEFAULT_PASSWORD, BCRYPT_ROUNDS);
 
-      // ✅ apodo obligatorio en tu schema: usamos username (único y no-null)
-      const apodo = p.username;
+      // ✅ apodo humano (apellido / nombre / username) y garantizado único
+      const wantedApodo =
+        cleanApodo(p.apodo) ||
+        cleanApodo(p.apellido) ||
+        cleanApodo(p.nombre) ||
+        cleanApodo(p.username);
+
+      const apodoFinal = await generateUniqueApodo(client, wantedApodo);
 
       await client.query(
         `
@@ -111,7 +145,7 @@ async function main() {
               activo = TRUE,
               creado_por = EXCLUDED.creado_por
         `,
-        [p.rol, apodo, p.nombre, p.apellido, p.puesto, p.username, hash, creadoPor]
+        [p.rol, apodoFinal, p.nombre, p.apellido, p.puesto, p.username, hash, creadoPor]
       );
     }
 
