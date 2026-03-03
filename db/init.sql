@@ -6,7 +6,7 @@
 -- Asignación de equipo/vehículo SOLO a subgrupos
 -- =========================================================
 
--- (Opcional) si quieres limpiar todo y recrear:
+-- (Opcional) si quieres limpiar todo y recrear (DESTRUCTIVO):
 -- DROP SCHEMA public CASCADE;
 -- CREATE SCHEMA public;
 
@@ -68,7 +68,6 @@ BEGIN
   END IF;
 END $$;
 
-
 -- =========================================================
 -- 2) TABLAS BASE (USUARIOS / PERSONAL)
 -- =========================================================
@@ -100,18 +99,39 @@ CREATE TABLE IF NOT EXISTS personal (
   ultimo_acceso TIMESTAMPTZ
 );
 
+-- =========================================================
+-- 2.1) PUNTOS DE INTERÉS (POI) — CREADOR: USUARIO o PERSONAL (uno u otro)
+-- Nota: si ya tenías la versión anterior (id_usuario NOT NULL e id_personal NOT NULL),
+-- para aplicar esta estructura en BD ya creada tendrás que DROP/ALTER manualmente.
+-- =========================================================
 CREATE TABLE IF NOT EXISTS puntos_interes (
   id_poi SERIAL PRIMARY KEY,
-  id_usuario INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  tipo_creador tipo_participante_enum NOT NULL,
+  id_usuario INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
   nombre TEXT NOT NULL,
   tipo_poi TEXT NOT NULL,
   latitud NUMERIC(9,6) NOT NULL,
   longitud NUMERIC(9,6) NOT NULL,
   descripcion TEXT,
-  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CHECK (
+    (tipo_creador='USUARIO'  AND id_usuario IS NOT NULL  AND id_personal IS NULL) OR
+    (tipo_creador='PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+  )
 );
 
+-- Índices parciales útiles (evitan problemas con NULL en UNIQUE)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_usuario
+  ON puntos_interes(id_usuario, nombre)
+  WHERE id_usuario IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_personal
+  ON puntos_interes(id_personal, nombre)
+  WHERE id_personal IS NOT NULL;
 
 -- =========================================================
 -- 3) INVENTARIO (EQUIPO / SUBTIPOS / VEHICULO)
@@ -121,7 +141,8 @@ CREATE TABLE IF NOT EXISTS equipo (
   numero_serie TEXT NOT NULL UNIQUE,
   nombre TEXT NOT NULL,
   categoria TEXT NOT NULL,
-  estado estado_equipo_enum NOT NULL DEFAULT 'DISPONIBLE'
+  estado estado_equipo_enum NOT NULL DEFAULT 'DISPONIBLE',
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS equipo_comunicacion (
@@ -145,12 +166,12 @@ CREATE TABLE IF NOT EXISTS vehiculo (
   id_vehiculo SERIAL PRIMARY KEY,
   imagen_veh TEXT,
   codigo_interno TEXT NOT NULL UNIQUE,
+  tipo TEXT,
   marca TEXT,
   modelo TEXT,
   estado estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE',
   capacidad INT
 );
-
 
 -- =========================================================
 -- 4) OPERACIÓN
@@ -168,7 +189,6 @@ CREATE TABLE IF NOT EXISTS operacion (
   creada_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
   CHECK (fecha_inicio IS NULL OR fecha_fin IS NULL OR fecha_fin >= fecha_inicio)
 );
-
 
 -- =========================================================
 -- 5) TABLAS PUENTE / ASIGNACIONES (OPERACIÓN)
@@ -272,13 +292,9 @@ BEGIN
   END IF;
 END $$;
 
-
 -- =========================================================
 -- 6) GRUPOS DENTRO DE OPERACIÓN (PADRE -> SUBGRUPOS)
 -- =========================================================
-
--- Grupo padre: id_grupo_padre = NULL (apodo ej: "Águila")
--- Subgrupo: id_grupo_padre = id del padre (nombre ej: "Águila 1")
 CREATE TABLE IF NOT EXISTS grupo_operacion (
   id_grupo_operacion SERIAL PRIMARY KEY,
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
@@ -297,7 +313,6 @@ CREATE TABLE IF NOT EXISTS grupo_operacion (
   -- Necesario para que el FK compuesto sea válido
   CONSTRAINT uq_grupo_operacion_operacion_grupo UNIQUE (id_operacion, id_grupo_operacion),
 
-
   -- Si es subgrupo, obliga a que el padre sea de la misma operación
   CONSTRAINT fk_grupo_padre_misma_operacion
     FOREIGN KEY (id_operacion, id_grupo_padre)
@@ -311,7 +326,6 @@ CREATE TABLE IF NOT EXISTS grupo_operacion (
 CREATE INDEX IF NOT EXISTS idx_grupo_operacion_padre
   ON grupo_operacion (id_grupo_padre);
 
--- Miembros del grupo (puedes decidir: asignar al padre o solo a subgrupos)
 CREATE TABLE IF NOT EXISTS grupo_personal (
   id_grupo_operacion INT NOT NULL REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
   id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE,
@@ -321,7 +335,6 @@ CREATE TABLE IF NOT EXISTS grupo_personal (
   PRIMARY KEY (id_grupo_operacion, id_personal)
 );
 
--- Equipo asignado a un grupo, pero solo si ya está asignado a la operación (confirmación)
 CREATE TABLE IF NOT EXISTS grupo_equipo (
   id_grupo_operacion INT NOT NULL REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
@@ -338,14 +351,12 @@ CREATE TABLE IF NOT EXISTS grupo_equipo (
   CHECK (cantidad > 0),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion),
 
-  -- Confirmación: debe existir en operacion_equipo para esa operación
   CONSTRAINT fk_grupo_equipo_a_operacion_equipo
     FOREIGN KEY (id_operacion, id_equipo)
     REFERENCES operacion_equipo (id_operacion, id_equipo)
     ON DELETE CASCADE
 );
 
--- Vehículo asignado a un grupo, pero solo si ya está asignado a la operación (confirmación)
 CREATE TABLE IF NOT EXISTS grupo_vehiculo (
   id_grupo_operacion INT NOT NULL REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
@@ -360,18 +371,15 @@ CREATE TABLE IF NOT EXISTS grupo_vehiculo (
   PRIMARY KEY (id_grupo_operacion, id_vehiculo),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion),
 
-  -- Confirmación: debe existir en vehiculo_operacion para esa operación
   CONSTRAINT fk_grupo_vehiculo_a_vehiculo_operacion
     FOREIGN KEY (id_operacion, id_vehiculo)
     REFERENCES vehiculo_operacion (id_operacion, id_vehiculo)
     ON DELETE CASCADE
 );
 
--- Regla útil: un vehículo NO puede estar en 2 subgrupos de la misma operación
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_vehiculo_unico_por_operacion
   ON grupo_vehiculo (id_operacion, id_vehiculo);
 
--- Regla útil: un equipo NO puede estar en 2 subgrupos de la misma operación
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_equipo_unico_por_operacion
   ON grupo_equipo (id_operacion, id_equipo);
 
@@ -419,11 +427,6 @@ END $$;
 -- =========================================================
 -- VALIDACIÓN: SOLO SUBGRUPOS (hijos) reciben equipo/vehículo
 -- =========================================================
-
-
--- =========================================================
--- VALIDACIÓN: SOLO SUBGRUPOS (hijos) reciben equipo/vehículo
--- =========================================================
 CREATE OR REPLACE FUNCTION fn_solo_subgrupos_reciben_asignaciones()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -466,7 +469,6 @@ BEGIN
   -- END IF;
 END $$;
 
-
 -- =========================================================
 -- 6.X) JERARQUÍA DE MANDO EN OPERACIÓN (CELL -> CET)
 -- =========================================================
@@ -478,13 +480,9 @@ CREATE TABLE IF NOT EXISTS mando_operacion (
   fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   asignado_por     INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
 
-  -- Cada CELL solo puede tener 1 CET por operación
   CONSTRAINT pk_mando_operacion PRIMARY KEY (id_operacion, id_cell),
-
-  -- Evita que se asignen a sí mismos
   CONSTRAINT chk_mando_distinto CHECK (id_cet <> id_cell),
 
-  -- Confirma que ambos (CET y CELL) estén asignados a la operación
   CONSTRAINT fk_mando_cet_en_operacion
     FOREIGN KEY (id_operacion, id_cet)
     REFERENCES asignacion_operacion_personal (id_operacion, id_personal)
@@ -502,7 +500,6 @@ CREATE INDEX IF NOT EXISTS idx_mando_operacion_cet
 CREATE INDEX IF NOT EXISTS idx_mando_operacion_cell
   ON mando_operacion (id_operacion, id_cell);
 
--- Validación: el mando debe ser CET y el subordinado debe ser CELL
 CREATE OR REPLACE FUNCTION fn_validar_mando_operacion()
 RETURNS TRIGGER AS $$
 DECLARE
@@ -551,7 +548,6 @@ BEGIN
   END IF;
 END $$;
 
-
 -- =========================================================
 -- 7) CHAT OPERACIONAL
 -- =========================================================
@@ -587,17 +583,17 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
   fecha_envio TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-
 -- =========================================================
 -- 8) ÍNDICES ÚTILES
 -- =========================================================
 CREATE INDEX IF NOT EXISTS idx_poi_usuario           ON puntos_interes(id_usuario);
+CREATE INDEX IF NOT EXISTS idx_poi_personal          ON puntos_interes(id_personal);
+
 CREATE INDEX IF NOT EXISTS idx_asig_op_personal      ON asignacion_operacion_personal(id_personal);
 CREATE INDEX IF NOT EXISTS idx_veh_op_op             ON vehiculo_operacion(id_operacion);
 CREATE INDEX IF NOT EXISTS idx_op_eq_busqueda        ON operacion_equipo(id_operacion, id_equipo);
 CREATE INDEX IF NOT EXISTS idx_uso_eq_op_operacion   ON uso_equipo_operacion(id_operacion);
 CREATE INDEX IF NOT EXISTS idx_uso_eq_op_personal    ON uso_equipo_operacion(id_personal);
-
 
 -- =========================================================
 -- 9) SEED (INVENTARIO)
@@ -615,7 +611,6 @@ INSERT INTO equipo (numero_serie, nombre, categoria, estado)
 VALUES ('HFC-001','Harris Falcon','COMUNICACION','DISPONIBLE')
 ON CONFLICT (numero_serie) DO NOTHING;
 
--- Seed robusto del subtipo por lookup al número_serie:
 INSERT INTO equipo_comunicacion (id_equipo, imagen_eqcom, marca, modelo, notas)
 SELECT
   e.id_equipo,
@@ -631,14 +626,12 @@ ON CONFLICT (id_equipo) DO NOTHING;
 -- EXTRA: VALIDACIÓN DE STOCK POR SUBGRUPOS
 -- Regla: SUM(grupo_equipo.cantidad) <= operacion_equipo.cantidad
 -- =========================================================
-
 CREATE OR REPLACE FUNCTION fn_validar_stock_equipo_grupo()
 RETURNS TRIGGER AS $$
 DECLARE
   total_operacion INT;
   total_ya_asignado_grupos INT;
 BEGIN
-  -- Total reservado para la operación
   SELECT oe.cantidad
     INTO total_operacion
   FROM operacion_equipo oe
@@ -651,7 +644,6 @@ BEGIN
       NEW.id_operacion, NEW.id_equipo;
   END IF;
 
-  -- Total ya repartido a otros subgrupos (excluyendo el mismo grupo si es UPDATE)
   SELECT COALESCE(SUM(ge.cantidad), 0)
     INTO total_ya_asignado_grupos
   FROM grupo_equipo ge
@@ -680,7 +672,7 @@ BEGIN
 END $$;
 
 -- =========================================================
--- VISTAS 
+-- VISTAS
 -- =========================================================
 
 -- 1) Resumen de operación (dashboard)
@@ -696,7 +688,6 @@ SELECT
   o.fecha_creacion,
   o.creada_por,
 
-  -- conteos (DISTINCT para evitar duplicados por joins)
   (SELECT COUNT(*) FROM asignacion_operacion_personal a
     WHERE a.id_operacion = o.id_operacion) AS total_personal,
 
@@ -709,7 +700,6 @@ SELECT
   (SELECT COUNT(*) FROM grupo_operacion g
     WHERE g.id_operacion = o.id_operacion) AS total_grupos
 FROM operacion o;
-
 
 -- 2) Árbol de grupos (padre/hijo) + etiqueta útil
 CREATE OR REPLACE VIEW v_grupo_arbol AS
@@ -725,7 +715,6 @@ SELECT
     WHEN g.id_grupo_padre IS NULL THEN 'PADRE'
     ELSE 'SUBGRUPO'
   END AS tipo_grupo,
-  -- etiqueta para UI
   CASE
     WHEN g.id_grupo_padre IS NULL THEN COALESCE(g.apodo, g.nombre)
     ELSE g.nombre
@@ -736,7 +725,6 @@ SELECT
 FROM grupo_operacion g
 LEFT JOIN grupo_operacion gp
   ON gp.id_grupo_operacion = g.id_grupo_padre;
-
 
 -- 3) Recursos por grupo (equipo + vehículo en una vista)
 CREATE OR REPLACE VIEW v_grupo_recursos AS
@@ -774,7 +762,6 @@ SELECT
 FROM grupo_vehiculo gv
 JOIN vehiculo v ON v.id_vehiculo = gv.id_vehiculo;
 
-
 -- 4) Stock por operación/equipo: reservado vs repartido vs restante
 CREATE OR REPLACE VIEW v_stock_operacion_equipo AS
 SELECT
@@ -798,7 +785,6 @@ SELECT
   ),0)) AS restante_sin_repartir
 FROM operacion_equipo oe
 JOIN equipo e ON e.id_equipo = oe.id_equipo;
-
 
 -- 5) Uso de equipo por personal en operación (detalle listo para UI)
 CREATE OR REPLACE VIEW v_uso_equipo_operacion_detalle AS
@@ -824,7 +810,6 @@ FROM uso_equipo_operacion ueo
 JOIN personal p ON p.id_personal = ueo.id_personal
 JOIN equipo e   ON e.id_equipo   = ueo.id_equipo;
 
-
 -- 6) Jerarquía de mando (CET -> CELL) con nombres
 CREATE OR REPLACE VIEW v_mando_operacion_detalle AS
 SELECT
@@ -845,7 +830,6 @@ FROM mando_operacion mo
 JOIN personal cet  ON cet.id_personal  = mo.id_cet
 JOIN personal cell ON cell.id_personal = mo.id_cell;
 
-
 -- 7) Feed de chat (mensaje + quién lo mandó)
 CREATE OR REPLACE VIEW v_chat_feed AS
 SELECT
@@ -860,7 +844,6 @@ SELECT
   pc.id_usuario,
   pc.id_personal,
 
-  -- display name
   CASE
     WHEN pc.tipo = 'USUARIO' THEN (u.nombre || ' ' || u.apellido)
     ELSE (p.apodo || ' (' || p.rol::text || ')')
@@ -871,15 +854,24 @@ JOIN participante_chat pc   ON pc.id_participante = m.id_participante
 LEFT JOIN usuario u         ON u.id_usuario = pc.id_usuario
 LEFT JOIN personal p        ON p.id_personal = pc.id_personal;
 
-
 -- 8) POIs listos para mapa (con nombres de creador)
 CREATE OR REPLACE VIEW v_poi_detalle AS
 SELECT
   poi.id_poi,
+  poi.tipo_creador,
+
   poi.id_usuario,
-  (u.nombre || ' ' || u.apellido) AS usuario_nombre,
+  CASE
+    WHEN poi.id_usuario IS NOT NULL THEN (u.nombre || ' ' || u.apellido)
+    ELSE NULL
+  END AS usuario_nombre,
+
   poi.id_personal,
-  (p.apodo || ' (' || p.rol::text || ')') AS personal_nombre,
+  CASE
+    WHEN poi.id_personal IS NOT NULL THEN (p.apodo || ' (' || p.rol::text || ')')
+    ELSE NULL
+  END AS personal_nombre,
+
   poi.nombre,
   poi.tipo_poi,
   poi.latitud,
@@ -887,5 +879,5 @@ SELECT
   poi.descripcion,
   poi.fecha_creacion
 FROM puntos_interes poi
-JOIN usuario u  ON u.id_usuario = poi.id_usuario
-JOIN personal p ON p.id_personal = poi.id_personal;
+LEFT JOIN usuario u  ON u.id_usuario = poi.id_usuario
+LEFT JOIN personal p ON p.id_personal = poi.id_personal;
