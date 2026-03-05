@@ -593,28 +593,34 @@ app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, mensaje: "items inválido" });
     }
 
+    // Obtener ids de vehículos únicos del payload
+    const vehiculoIds = [...new Set(
+      items
+        .map(it => Number(it.id_vehiculo))
+        .filter(id => isInt(id))
+    )];
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      // Si quieres recalcular desde cero:
-      await client.query(`DELETE FROM vehiculo_operacion_personal WHERE id_operacion = $1`, [id_operacion]);
+      // 1) Limpiar asignaciones de vehículos previas de esta operación
+      await client.query(
+        `DELETE FROM vehiculo_operacion WHERE id_operacion = $1`,
+        [id_operacion]
+      );
 
-      for (const it of items) {
-        const id_personal = Number(it.id_personal);
-        const id_vehiculo = Number(it.id_vehiculo);
-        if (!isInt(id_personal) || !isInt(id_vehiculo)) continue;
-
+      // 2) Insertar cada vehículo único en vehiculo_operacion
+      for (const id_vehiculo of vehiculoIds) {
         await client.query(
-          `INSERT INTO vehiculo_operacion_personal
-            (id_operacion, id_personal, id_vehiculo, asignado_por)
-           VALUES ($1,$2,$3,$4)
-           ON CONFLICT (id_operacion, id_personal)
-           DO UPDATE SET
-             id_vehiculo = EXCLUDED.id_vehiculo,
+          `INSERT INTO vehiculo_operacion
+             (id_operacion, id_vehiculo, estado_asignacion, asignado_por)
+           VALUES ($1, $2, 'ASIGNADO', $3)
+           ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE SET
+             estado_asignacion = 'ASIGNADO',
              asignado_por = EXCLUDED.asignado_por,
              fecha_asignacion = NOW()`,
-          [id_operacion, id_personal, id_vehiculo, who]
+          [id_operacion, id_vehiculo, who]
         );
       }
 

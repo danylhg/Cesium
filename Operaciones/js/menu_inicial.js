@@ -10,12 +10,21 @@ const btnLogout = document.getElementById("btnLogout");
 const opsList = document.getElementById("opsList");
 const opsUl = document.getElementById("opsUl");
 
-const STORAGE_OPS = "operations";
+const API = "http://localhost:3001";
 
-function getOps() {
-  const raw = localStorage.getItem(STORAGE_OPS);
-  if (!raw) return [];
-  try { return JSON.parse(raw); } catch { return []; }
+async function getOpsDB() {
+  const token = localStorage.getItem("token");
+  const r = await fetch(`${API}/ops`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  const data = await r.json().catch(() => null);
+
+  if (!r.ok || (data && data.ok === false)) {
+    throw new Error(data?.mensaje || `Error ${r.status}`);
+  }
+
+  return Array.isArray(data) ? data : (data.items || data.ops || []);
 }
 
 // logout
@@ -31,9 +40,24 @@ btnCreate.addEventListener("click", () => {
 });
 
 // seleccionar
-btnSelect.addEventListener("click", () => {
+btnSelect.addEventListener("click", async () => {
   opsUl.innerHTML = "";
-  const ops = getOps();
+
+  let ops = [];
+  try {
+    ops = await getOpsDB();
+  } catch (e) {
+    const li = document.createElement("li");
+    li.textContent = "Error cargando operaciones";
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = e.message;
+    li.appendChild(tag);
+    opsUl.appendChild(li);
+
+    opsList.classList.remove("hidden");
+    return;
+  }
 
   if (!ops.length) {
     const li = document.createElement("li");
@@ -46,16 +70,16 @@ btnSelect.addEventListener("click", () => {
   } else {
     ops.forEach(op => {
       const li = document.createElement("li");
-      li.textContent = op.name;
+      li.textContent = `${op.nombre} (${op.codigo})`;
 
       const tag = document.createElement("span");
       tag.className = "tag";
-      tag.textContent = "abrir";
+      tag.textContent = op.estado || "abrir";
       li.appendChild(tag);
 
       li.addEventListener("click", () => {
-        localStorage.setItem("active_operation_id", op.id);
-        window.location.href = "asignacion.html";
+        localStorage.setItem("active_operation_id", op.id_operacion);
+        window.location.href = `asignacion.html?op=${encodeURIComponent(op.codigo)}`;
       });
 
       opsUl.appendChild(li);

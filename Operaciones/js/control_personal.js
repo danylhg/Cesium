@@ -383,6 +383,7 @@ form.addEventListener("submit", async (e) => {
 
       const body = {
         rol: uiRolToApi(fRol.value),
+        apodo: fApodo.value.trim(),
         nombre: fNombre.value.trim(),
         apellido: fApellido.value.trim(),
         puesto: fPuesto.value.trim(),
@@ -400,6 +401,7 @@ form.addEventListener("submit", async (e) => {
     } else {
       // Edit: tu backend PUT no cambia rol/username
       const body = {
+        apodo: fApodo.value.trim(),
         nombre: fNombre.value.trim(),
         apellido: fApellido.value.trim(),
         puesto: fPuesto.value.trim(),

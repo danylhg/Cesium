@@ -1,4 +1,4 @@
-/// asignacion.js — UI v1 (compañera) + Backend
+/// asignacion.js — UI v1 + Backend + Operación desde form izquierdo
 
 // ===============================
 // Sesión / token
@@ -49,35 +49,41 @@ function fullName(p) {
 // ===============================
 // DOM principal
 // ===============================
-const panel        = document.getElementById("panel");
-const rightTitle   = document.getElementById("rightTitle");
-const rightHint    = document.getElementById("rightHint");
-const btnAccion    = document.getElementById("btnAccion");
-const btnBack      = document.getElementById("btnBack");
-const btnVolver    = document.getElementById("btnVolver");
-const lblOperacion = document.getElementById("lblOperacion");
+const panel         = document.getElementById("panel");
+const rightTitle    = document.getElementById("rightTitle");
+const rightHint     = document.getElementById("rightHint");
+const btnAccion     = document.getElementById("btnAccion");
+const btnBack       = document.getElementById("btnBack");
+const btnVolver     = document.getElementById("btnVolver");
+const lblOperacion  = document.getElementById("lblOperacion");
 
-// --- Panel izquierdo: alternar entre FORM y VEHÍCULOS (NO destruir) ---
-const leftCardTitleEl   = document.getElementById("leftCardTitle");
-const leftCardContentEl = document.getElementById("leftCardContent");
-const opInfoFormEl      = document.getElementById("opInfoForm");
-const vehiculosLeftEl   = document.getElementById("vehiculosLeft");
+// Form izquierdo (datos de la operación)
+const opNombreEl    = document.getElementById("opNombre");
+const opDescEl      = document.getElementById("opDesc");
+const opInicioEl    = document.getElementById("opInicio");
+const opFinEl       = document.getElementById("opFin");
+const opPrioridadEl = document.getElementById("opPrioridad");
+
+// Panel izquierdo: alternar entre FORM y VEHÍCULOS (NO destruir)
+const leftCardTitleEl = document.getElementById("leftCardTitle");
+const opInfoFormEl    = document.getElementById("opInfoForm");
+const vehiculosLeftEl = document.getElementById("vehiculosLeft");
 
 function showOperacionInfo() {
   if (leftCardTitleEl) leftCardTitleEl.textContent = "Información de operación";
-  if (opInfoFormEl)    opInfoFormEl.style.display = "flex";
+  if (opInfoFormEl)    opInfoFormEl.style.display  = "flex";
   if (vehiculosLeftEl) {
     vehiculosLeftEl.style.display = "none";
-    vehiculosLeftEl.innerHTML = "";
+    vehiculosLeftEl.innerHTML     = "";
   }
 }
 
 function showVehiculosLeftPanel() {
   if (leftCardTitleEl) leftCardTitleEl.textContent = "Asignación de personal al vehículo";
-  if (opInfoFormEl)    opInfoFormEl.style.display = "none";
+  if (opInfoFormEl)    opInfoFormEl.style.display  = "none";
   if (vehiculosLeftEl) {
     vehiculosLeftEl.style.display = "block";
-    vehiculosLeftEl.innerHTML = "";
+    vehiculosLeftEl.innerHTML     = "";
   }
 }
 
@@ -85,17 +91,17 @@ function showVehiculosLeftPanel() {
 // Estado (IDs reales del backend)
 // ===============================
 const state = {
-  categoria:     null,
-  pasoPersonal:  "home",
+  categoria:    null,
+  pasoPersonal: "home",
 
-  opCodigo: null,
-  opId:     null,
+  // id_operacion se resuelve al guardar (POST /ops)
+  opId: null,
 
   // Catálogos desde backend
-  cutList:      [], // [{ id_personal, nombre, apellido, label, ... }]
+  cutList:      [],
   cetList:      [],
   cellList:     [],
-  vehiclesList: [], // [{ id_vehiculo, codigo_interno, marca, modelo, imagen_veh, estado, label }]
+  vehiclesList: [],
 
   // Selecciones por ID
   cutSeleccionadoId:   null,
@@ -105,13 +111,12 @@ const state = {
   // { [cetId]: [cellId, ...] }
   asignacionCelulas: {},
 
-  // flotilla / búsqueda / grupos por cetId
   flotillaByCet: {},
   searchByCet:   {},
   // { [cetId]: { names:[], active:string|null, map:{[groupName]: cellId[]}, idx:number, vehActive:string|null } }
   gruposByCet:   {},
 
-  // Vehículos: { [id_personal]: id_vehiculo }
+  // { [id_personal]: id_vehiculo }
   asignacionVehiculos: {},
   cetActivoIndexVeh:   0,
   selectedVehicleId:   null,
@@ -159,7 +164,7 @@ function ensureCetState(cetId) {
     state.gruposByCet[cetId] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
   } else {
     const gi = state.gruposByCet[cetId];
-    if (gi.idx      === undefined) gi.idx      = 0;
+    if (gi.idx       === undefined) gi.idx       = 0;
     if (gi.vehActive === undefined) gi.vehActive = null;
     if (!gi.map) gi.map = {};
   }
@@ -170,44 +175,112 @@ function getCetIdByIndex(idx) {
 }
 
 function getPersonalById(id) {
-  const all = [...state.cutList, ...state.cetList, ...state.cellList];
-  return all.find(x => x.id_personal === id) || null;
+  return [...state.cutList, ...state.cetList, ...state.cellList].find(x => x.id_personal === id) || null;
 }
 
 // ===============================
 // CARGA INICIAL DESDE BACKEND
 // ===============================
-async function loadCatalogsAndOp() {
-  const qs       = new URLSearchParams(window.location.search);
-  const opCodigo = qs.get("op");
-  state.opCodigo = opCodigo || null;
-  if (opCodigo) lblOperacion.textContent = opCodigo;
-
-  // 1) Resolver id_operacion
-  if (opCodigo) {
-    const op    = await api(`/ops/by-codigo/${encodeURIComponent(opCodigo)}`);
-    state.opId  = op.id_operacion;
-  }
-
-  // 2) Personal CUT / CET / CELL
-  const [cutRes, cetRes, cellRes] = await Promise.all([
+async function loadCatalogs() {
+  const [cutRes, cetRes, cellRes, vehRes] = await Promise.all([
     api(`/catalog/personal?rol=CUT`),
     api(`/catalog/personal?rol=CET`),
     api(`/catalog/personal?rol=CELL`),
+    api(`/catalog/vehiculos`),
   ]);
 
   state.cutList  = (cutRes.items  || []).map(p => ({ ...p, label: fullName(p) }));
   state.cetList  = (cetRes.items  || []).map(p => ({ ...p, label: fullName(p) }));
   state.cellList = (cellRes.items || []).map(p => ({ ...p, label: fullName(p) }));
 
-  // 3) Vehículos
-  const vehRes      = await api(`/catalog/vehiculos`);
   state.vehiclesList = (vehRes.items || []).map(v => ({
     ...v,
-    label:    `${v.codigo_interno} — ${v.marca} ${v.modelo}`.trim(),
-    capacity: null,           // sin campo de capacidad en BD por ahora
-    image:    v.imagen_veh || "",
+    label: `${v.codigo_interno} — ${v.marca} ${v.modelo}`.trim(),
+    image: v.imagen_veh || "",
   }));
+
+  // Código de operación desde URL (si viene)
+  const qs       = new URLSearchParams(window.location.search);
+  const opCodigo = qs.get("op");
+  if (opCodigo && lblOperacion) lblOperacion.textContent = opCodigo;
+}
+
+// ===============================
+// GUARDAR EN BACKEND
+// ===============================
+// Paso 1: crea la operación + guarda personal y mando. Se llama al pasar de células → vehículos.
+async function crearOperacionYPersonal() {
+  const nombre       = opNombreEl?.value.trim()  || "";
+  const descripcion  = opDescEl?.value.trim()    || "";
+  const prioridad    = opPrioridadEl?.value      || "MEDIA";
+  const fecha_inicio = opInicioEl?.value         || null;
+  const fecha_fin    = opFinEl?.value            || null;
+
+  if (!nombre)                               throw new Error("Completa el nombre de la operación antes de continuar.");
+  if (!state.cutSeleccionadoId)              throw new Error("Falta seleccionar CUT.");
+  if (state.cetSeleccionadosIds.length === 0) throw new Error("Falta seleccionar al menos un CET.");
+
+  // Crear operación
+  const opRes        = await api("/ops", {
+    method: "POST",
+    body: { nombre, descripcion, prioridad, fecha_inicio, fecha_fin },
+  });
+
+  state.opId = opRes.id_operacion;
+  if (lblOperacion) lblOperacion.textContent = nombre;
+
+  // Personal: CUT + todos los CET + todas las CELL
+  const uniquePersonalIds = new Set();
+  uniquePersonalIds.add(state.cutSeleccionadoId);
+  state.cetSeleccionadosIds.forEach(id => uniquePersonalIds.add(id));
+  Object.values(state.asignacionCelulas || {}).forEach(arr =>
+    (arr || []).forEach(id => uniquePersonalIds.add(id))
+  );
+
+  const personalItems = [];
+  for (const id_personal of uniquePersonalIds) {
+    const p = getPersonalById(id_personal);
+    personalItems.push({
+      id_personal,
+      rol_en_operacion:  p?.rol || null,
+      estado_asignacion: "ASIGNADO",
+    });
+  }
+
+  await api(`/ops/${state.opId}/personal`, {
+    method: "POST",
+    body:   { items: personalItems },
+  });
+
+  // Mando: mapeo CET → CELL
+  const mandoItems = [];
+  state.cetSeleccionadosIds.forEach(cetId => {
+    (state.asignacionCelulas[cetId] || []).forEach(cellId => {
+      mandoItems.push({ id_cet: cetId, id_cell: cellId });
+    });
+  });
+
+  await api(`/ops/${state.opId}/mando`, {
+    method: "POST",
+    body:   { items: mandoItems },
+  });
+
+  return { nombre, codigo: opRes.codigo };
+}
+
+// Paso 2: guarda solo los vehículos. Se llama al Finalizar en la pantalla de vehículos.
+async function saveVehiculos() {
+  if (!state.opId) throw new Error("No hay operación activa. Regresa y completa el paso de personal.");
+
+  const vehItems = Object.entries(state.asignacionVehiculos || {}).map(([id_personal, id_vehiculo]) => ({
+    id_personal: Number(id_personal),
+    id_vehiculo: Number(id_vehiculo),
+  }));
+
+  await api(`/ops/${state.opId}/vehiculos`, {
+    method: "POST",
+    body:   { items: vehItems },
+  });
 }
 
 // ===============================
@@ -223,8 +296,8 @@ function renderHome() {
   setAccion("Siguiente", true);
   showBack(false);
 
-  const grid       = document.createElement("div");
-  grid.className   = "optGrid";
+  const grid = document.createElement("div");
+  grid.className = "optGrid";
 
   const btnPersonal  = mkOpt("Personal");
   const btnEquipo    = mkOpt("Equipo");
@@ -283,12 +356,10 @@ function renderCUT() {
   const listBox     = document.createElement("div");
   listBox.className = "listBox";
 
-  const search         = document.createElement("input");
-  search.className     = "inp";
-  search.placeholder   = "Buscar CUT...";
+  const search              = document.createElement("input");
+  search.className          = "inp";
+  search.placeholder        = "Buscar CUT...";
   search.style.marginBottom = "10px";
-
-  const data = state.cutList.slice();
 
   const rowsWrap = document.createElement("div");
   rowsWrap.style.display       = "flex";
@@ -298,16 +369,16 @@ function renderCUT() {
   function paint(filterText) {
     const ft = (filterText || "").toLowerCase().trim();
     rowsWrap.innerHTML = "";
-    data
+    state.cutList
       .filter(p => !ft || p.label.toLowerCase().includes(ft))
       .forEach(p => {
-        const row      = document.createElement("div");
-        row.className  = "item" + (state.cutSeleccionadoId === p.id_personal ? " selected" : "");
+        const row     = document.createElement("div");
+        row.className = "item" + (state.cutSeleccionadoId === p.id_personal ? " selected" : "");
 
-        const left         = document.createElement("div");
-        left.className     = "itemName";
-        left.textContent   = p.label;
-        left.style.cursor  = "pointer";
+        const left        = document.createElement("div");
+        left.className    = "itemName";
+        left.textContent  = p.label;
+        left.style.cursor = "pointer";
         left.addEventListener("click", () => {
           state.cutSeleccionadoId   = p.id_personal;
           state.cetSeleccionadosIds = [];
@@ -352,18 +423,18 @@ function renderCET() {
   setHeader("Comandante de Equipo de Trabajo", "");
   setAccion("Siguiente", state.cetSeleccionadosIds.length === 0);
 
-  const chips      = document.createElement("div");
-  chips.className  = "chipRow";
+  const chips     = document.createElement("div");
+  chips.className = "chipRow";
 
-  const cutObj     = state.cutList.find(x => x.id_personal === state.cutSeleccionadoId);
-  const cutChip    = document.createElement("div");
+  const cutObj  = state.cutList.find(x => x.id_personal === state.cutSeleccionadoId);
+  const cutChip = document.createElement("div");
   cutChip.className   = "chip";
   cutChip.textContent = `CUT: ${cutObj?.label || "—"}`;
   chips.appendChild(cutChip);
 
   state.cetSeleccionadosIds.forEach(id => {
-    const p    = getPersonalById(id);
-    const c    = document.createElement("div");
+    const p = getPersonalById(id);
+    const c = document.createElement("div");
     c.className   = "chip active";
     c.textContent = `CET: ${p?.label || id}`;
     chips.appendChild(c);
@@ -374,12 +445,10 @@ function renderCET() {
   const listBox     = document.createElement("div");
   listBox.className = "listBox";
 
-  const search       = document.createElement("input");
-  search.className   = "inp";
-  search.placeholder = "Buscar CET...";
+  const search              = document.createElement("input");
+  search.className          = "inp";
+  search.placeholder        = "Buscar CET...";
   search.style.marginBottom = "10px";
-
-  const data = state.cetList.slice();
 
   const rowsWrap = document.createElement("div");
   rowsWrap.style.display       = "flex";
@@ -389,11 +458,11 @@ function renderCET() {
   function paint(filterText) {
     const ft = (filterText || "").toLowerCase().trim();
     rowsWrap.innerHTML = "";
-    data
+    state.cetList
       .filter(p => !ft || p.label.toLowerCase().includes(ft))
       .forEach(p => {
-        const isSel  = state.cetSeleccionadosIds.includes(p.id_personal);
-        const row    = document.createElement("div");
+        const isSel   = state.cetSeleccionadosIds.includes(p.id_personal);
+        const row     = document.createElement("div");
         row.className = "item" + (isSel ? " selected" : "");
 
         const left        = document.createElement("div");
@@ -447,11 +516,10 @@ function renderCET() {
 }
 
 // ===============================
-// CHIPS DE GRUPOS (CÉLULAS)
+// CHIPS DE GRUPOS
 // ===============================
 function pintarChipsGrupos(cetId, container) {
   container.innerHTML = "";
-
   ensureCetState(cetId);
   const info      = state.gruposByCet[cetId];
   const hasGroups = (info.names || []).length > 0;
@@ -462,8 +530,8 @@ function pintarChipsGrupos(cetId, container) {
     if (info.active && !info.names.includes(info.active)) info.active = info.names[info.idx];
     if (!info.vehActive) info.vehActive = info.active;
   } else {
-    info.active   = null;
-    info.idx      = 0;
+    info.active    = null;
+    info.idx       = 0;
     info.vehActive = null;
   }
 
@@ -502,37 +570,37 @@ function renderCelulas() {
     if (info.active && !info.names.includes(info.active)) info.active = info.names[info.idx];
     if (!info.vehActive) info.vehActive = info.active;
   } else {
-    info.active   = null;
-    info.idx      = 0;
+    info.active    = null;
+    info.idx       = 0;
     info.vehActive = null;
   }
 
   setHeader("Células", "");
 
   const lastCet   = state.cetActivoIndex === state.cetSeleccionadosIds.length - 1;
-  const lastGroup = !hasGroups ? true : (info.idx === info.names.length - 1);
+  const lastGroup = !hasGroups || (info.idx === info.names.length - 1);
   setAccion((lastCet && lastGroup) ? "Finalizar" : "Siguiente", false);
 
   // Chips CUT + CETs
   const chips     = document.createElement("div");
   chips.className = "chipRow";
 
-  const cutObj    = state.cutList.find(x => x.id_personal === state.cutSeleccionadoId);
-  const cutChip   = document.createElement("div");
+  const cutObj  = state.cutList.find(x => x.id_personal === state.cutSeleccionadoId);
+  const cutChip = document.createElement("div");
   cutChip.className   = "chip";
   cutChip.textContent = `CUT: ${cutObj?.label || "—"}`;
   chips.appendChild(cutChip);
 
   state.cetSeleccionadosIds.forEach((id, i) => {
-    const p   = getPersonalById(id);
-    const c   = document.createElement("div");
+    const p = getPersonalById(id);
+    const c = document.createElement("div");
     c.className   = "chip" + (i === state.cetActivoIndex ? " active" : "");
     c.textContent = `CET: ${p?.label || id}`;
     c.addEventListener("click", () => {
       state.cetActivoIndex = i;
       const gi = state.gruposByCet[id];
       if (gi) {
-        if (gi.idx      === undefined) gi.idx      = 0;
+        if (gi.idx       === undefined) gi.idx       = 0;
         if (gi.vehActive === undefined) gi.vehActive = null;
         if ((gi.names || []).length > 0) {
           gi.idx    = Math.max(0, Math.min(gi.idx, gi.names.length - 1));
@@ -561,12 +629,13 @@ function renderCelulas() {
   const flotillaRow     = document.createElement("div");
   flotillaRow.className = "flotillaRow";
 
-  const flotWrap   = document.createElement("div");
+  const flotWrap      = document.createElement("div");
   flotWrap.style.flex = "1";
-  const flotLbl    = document.createElement("div");
-  flotLbl.className = "lbl";
+
+  const flotLbl              = document.createElement("div");
+  flotLbl.className          = "lbl";
   flotLbl.style.marginBottom = "6px";
-  flotLbl.textContent = "Nombre de la flotilla";
+  flotLbl.textContent        = "Nombre de la flotilla";
 
   const flotInp       = document.createElement("input");
   flotInp.className   = "inp";
@@ -604,7 +673,6 @@ function renderCelulas() {
   rowsWrap.style.flexDirection = "column";
   rowsWrap.style.gap           = "10px";
 
-  // Bloquear células ya asignadas a otro CET
   const yaUsadas = new Set();
   state.cetSeleccionadosIds.forEach((otherCetId, i) => {
     if (i === state.cetActivoIndex) return;
@@ -618,8 +686,8 @@ function renderCelulas() {
     state.cellList
       .filter(p => !term || p.label.toLowerCase().includes(term))
       .forEach(p => {
-        const cellId   = p.id_personal;
-        const enEste   = asignadas.includes(cellId);
+        const cellId    = p.id_personal;
+        const enEste    = asignadas.includes(cellId);
         const bloqueada = yaUsadas.has(cellId);
 
         const row = celulaRow({
@@ -629,12 +697,10 @@ function renderCelulas() {
           status:   bloqueada ? "Asignado" : (enEste ? "En este CET" : "Disponible"),
           onToggle: () => {
             if (bloqueada) return;
-
             const grupoActivo = info?.active || null;
 
             if (grupoActivo) {
-              if (!info.map[grupoActivo]) info.map[grupoActivo] = []; // array (serializable a JSON)
-
+              if (!info.map[grupoActivo]) info.map[grupoActivo] = [];
               if (enEste) {
                 state.asignacionCelulas[cetId] = asignadas.filter(x => x !== cellId);
                 Object.keys(info.map).forEach(g => {
@@ -651,7 +717,6 @@ function renderCelulas() {
                 state.asignacionCelulas[cetId] = [...asignadas, cellId];
               }
             }
-
             renderCelulas();
           }
         });
@@ -671,15 +736,13 @@ function renderCelulas() {
   paintCells();
   restoreScrollTop(listBox, prevScroll);
 
-  btnAccion.onclick = () => {
-    if (hasGroups) {
-      if (info.idx < info.names.length - 1) {
-        info.idx    += 1;
-        info.active  = info.names[info.idx];
-        if (!info.vehActive) info.vehActive = info.active;
-        renderCelulas();
-        return;
-      }
+  btnAccion.onclick = async () => {
+    if (hasGroups && info.idx < info.names.length - 1) {
+      info.idx    += 1;
+      info.active  = info.names[info.idx];
+      if (!info.vehActive) info.vehActive = info.active;
+      renderCelulas();
+      return;
     }
 
     if (state.cetActivoIndex < state.cetSeleccionadosIds.length - 1) {
@@ -687,7 +750,7 @@ function renderCelulas() {
       const nextCet = getCetIdByIndex(state.cetActivoIndex);
       const ngi     = state.gruposByCet[nextCet];
       if (ngi) {
-        if (ngi.idx      === undefined) ngi.idx      = 0;
+        if (ngi.idx       === undefined) ngi.idx       = 0;
         if (ngi.vehActive === undefined) ngi.vehActive = null;
         if ((ngi.names || []).length > 0) {
           ngi.idx    = Math.max(0, Math.min(ngi.idx, ngi.names.length - 1));
@@ -703,11 +766,18 @@ function renderCelulas() {
       return;
     }
 
-    // Fin células → vehículos
-    state.cetActivoIndexVeh = 0;
-    state.selectedVehicleId = null;
-    state.selectedPersonIds = [];
-    renderVehiculos();
+    // Fin células → vehículos: crear operación y guardar personal/mando primero
+    try {
+      setAccion("Guardando...", true);
+      await crearOperacionYPersonal();
+      state.cetActivoIndexVeh = 0;
+      state.selectedVehicleId = null;
+      state.selectedPersonIds = [];
+      renderVehiculos();
+    } catch (e) {
+      setAccion("Finalizar", false);
+      alert(`Error al crear la operación: ${e.message}`);
+    }
   };
 }
 
@@ -716,13 +786,13 @@ function renderCelulas() {
 // ===============================
 function abrirModalCrearGrupo(cetId) {
   const overlay = document.createElement("div");
-  overlay.style.position        = "fixed";
-  overlay.style.inset           = "0";
-  overlay.style.background      = "rgba(15,23,42,.35)";
-  overlay.style.display         = "flex";
-  overlay.style.alignItems      = "center";
-  overlay.style.justifyContent  = "center";
-  overlay.style.zIndex          = "9999";
+  overlay.style.position       = "fixed";
+  overlay.style.inset          = "0";
+  overlay.style.background     = "rgba(15,23,42,.35)";
+  overlay.style.display        = "flex";
+  overlay.style.alignItems     = "center";
+  overlay.style.justifyContent = "center";
+  overlay.style.zIndex         = "9999";
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 
   const modal = document.createElement("div");
@@ -742,19 +812,19 @@ function abrirModalCrearGrupo(cetId) {
   title.textContent        = "Crear Grupos";
 
   const row1 = document.createElement("div");
-  row1.style.display       = "flex";
-  row1.style.gap           = "10px";
-  row1.style.alignItems    = "center";
-  row1.style.marginBottom  = "10px";
+  row1.style.display      = "flex";
+  row1.style.gap          = "10px";
+  row1.style.alignItems   = "center";
+  row1.style.marginBottom = "10px";
 
-  const lbl         = document.createElement("div");
+  const lbl            = document.createElement("div");
   lbl.style.fontWeight = "800";
-  lbl.textContent   = "Cuantos";
+  lbl.textContent      = "Cuantos";
 
-  const inpNum      = document.createElement("input");
-  inpNum.type       = "number";
-  inpNum.min        = "1";
-  inpNum.className  = "inp";
+  const inpNum       = document.createElement("input");
+  inpNum.type        = "number";
+  inpNum.min         = "1";
+  inpNum.className   = "inp";
   inpNum.style.width = "120px";
 
   row1.append(lbl, inpNum);
@@ -795,14 +865,14 @@ function abrirModalCrearGrupo(cetId) {
       line.style.gap        = "10px";
       line.style.alignItems = "center";
 
-      const l         = document.createElement("div");
+      const l            = document.createElement("div");
       l.style.fontWeight = "800";
       l.style.width      = "140px";
       l.textContent      = "Nombre del grupo";
 
-      const inp       = document.createElement("input");
-      inp.className   = "inp";
-      inp.value       = "";
+      const inp     = document.createElement("input");
+      inp.className = "inp";
+      inp.value     = "";
       nameInputs.push(inp);
 
       line.append(l, inp);
@@ -850,14 +920,12 @@ function abrirModalCrearGrupo(cetId) {
 
 // ===============================
 // VEHÍCULOS
-// ✅ USA showVehiculosLeftPanel() — no destruye el form
 // ===============================
 function renderVehiculos() {
   clearPanel();
   showBack(true);
-  showVehiculosLeftPanel(); // ← UI de v1: oculta form, muestra panel izquierdo de vehículos
+  showVehiculosLeftPanel();
 
-  // Contador de asignaciones por vehículo
   const vehCount = {};
   Object.values(state.asignacionVehiculos || {}).forEach(vId => {
     if (!vId) return;
@@ -874,8 +942,7 @@ function renderVehiculos() {
   if (hasGroups) {
     if (!ginfo.vehActive || !ginfo.names.includes(ginfo.vehActive)) {
       ginfo.vehActive = (ginfo.active && ginfo.names.includes(ginfo.active))
-        ? ginfo.active
-        : ginfo.names[0];
+        ? ginfo.active : ginfo.names[0];
     }
   } else {
     ginfo.vehActive = null;
@@ -889,18 +956,16 @@ function renderVehiculos() {
   const isLastOverall = lastCet && (!hasGroups || groupIndex === lastGroupIndex);
   setAccion(isLastOverall ? "Finalizar" : "Siguiente", false);
 
-  // -- PANEL IZQUIERDO (vehiculosLeftEl) --
-
   // Chips CET
-  const cetButtons     = document.createElement("div");
-  cetButtons.className = "chipRow";
+  const cetButtons              = document.createElement("div");
+  cetButtons.className          = "chipRow";
   cetButtons.style.marginBottom = "12px";
 
   state.cetSeleccionadosIds.forEach((id, i) => {
     const p   = getPersonalById(id);
     const btn = document.createElement("button");
-    btn.className   = "chip" + (i === state.cetActivoIndexVeh ? " active" : "");
-    btn.textContent = `CET: ${p?.label || id}`;
+    btn.className    = "chip" + (i === state.cetActivoIndexVeh ? " active" : "");
+    btn.textContent  = `CET: ${p?.label || id}`;
     btn.style.cursor = "pointer";
     btn.addEventListener("click", () => {
       state.cetActivoIndexVeh = i;
@@ -914,31 +979,31 @@ function renderVehiculos() {
 
   // Header flotilla + grupos
   const headerBox = document.createElement("div");
-  headerBox.className = "stickyTop";
+  headerBox.className          = "stickyTop";
   headerBox.style.position     = "relative";
   headerBox.style.top          = "auto";
-  headerBox.style.padding      = "10px 0 10px";
+  headerBox.style.padding      = "10px 0";
   headerBox.style.background   = "#fff";
   headerBox.style.borderBottom = "1px solid #d7e3ff";
   headerBox.style.marginBottom = "10px";
 
-  const flotillaLbl       = document.createElement("div");
-  flotillaLbl.className   = "lbl";
+  const flotillaLbl              = document.createElement("div");
+  flotillaLbl.className          = "lbl";
   flotillaLbl.style.marginBottom = "8px";
-  flotillaLbl.textContent = "Nombre de la flotilla";
+  flotillaLbl.textContent        = "Nombre de la flotilla";
 
-  const flotillaChip       = document.createElement("div");
-  flotillaChip.className   = "chip active";
-  flotillaChip.style.display = "inline-block";
-  flotillaChip.style.cursor  = "default";
-  flotillaChip.textContent   = state.flotillaByCet[cetId] ? state.flotillaByCet[cetId] : "—";
+  const flotillaChip           = document.createElement("div");
+  flotillaChip.className       = "chip active";
+  flotillaChip.style.display   = "inline-block";
+  flotillaChip.style.cursor    = "default";
+  flotillaChip.textContent     = state.flotillaByCet[cetId] || "—";
 
   headerBox.appendChild(flotillaLbl);
   headerBox.appendChild(flotillaChip);
 
   if (hasGroups) {
-    const grpLbl       = document.createElement("div");
-    grpLbl.className   = "lbl";
+    const grpLbl        = document.createElement("div");
+    grpLbl.className    = "lbl";
     grpLbl.style.margin = "12px 0 8px";
     grpLbl.textContent  = "Grupos";
 
@@ -964,17 +1029,16 @@ function renderVehiculos() {
 
   vehiculosLeftEl.appendChild(headerBox);
 
-  // Lista de checkboxes (CET + células visibles)
-  const cellulasList = document.createElement("div");
+  // Lista checkboxes
+  const cellulasList           = document.createElement("div");
   cellulasList.style.maxHeight = "350px";
   cellulasList.style.overflowY = "auto";
 
-  const cellsForCet  = state.asignacionCelulas[cetId] || [];
-  let   cellsToShow  = cellsForCet.slice();
-
+  const cellsForCet = state.asignacionCelulas[cetId] || [];
+  let   cellsToShow = cellsForCet.slice();
   if (hasGroups && ginfo.vehActive) {
-    const arr    = (ginfo.map[ginfo.vehActive] || []);
-    cellsToShow  = arr.filter(id => cellsForCet.includes(id));
+    const arr   = (ginfo.map[ginfo.vehActive] || []);
+    cellsToShow = arr.filter(id => cellsForCet.includes(id));
   }
 
   function toggleSelectedId(id, checked) {
@@ -996,14 +1060,14 @@ function renderVehiculos() {
     label.style.backgroundColor = "#f5f5f5";
     if (disabled) label.style.opacity = "0.65";
 
-    const chk     = document.createElement("input");
-    chk.type      = "checkbox";
-    chk.checked   = checked;
-    chk.disabled  = disabled;
+    const chk    = document.createElement("input");
+    chk.type     = "checkbox";
+    chk.checked  = checked;
+    chk.disabled = disabled;
     chk.addEventListener("change", e => onChange?.(e.target.checked));
 
-    const textSpan      = document.createElement("span");
-    textSpan.style.flex = "1";
+    const textSpan       = document.createElement("span");
+    textSpan.style.flex  = "1";
     textSpan.textContent = labelText;
 
     label.appendChild(chk);
@@ -1012,9 +1076,7 @@ function renderVehiculos() {
   }
 
   // Fila CET
-  const cetAssignedVeh = state.asignacionVehiculos[cetId];
-  const cetLocked      = !!cetAssignedVeh;
-
+  const cetLocked = !!state.asignacionVehiculos[cetId];
   cellulasList.appendChild(mkCheckRow({
     labelText: cetLocked
       ? `CET: ${cetObj?.label || cetId} (Asignado)`
@@ -1027,16 +1089,16 @@ function renderVehiculos() {
 
   // Seleccionar todo lo visible
   if (cellsToShow.length > 0) {
-    const visibleIds       = [cetId, ...cellsToShow];
-    const unlockedVisible  = visibleIds.filter(id => !state.asignacionVehiculos[id]);
-    const allSelVisible    = unlockedVisible.length > 0 && unlockedVisible.every(id => (state.selectedPersonIds || []).includes(id));
-    const someSelVisible   = unlockedVisible.some(id => (state.selectedPersonIds || []).includes(id));
+    const visibleIds      = [cetId, ...cellsToShow];
+    const unlockedVisible = visibleIds.filter(id => !state.asignacionVehiculos[id]);
+    const allSel          = unlockedVisible.length > 0 && unlockedVisible.every(id => (state.selectedPersonIds || []).includes(id));
+    const someSel         = unlockedVisible.some(id => (state.selectedPersonIds || []).includes(id));
 
     const rowAll = mkCheckRow({
       labelText: "Seleccionar todo lo visible",
       idKey:    -1,
       disabled: unlockedVisible.length === 0,
-      checked:  allSelVisible,
+      checked:  allSel,
       onChange: checked => {
         const set = new Set(state.selectedPersonIds || []);
         if (checked) unlockedVisible.forEach(id => set.add(id));
@@ -1045,16 +1107,14 @@ function renderVehiculos() {
         renderVehiculos();
       }
     });
-    rowAll.querySelector("input").indeterminate = (!allSelVisible && someSelVisible);
+    rowAll.querySelector("input").indeterminate = (!allSel && someSel);
     cellulasList.appendChild(rowAll);
   }
 
-  // Filas de células
+  // Filas células
   cellsToShow.forEach(cellId => {
-    const p          = getPersonalById(cellId);
-    const assignedVeh = state.asignacionVehiculos[cellId];
-    const locked     = !!assignedVeh;
-
+    const p      = getPersonalById(cellId);
+    const locked = !!state.asignacionVehiculos[cellId];
     cellulasList.appendChild(mkCheckRow({
       labelText: locked ? `${p?.label || cellId} (Asignado)` : (p?.label || cellId),
       idKey:    cellId,
@@ -1066,40 +1126,39 @@ function renderVehiculos() {
 
   vehiculosLeftEl.appendChild(cellulasList);
 
-  // -- PANEL DERECHO: tarjetas de vehículos --
+  // Panel derecho: tarjetas vehículos
   const vehiclesWrap     = document.createElement("div");
   vehiclesWrap.className = "listBox";
   vehiclesWrap.style.gap = "12px";
 
-  const vehicleGrid     = document.createElement("div");
-  vehicleGrid.className = "vehicleGrid";
+  const vehicleGrid           = document.createElement("div");
+  vehicleGrid.className       = "vehicleGrid";
   vehicleGrid.style.maxHeight = "300px";
   vehicleGrid.style.overflowY = "auto";
 
   state.vehiclesList.forEach(veh => {
-    const card       = document.createElement("div");
-    card.className   = "vehicleCard";
+    const card        = document.createElement("div");
+    card.className    = "vehicleCard";
     card.style.cursor = "pointer";
 
-    const used       = vehCount[veh.id_vehiculo] || 0;
     const isSelected = state.selectedVehicleId === veh.id_vehiculo;
     if (isSelected) card.classList.add("selected");
 
-    // Deshabilitar por estado (ajusta los valores a tu enum real)
-    const estadoUp = (veh.estado || "").toString().toUpperCase();
+    const estadoUp   = (veh.estado || "").toString().toUpperCase();
     const isDisabled = !["DISPONIBLE", "OPERATIVO", "EN_SERVICIO"].includes(estadoUp);
     if (isDisabled) {
       card.classList.add("disabled");
       card.style.cursor = "not-allowed";
     }
 
-    const img   = document.createElement("img");
-    img.src     = veh.image || "";
-    img.alt     = veh.label;
+    const img         = document.createElement("img");
+    img.src           = veh.image || "";
+    img.alt           = veh.label;
 
     const nameP       = document.createElement("p");
     nameP.textContent = veh.label;
 
+    const used              = vehCount[veh.id_vehiculo] || 0;
     const infoP             = document.createElement("p");
     infoP.style.margin      = "6px 0 0";
     infoP.style.fontWeight  = "700";
@@ -1107,10 +1166,7 @@ function renderVehiculos() {
     infoP.style.opacity     = "0.85";
     infoP.textContent       = `Asignados: ${used}`;
 
-    card.appendChild(img);
-    card.appendChild(nameP);
-    card.appendChild(infoP);
-
+    card.append(img, nameP, infoP);
     card.addEventListener("click", () => {
       if (isDisabled) return;
       state.selectedVehicleId = (state.selectedVehicleId === veh.id_vehiculo) ? null : veh.id_vehiculo;
@@ -1124,30 +1180,25 @@ function renderVehiculos() {
   panel.appendChild(vehiclesWrap);
 
   // Botón Asignar
-  const assignBtn       = document.createElement("button");
-  assignBtn.className   = "btnPrimary";
+  const assignBtn           = document.createElement("button");
+  assignBtn.className       = "btnPrimary";
   assignBtn.style.marginTop = "20px";
   assignBtn.style.width     = "100%";
   assignBtn.textContent     = "Asignarle";
 
   const selectedAssignable = (state.selectedPersonIds || []).filter(id =>
-    typeof id === "number" || Number.isInteger(id)
+    typeof id === "number" || Number.isInteger(Number(id))
   );
   const lockedSelected = selectedAssignable.filter(id => !!state.asignacionVehiculos[id]);
 
-  const canAssign =
-    !!state.selectedVehicleId &&
-    selectedAssignable.length > 0 &&
-    lockedSelected.length === 0;
-
-  assignBtn.disabled = !canAssign;
+  assignBtn.disabled = !(state.selectedVehicleId && selectedAssignable.length > 0 && lockedSelected.length === 0);
 
   assignBtn.addEventListener("click", () => {
-    if (!state.selectedVehicleId)         return alert("Selecciona un vehículo");
-    if (selectedAssignable.length === 0)  return alert("Selecciona al menos una persona/célula o el CET");
+    if (!state.selectedVehicleId)        return alert("Selecciona un vehículo");
+    if (selectedAssignable.length === 0) return alert("Selecciona al menos CET o una CELL");
 
     const locked = selectedAssignable.filter(id => !!state.asignacionVehiculos[id]);
-    if (locked.length > 0) return alert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
+    if (locked.length > 0) return alert("Uno o más ya tienen vehículo asignado.");
 
     selectedAssignable.forEach(id => {
       state.asignacionVehiculos[id] = state.selectedVehicleId;
@@ -1160,7 +1211,7 @@ function renderVehiculos() {
 
   panel.appendChild(assignBtn);
 
-  // Avance: grupos → CETs → Finalizar (guarda en backend)
+  // Avance: grupos → CETs → Finalizar (guarda)
   btnAccion.onclick = async () => {
     if (hasGroups && groupIndex < lastGroupIndex) {
       ginfo.vehActive         = ginfo.names[groupIndex + 1];
@@ -1172,110 +1223,53 @@ function renderVehiculos() {
 
     if (state.cetActivoIndexVeh < state.cetSeleccionadosIds.length - 1) {
       state.cetActivoIndexVeh += 1;
-
-      const nextCetId = getCetIdByIndex(state.cetActivoIndexVeh);
+      const nextCetId     = getCetIdByIndex(state.cetActivoIndexVeh);
       ensureCetState(nextCetId);
-
-      const ngi          = state.gruposByCet[nextCetId];
+      const ngi           = state.gruposByCet[nextCetId];
       const hasNextGroups = (ngi.names || []).length > 0;
       if (hasNextGroups) {
         if (!ngi.vehActive || !ngi.names.includes(ngi.vehActive)) {
-          ngi.vehActive = (ngi.active && ngi.names.includes(ngi.active))
-            ? ngi.active : ngi.names[0];
+          ngi.vehActive = (ngi.active && ngi.names.includes(ngi.active)) ? ngi.active : ngi.names[0];
         }
       } else {
         ngi.vehActive = null;
       }
-
       state.selectedVehicleId = null;
       state.selectedPersonIds = [];
       renderVehiculos();
       return;
     }
 
-    // Último grupo del último CET → guardar
+    // Último CET + último grupo → guardar todo en el backend
     try {
-      await saveToBackend();
-      alert("Asignaciones guardadas correctamente.");
+      setAccion("Guardando...", true);
+      await saveVehiculos();
+      const nombre = opNombreEl?.value.trim() || "";
+      alert(`Operación "${nombre}" guardada completamente.`);
       state.categoria    = null;
       state.pasoPersonal = "home";
       renderHome();
     } catch (e) {
+      setAccion("Finalizar", false);
       alert(`Error guardando: ${e.message}`);
     }
   };
 }
 
 // ===============================
-// GUARDAR EN BACKEND
-// ===============================
-async function saveToBackend() {
-  if (!state.opId)                           throw new Error("No se pudo resolver la operación (id_operacion). Revisa ?op=OP-...");
-  if (!state.cutSeleccionadoId)              throw new Error("Falta CUT.");
-  if (state.cetSeleccionadosIds.length === 0) throw new Error("Falta CET.");
-
-  // 1) Personal: CUT + CET + todas las CELL
-  const uniquePersonalIds = new Set();
-  uniquePersonalIds.add(state.cutSeleccionadoId);
-  state.cetSeleccionadosIds.forEach(id => uniquePersonalIds.add(id));
-  Object.values(state.asignacionCelulas || {}).forEach(arr =>
-    (arr || []).forEach(id => uniquePersonalIds.add(id))
-  );
-
-  const personalItems = [];
-  for (const id_personal of uniquePersonalIds) {
-    const p = getPersonalById(id_personal);
-    personalItems.push({
-      id_personal,
-      rol_en_operacion: p?.rol || null,
-      estado_asignacion: "ASIGNADO",
-    });
-  }
-
-  await api(`/ops/${state.opId}/personal`, {
-    method: "POST",
-    body:   { items: personalItems },
-  });
-
-  // 2) Mando: mapeo CET → CELL
-  const mandoItems = [];
-  state.cetSeleccionadosIds.forEach(cetId => {
-    (state.asignacionCelulas[cetId] || []).forEach(cellId => {
-      mandoItems.push({ id_cet: cetId, id_cell: cellId });
-    });
-  });
-
-  await api(`/ops/${state.opId}/mando`, {
-    method: "POST",
-    body:   { items: mandoItems },
-  });
-
-  // 3) Vehículos: id_personal → id_vehiculo
-  const vehItems = Object.entries(state.asignacionVehiculos || {}).map(([id_personal, id_vehiculo]) => ({
-    id_personal: Number(id_personal),
-    id_vehiculo: Number(id_vehiculo),
-  }));
-
-  await api(`/ops/${state.opId}/vehiculos`, {
-    method: "POST",
-    body:   { items: vehItems },
-  });
-}
-
-// ===============================
-// Fila de célula reutilizable
+// Fila célula reutilizable
 // ===============================
 function celulaRow({ name, selected = false, disabled = false, status = "Disponible", onToggle }) {
   const row     = document.createElement("div");
   row.className = "item" + (selected ? " selected" : "") + (disabled ? " disabled" : "");
 
-  const left        = document.createElement("div");
-  left.className    = "itemName";
-  left.textContent  = name;
+  const left       = document.createElement("div");
+  left.className   = "itemName";
+  left.textContent = name;
 
-  const right        = document.createElement("div");
-  right.className    = "badgeRight";
-  right.textContent  = status;
+  const right       = document.createElement("div");
+  right.className   = "badgeRight";
+  right.textContent = status;
 
   row.addEventListener("click", e => {
     e.preventDefault();
@@ -1297,12 +1291,7 @@ btnBack.addEventListener("click", () => {
     renderCelulas();
     return;
   }
-
-  if (state.categoria !== "personal") {
-    renderHome();
-    return;
-  }
-
+  if (state.categoria !== "personal") { renderHome(); return; }
   if (state.pasoPersonal === "celulas") { state.pasoPersonal = "cet"; renderCET();  return; }
   if (state.pasoPersonal === "cet")     { state.pasoPersonal = "cut"; renderCUT();  return; }
   if (state.pasoPersonal === "cut")     { renderHome(); return; }
@@ -1317,7 +1306,7 @@ btnVolver.addEventListener("click", () => {
 // ===============================
 (async function init() {
   try {
-    await loadCatalogsAndOp();
+    await loadCatalogs();
     renderHome();
   } catch (e) {
     alert(`Error inicializando: ${e.message}\n\n¿Hay token en localStorage.token? ¿API en ${API_BASE}?`);

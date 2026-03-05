@@ -5,8 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Asignación</title>
 
+  <!-- ✅ CSS bien enlazado -->
   <link rel="stylesheet" href="css/asignacion.css" />
 </head>
+
 <body>
 
   <!-- Top -->
@@ -28,29 +30,34 @@
         <aside class="card leftCard" id="leftCard">
           <div class="cardTitle" id="leftCardTitle">Información de operación</div>
 
-          <div class="form" id="leftCardContent">
-            <label class="lbl">Nombre</label>
-            <input class="inp" id="opNombre" placeholder="Nombre de la operación" />
+          <div id="leftCardContent">
 
-            <label class="lbl">Descripción</label>
-            <textarea class="inp area" id="opDesc" placeholder="Descripción de la operación"></textarea>
+            <!-- ✅ Form original (NO se destruye) -->
+            <div class="form" id="opInfoForm">
+              <label class="lbl">Nombre</label>
+              <input class="inp" id="opNombre" placeholder="Nombre de la operación" />
 
-            <label class="lbl">Fecha de creación</label>
-            <input class="inp" type="date" id="opCreacion" />
+              <label class="lbl">Descripción</label>
+              <textarea class="inp area" id="opDesc" placeholder="Descripción de la operación"></textarea>
 
-            <label class="lbl">Fecha de inicio de operación</label>
-            <input class="inp" type="date" id="opInicio" />
+              <label class="lbl">Fecha de inicio de operación</label>
+              <input class="inp" type="date" id="opInicio" />
 
-            <label class="lbl">Fecha de fin de operación</label>
-            <input class="inp" type="date" id="opFin" />
+              <label class="lbl">Fecha de fin de operación</label>
+              <input class="inp" type="date" id="opFin" />
 
-            <label class="lbl">Prioridad</label>
-            <select class="inp" id="opPrioridad">
-              <option value="" selected>Seleccionar prioridad</option>
-              <option value="BAJA">Baja</option>
-              <option value="MEDIA">Media</option>
-              <option value="ALTA">Alta</option>
-            </select>
+              <label class="lbl">Prioridad</label>
+              <select class="inp" id="opPrioridad">
+                <option value="" selected>Seleccionar prioridad</option>
+                <option value="BAJA">Baja</option>
+                <option value="MEDIA">Media</option>
+                <option value="ALTA">Alta</option>
+              </select>
+            </div>
+
+            <!-- ✅ Panel SOLO Vehículos (JS lo llena) -->
+            <div id="vehiculosLeft" style="display:none;"></div>
+
           </div>
         </aside>
 
@@ -80,14 +87,7 @@
     </section>
   </main>
 
+  <!-- ✅ JS bien enlazado (esto regresa la funcionalidad) -->
   <script src="js/asignacion.js"></script>
 </body>
 </html>
-
-
-
-
-
-
-
-
