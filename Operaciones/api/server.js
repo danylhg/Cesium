@@ -637,6 +637,627 @@ app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
   }
 });
 
+
+// ===============================
+// PATCH /ops/:id/estado
+// Cambia estado de operación y genera mensajes automáticos
+// ===============================
+app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const nuevoEstado = (req.body?.estado || "").toString().toUpperCase();
+  const estadosValidos = ["PLANIFICADA", "ACTIVA", "CERRADA", "CANCELADA"];
+  if (!estadosValidos.includes(nuevoEstado))
+    return res.status(400).json({ ok: false, mensaje: `estado invalido (${estadosValidos.join("|")})` });
+
+  const id_usuario = Number(req.user.sub);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows: opRows } = await client.query(
+      `SELECT estado, nombre, codigo FROM operacion WHERE id_operacion = $1 LIMIT 1`,
+      [id_operacion]
+    );
+    if (!opRows[0]) { await client.query("ROLLBACK"); return res.status(404).json({ ok: false, mensaje: "Operacion no existe" }); }
+
+    const { estado: estadoActual, nombre: nombreOp, codigo: codigoOp } = opRows[0];
+    const transiciones = { PLANIFICADA: ["ACTIVA","CANCELADA"], ACTIVA: ["CERRADA","CANCELADA"], CERRADA: [], CANCELADA: [] };
+    if (!transiciones[estadoActual]?.includes(nuevoEstado)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({ ok: false, mensaje: `No se puede pasar de ${estadoActual} a ${nuevoEstado}` });
+    }
+
+    let q = `UPDATE operacion SET estado = $1`;
+    if (nuevoEstado === "ACTIVA")  q += `, fecha_inicio = NOW()`;
+    if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
+    await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
+
+    const horaStr = () => new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "long", timeStyle: "short" });
+
+    async function getOrCreateParticipante(id_chat, id_usuario) {
+      const { rows } = await client.query(
+        `INSERT INTO participante_chat (id_chat, tipo, id_usuario) VALUES ($1,'USUARIO',$2)
+         ON CONFLICT (id_chat, id_usuario) DO NOTHING RETURNING id_participante`, [id_chat, id_usuario]);
+      if (rows[0]) return rows[0].id_participante;
+      const { rows: ex } = await client.query(
+        `SELECT id_participante FROM participante_chat WHERE id_chat=$1 AND id_usuario=$2 LIMIT 1`, [id_chat, id_usuario]);
+      return ex[0]?.id_participante;
+    }
+
+    if (nuevoEstado === "ACTIVA") {
+      const { rows: cr } = await client.query(
+        `INSERT INTO chat_operacion (id_operacion) VALUES ($1)
+         ON CONFLICT (id_operacion) DO UPDATE SET activo=TRUE RETURNING id_chat`, [id_operacion]);
+      const id_chat = cr[0].id_chat;
+      const id_participante = await getOrCreateParticipante(id_chat, id_usuario);
+      await client.query(
+        `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
+        [id_chat, id_participante, `OPERACION ACTIVADA\nCodigo: ${codigoOp}\nNombre: ${nombreOp}\nHora oficial de inicio: ${horaStr()}`]
+      );
+    }
+
+    if (nuevoEstado === "CERRADA") {
+      const { rows: cr } = await client.query(`SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 LIMIT 1`, [id_operacion]);
+      if (cr[0]) {
+        const id_chat = cr[0].id_chat;
+        const id_participante = await getOrCreateParticipante(id_chat, id_usuario);
+        if (id_participante) {
+          await client.query(
+            `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
+            [id_chat, id_participante, `OPERACION CERRADA\nCodigo: ${codigoOp}\nNombre: ${nombreOp}\nHora oficial de cierre: ${horaStr()}`]
+          );
+        }
+        await client.query(`UPDATE chat_operacion SET activo=FALSE, fecha_cierre=NOW() WHERE id_chat=$1`, [id_chat]);
+      }
+    }
+
+    await client.query("COMMIT");
+    const { rows: updated } = await pool.query(
+      `SELECT id_operacion, codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, fecha_creacion, creada_por
+       FROM operacion WHERE id_operacion=$1`, [id_operacion]);
+    return res.json({ ok: true, operacion: updated[0] });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    return res.status(500).json({ ok: false, mensaje: "Error cambiando estado", error: err.message });
+  } finally { client.release(); }
+});
+
+// ===============================
+// CHAT / MENSAJES
+// ===============================
+
+// GET /ops/:id/chat — obtener feed de mensajes de una operación
+app.get("/ops/:id/chat", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM v_chat_feed WHERE id_operacion = $1 ORDER BY fecha_envio ASC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo chat", error: err.message });
+  }
+});
+
+// POST /ops/:id/chat — enviar mensaje al chat de la operación
+app.post("/ops/:id/chat", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const contenido = (req.body?.contenido || "").toString().trim();
+  const tipo_mensaje = (req.body?.tipo_mensaje || "NORMAL").toString().toUpperCase();
+  if (!contenido) return res.status(400).json({ ok: false, mensaje: "Falta contenido" });
+  if (!["NORMAL","URGENTE","SISTEMA"].includes(tipo_mensaje))
+    return res.status(400).json({ ok: false, mensaje: "tipo_mensaje invalido" });
+
+  const id_usuario = Number(req.user.sub);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Obtener o crear chat
+    const { rows: cr } = await client.query(
+      `SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 AND activo=TRUE LIMIT 1`, [id_operacion]);
+    if (!cr[0]) { await client.query("ROLLBACK"); return res.status(409).json({ ok: false, mensaje: "El chat no esta activo o no existe" }); }
+    const id_chat = cr[0].id_chat;
+
+    // Obtener o crear participante
+    const { rows: pr } = await client.query(
+      `INSERT INTO participante_chat (id_chat, tipo, id_usuario) VALUES ($1,'USUARIO',$2)
+       ON CONFLICT (id_chat, id_usuario) DO NOTHING RETURNING id_participante`, [id_chat, id_usuario]);
+    let id_participante = pr[0]?.id_participante;
+    if (!id_participante) {
+      const { rows: ex } = await client.query(
+        `SELECT id_participante FROM participante_chat WHERE id_chat=$1 AND id_usuario=$2 LIMIT 1`, [id_chat, id_usuario]);
+      id_participante = ex[0]?.id_participante;
+    }
+
+    const { rows: msg } = await client.query(
+      `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
+       VALUES ($1,$2,$3,$4) RETURNING *`, [id_chat, id_participante, contenido, tipo_mensaje]);
+
+    await client.query("COMMIT");
+    res.json({ ok: true, mensaje: msg[0] });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    res.status(500).json({ ok: false, mensaje: "Error enviando mensaje", error: err.message });
+  } finally { client.release(); }
+});
+
+// ===============================
+// AVISOS OPERACIONALES
+// ===============================
+
+// GET /ops/:id/avisos — listar avisos de una operación
+app.get("/ops/:id/avisos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT a.*, 
+              pe.apodo AS emisor_apodo, pe.rol AS emisor_rol,
+              pr.apodo AS receptor_personal_apodo,
+              u.nombre || ' ' || u.apellido AS receptor_usuario_nombre
+       FROM aviso_operacion a
+       JOIN personal pe ON pe.id_personal = a.id_personal_emisor
+       LEFT JOIN personal pr ON pr.id_personal = a.id_personal_receptor
+       LEFT JOIN usuario u ON u.id_usuario = a.id_usuario_receptor
+       WHERE a.id_operacion = $1
+       ORDER BY a.fecha_envio DESC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo avisos", error: err.message });
+  }
+});
+
+// POST /ops/:id/avisos — crear aviso (solo personal: CET o CEL)
+app.post("/ops/:id/avisos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { id_personal_emisor, tipo_aviso, contenido, tipo_receptor, id_personal_receptor, id_usuario_receptor } = req.body ?? {};
+
+  if (!isInt(Number(id_personal_emisor))) return res.status(400).json({ ok: false, mensaje: "Falta id_personal_emisor" });
+  if (!contenido?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta contenido" });
+
+  const tiposValidos = ["NOVEDAD","CONTACTO","EMERGENCIA","INFORMATIVO"];
+  const tipo = (tipo_aviso || "INFORMATIVO").toString().toUpperCase();
+  if (!tiposValidos.includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_aviso invalido" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO aviso_operacion
+         (id_operacion, id_personal_emisor, tipo_aviso, contenido, tipo_receptor, id_personal_receptor, id_usuario_receptor)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [id_operacion, Number(id_personal_emisor), tipo, contenido.toString().trim(),
+       tipo_receptor || null, id_personal_receptor ? Number(id_personal_receptor) : null,
+       id_usuario_receptor ? Number(id_usuario_receptor) : null]
+    );
+    res.json({ ok: true, aviso: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error creando aviso", error: err.message });
+  }
+});
+
+// PATCH /ops/:id/avisos/:id_aviso — marcar aviso como atendido
+app.patch("/ops/:id/avisos/:id_aviso", requireAuth, async (req, res) => {
+  const id_aviso = Number(req.params.id_aviso);
+  if (!isInt(id_aviso)) return res.status(400).json({ ok: false, mensaje: "id_aviso invalido" });
+
+  const estado = (req.body?.estado || "ATENDIDO").toString().toUpperCase();
+  if (!["RECIBIDO","ATENDIDO"].includes(estado)) return res.status(400).json({ ok: false, mensaje: "estado invalido" });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE aviso_operacion SET estado=$1, fecha_atencion=NOW()
+       WHERE id_aviso=$2 RETURNING *`, [estado, id_aviso]);
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Aviso no existe" });
+    res.json({ ok: true, aviso: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error actualizando aviso", error: err.message });
+  }
+});
+
+// ===============================
+// PUNTOS DE INTERÉS (POI)
+// ===============================
+
+// GET /ops/:id/pois — listar POIs de una operación
+app.get("/ops/:id/pois", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM v_poi_detalle WHERE id_operacion=$1 AND activo=TRUE ORDER BY fecha_creacion DESC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo POIs", error: err.message });
+  }
+});
+
+// POST /ops/:id/pois — crear POI
+app.post("/ops/:id/pois", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { nombre, tipo_poi, latitud, longitud, descripcion, tipo_creador, id_usuario, id_personal } = req.body ?? {};
+  if (!nombre?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
+  if (!tipo_poi?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta tipo_poi" });
+  if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+
+  const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
+  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, id_operacion)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
+       nombre.toString().trim(), tipo_poi.toString().trim(), Number(latitud), Number(longitud),
+       descripcion?.toString().trim() || null, id_operacion]
+    );
+    res.json({ ok: true, poi: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error creando POI", error: err.message });
+  }
+});
+
+// DELETE /ops/:id/pois/:id_poi — desactivar POI
+app.delete("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
+  const id_poi = Number(req.params.id_poi);
+  if (!isInt(id_poi)) return res.status(400).json({ ok: false, mensaje: "id_poi invalido" });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE puntos_interes SET activo=FALSE WHERE id_poi=$1 RETURNING id_poi, activo`, [id_poi]);
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "POI no existe" });
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error eliminando POI", error: err.message });
+  }
+});
+
+// ===============================
+// ÁREAS DE INTERÉS
+// ===============================
+
+// GET /ops/:id/areas — listar áreas activas de una operación
+app.get("/ops/:id/areas", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM area_interes WHERE id_operacion=$1 AND estado='ACTIVA' ORDER BY fecha_creacion DESC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo areas", error: err.message });
+  }
+});
+
+// POST /ops/:id/areas — crear área de interés
+app.post("/ops/:id/areas", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { nombre, descripcion, geometria, color, tipo_creador, id_usuario, id_personal } = req.body ?? {};
+  if (!nombre?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
+  if (!geometria) return res.status(400).json({ ok: false, mensaje: "Falta geometria (GeoJSON Polygon)" });
+
+  const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
+  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO area_interes (id_operacion, tipo_creador, id_usuario, id_personal, nombre, descripcion, geometria, color)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [id_operacion, tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
+       nombre.toString().trim(), descripcion?.toString().trim() || null,
+       JSON.stringify(geometria), color || "#FF4500"]
+    );
+    res.json({ ok: true, area: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error creando area", error: err.message });
+  }
+});
+
+// DELETE /ops/:id/areas/:id_area — eliminar área (soft)
+app.delete("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
+  const id_area = Number(req.params.id_area);
+  if (!isInt(id_area)) return res.status(400).json({ ok: false, mensaje: "id_area invalido" });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE area_interes SET estado='ELIMINADA' WHERE id_area=$1 RETURNING id_area, estado`, [id_area]);
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Area no existe" });
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error eliminando area", error: err.message });
+  }
+});
+
+// ===============================
+// RUTAS
+// ===============================
+
+// GET /ops/:id/rutas — listar rutas activas/planificadas de una operación
+app.get("/ops/:id/rutas", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM ruta_operacion WHERE id_operacion=$1 AND estado IN ('PLANIFICADA','ACTIVA') ORDER BY fecha_creacion DESC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo rutas", error: err.message });
+  }
+});
+
+// POST /ops/:id/rutas — crear ruta
+app.post("/ops/:id/rutas", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { nombre, descripcion, geometria, color, tipo_creador, id_usuario, id_personal } = req.body ?? {};
+  if (!nombre?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
+  if (!geometria) return res.status(400).json({ ok: false, mensaje: "Falta geometria (GeoJSON LineString)" });
+
+  const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
+  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO ruta_operacion (id_operacion, tipo_creador, id_usuario, id_personal, nombre, descripcion, geometria, color)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [id_operacion, tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
+       nombre.toString().trim(), descripcion?.toString().trim() || null,
+       JSON.stringify(geometria), color || "#1E90FF"]
+    );
+    res.json({ ok: true, ruta: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error creando ruta", error: err.message });
+  }
+});
+
+// PATCH /ops/:id/rutas/:id_ruta/estado — cambiar estado de ruta
+app.patch("/ops/:id/rutas/:id_ruta/estado", requireAuth, async (req, res) => {
+  const id_ruta = Number(req.params.id_ruta);
+  if (!isInt(id_ruta)) return res.status(400).json({ ok: false, mensaje: "id_ruta invalido" });
+
+  const estado = (req.body?.estado || "").toString().toUpperCase();
+  if (!["PLANIFICADA","ACTIVA","COMPLETADA","CANCELADA"].includes(estado))
+    return res.status(400).json({ ok: false, mensaje: "estado invalido" });
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ruta_operacion SET estado=$1 WHERE id_ruta=$2 RETURNING id_ruta, estado`, [estado, id_ruta]);
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Ruta no existe" });
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error actualizando ruta", error: err.message });
+  }
+});
+
+// ===============================
+// MARCAS DE EDIFICIOS / ESTRUCTURAS
+// ===============================
+
+// GET /ops/:id/edificios — listar estructuras activas de una operación
+app.get("/ops/:id/edificios", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM marca_edificio WHERE id_operacion=$1 AND estado='ACTIVO' ORDER BY fecha_creacion DESC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo edificios", error: err.message });
+  }
+});
+
+// POST /ops/:id/edificios — crear marca de edificio (solo ADMIN, CUT o CET — validado por backend)
+app.post("/ops/:id/edificios", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { nombre, tipo_estructura, latitud, longitud, tipo_creador, id_usuario, id_personal } = req.body ?? {};
+  if (!nombre?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
+  if (!tipo_estructura?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta tipo_estructura" });
+  if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+
+  const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
+  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+
+  // Validar que CEL no pueda crear estructuras
+  if (req.user.rol === "CELL")
+    return res.status(403).json({ ok: false, mensaje: "Las Celulas no pueden crear estructuras" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO marca_edificio (id_operacion, tipo_creador, id_usuario, id_personal, nombre, tipo_estructura, latitud, longitud)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [id_operacion, tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
+       nombre.toString().trim(), tipo_estructura.toString().trim(), Number(latitud), Number(longitud)]
+    );
+    res.json({ ok: true, edificio: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error creando edificio", error: err.message });
+  }
+});
+
+// DELETE /ops/:id/edificios/:id_marca — eliminar estructura (soft)
+app.delete("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
+  const id_marca = Number(req.params.id_marca);
+  if (!isInt(id_marca)) return res.status(400).json({ ok: false, mensaje: "id_marca invalido" });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE marca_edificio SET estado='INACTIVO' WHERE id_marca=$1 RETURNING id_marca, estado`, [id_marca]);
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Edificio no existe" });
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error eliminando edificio", error: err.message });
+  }
+});
+
+// ===============================
+// TRACKING PERSONAL
+// ===============================
+
+// POST /ops/:id/tracking/personal — registrar posición GPS de personal
+app.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { id_personal, latitud, longitud, altitud, precision_m } = req.body ?? {};
+  if (!isInt(Number(id_personal))) return res.status(400).json({ ok: false, mensaje: "Falta id_personal" });
+  if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_tracking, timestamp`,
+      [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
+       altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
+    );
+    res.json({ ok: true, tracking: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error registrando tracking personal", error: err.message });
+  }
+});
+
+// GET /ops/:id/tracking/personal — última posición de todo el personal
+app.get("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM v_ultima_posicion_personal WHERE id_operacion=$1`, [id_operacion]);
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo posiciones personal", error: err.message });
+  }
+});
+
+// GET /ops/:id/tracking/personal/:id_personal/historial — historial de posiciones
+app.get("/ops/:id/tracking/personal/:id_personal/historial", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_personal  = Number(req.params.id_personal);
+  if (!isInt(id_operacion) || !isInt(id_personal))
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id_tracking, latitud, longitud, altitud, precision_m, timestamp
+       FROM tracking_personal
+       WHERE id_operacion=$1 AND id_personal=$2
+       ORDER BY timestamp ASC`,
+      [id_operacion, id_personal]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo historial personal", error: err.message });
+  }
+});
+
+// ===============================
+// TRACKING VEHÍCULOS
+// ===============================
+
+// POST /ops/:id/tracking/vehiculos — registrar posición GPS de vehículo
+app.post("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m } = req.body ?? {};
+  if (!isInt(Number(id_vehiculo))) return res.status(400).json({ ok: false, mensaje: "Falta id_vehiculo" });
+  if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO tracking_vehiculo (id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_tracking, timestamp`,
+      [id_operacion, Number(id_vehiculo), Number(latitud), Number(longitud),
+       altitud != null ? Number(altitud) : null,
+       velocidad_kmh != null ? Number(velocidad_kmh) : null,
+       rumbo_grados != null ? Number(rumbo_grados) : null,
+       precision_m != null ? Number(precision_m) : null]
+    );
+    res.json({ ok: true, tracking: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error registrando tracking vehiculo", error: err.message });
+  }
+});
+
+// GET /ops/:id/tracking/vehiculos — última posición de todos los vehículos
+app.get("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM v_ultima_posicion_vehiculo WHERE id_operacion=$1`, [id_operacion]);
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo posiciones vehiculos", error: err.message });
+  }
+});
+
+// GET /ops/:id/tracking/vehiculos/:id_vehiculo/historial — historial de posiciones
+app.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_vehiculo  = Number(req.params.id_vehiculo);
+  if (!isInt(id_operacion) || !isInt(id_vehiculo))
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp
+       FROM tracking_vehiculo
+       WHERE id_operacion=$1 AND id_vehiculo=$2
+       ORDER BY timestamp ASC`,
+      [id_operacion, id_vehiculo]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo historial vehiculo", error: err.message });
+  }
+});
+
+// ===============================
+// MAPA COMPLETO — todas las capas de una operación
+// ===============================
+
+// GET /ops/:id/mapa — POIs + areas + rutas + edificios en una sola llamada
+app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const [capas, personal, vehiculos] = await Promise.all([
+      pool.query(`SELECT * FROM v_capas_mapa_operacion WHERE id_operacion=$1`, [id_operacion]),
+      pool.query(`SELECT * FROM v_ultima_posicion_personal WHERE id_operacion=$1`, [id_operacion]),
+      pool.query(`SELECT * FROM v_ultima_posicion_vehiculo WHERE id_operacion=$1`, [id_operacion]),
+    ]);
+    res.json({
+      ok: true,
+      capas: capas.rows,
+      personal: personal.rows,
+      vehiculos: vehiculos.rows,
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo mapa", error: err.message });
+  }
+});
+
+
 // ===============================
 // 404 handler (para ver qué falla)
 // ===============================
