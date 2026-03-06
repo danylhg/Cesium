@@ -66,6 +66,38 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_asig_equipo_operacion_enum') THEN
     CREATE TYPE estado_asig_equipo_operacion_enum AS ENUM ('ASIGNADO','EN_USO','LIBERADO','PERDIDO','DAÑADO');
   END IF;
+
+IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_aviso_enum') THEN
+    CREATE TYPE tipo_aviso_enum AS ENUM (
+      'NOVEDAD','CONTACTO','EMERGENCIA','INFORMATIVO'
+    );
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_aviso_enum') THEN
+    CREATE TYPE estado_aviso_enum AS ENUM ('ENVIADO','RECIBIDO','ATENDIDO');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_area_enum') THEN
+    CREATE TYPE estado_area_enum AS ENUM ('ACTIVA','INACTIVA','ELIMINADA');
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_ruta_enum') THEN
+    CREATE TYPE estado_ruta_enum AS ENUM (
+      'PLANIFICADA','ACTIVA','COMPLETADA','CANCELADA'
+    );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'estado_edificio_enum') THEN
+    CREATE TYPE estado_edificio_enum AS ENUM (
+      'ACTIVO','INACTIVO','ELIMINADO'
+    );
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tipo_novedad_enum') THEN
+    CREATE TYPE tipo_novedad_enum AS ENUM (
+      'SITUACION','DECISION','ORDEN','CAMBIO_PLAN','INCIDENTE','OTRO'
+    );
+  END IF;
+
 END $$;
 
 -- =========================================================
@@ -116,6 +148,8 @@ CREATE TABLE IF NOT EXISTS puntos_interes (
   latitud NUMERIC(9,6) NOT NULL,
   longitud NUMERIC(9,6) NOT NULL,
   descripcion TEXT,
+  id_operacion INT REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  activo       BOOLEAN NOT NULL DEFAULT TRUE,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CHECK (
@@ -587,6 +621,7 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
 -- 8) ÍNDICES ÚTILES
 -- =========================================================
 CREATE INDEX IF NOT EXISTS idx_poi_usuario           ON puntos_interes(id_usuario);
+CREATE INDEX IF NOT EXISTS idx_poi_operacion         ON puntos_interes(id_operacion);
 CREATE INDEX IF NOT EXISTS idx_poi_personal          ON puntos_interes(id_personal);
 
 CREATE INDEX IF NOT EXISTS idx_asig_op_personal      ON asignacion_operacion_personal(id_personal);
@@ -877,7 +912,381 @@ SELECT
   poi.latitud,
   poi.longitud,
   poi.descripcion,
+  poi.id_operacion,
+  poi.activo,
   poi.fecha_creacion
 FROM puntos_interes poi
 LEFT JOIN usuario u  ON u.id_usuario = poi.id_usuario
 LEFT JOIN personal p ON p.id_personal = poi.id_personal;
+
+-- =========================================================
+-- NUEVAS TABLAS Y ESTRUCTURAS (PATCH)
+-- =========================================================
+
+-- =========================================================
+-- NUEVOS ENUMs
+-- =========================================================
+-- =========================================================
+-- 10) AVISOS OPERACIONALES OPERACIONALES
+--    Comunicación jerárquica dirigida (CELL/CET → mando)
+--    Diferente al chat: tiene receptor, tipo y acuse de recibo
+-- =========================================================
+CREATE TABLE IF NOT EXISTS aviso_operacion (
+  id_aviso            SERIAL PRIMARY KEY,
+  id_operacion        INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  -- Emisor (siempre personal: CELL o CET)
+  id_personal_emisor  INT NOT NULL
+    REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  -- Receptor (puede ser personal o usuario; NULL = su mando directo)
+  tipo_receptor       tipo_participante_enum,
+  id_personal_receptor INT REFERENCES personal(id_personal) ON DELETE SET NULL,
+  id_usuario_receptor  INT REFERENCES usuario(id_usuario)   ON DELETE SET NULL,
+
+  tipo_aviso          tipo_aviso_enum NOT NULL DEFAULT 'INFORMATIVO',
+  contenido           TEXT NOT NULL,
+  estado              estado_aviso_enum NOT NULL DEFAULT 'ENVIADO',
+
+  fecha_envio         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  fecha_atencion      TIMESTAMPTZ,
+
+  CHECK (
+    fecha_atencion IS NULL OR fecha_atencion >= fecha_envio
+  ),
+  CHECK (
+    -- Si se especifica receptor, debe coincidir con tipo_receptor
+    (tipo_receptor IS NULL) OR
+    (tipo_receptor = 'PERSONAL' AND id_personal_receptor IS NOT NULL AND id_usuario_receptor IS NULL) OR
+    (tipo_receptor = 'USUARIO'  AND id_usuario_receptor  IS NOT NULL AND id_personal_receptor IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_aviso_operacion
+  ON aviso_operacion(id_operacion, fecha_envio DESC);
+
+CREATE INDEX IF NOT EXISTS idx_aviso_receptor_personal
+  ON aviso_operacion(id_personal_receptor)
+  WHERE id_personal_receptor IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_aviso_receptor_usuario
+  ON aviso_operacion(id_usuario_receptor)
+  WHERE id_usuario_receptor IS NOT NULL;
+-- =========================================================
+-- 11) ÁREAS DE INTERÉS
+--    Polígonos sobre el mapa (JSONB GeoJSON)
+--    Creadas por cualquier rol durante planeación o ejecución
+-- =========================================================
+CREATE TABLE IF NOT EXISTS area_interes (
+  id_area         SERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  tipo_creador    tipo_participante_enum NOT NULL,
+  id_usuario      INT REFERENCES usuario(id_usuario)   ON DELETE CASCADE,
+  id_personal     INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  nombre          TEXT NOT NULL,
+  descripcion     TEXT,
+
+  -- GeoJSON Polygon: {"type":"Polygon","coordinates":[[[lon,lat],...]]}
+  geometria       JSONB NOT NULL,
+
+  -- Color hex para renderizar en el mapa frontend
+  color           TEXT NOT NULL DEFAULT '#FF4500',
+
+  estado          estado_area_enum NOT NULL DEFAULT 'ACTIVA',
+  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CHECK (
+    (tipo_creador = 'USUARIO'  AND id_usuario  IS NOT NULL AND id_personal IS NULL) OR
+    (tipo_creador = 'PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_area_operacion
+  ON area_interes(id_operacion);
+
+CREATE INDEX IF NOT EXISTS idx_area_estado
+  ON area_interes(id_operacion, estado);
+-- =========================================================
+-- 12) RUTAS
+--    LineString sobre el mapa (JSONB GeoJSON)
+--    Creadas por cualquier rol durante planeación o ejecución
+-- =========================================================
+CREATE TABLE IF NOT EXISTS ruta_operacion (
+  id_ruta         SERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  tipo_creador    tipo_participante_enum NOT NULL,
+  id_usuario      INT REFERENCES usuario(id_usuario)   ON DELETE CASCADE,
+  id_personal     INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  nombre          TEXT NOT NULL,
+  descripcion     TEXT,
+
+  -- GeoJSON LineString: {"type":"LineString","coordinates":[[lon,lat],...]}
+  geometria       JSONB NOT NULL,
+
+  color           TEXT NOT NULL DEFAULT '#1E90FF',
+  estado          estado_ruta_enum NOT NULL DEFAULT 'PLANIFICADA',
+  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CHECK (
+    (tipo_creador = 'USUARIO'  AND id_usuario  IS NOT NULL AND id_personal IS NULL) OR
+    (tipo_creador = 'PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_ruta_operacion
+  ON ruta_operacion(id_operacion);
+-- =========================================================
+-- 13) MARCAS DE EDIFICIOS / ESTRUCTURAS
+--    Puntos de referencia fijos del terreno, distintos a POIs.
+--    Representan infraestructura real: hospitales, bases,
+--    puestos de control, objetivos, etc.
+--    Solo ADMIN, CUT (usuarios) y CET (personal) pueden crearlas.
+--    No llevan polígono ni afiliación táctica — solo punto + tipo.
+-- =========================================================
+CREATE TABLE IF NOT EXISTS marca_edificio (
+  id_marca        SERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  -- Solo USUARIO (ADMIN/CUT) o PERSONAL con rol CET
+  -- La validación de rol CET se hace en el backend (middleware JWT)
+  tipo_creador    tipo_participante_enum NOT NULL,
+  id_usuario      INT REFERENCES usuario(id_usuario)   ON DELETE CASCADE,
+  id_personal     INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  nombre          TEXT NOT NULL,
+
+  -- Tipo de estructura predefinido
+  -- Valores sugeridos: 'HOSPITAL','BASE','PUESTO_CONTROL',
+  --   'OBJETIVO','INFRAESTRUCTURA','REFUGIO','AMENAZA','OTRO'
+  tipo_estructura TEXT NOT NULL,
+
+  -- Coordenada del punto de referencia
+  latitud         NUMERIC(8,5) NOT NULL,
+  longitud        NUMERIC(9,5) NOT NULL,
+
+  estado          estado_edificio_enum NOT NULL DEFAULT 'ACTIVO',
+  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT chk_marca_latitud  CHECK (latitud  BETWEEN -90  AND  90),
+  CONSTRAINT chk_marca_longitud CHECK (longitud BETWEEN -180 AND 180),
+
+  -- Un creador: o usuario o personal, nunca ambos
+  CHECK (
+    (tipo_creador = 'USUARIO'  AND id_usuario  IS NOT NULL AND id_personal IS NULL) OR
+    (tipo_creador = 'PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_marca_edificio_operacion
+  ON marca_edificio(id_operacion);
+
+CREATE INDEX IF NOT EXISTS idx_marca_edificio_tipo
+  ON marca_edificio(id_operacion, tipo_estructura);
+-- =========================================================
+-- 14) TRACKING DE PERSONAL
+--    Registro de posición GPS en tiempo real / historial
+--    BIGSERIAL porque habrá millones de registros
+-- =========================================================
+CREATE TABLE IF NOT EXISTS tracking_personal (
+  id_tracking     BIGSERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_personal     INT NOT NULL
+    REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  -- 5 decimales = precisión ~1.1 m
+  latitud         NUMERIC(8,5)  NOT NULL,
+  longitud        NUMERIC(9,5)  NOT NULL,
+  altitud         NUMERIC(7,2),            -- metros snm, nullable
+  precision_m     NUMERIC(6,2),            -- precisión del dispositivo GPS
+
+  timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT chk_tp_latitud  CHECK (latitud  BETWEEN -90  AND  90),
+  CONSTRAINT chk_tp_longitud CHECK (longitud BETWEEN -180 AND 180)
+);
+
+-- Índice principal: consultas de historial y última posición
+CREATE INDEX IF NOT EXISTS idx_tracking_personal_op_per_ts
+  ON tracking_personal(id_operacion, id_personal, timestamp DESC);
+
+-- Índice para purgas por tiempo
+CREATE INDEX IF NOT EXISTS idx_tracking_personal_ts
+  ON tracking_personal(timestamp DESC);
+-- =========================================================
+-- 15) TRACKING DE VEHÍCULOS
+-- =========================================================
+CREATE TABLE IF NOT EXISTS tracking_vehiculo (
+  id_tracking     BIGSERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  id_vehiculo     INT NOT NULL
+    REFERENCES vehiculo(id_vehiculo) ON DELETE CASCADE,
+
+  latitud         NUMERIC(8,5)  NOT NULL,
+  longitud        NUMERIC(9,5)  NOT NULL,
+  altitud         NUMERIC(7,2),
+  velocidad_kmh   NUMERIC(6,2),            -- útil para vehículos
+  rumbo_grados    NUMERIC(5,2),            -- 0–360°, dirección de movimiento
+  precision_m     NUMERIC(6,2),
+
+  timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT chk_tv_latitud  CHECK (latitud  BETWEEN -90  AND  90),
+  CONSTRAINT chk_tv_longitud CHECK (longitud BETWEEN -180 AND 180),
+  CONSTRAINT chk_tv_rumbo    CHECK (
+    rumbo_grados IS NULL OR rumbo_grados BETWEEN 0 AND 360
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracking_vehiculo_op_veh_ts
+  ON tracking_vehiculo(id_operacion, id_vehiculo, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tracking_vehiculo_ts
+  ON tracking_vehiculo(timestamp DESC);
+-- =========================================================
+-- 16) NOVEDADES / BATTLE STAFF TOOLS / BATTLE STAFF TOOLS
+--    Bitácora de mando durante la ejecución.
+--    solo_mando = TRUE → solo visible para ADMIN y CUT
+--    (el backend filtra por rol JWT antes de retornar)
+-- =========================================================
+CREATE TABLE IF NOT EXISTS novedad_operacion (
+  id_novedad      SERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  tipo_creador    tipo_participante_enum NOT NULL,
+  id_usuario      INT REFERENCES usuario(id_usuario)   ON DELETE SET NULL,
+  id_personal     INT REFERENCES personal(id_personal) ON DELETE SET NULL,
+
+  tipo_novedad    tipo_novedad_enum NOT NULL DEFAULT 'OTRO',
+  titulo          TEXT NOT NULL,
+  descripcion     TEXT,
+
+  -- TRUE = historial post-op solo accesible por ADMIN y CUT
+  solo_mando      BOOLEAN NOT NULL DEFAULT TRUE,
+
+  fecha_registro  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CHECK (
+    (tipo_creador = 'USUARIO'  AND id_usuario  IS NOT NULL AND id_personal IS NULL) OR
+    (tipo_creador = 'PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_novedad_operacion
+  ON novedad_operacion(id_operacion, fecha_registro DESC);
+-- =========================================================
+-- VISTAS NUEVAS
+-- =========================================================
+
+-- Última posición conocida de cada integrante de personal
+CREATE OR REPLACE VIEW v_ultima_posicion_personal AS
+SELECT DISTINCT ON (tp.id_operacion, tp.id_personal)
+  tp.id_operacion,
+  tp.id_personal,
+  p.apodo,
+  p.rol,
+  tp.latitud,
+  tp.longitud,
+  tp.altitud,
+  tp.precision_m,
+  tp.timestamp AS ultima_actualizacion
+FROM tracking_personal tp
+JOIN personal p ON p.id_personal = tp.id_personal
+ORDER BY tp.id_operacion, tp.id_personal, tp.timestamp DESC;
+
+-- Última posición conocida de cada vehículo en operación
+CREATE OR REPLACE VIEW v_ultima_posicion_vehiculo AS
+SELECT DISTINCT ON (tv.id_operacion, tv.id_vehiculo)
+  tv.id_operacion,
+  tv.id_vehiculo,
+  v.codigo_interno,
+  v.tipo,
+  tv.latitud,
+  tv.longitud,
+  tv.altitud,
+  tv.velocidad_kmh,
+  tv.rumbo_grados,
+  tv.precision_m,
+  tv.timestamp AS ultima_actualizacion
+FROM tracking_vehiculo tv
+JOIN vehiculo v ON v.id_vehiculo = tv.id_vehiculo
+ORDER BY tv.id_operacion, tv.id_vehiculo, tv.timestamp DESC;
+
+-- Capas geoespaciales de una operación (POIs + Áreas + Rutas + Edificios)
+-- Útil para cargar todo el mapa de una operación en una sola consulta
+-- Columnas: id_operacion, tipo_capa, id_elemento, nombre, subtipo,
+--           latitud, longitud, geometria, color, estado, fecha_creacion
+CREATE OR REPLACE VIEW v_capas_mapa_operacion AS
+SELECT
+  id_operacion,
+  'POI'::text     AS tipo_capa,
+  id_poi::int     AS id_elemento,
+  nombre,
+  tipo_poi        AS subtipo,
+  latitud,
+  longitud,
+  NULL::jsonb     AS geometria,
+  NULL::text      AS color,
+  activo::text    AS estado,
+  fecha_creacion
+FROM puntos_interes
+WHERE activo = TRUE
+
+UNION ALL
+
+SELECT
+  id_operacion,
+  'AREA'::text,
+  id_area,
+  nombre,
+  NULL,
+  NULL, NULL,
+  geometria,
+  color,
+  estado::text,
+  fecha_creacion
+FROM area_interes
+WHERE estado = 'ACTIVA'
+
+UNION ALL
+
+SELECT
+  id_operacion,
+  'RUTA'::text,
+  id_ruta,
+  nombre,
+  NULL,
+  NULL, NULL,
+  geometria,
+  color,
+  estado::text,
+  fecha_creacion
+FROM ruta_operacion
+WHERE estado IN ('PLANIFICADA','ACTIVA')
+
+UNION ALL
+
+SELECT
+  id_operacion,
+  'EDIFICIO'::text,
+  id_marca,
+  nombre,
+  tipo_estructura,
+  latitud,
+  longitud,
+  NULL::jsonb,
+  NULL::text,
+  estado::text,
+  fecha_creacion
+FROM marca_edificio
+WHERE estado = 'ACTIVO';
