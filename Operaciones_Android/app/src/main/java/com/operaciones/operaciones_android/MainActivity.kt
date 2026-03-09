@@ -1,7 +1,9 @@
 package com.operaciones.operaciones_android
 
 import android.os.Bundle
+import android.webkit.ConsoleMessage
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -27,26 +29,66 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Referencias a vistas
         webView      = findViewById(R.id.cesiumWebView)
         chatRecycler = findViewById(R.id.chatRecycler)
         msgInput     = findViewById(R.id.msgInput)
         sendBtn      = findViewById(R.id.sendBtn)
         alertText    = findViewById(R.id.alertText)
 
-        // Configurar WebView para Cesium
+        // Habilitar hardware acceleration en el WebView
+        webView.setLayerType(WebView.LAYER_TYPE_HARDWARE, null)
+
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccessFromFileURLs = true
             allowUniversalAccessFromFileURLs = true
             mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            setSupportZoom(false)
+            // Necesario para WebGL de Cesium
+            mediaPlaybackRequiresUserGesture = false
         }
-        webView.webViewClient = WebViewClient()
-        webView.addJavascriptInterface(JsBridge(), "Android")
-        webView.loadUrl("file:///android_asset/map.html")
 
-        // Configurar RecyclerView del chat
+        // WebChromeClient permite WebGL y muestra errores JS en Logcat
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(msg: ConsoleMessage): Boolean {
+                android.util.Log.d(
+                    "CesiumJS",
+                    "${msg.message()} — línea ${msg.lineNumber()} de ${msg.sourceId()}"
+                )
+                return true
+            }
+        }
+
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView, url: String) {
+                android.util.Log.d("CesiumJS", "Página cargada: $url")
+            }
+
+            override fun onReceivedError(
+                view: WebView,
+                errorCode: Int,
+                description: String,
+                failingUrl: String
+            ) {
+                android.util.Log.e("CesiumJS", "Error $errorCode: $description en $failingUrl")
+            }
+        }
+
+        webView.addJavascriptInterface(JsBridge(), "Android")
+        
+        val html = assets.open("map.html").bufferedReader().use { it.readText() }
+        webView.loadDataWithBaseURL(
+            "https://cesium.com",   // base URL — permite cargar recursos externos
+            html,
+            "text/html",
+            "UTF-8",
+            null
+        )
+
+        // RecyclerView del chat
         chatAdapter = ChatAdapter(messages)
         chatRecycler.layoutManager = LinearLayoutManager(this).apply {
             stackFromEnd = true
@@ -77,7 +119,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Bridge entre CesiumJS y Kotlin
     inner class JsBridge {
         @JavascriptInterface
         fun onMapTapped(lat: Double, lon: Double) {

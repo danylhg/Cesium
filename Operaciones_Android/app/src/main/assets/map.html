@@ -6,10 +6,11 @@
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
+    * { margin: 0; padding: 0; }
     html, body, #cesiumContainer {
-      width: 100%; height: 100%;
-      margin: 0; padding: 0;
+      width: 100%; height: 100vh;
       background: #0a0f1e;
+      overflow: hidden;
     }
     .cesium-widget-credits { display: none !important; }
   </style>
@@ -17,34 +18,49 @@
 <body>
   <div id="cesiumContainer"></div>
   <script>
-    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM'; // cesium.com/ion
+    try {
+      Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM';
 
-    const viewer = new Cesium.Viewer('cesiumContainer', {
-      terrainProvider: Cesium.createWorldTerrain(),
-      timeline: false,
-      animation: false,
-      baseLayerPicker: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false
-    });
+      const viewer = new Cesium.Viewer('cesiumContainer', {
+        // ✅ API nueva en vez de createWorldTerrain()
+        terrain: Cesium.Terrain.fromWorldTerrain(),
+        timeline: false,
+        animation: false,
+        baseLayerPicker: false,
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        infoBox: false,
+        selectionIndicator: false
+      });
 
-    // Modo oscuro
-    viewer.scene.skyBox.show = false;
-    viewer.scene.backgroundColor = new Cesium.Color(0.04, 0.06, 0.12, 1.0);
+      viewer.scene.skyBox.show = false;
+      viewer.scene.backgroundColor = new Cesium.Color(0.04, 0.06, 0.12, 1.0);
 
-    // Notificar a Kotlin cuando el usuario toca el mapa
-    viewer.screenSpaceEventHandler.setInputAction(function(e) {
-      const cartesian = viewer.camera.pickEllipsoid(e.position);
-      if (cartesian) {
-        const carto = Cesium.Cartographic.fromCartesian(cartesian);
-        const lat = Cesium.Math.toDegrees(carto.latitude).toFixed(5);
-        const lon = Cesium.Math.toDegrees(carto.longitude).toFixed(5);
-        Android.onMapTapped(parseFloat(lat), parseFloat(lon));
+      // Confirmar que cargó
+      console.log('Cesium cargado correctamente');
+      if (typeof Android !== 'undefined') {
+        Android.sendTrafficAlert('Mapa listo');
       }
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      viewer.screenSpaceEventHandler.setInputAction(function(e) {
+        const cartesian = viewer.camera.pickEllipsoid(e.position);
+        if (cartesian) {
+          const carto = Cesium.Cartographic.fromCartesian(cartesian);
+          const lat = Cesium.Math.toDegrees(carto.latitude).toFixed(5);
+          const lon = Cesium.Math.toDegrees(carto.longitude).toFixed(5);
+          if (typeof Android !== 'undefined') {
+            Android.onMapTapped(parseFloat(lat), parseFloat(lon));
+          }
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    } catch(e) {
+      console.error('Error Cesium: ' + e.message);
+      document.body.innerHTML = '<h2 style="color:red;padding:20px">Error: ' + e.message + '</h2>';
+    }
   </script>
 </body>
 </html>

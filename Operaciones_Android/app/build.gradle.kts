@@ -1,11 +1,11 @@
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)  // ← agrega esto
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "com.operaciones.operaciones_android"
-    compileSdk = 34  // ← corregido
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.operaciones.operaciones_android"
@@ -41,20 +41,13 @@ android {
 }
 
 dependencies {
-    // Core (solo una vez, sin duplicados)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
-
-    // RecyclerView (necesario para el chat)
     implementation("androidx.recyclerview:recyclerview:1.3.2")
-
-    // ViewModel + LiveData
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
-
-    // Tests
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
