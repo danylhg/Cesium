@@ -1,33 +1,76 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
-    tools:context=".MainActivity">
+    android:background="#0a0f1e">
 
-    <com.google.android.material.appbar.AppBarLayout
+    <!-- Mapa Cesium ocupa toda la pantalla -->
+    <WebView
+        android:id="@+id/cesiumWebView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Panel inferior con alertas + chat encima del mapa -->
+    <LinearLayout
+        android:id="@+id/bottomPanel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:fitsSystemWindows="true">
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="#CC111827"
+        android:padding="12dp">
 
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
+        <!-- Alerta de tráfico -->
+        <TextView
+            android:id="@+id/alertText"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize" />
+            android:layout_height="wrap_content"
+            android:text="Sin alertas de tráfico"
+            android:textColor="#e2e8f0"
+            android:textSize="13sp"
+            android:padding="8dp"
+            android:background="#1a2235"
+            android:layout_marginBottom="8dp"/>
 
-    </com.google.android.material.appbar.AppBarLayout>
+        <!-- Lista de mensajes del chat -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/chatRecycler"
+            android:layout_width="match_parent"
+            android:layout_height="150dp"
+            android:clipToPadding="false"
+            android:padding="4dp"/>
 
-    <include layout="@layout/content_main" />
+        <!-- Input del chat -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp"
+            android:gravity="center_vertical">
 
-    <com.google.android.material.floatingactionbutton.FloatingActionButton
-        android:id="@+id/fab"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_marginEnd="@dimen/fab_margin"
-        android:layout_marginBottom="16dp"
-        app:srcCompat="@android:drawable/ic_dialog_email" />
+            <EditText
+                android:id="@+id/msgInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="Escribe un mensaje..."
+                android:textColor="#e2e8f0"
+                android:textColorHint="#64748b"
+                android:background="#1a2235"
+                android:padding="10dp"
+                android:inputType="text"
+                android:textSize="13sp"/>
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+            <Button
+                android:id="@+id/sendBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Enviar"
+                android:layout_marginStart="8dp"
+                android:backgroundTint="#2563eb"
+                android:textColor="#ffffff"/>
+
+        </LinearLayout>
+    </LinearLayout>
+
+</FrameLayout>
