@@ -1,45 +1,43 @@
 package com.operaciones.operaciones_android
 
-// ── Roles del sistema (RF-01) ────────────────────────────────────────────────
-// CET y CELULA → app móvil   |   ADMIN y CUT → plataforma web (bloqueados aquí)
+// Roles — exactamente igual que los ENUMs en PostgreSQL
 enum class UserRole(val display: String) {
     CET("Comandante de Equipo de Trabajo"),
-    CELULA("Célula Operativa"),
-    ADMIN("Administrador"),       // bloqueado en móvil
-    CUT("Comandante de Unidad")   // bloqueado en móvil
+    CELL("Célula Operativa"),       // BD usa CELL (no CELULA)
+    ADMIN("Administrador"),          // solo plataforma web
+    CUT("Comandante de Unidad")      // solo plataforma web
 }
 
-// ── Estados del ciclo de vida de una operación ───────────────────────────────
+// Estados de operación — exactamente igual que estado_operacion_enum en la BD
 enum class OperationStatus {
-    INACTIVA,       // aún no inicia → pantalla de espera
-    EN_REALIZACION, // en curso       → pantalla operativa (mapa + chat)
-    REALIZADA       // concluida      → solo lectura / análisis
+    PLANIFICADA,   // antes de iniciar   → pantalla de espera
+    ACTIVA,        // en curso            → pantalla operativa (mapa)
+    CERRADA,       // concluida
+    CANCELADA      // cancelada
 }
 
-// ── Usuario autenticado ──────────────────────────────────────────────────────
+// Usuario autenticado en sesión
 data class User(
     val id: Int,
     val nombre: String,
     val apellido: String,
-    val numeroControl: String, // credencial de login
-    val password: String,      // en prototipo en texto plano
+    val username: String,
     val rol: UserRole,
-    val jerarquia: String
+    val jerarquia: String,  // campo "puesto" en la BD
+    val tabla: String       // "usuario" | "personal" — de qué tabla viene
 ) {
     val nombreCompleto get() = "$nombre $apellido"
     val puedeAsignarEstructuras get() = rol == UserRole.CET
 }
 
-// ── Operación táctica ────────────────────────────────────────────────────────
+// Operación táctica (datos de la BD)
 data class Operation(
     val id: Int,
+    val codigo: String,
     val nombre: String,
     val descripcion: String,
-    val zona: String,
-    val fechaInicio: String,   // formato "DD/MM/YYYY HH:mm"
-    val fechaFin: String,
-    val prioridad: String,     // "Alta" / "Media" / "Baja"
-    val mensajePrincipal: String,
+    val prioridad: String,      // BAJA / MEDIA / ALTA
     val status: OperationStatus,
-    val asignadoA: List<Int>   // IDs de usuarios asignados
+    val fechaInicio: String,
+    val fechaFin: String
 )

@@ -59,7 +59,7 @@ class MainActivity : AppCompatActivity() {
 
         val opId = intent.getIntExtra("OPERATION_ID", -1)
         val op = MockData.operations.find { it.id == opId }
-        if (op == null || op.status != OperationStatus.EN_REALIZACION) {
+        if (op == null || op.status != OperationStatus.ACTIVA) {
             startActivity(Intent(this, OperationStatusActivity::class.java)); finish(); return
         }
         currentOperation = op

@@ -2,33 +2,58 @@ package com.operaciones.operaciones_android
 
 import android.content.Context
 
-/**
- * AuthManager — persiste la sesión activa en SharedPreferences.
- * En producción almacenaría el JWT recibido del endpoint POST /auth/login.
- */
 object AuthManager {
 
-    private const val PREFS = "sedam_session"
-    private const val KEY_USER_ID = "uid"
-    private const val KEY_LOGGED_IN = "logged_in"
+    private const val PREFS         = "sedam_session"
+    private const val KEY_LOGGED    = "logged_in"
+    private const val KEY_TOKEN     = "token"
+    private const val KEY_ID        = "uid"
+    private const val KEY_NOMBRE    = "nombre"
+    private const val KEY_APELLIDO  = "apellido"
+    private const val KEY_USERNAME  = "username"
+    private const val KEY_ROL       = "rol"
+    private const val KEY_JERARQUIA = "jerarquia"
+    private const val KEY_TABLA     = "tabla"
 
-    fun saveSession(context: Context, user: User) {
+    fun saveSession(context: Context, user: User, token: String = "") {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
-            .putBoolean(KEY_LOGGED_IN, true)
-            .putInt(KEY_USER_ID, user.id)
+            .putBoolean(KEY_LOGGED,    true)
+            .putString(KEY_TOKEN,      token)
+            .putInt(KEY_ID,            user.id)
+            .putString(KEY_NOMBRE,     user.nombre)
+            .putString(KEY_APELLIDO,   user.apellido)
+            .putString(KEY_USERNAME,   user.username)
+            .putString(KEY_ROL,        user.rol.name)
+            .putString(KEY_JERARQUIA,  user.jerarquia)
+            .putString(KEY_TABLA,      user.tabla)
             .apply()
     }
 
-    fun isLoggedIn(context: Context): Boolean =
+    fun isLoggedIn(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .getBoolean(KEY_LOGGED_IN, false)
+            .getBoolean(KEY_LOGGED, false)
 
     fun getCurrentUser(context: Context): User? {
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        if (!prefs.getBoolean(KEY_LOGGED_IN, false)) return null
-        val id = prefs.getInt(KEY_USER_ID, -1)
-        return MockData.users.find { it.id == id }
+        val p = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!p.getBoolean(KEY_LOGGED, false)) return null
+
+        val rolStr = p.getString(KEY_ROL, "") ?: ""
+        val rol = try { UserRole.valueOf(rolStr) } catch (_: Exception) { return null }
+
+        return User(
+            id        = p.getInt(KEY_ID, -1),
+            nombre    = p.getString(KEY_NOMBRE,    "") ?: "",
+            apellido  = p.getString(KEY_APELLIDO,  "") ?: "",
+            username  = p.getString(KEY_USERNAME,  "") ?: "",
+            rol       = rol,
+            jerarquia = p.getString(KEY_JERARQUIA, "") ?: "",
+            tabla     = p.getString(KEY_TABLA,     "personal") ?: "personal"
+        )
     }
+
+    fun getToken(context: Context): String =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_TOKEN, "") ?: ""
 
     fun logout(context: Context) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()

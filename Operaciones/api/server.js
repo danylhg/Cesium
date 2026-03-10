@@ -71,6 +71,12 @@ app.get("/db-test", async (req, res) => {
 // ===============================
 // AUTH
 // ===============================
+// ===============================
+// AUTH — reemplaza el bloque /auth/login en tu server.js
+// Busca primero en `usuario` (ADMIN), luego en `personal` (CUT/CET/CELL)
+// Web:    ADMIN, CUT  pueden entrar
+// Móvil:  CET, CELL   pueden entrar   (filtro en LoginActivity.kt)
+// ===============================
 app.post("/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body ?? {};
@@ -78,28 +84,62 @@ app.post("/auth/login", async (req, res) => {
       return res.status(400).json({ ok: false, mensaje: "Faltan credenciales" });
     }
 
-    const { rows } = await pool.query(
-      `SELECT id_usuario, username, password_hash, rol, nombre, apellido, activo
-       FROM usuario
-       WHERE username = $1
-       LIMIT 1`,
+    let user = null;
+    let tabla = null;
+
+    // 1) Buscar en tabla `usuario` (ADMIN)
+    const resUsuario = await pool.query(
+      `SELECT id_usuario AS id, username, password_hash, rol, nombre, apellido, puesto, activo
+       FROM usuario WHERE username = $1 LIMIT 1`,
       [username]
     );
 
-    if (rows.length === 0) {
+    if (resUsuario.rows.length > 0) {
+      user  = resUsuario.rows[0];
+      tabla = "usuario";
+    } else {
+      // 2) Buscar en tabla `personal` (CUT / CET / CELL)
+      const resPersonal = await pool.query(
+        `SELECT id_personal AS id, username, password_hash, rol, nombre, apellido, puesto, activo
+         FROM personal WHERE username = $1 LIMIT 1`,
+        [username]
+      );
+      if (resPersonal.rows.length > 0) {
+        user  = resPersonal.rows[0];
+        tabla = "personal";
+      }
+    }
+
+    // No encontrado en ninguna tabla
+    if (!user) {
       return res.status(401).json({ ok: false, mensaje: "Usuario o contraseña incorrectos" });
     }
 
-    const user = rows[0];
-    if (!user.activo) return res.status(403).json({ ok: false, mensaje: "Usuario inactivo" });
+    // Inactivo
+    if (!user.activo) {
+      return res.status(403).json({ ok: false, mensaje: "Usuario inactivo" });
+    }
 
-    const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).json({ ok: false, mensaje: "Usuario o contraseña incorrectos" });
+    // Verificar contraseña
+    const passwordOk = await bcrypt.compare(password, user.password_hash);
+    if (!passwordOk) {
+      return res.status(401).json({ ok: false, mensaje: "Usuario o contraseña incorrectos" });
+    }
 
-    await pool.query(`UPDATE usuario SET ultimo_acceso = NOW() WHERE id_usuario = $1`, [user.id_usuario]);
+    // Actualizar último acceso en la tabla correcta
+    if (tabla === "usuario") {
+      await pool.query(
+        `UPDATE usuario SET ultimo_acceso = NOW() WHERE id_usuario = $1`, [user.id]
+      );
+    } else {
+      await pool.query(
+        `UPDATE personal SET ultimo_acceso = NOW() WHERE id_personal = $1`, [user.id]
+      );
+    }
 
+    // Generar JWT — incluye tabla para distinguir en /me y otras rutas
     const token = jwt.sign(
-      { sub: user.id_usuario, username: user.username, rol: user.rol },
+      { sub: user.id, username: user.username, rol: user.rol, tabla },
       JWT_SECRET,
       { expiresIn: "8h" }
     );
@@ -108,13 +148,16 @@ app.post("/auth/login", async (req, res) => {
       ok: true,
       token,
       usuario: {
-        id_usuario: user.id_usuario,
-        username: user.username,
-        rol: user.rol,
-        nombre: user.nombre,
-        apellido: user.apellido,
+        id_usuario: user.id,
+        username:   user.username,
+        rol:        user.rol,
+        nombre:     user.nombre,
+        apellido:   user.apellido,
+        puesto:     user.puesto ?? "",
+        tabla,      // "usuario" | "personal"  → útil en el cliente
       },
     });
+
   } catch (err) {
     return res.status(500).json({ ok: false, mensaje: "Error interno", error: err.message });
   }
