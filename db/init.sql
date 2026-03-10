@@ -617,6 +617,44 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
   fecha_envio TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- ZONA_OPERACION
+-- Área geográfica principal de una operación.
+-- Se dibuja desde el dashboard web (Admin/CUT) antes de activar la operación.
+-- La app Android la usa para centrar el mapa al entrar.
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS zona_operacion (
+  id_zona         SERIAL PRIMARY KEY,
+  id_operacion    INT NOT NULL UNIQUE   -- una zona por operación
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  nombre          TEXT NOT NULL DEFAULT 'Zona principal',
+
+  -- GeoJSON Polygon: {"type":"Polygon","coordinates":[[[lon,lat],...]]}
+  -- El dashboard dibuja el polígono y lo guarda aquí
+  geometria       JSONB NOT NULL,
+
+  -- Centroide calculado automáticamente por el backend al guardar
+  -- La app usa esto para centrar la cámara sin tener que calcular nada
+  centroide_lat   NUMERIC(8,5) NOT NULL,
+  centroide_lon   NUMERIC(9,5) NOT NULL,
+
+  -- Altura inicial sugerida para la cámara en metros
+  -- El backend la calcula según el tamaño del polígono
+  zoom_inicial    INT NOT NULL DEFAULT 8000,
+
+  color           TEXT NOT NULL DEFAULT '#3b82f6',
+  creado_por      INT NOT NULL REFERENCES usuario(id_usuario),
+  fecha_creacion  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT chk_zona_lat CHECK (centroide_lat BETWEEN -90  AND  90),
+  CONSTRAINT chk_zona_lon CHECK (centroide_lon BETWEEN -180 AND 180),
+  CONSTRAINT chk_zona_zoom CHECK (zoom_inicial BETWEEN 100 AND 2000000)
+);
+
+CREATE INDEX IF NOT EXISTS idx_zona_operacion
+  ON zona_operacion(id_operacion);
+
 -- =========================================================
 -- 8) ÍNDICES ÚTILES
 -- =========================================================

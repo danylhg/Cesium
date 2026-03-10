@@ -39,5 +39,9 @@ data class Operation(
     val prioridad: String,      // BAJA / MEDIA / ALTA
     val status: OperationStatus,
     val fechaInicio: String,
-    val fechaFin: String
+    val fechaFin: String,
+    // Zona principal de la operación (null si aún no fue definida en el dashboard)
+    val zonaLat:  Double = 0.0,
+    val zonaLon:  Double = 0.0,
+    val zonaZoom: Int    = 8000
 )

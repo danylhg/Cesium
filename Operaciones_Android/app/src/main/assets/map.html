@@ -8,7 +8,8 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, #cesiumContainer {
-      width: 100%; height: 100%;
+      width: 100%;
+      height: 100%;
       background: #0a0f1e;
       overflow: hidden;
     }
@@ -17,38 +18,72 @@
 </head>
 <body>
 <div id="cesiumContainer"></div>
+
 <script>
   try {
-    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM';
+    Cesium.Ion.defaultAccessToken = 'TU_TOKEN_AQUI';
 
     const viewer = new Cesium.Viewer('cesiumContainer', {
-      terrain: Cesium.Terrain.fromWorldTerrain(),
-      timeline: false, animation: false, baseLayerPicker: false,
-      geocoder: false, homeButton: false, sceneModePicker: false,
-      navigationHelpButton: false, fullscreenButton: false,
-      infoBox: false, selectionIndicator: false
+      imageryProvider: new Cesium.OpenStreetMapImageryProvider({
+        url: 'https://tile.openstreetmap.org/'
+      }),
+      baseLayerPicker: false,
+      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      animation: false,
+      timeline: false,
+      geocoder: false,
+      homeButton: false,
+      sceneModePicker: false,
+      navigationHelpButton: false,
+      fullscreenButton: false,
+      infoBox: false,
+      selectionIndicator: false,
+      skyBox: false,
+      skyAtmosphere: false,
+      shouldAnimate: false
     });
 
-    viewer.scene.skyBox.show = false;
+    // Escena limpia para OSM top-down
+    viewer.scene.skyBox = undefined;
+    viewer.scene.skyAtmosphere.show = false;
+    viewer.scene.sun.show = false;
+    viewer.scene.moon.show = false;
     viewer.scene.backgroundColor = new Cesium.Color(0.04, 0.06, 0.12, 1.0);
+    viewer.scene.globe.depthTestAgainstTerrain = false;
 
     let myLat = null, myLon = null, selfEntity = null;
+
+    function topDownFlyTo(lon, lat, height, duration) {
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+        orientation: {
+          heading: Cesium.Math.toRadians(0),
+          pitch: Cesium.Math.toRadians(-90),
+          roll: 0.0
+        },
+        duration: duration || 1.5
+      });
+    }
+
+    // Centra el mapa en la zona de la operación
+    function setOperationView(lat, lon, zoom) {
+      zoom = zoom || 8000;
+      topDownFlyTo(lon, lat, zoom, 2);
+    }
 
     // ── Zoom ──────────────────────────────────────────────────────────────────
     function zoomIn() {
       viewer.camera.zoomIn(viewer.camera.positionCartographic.height * 0.4);
     }
+
     function zoomOut() {
       viewer.camera.zoomOut(viewer.camera.positionCartographic.height * 0.6);
     }
 
     // ── Ir a mi ubicación ─────────────────────────────────────────────────────
     function goToMyLocation() {
-      if (myLat !== null) {
-        viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(myLon, myLat, 1500),
-          duration: 1.5
-        });
+      if (myLat !== null && myLon !== null) {
+        topDownFlyTo(myLon, myLat, 1500, 1.5);
       } else if (typeof Android !== 'undefined') {
         Android.requestLocation();
       }
@@ -56,7 +91,9 @@
 
     // ── Posición GPS (llamado desde Kotlin) ───────────────────────────────────
     function updateMyPosition(lat, lon) {
-      myLat = lat; myLon = lon;
+      myLat = lat;
+      myLon = lon;
+
       if (selfEntity) {
         selfEntity.position = Cesium.Cartesian3.fromDegrees(lon, lat);
       } else {
@@ -83,11 +120,9 @@
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         });
-        viewer.camera.flyTo({
-          destination: Cesium.Cartesian3.fromDegrees(lon, lat, 1500),
-          duration: 2
-        });
       }
+
+      topDownFlyTo(lon, lat, 1500, 2);
     }
 
     // ── PDI ───────────────────────────────────────────────────────────────────
@@ -172,19 +207,23 @@
 
     // ── Tap en el mapa ────────────────────────────────────────────────────────
     viewer.screenSpaceEventHandler.setInputAction(function(e) {
-      const cart = viewer.camera.pickEllipsoid(e.position);
+      const cart = viewer.camera.pickEllipsoid(e.position, viewer.scene.globe.ellipsoid);
       if (cart) {
         const c = Cesium.Cartographic.fromCartesian(cart);
         const lat = Cesium.Math.toDegrees(c.latitude);
         const lon = Cesium.Math.toDegrees(c.longitude);
-        if (typeof Android !== 'undefined') Android.onMapTapped(lat, lon);
+        if (typeof Android !== 'undefined') {
+          Android.onMapTapped(lat, lon);
+        }
       }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
     console.log('Cesium OK');
-    if (typeof Android !== 'undefined') Android.sendTrafficAlert('Mapa listo');
+    if (typeof Android !== 'undefined') {
+      Android.sendTrafficAlert('Mapa listo');
+    }
 
-  } catch(e) {
+  } catch (e) {
     console.error('Error: ' + e.message);
     document.body.innerHTML =
       '<div style="color:#ef4444;padding:20px;font-family:monospace;background:#0a0f1e">Error: ' + e.message + '</div>';

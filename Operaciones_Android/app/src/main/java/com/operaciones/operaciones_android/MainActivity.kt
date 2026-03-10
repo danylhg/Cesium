@@ -5,7 +5,6 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
-import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
@@ -50,6 +49,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var locationManager: LocationManager
     private val LOCATION_PERM = 101
 
+    // Coordenadas de la zona — vienen del Intent (LoginActivity las pasa desde el servidor)
+    private var opLat  = 0.0
+    private var opLon  = 0.0
+    private var opZoom = 8000
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -57,12 +61,27 @@ class MainActivity : AppCompatActivity() {
         if (user == null) { goToLogin(); return }
         currentUser = user
 
+        // Leer zona del Intent
+        opLat  = intent.getDoubleExtra("OP_LAT",  0.0)
+        opLon  = intent.getDoubleExtra("OP_LON",  0.0)
+        opZoom = intent.getIntExtra   ("OP_ZOOM", 8000)
+
         val opId = intent.getIntExtra("OPERATION_ID", -1)
-        val op = MockData.operations.find { it.id == opId }
-        if (op == null || op.status != OperationStatus.ACTIVA) {
-            startActivity(Intent(this, OperationStatusActivity::class.java)); finish(); return
-        }
-        currentOperation = op
+
+        // Construir Operation desde el Intent (ya no depende de MockData)
+        currentOperation = Operation(
+            id          = opId,
+            codigo      = intent.getStringExtra("OP_CODIGO")      ?: "",
+            nombre      = intent.getStringExtra("OP_NOMBRE")      ?: "Operación",
+            descripcion = intent.getStringExtra("OP_DESCRIPCION") ?: "",
+            prioridad   = intent.getStringExtra("OP_PRIORIDAD")   ?: "MEDIA",
+            status      = OperationStatus.ACTIVA,
+            fechaInicio = intent.getStringExtra("OP_FECHA_INICIO") ?: "",
+            fechaFin    = intent.getStringExtra("OP_FECHA_FIN")    ?: "",
+            zonaLat     = opLat,
+            zonaLon     = opLon,
+            zonaZoom    = opZoom
+        )
 
         setContentView(R.layout.activity_main)
         webView        = findViewById(R.id.cesiumWebView)
@@ -91,7 +110,22 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.d("CesiumJS", msg.message()); return true
             }
         }
-        webView.webViewClient = WebViewClient()
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageFinished(view: WebView?, url: String?) {
+                super.onPageFinished(view, url)
+                // Volar a la zona de la operación cuando el mapa termine de cargar
+                if (opLat != 0.0 && opLon != 0.0) {
+                    android.util.Log.d("SEDAM", "setOperationView lat=$opLat lon=$opLon zoom=$opZoom")
+                    webView.postDelayed({
+                        webView.evaluateJavascript(
+                            "setOperationView($opLat, $opLon, $opZoom)", null
+                        )
+                    }, 3000) // 3s para que Cesium termine de inicializar
+                } else {
+                    android.util.Log.w("SEDAM", "Sin zona definida — mapa en vista global")
+                }
+            }
+        }
         webView.addJavascriptInterface(JsBridge(), "Android")
         val html = assets.open("map.html").bufferedReader().use { it.readText() }
         webView.loadDataWithBaseURL("https://cesium.com", html, "text/html", "UTF-8", null)
@@ -251,8 +285,11 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton("Cancelar", null).show()
     }
 
-    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        if (onBackPressedDispatcher.hasEnabledCallbacks()) {
+            super.onBackPressed()
+            return
+        }
         AlertDialog.Builder(this).setTitle("Salir").setMessage("¿Deseas cerrar sesión?")
             .setPositiveButton("Cerrar sesión") { _, _ -> AuthManager.logout(this); goToLogin() }
             .setNegativeButton("Cancelar", null).show()

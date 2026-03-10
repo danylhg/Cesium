@@ -71,75 +71,53 @@ app.get("/db-test", async (req, res) => {
 // ===============================
 // AUTH
 // ===============================
-// ===============================
-// AUTH — reemplaza el bloque /auth/login en tu server.js
-// Busca primero en `usuario` (ADMIN), luego en `personal` (CUT/CET/CELL)
-// Web:    ADMIN, CUT  pueden entrar
-// Móvil:  CET, CELL   pueden entrar   (filtro en LoginActivity.kt)
-// ===============================
 app.post("/auth/login", async (req, res) => {
   try {
     const { username, password } = req.body ?? {};
-    if (!username || !password) {
+    if (!username || !password)
       return res.status(400).json({ ok: false, mensaje: "Faltan credenciales" });
+
+    // 1) Buscar en usuario (ADMIN)
+    let row = null;
+    let tabla = "usuario";
+    {
+      const { rows } = await pool.query(
+        `SELECT id_usuario AS id, username, password_hash, rol, nombre, apellido, activo
+         FROM usuario WHERE username = $1 LIMIT 1`,
+        [username]
+      );
+      if (rows.length > 0) row = rows[0];
     }
 
-    let user = null;
-    let tabla = null;
-
-    // 1) Buscar en tabla `usuario` (ADMIN)
-    const resUsuario = await pool.query(
-      `SELECT id_usuario AS id, username, password_hash, rol, nombre, apellido, puesto, activo
-       FROM usuario WHERE username = $1 LIMIT 1`,
-      [username]
-    );
-
-    if (resUsuario.rows.length > 0) {
-      user  = resUsuario.rows[0];
-      tabla = "usuario";
-    } else {
-      // 2) Buscar en tabla `personal` (CUT / CET / CELL)
-      const resPersonal = await pool.query(
-        `SELECT id_personal AS id, username, password_hash, rol, nombre, apellido, puesto, activo
+    // 2) Si no está, buscar en personal (CUT/CET/CELL)
+    if (!row) {
+      tabla = "personal";
+      const { rows } = await pool.query(
+        `SELECT id_personal AS id, username, password_hash, rol, nombre, apellido, activo, puesto
          FROM personal WHERE username = $1 LIMIT 1`,
         [username]
       );
-      if (resPersonal.rows.length > 0) {
-        user  = resPersonal.rows[0];
-        tabla = "personal";
-      }
+      if (rows.length > 0) row = rows[0];
     }
 
-    // No encontrado en ninguna tabla
-    if (!user) {
+    if (!row)
       return res.status(401).json({ ok: false, mensaje: "Usuario o contraseña incorrectos" });
-    }
 
-    // Inactivo
-    if (!user.activo) {
+    if (!row.activo)
       return res.status(403).json({ ok: false, mensaje: "Usuario inactivo" });
-    }
 
-    // Verificar contraseña
-    const passwordOk = await bcrypt.compare(password, user.password_hash);
-    if (!passwordOk) {
+    const match = await bcrypt.compare(password, row.password_hash);
+    if (!match)
       return res.status(401).json({ ok: false, mensaje: "Usuario o contraseña incorrectos" });
-    }
 
-    // Actualizar último acceso en la tabla correcta
     if (tabla === "usuario") {
-      await pool.query(
-        `UPDATE usuario SET ultimo_acceso = NOW() WHERE id_usuario = $1`, [user.id]
-      );
+      await pool.query(`UPDATE usuario SET ultimo_acceso = NOW() WHERE id_usuario = $1`, [row.id]);
     } else {
-      await pool.query(
-        `UPDATE personal SET ultimo_acceso = NOW() WHERE id_personal = $1`, [user.id]
-      );
+      await pool.query(`UPDATE personal SET ultimo_acceso = NOW() WHERE id_personal = $1`, [row.id]);
     }
 
-    // Generar JWT — incluye tabla para distinguir en /me y otras rutas
     const token = jwt.sign(
-      { sub: user.id, username: user.username, rol: user.rol, tabla },
+      { sub: row.id, username: row.username, rol: row.rol, tabla },
       JWT_SECRET,
       { expiresIn: "8h" }
     );
@@ -148,16 +126,16 @@ app.post("/auth/login", async (req, res) => {
       ok: true,
       token,
       usuario: {
-        id_usuario: user.id,
-        username:   user.username,
-        rol:        user.rol,
-        nombre:     user.nombre,
-        apellido:   user.apellido,
-        puesto:     user.puesto ?? "",
-        tabla,      // "usuario" | "personal"  → útil en el cliente
+        id_usuario:  tabla === "usuario"  ? row.id : null,
+        id_personal: tabla === "personal" ? row.id : null,
+        username: row.username,
+        rol: row.rol,
+        nombre: row.nombre,
+        apellido: row.apellido,
+        puesto: row.puesto ?? null,
+        tabla,
       },
     });
-
   } catch (err) {
     return res.status(500).json({ ok: false, mensaje: "Error interno", error: err.message });
   }
@@ -432,6 +410,43 @@ app.delete("/catalog/personal/:id", requireAuth, async (req, res) => {
   }
 });
 
+
+// ===============================
+// HELPERS ZONA OPERACION
+// ===============================
+
+// Calcula centroide de un GeoJSON Polygon
+function calcularCentroide(geojson) {
+  try {
+    const coords = geojson.coordinates[0];
+    let sumLat = 0, sumLon = 0;
+    const n = coords.length - 1;
+    for (let i = 0; i < n; i++) {
+      sumLon += coords[i][0];
+      sumLat += coords[i][1];
+    }
+    return { lat: sumLat / n, lon: sumLon / n };
+  } catch {
+    return null;
+  }
+}
+
+// Estima zoom según el tamaño del bounding box del polígono
+function calcularZoom(geojson) {
+  try {
+    const coords = geojson.coordinates[0];
+    const lats = coords.map(c => c[1]);
+    const lons = coords.map(c => c[0]);
+    const deltaLat = Math.max(...lats) - Math.min(...lats);
+    const deltaLon = Math.max(...lons) - Math.min(...lons);
+    const delta = Math.max(deltaLat, deltaLon);
+    const metros = delta * 111000 * 1.5;
+    return Math.min(Math.max(Math.round(metros), 500), 500000);
+  } catch {
+    return 8000;
+  }
+}
+
 // ===============================
 // OPERACIONES
 // ===============================
@@ -446,6 +461,63 @@ app.get("/ops", requireAuth, async (req, res) => {
     res.json({ ok: true, items: rows });
   } catch (err) {
     res.status(500).json({ ok: false, mensaje: "Error listando ops", error: err.message });
+  }
+});
+
+// ── GET /ops/personal/:id_personal ───────────────────────────────────────────
+// IMPORTANTE: va ANTES de /ops/:id para que Express no confunda "personal" con un id
+app.get("/ops/personal/:id_personal", requireAuth, async (req, res) => {
+  const id_personal = Number(req.params.id_personal);
+  if (!isInt(id_personal))
+    return res.status(400).json({ ok: false, mensaje: "id_personal invalido" });
+
+  try {
+    // 1) Operación asignada (ACTIVA primero, luego PLANIFICADA)
+    const { rows } = await pool.query(
+      `SELECT
+         o.id_operacion, o.codigo, o.nombre, o.descripcion,
+         o.prioridad, o.estado, o.fecha_inicio, o.fecha_fin,
+         a.rol_en_operacion, a.estado_asignacion
+       FROM asignacion_operacion_personal a
+       JOIN operacion o ON o.id_operacion = a.id_operacion
+       WHERE a.id_personal = $1
+         AND o.estado IN ('ACTIVA', 'PLANIFICADA')
+         AND a.estado_asignacion NOT IN ('LIBERADO')
+       ORDER BY
+         CASE o.estado WHEN 'ACTIVA' THEN 1 WHEN 'PLANIFICADA' THEN 2 ELSE 3 END,
+         o.fecha_inicio ASC
+       LIMIT 1`,
+      [id_personal]
+    );
+
+    if (rows.length === 0)
+      return res.status(404).json({ ok: false, mensaje: "Sin operacion asignada", operacion: null });
+
+    const operacion = rows[0];
+
+    // 2) Zona principal (null si el admin aún no la dibujó)
+    const zonaRes = await pool.query(
+      `SELECT centroide_lat, centroide_lon, zoom_inicial, color, geometria
+       FROM zona_operacion WHERE id_operacion = $1 LIMIT 1`,
+      [operacion.id_operacion]
+    );
+    const zona = zonaRes.rows[0] ?? null;
+
+    return res.json({
+      ok: true,
+      operacion: {
+        ...operacion,
+        zona: zona ? {
+          centroide_lat: zona.centroide_lat,
+          centroide_lon: zona.centroide_lon,
+          zoom_inicial:  zona.zoom_inicial,
+          color:         zona.color,
+          geometria:     zona.geometria,
+        } : null,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error obteniendo operacion del personal", error: err.message });
   }
 });
 
@@ -1276,6 +1348,88 @@ app.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, async
 });
 
 // ===============================
+// ZONA OPERACION
+// ===============================
+
+// GET /ops/:id/zona — zona principal (la app la usa para centrar el mapa)
+app.get("/ops/:id/zona", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT id_zona, id_operacion, nombre, geometria,
+              centroide_lat, centroide_lon, zoom_inicial, color
+       FROM zona_operacion WHERE id_operacion = $1 LIMIT 1`,
+      [id_operacion]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Sin zona definida" });
+    res.json({ ok: true, zona: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo zona", error: err.message });
+  }
+});
+
+// POST /ops/:id/zona — crear o actualizar zona (solo ADMIN o CUT)
+app.post("/ops/:id/zona", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  if (!["ADMIN", "CUT"].includes(req.user.rol))
+    return res.status(403).json({ ok: false, mensaje: "Solo ADMIN o CUT pueden definir la zona" });
+
+  const { nombre, geometria, color } = req.body ?? {};
+  if (!geometria || geometria.type !== "Polygon" || !Array.isArray(geometria.coordinates))
+    return res.status(400).json({ ok: false, mensaje: "geometria debe ser un GeoJSON Polygon valido" });
+
+  const centroide = calcularCentroide(geometria);
+  if (!centroide)
+    return res.status(400).json({ ok: false, mensaje: "No se pudo calcular el centroide" });
+
+  const zoom = calcularZoom(geometria);
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO zona_operacion
+         (id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color, creado_por)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (id_operacion) DO UPDATE SET
+         nombre        = EXCLUDED.nombre,
+         geometria     = EXCLUDED.geometria,
+         centroide_lat = EXCLUDED.centroide_lat,
+         centroide_lon = EXCLUDED.centroide_lon,
+         zoom_inicial  = EXCLUDED.zoom_inicial,
+         color         = EXCLUDED.color,
+         creado_por    = EXCLUDED.creado_por,
+         fecha_creacion = NOW()
+       RETURNING *`,
+      [id_operacion, nombre || "Zona principal", JSON.stringify(geometria),
+       centroide.lat, centroide.lon, zoom, color || "#3b82f6", req.user.sub]
+    );
+    res.json({ ok: true, zona: rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error guardando zona", error: err.message });
+  }
+});
+
+// DELETE /ops/:id/zona
+app.delete("/ops/:id/zona", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  if (!["ADMIN", "CUT"].includes(req.user.rol))
+    return res.status(403).json({ ok: false, mensaje: "Sin permiso" });
+
+  try {
+    const { rows } = await pool.query(
+      `DELETE FROM zona_operacion WHERE id_operacion = $1 RETURNING id_zona`, [id_operacion]);
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "No existe zona para esta operacion" });
+    res.json({ ok: true, deleted: rows[0].id_zona });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error eliminando zona", error: err.message });
+  }
+});
+
+// ===============================
 // MAPA COMPLETO — todas las capas de una operación
 // ===============================
 
@@ -1313,4 +1467,4 @@ app.use((req, res) => {
 // LISTEN
 // ===============================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`API en http://localhost:${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`API en http://localhost:${PORT}`));

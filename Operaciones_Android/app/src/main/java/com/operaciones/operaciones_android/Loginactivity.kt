@@ -24,7 +24,7 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var progress: ProgressBar
 
     // Celular físico → IP local de tu PC (cámbiala por la que te da ipconfig)
-    // Emulador       → usar "http://10.0.2.2:3001"
+    // Emulador       → usar "http://192.168.202.103:3001"
     private val BASE_URL = "http://192.168.202.103:3001"
 
     private val http = OkHttpClient()
@@ -34,6 +34,9 @@ class LoginActivity : AppCompatActivity() {
 
         // Sesión activa → saltar login
         if (AuthManager.isLoggedIn(this)) {
+            setContentView(R.layout.activity_login)
+            progress = findViewById(R.id.loginProgress)
+            progress.visibility = View.VISIBLE
             fetchOperacionYNavegar(AuthManager.getCurrentUser(this)!!)
             return
         }
@@ -115,14 +118,23 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
+        // El servidor devuelve id_personal o id_usuario según la tabla
+        // Para CET/CELL siempre viene en id_personal
+        val tabla = u.optString("tabla", "personal")
+        val id = if (tabla == "personal")
+            u.optInt("id_personal", 0).takeIf { it > 0 }
+                ?: u.optInt("id_usuario", 0)
+        else
+            u.optInt("id_usuario", 0)
+
         val user = User(
-            id        = u.getInt("id_usuario"),
+            id        = id,
             nombre    = u.optString("nombre",   ""),
             apellido  = u.optString("apellido", ""),
             username  = u.getString("username"),
             rol       = rol,
             jerarquia = u.optString("puesto",   ""),
-            tabla     = u.optString("tabla",    "personal")
+            tabla     = tabla
         )
 
         AuthManager.saveSession(this, user, token)
@@ -183,6 +195,9 @@ class LoginActivity : AppCompatActivity() {
         val estadoStr = o.optString("estado", "PLANIFICADA").uppercase()
         val status = try { OperationStatus.valueOf(estadoStr) }
         catch (_: Exception) { OperationStatus.PLANIFICADA }
+        // Leer zona anidada { centroide_lat, centroide_lon, zoom_inicial }
+        val zona = o.optJSONObject("zona")
+
         return Operation(
             id          = o.getInt("id_operacion"),
             codigo      = o.optString("codigo",      ""),
@@ -191,7 +206,10 @@ class LoginActivity : AppCompatActivity() {
             prioridad   = o.optString("prioridad",   "MEDIA"),
             status      = status,
             fechaInicio = o.optString("fecha_inicio", ""),
-            fechaFin    = o.optString("fecha_fin",    "")
+            fechaFin    = o.optString("fecha_fin",    ""),
+            zonaLat     = zona?.optDouble("centroide_lat", 0.0) ?: 0.0,
+            zonaLon     = zona?.optDouble("centroide_lon", 0.0) ?: 0.0,
+            zonaZoom    = zona?.optInt("zoom_inicial",  8000)   ?: 8000
         )
     }
 
@@ -206,6 +224,9 @@ class LoginActivity : AppCompatActivity() {
         }
         intent.putExtra("USER_ID",      user.id)
         intent.putExtra("OPERATION_ID", op.id)
+        intent.putExtra("OP_LAT",       op.zonaLat)
+        intent.putExtra("OP_LON",       op.zonaLon)
+        intent.putExtra("OP_ZOOM",      op.zonaZoom)
         startActivity(intent)
         finish()
     }
@@ -246,8 +267,12 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun setLoading(loading: Boolean) {
-        progress.visibility = if (loading) View.VISIBLE else View.GONE
-        btnLogin.isEnabled  = !loading
-        btnLogin.alpha      = if (loading) 0.6f else 1f
+        if (::progress.isInitialized) {
+            progress.visibility = if (loading) View.VISIBLE else View.GONE
+        }
+        if (::btnLogin.isInitialized) {
+            btnLogin.isEnabled = !loading
+            btnLogin.alpha = if (loading) 0.6f else 1f
+        }
     }
 }
