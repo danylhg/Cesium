@@ -132,42 +132,6 @@ CREATE TABLE IF NOT EXISTS personal (
 );
 
 -- =========================================================
--- 2.1) PUNTOS DE INTERÉS (POI) — CREADOR: USUARIO o PERSONAL (uno u otro)
--- Nota: si ya tenías la versión anterior (id_usuario NOT NULL e id_personal NOT NULL),
--- para aplicar esta estructura en BD ya creada tendrás que DROP/ALTER manualmente.
--- =========================================================
-CREATE TABLE IF NOT EXISTS puntos_interes (
-  id_poi SERIAL PRIMARY KEY,
-
-  tipo_creador tipo_participante_enum NOT NULL,
-  id_usuario INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
-  id_personal INT REFERENCES personal(id_personal) ON DELETE CASCADE,
-
-  nombre TEXT NOT NULL,
-  tipo_poi TEXT NOT NULL,
-  latitud NUMERIC(9,6) NOT NULL,
-  longitud NUMERIC(9,6) NOT NULL,
-  descripcion TEXT,
-  id_operacion INT REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  activo       BOOLEAN NOT NULL DEFAULT TRUE,
-  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CHECK (
-    (tipo_creador='USUARIO'  AND id_usuario IS NOT NULL  AND id_personal IS NULL) OR
-    (tipo_creador='PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
-  )
-);
-
--- Índices parciales útiles (evitan problemas con NULL en UNIQUE)
-CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_usuario
-  ON puntos_interes(id_usuario, nombre)
-  WHERE id_usuario IS NOT NULL;
-
-CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_personal
-  ON puntos_interes(id_personal, nombre)
-  WHERE id_personal IS NOT NULL;
-
--- =========================================================
 -- 3) INVENTARIO (EQUIPO / SUBTIPOS / VEHICULO)
 -- =========================================================
 CREATE TABLE IF NOT EXISTS equipo (
@@ -223,6 +187,42 @@ CREATE TABLE IF NOT EXISTS operacion (
   creada_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
   CHECK (fecha_inicio IS NULL OR fecha_fin IS NULL OR fecha_fin >= fecha_inicio)
 );
+
+-- =========================================================
+-- 4.1) PUNTOS DE INTERÉS (POI) — CREADOR: USUARIO o PERSONAL (uno u otro)
+-- Nota: si ya tenías la versión anterior (id_usuario NOT NULL e id_personal NOT NULL),
+-- para aplicar esta estructura en BD ya creada tendrás que DROP/ALTER manualmente.
+-- =========================================================
+CREATE TABLE IF NOT EXISTS puntos_interes (
+  id_poi SERIAL PRIMARY KEY,
+
+  tipo_creador tipo_participante_enum NOT NULL,
+  id_usuario INT REFERENCES usuario(id_usuario) ON DELETE CASCADE,
+  id_personal INT REFERENCES personal(id_personal) ON DELETE CASCADE,
+
+  nombre TEXT NOT NULL,
+  tipo_poi TEXT NOT NULL,
+  latitud NUMERIC(9,6) NOT NULL,
+  longitud NUMERIC(9,6) NOT NULL,
+  descripcion TEXT,
+  id_operacion INT REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+  activo       BOOLEAN NOT NULL DEFAULT TRUE,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CHECK (
+    (tipo_creador='USUARIO'  AND id_usuario IS NOT NULL  AND id_personal IS NULL) OR
+    (tipo_creador='PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+  )
+);
+
+-- Índices parciales útiles (evitan problemas con NULL en UNIQUE)
+CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_usuario
+  ON puntos_interes(id_usuario, nombre)
+  WHERE id_usuario IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_personal
+  ON puntos_interes(id_personal, nombre)
+  WHERE id_personal IS NOT NULL;
 
 -- =========================================================
 -- 5) TABLAS PUENTE / ASIGNACIONES (OPERACIÓN)

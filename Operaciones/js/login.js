@@ -5,7 +5,8 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
   msg.textContent = "";
 
   try {
-    const r = await fetch("http://localhost:3001/auth/login", {
+    const API = `http://${window.location.hostname}:3001`;
+    const r = await fetch(`${API}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username: u, password: p }),

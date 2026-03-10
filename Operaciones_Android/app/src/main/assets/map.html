@@ -6,9 +6,9 @@
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     html, body, #cesiumContainer {
-      width: 100%; height: 100vh;
+      width: 100%; height: 100%;
       background: #0a0f1e;
       overflow: hidden;
     }
@@ -16,51 +16,179 @@
   </style>
 </head>
 <body>
-  <div id="cesiumContainer"></div>
-  <script>
-    try {
-      Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM';
+<div id="cesiumContainer"></div>
+<script>
+  try {
+    Cesium.Ion.defaultAccessToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM';
 
-      const viewer = new Cesium.Viewer('cesiumContainer', {
-        // ✅ API nueva en vez de createWorldTerrain()
-        terrain: Cesium.Terrain.fromWorldTerrain(),
-        timeline: false,
-        animation: false,
-        baseLayerPicker: false,
-        geocoder: false,
-        homeButton: false,
-        sceneModePicker: false,
-        navigationHelpButton: false,
-        fullscreenButton: false,
-        infoBox: false,
-        selectionIndicator: false
-      });
+    const viewer = new Cesium.Viewer('cesiumContainer', {
+      terrain: Cesium.Terrain.fromWorldTerrain(),
+      timeline: false, animation: false, baseLayerPicker: false,
+      geocoder: false, homeButton: false, sceneModePicker: false,
+      navigationHelpButton: false, fullscreenButton: false,
+      infoBox: false, selectionIndicator: false
+    });
 
-      viewer.scene.skyBox.show = false;
-      viewer.scene.backgroundColor = new Cesium.Color(0.04, 0.06, 0.12, 1.0);
+    viewer.scene.skyBox.show = false;
+    viewer.scene.backgroundColor = new Cesium.Color(0.04, 0.06, 0.12, 1.0);
 
-      // Confirmar que cargó
-      console.log('Cesium cargado correctamente');
-      if (typeof Android !== 'undefined') {
-        Android.sendTrafficAlert('Mapa listo');
-      }
+    let myLat = null, myLon = null, selfEntity = null;
 
-      viewer.screenSpaceEventHandler.setInputAction(function(e) {
-        const cartesian = viewer.camera.pickEllipsoid(e.position);
-        if (cartesian) {
-          const carto = Cesium.Cartographic.fromCartesian(cartesian);
-          const lat = Cesium.Math.toDegrees(carto.latitude).toFixed(5);
-          const lon = Cesium.Math.toDegrees(carto.longitude).toFixed(5);
-          if (typeof Android !== 'undefined') {
-            Android.onMapTapped(parseFloat(lat), parseFloat(lon));
-          }
-        }
-      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-    } catch(e) {
-      console.error('Error Cesium: ' + e.message);
-      document.body.innerHTML = '<h2 style="color:red;padding:20px">Error: ' + e.message + '</h2>';
+    // ── Zoom ──────────────────────────────────────────────────────────────────
+    function zoomIn() {
+      viewer.camera.zoomIn(viewer.camera.positionCartographic.height * 0.4);
     }
-  </script>
+    function zoomOut() {
+      viewer.camera.zoomOut(viewer.camera.positionCartographic.height * 0.6);
+    }
+
+    // ── Ir a mi ubicación ─────────────────────────────────────────────────────
+    function goToMyLocation() {
+      if (myLat !== null) {
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(myLon, myLat, 1500),
+          duration: 1.5
+        });
+      } else if (typeof Android !== 'undefined') {
+        Android.requestLocation();
+      }
+    }
+
+    // ── Posición GPS (llamado desde Kotlin) ───────────────────────────────────
+    function updateMyPosition(lat, lon) {
+      myLat = lat; myLon = lon;
+      if (selfEntity) {
+        selfEntity.position = Cesium.Cartesian3.fromDegrees(lon, lat);
+      } else {
+        selfEntity = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(lon, lat),
+          point: {
+            pixelSize: 14,
+            color: Cesium.Color.fromCssColorString('#22c55e'),
+            outlineColor: Cesium.Color.WHITE,
+            outlineWidth: 2,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          },
+          label: {
+            text: 'Mi posicion',
+            font: '12px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -20),
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lon, lat, 1500),
+          duration: 2
+        });
+      }
+    }
+
+    // ── PDI ───────────────────────────────────────────────────────────────────
+    function addPointOfInterest(lat, lon, label, author) {
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        point: {
+          pixelSize: 12,
+          color: Cesium.Color.fromCssColorString('#f59e0b'),
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        },
+        label: {
+          text: label + '\n' + author,
+          font: 'bold 12px sans-serif',
+          fillColor: Cesium.Color.fromCssColorString('#fef3c7'),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -18),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+    }
+
+    // ── Área de interés ───────────────────────────────────────────────────────
+    function addAreaOfInterest(lat, lon, author) {
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        ellipse: {
+          semiMajorAxis: 200.0,
+          semiMinorAxis: 200.0,
+          material: Cesium.Color.fromCssColorString('#ef4444').withAlpha(0.25),
+          outline: true,
+          outlineColor: Cesium.Color.fromCssColorString('#ef4444'),
+          outlineWidth: 2,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        label: {
+          text: 'Area · ' + author,
+          font: '11px sans-serif',
+          fillColor: Cesium.Color.fromCssColorString('#fca5a5'),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+    }
+
+    // ── Estructura táctica (CET) ──────────────────────────────────────────────
+    function addTacticalStructure(lat, lon, author) {
+      viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        point: {
+          pixelSize: 14,
+          color: Cesium.Color.fromCssColorString('#8b5cf6'),
+          outlineColor: Cesium.Color.WHITE,
+          outlineWidth: 2,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        },
+        label: {
+          text: 'Estructura · ' + author,
+          font: 'bold 11px sans-serif',
+          fillColor: Cesium.Color.fromCssColorString('#ddd6fe'),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -18),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        }
+      });
+    }
+
+    // ── Tap en el mapa ────────────────────────────────────────────────────────
+    viewer.screenSpaceEventHandler.setInputAction(function(e) {
+      const cart = viewer.camera.pickEllipsoid(e.position);
+      if (cart) {
+        const c = Cesium.Cartographic.fromCartesian(cart);
+        const lat = Cesium.Math.toDegrees(c.latitude);
+        const lon = Cesium.Math.toDegrees(c.longitude);
+        if (typeof Android !== 'undefined') Android.onMapTapped(lat, lon);
+      }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+    console.log('Cesium OK');
+    if (typeof Android !== 'undefined') Android.sendTrafficAlert('Mapa listo');
+
+  } catch(e) {
+    console.error('Error: ' + e.message);
+    document.body.innerHTML =
+      '<div style="color:#ef4444;padding:20px;font-family:monospace;background:#0a0f1e">Error: ' + e.message + '</div>';
+  }
+</script>
 </body>
 </html>

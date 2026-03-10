@@ -1,76 +1,128 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0a0f1e">
 
-    <!-- Mapa Cesium ocupa toda la pantalla -->
+    <!-- Mapa Cesium — pantalla completa -->
     <WebView
         android:id="@+id/cesiumWebView"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"/>
 
-    <!-- Panel inferior con alertas + chat encima del mapa -->
+    <!-- Panel inferior deslizable -->
     <LinearLayout
         android:id="@+id/bottomPanel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:orientation="vertical"
-        android:background="#CC111827"
-        android:padding="12dp">
+        android:background="#E6111827"
+        android:elevation="8dp">
 
-        <!-- Alerta de tráfico -->
-        <TextView
-            android:id="@+id/alertText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Sin alertas de tráfico"
-            android:textColor="#e2e8f0"
-            android:textSize="13sp"
-            android:padding="8dp"
-            android:background="#1a2235"
-            android:layout_marginBottom="8dp"/>
-
-        <!-- Lista de mensajes del chat -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/chatRecycler"
-            android:layout_width="match_parent"
-            android:layout_height="150dp"
-            android:clipToPadding="false"
-            android:padding="4dp"/>
-
-        <!-- Input del chat -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
+        <!-- Handle / drag indicator -->
+        <View
+            android:id="@+id/panelHandle"
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
             android:layout_marginTop="8dp"
-            android:gravity="center_vertical">
+            android:layout_marginBottom="4dp"
+            android:background="#475569"
+            android:clickable="false"/>
 
-            <EditText
-                android:id="@+id/msgInput"
+        <!-- Contenedor del contenido del panel -->
+        <FrameLayout
+            android:id="@+id/panelContent"
+            android:layout_width="match_parent"
+            android:layout_height="260dp"
+            android:visibility="gone"/>
+
+        <!-- Barra de navegación inferior (3 botones) -->
+        <LinearLayout
+            android:id="@+id/navBar"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:orientation="horizontal"
+            android:background="#0d1526">
+
+            <!-- Botón Mensajes -->
+            <LinearLayout
+                android:id="@+id/btnNavChat"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:hint="Escribe un mensaje..."
-                android:textColor="#e2e8f0"
-                android:textColorHint="#64748b"
-                android:background="#1a2235"
-                android:padding="10dp"
-                android:inputType="text"
-                android:textSize="13sp"/>
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+                <TextView
+                    android:id="@+id/iconNavChat"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="💬"
+                    android:textSize="20sp"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Mensajes"
+                    android:textColor="#64748b"
+                    android:textSize="10sp"/>
+            </LinearLayout>
 
-            <Button
-                android:id="@+id/sendBtn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Enviar"
-                android:layout_marginStart="8dp"
-                android:backgroundTint="#2563eb"
-                android:textColor="#ffffff"/>
+            <!-- Botón Personal -->
+            <LinearLayout
+                android:id="@+id/btnNavPersonal"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+                <TextView
+                    android:id="@+id/iconNavPersonal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="👤"
+                    android:textSize="20sp"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Personal"
+                    android:textColor="#64748b"
+                    android:textSize="10sp"/>
+            </LinearLayout>
+
+            <!-- Botón Vehículos/Equipo -->
+            <LinearLayout
+                android:id="@+id/btnNavEquipo"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+                <TextView
+                    android:id="@+id/iconNavEquipo"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🚗"
+                    android:textSize="20sp"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Vehículos"
+                    android:textColor="#64748b"
+                    android:textSize="10sp"/>
+            </LinearLayout>
 
         </LinearLayout>
     </LinearLayout>
 
-</FrameLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

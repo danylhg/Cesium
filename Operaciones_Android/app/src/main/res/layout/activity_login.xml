@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0a0f1e"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:paddingHorizontal="32dp"
+        android:paddingVertical="48dp">
+
+        <!-- Logo / Ícono institucional -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⚓"
+            android:textSize="56sp"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Nombre del sistema -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SEDAM"
+            android:textColor="#e2e8f0"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.15"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Sistema de Enlace de Datos de la Armada de México"
+            android:textColor="#64748b"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:layout_marginBottom="4dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="ININDETEC — Módulo Operativo Móvil"
+            android:textColor="#2563eb"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:layout_marginBottom="40dp"/>
+
+        <!-- Separador -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#1e293b"
+            android:layout_marginBottom="32dp"/>
+
+        <!-- Campo: Número de control -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="NÚMERO DE CONTROL"
+            android:textColor="#94a3b8"
+            android:textSize="10sp"
+            android:letterSpacing="0.15"
+            android:layout_marginBottom="6dp"/>
+
+        <EditText
+            android:id="@+id/inputNumControl"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@drawable/input_bg"
+            android:padding="14dp"
+            android:textColor="#e2e8f0"
+            android:textColorHint="#475569"
+            android:hint="Ej. CET-001 / CELL-001"
+            android:textSize="14sp"
+            android:inputType="text"
+            android:singleLine="true"
+            android:imeOptions="actionNext"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Campo: Contraseña -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CONTRASEÑA"
+            android:textColor="#94a3b8"
+            android:textSize="10sp"
+            android:letterSpacing="0.15"
+            android:layout_marginBottom="6dp"/>
+
+        <EditText
+            android:id="@+id/inputPassword"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:background="@drawable/input_bg"
+            android:padding="14dp"
+            android:textColor="#e2e8f0"
+            android:textColorHint="#475569"
+            android:hint="Contraseña"
+            android:textSize="14sp"
+            android:inputType="textPassword"
+            android:singleLine="true"
+            android:imeOptions="actionDone"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Error -->
+        <TextView
+            android:id="@+id/tvError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#ef4444"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:padding="8dp"
+            android:background="#1a0a0a"
+            android:visibility="gone"
+            android:layout_marginBottom="16dp"/>
+
+        <!-- Progress -->
+        <ProgressBar
+            android:id="@+id/loginProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:indeterminateTint="#2563eb"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Botón login -->
+        <Button
+            android:id="@+id/btnLogin"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="INICIAR SESIÓN"
+            android:textColor="#ffffff"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:backgroundTint="#2563eb"
+            android:layout_marginBottom="32dp"/>
+
+        <!-- Nota de acceso -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Acceso exclusivo para personal operativo\n(CET y Célula). El personal administrativo\naccede desde la plataforma web."
+            android:textColor="#475569"
+            android:textSize="11sp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.4"/>
+
+    </LinearLayout>
+</ScrollView>
