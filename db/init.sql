@@ -168,8 +168,26 @@ CREATE TABLE IF NOT EXISTS vehiculo (
   marca TEXT,
   modelo TEXT,
   estado estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE',
-  capacidad INT
+  capacidad INT,
+  fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- =========================================================
+-- PATCH: agregar fecha_creacion a vehiculo si no existe
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name='vehiculo'
+    AND column_name='fecha_creacion'
+  ) THEN
+    ALTER TABLE vehiculo
+    ADD COLUMN fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+END
+$$;
 
 -- =========================================================
 -- 4) OPERACIÓN
@@ -671,20 +689,75 @@ CREATE INDEX IF NOT EXISTS idx_uso_eq_op_personal    ON uso_equipo_operacion(id_
 -- =========================================================
 -- 9) SEED (INVENTARIO)
 -- =========================================================
-INSERT INTO vehiculo (imagen_veh, codigo_interno, marca, modelo, estado)
+
+-- -------------------------
+-- VEHÍCULOS
+-- -------------------------
+INSERT INTO vehiculo (
+  imagen_veh,
+  codigo_interno,
+  tipo,
+  marca,
+  modelo,
+  estado,
+  capacidad
+)
 VALUES
-('./uploads/vehiculo/Alacran.jpeg','VH-001','Alacran','Táctico','DISPONIBLE'),
-('./uploads/vehiculo/Dron vant 01.jpeg','VH-002','Dron','VANT 01','DISPONIBLE'),
-('./uploads/vehiculo/Ford F-150.jpeg','VH-003','Ford','F-150','DISPONIBLE'),
-('./uploads/vehiculo/Panther.jpeg','VH-004','Panther','Blindado','DISPONIBLE'),
-('./uploads/vehiculo/Scualo.jpeg','VH-005','Scualo','Interceptor','DISPONIBLE')
+('./uploads/vehiculo/Alacran.jpeg',      'VH-001', 'TÁCTICO',    'Alacran', '4x4',        'DISPONIBLE', 6),
+('./uploads/vehiculo/Ford F-150.jpeg',   'VH-003', 'PICKUP',     'Ford',    'F-150',      'DISPONIBLE', 5),
+('./uploads/vehiculo/Panther.jpeg',      'VH-004', 'BLINDADO',   'Panther', 'Blindado',   'DISPONIBLE', 8),
+('./uploads/vehiculo/Scualo.jpeg',       'VH-005', 'INTERCEPTOR','Scualo',  'Interceptor','DISPONIBLE', 4)
 ON CONFLICT (codigo_interno) DO NOTHING;
 
-INSERT INTO equipo (numero_serie, nombre, categoria, estado)
-VALUES ('HFC-001','Harris Falcon','COMUNICACION','DISPONIBLE')
+
+-- -------------------------
+-- EQUIPO BASE
+-- -------------------------
+INSERT INTO equipo (
+  numero_serie,
+  nombre,
+  categoria,
+  estado
+)
+VALUES 
+('HFC-001', 'Harris Falcon', 'COMUNICACION', 'DISPONIBLE'),
+('DRN-001', 'Dron VANT 01',  'TACTICO',      'DISPONIBLE')
 ON CONFLICT (numero_serie) DO NOTHING;
 
-INSERT INTO equipo_comunicacion (id_equipo, imagen_eqcom, marca, modelo, notas)
+
+-- -------------------------
+-- EQUIPO TÁCTICO
+-- -------------------------
+INSERT INTO equipo_tactico (
+  id_equipo,
+  imagen_eqtac,
+  tipo_tactico,
+  calibre,
+  nivel,
+  notas
+)
+SELECT
+  e.id_equipo,
+  './uploads/equipo/tactico/Dron vant 01.jpeg',
+  'DRON',
+  NULL,
+  'VANT',
+  'Dron de vigilancia táctica no tripulado'
+FROM equipo e
+WHERE e.numero_serie = 'DRN-001'
+ON CONFLICT (id_equipo) DO NOTHING;
+
+
+-- -------------------------
+-- EQUIPO DE COMUNICACIÓN
+-- -------------------------
+INSERT INTO equipo_comunicacion (
+  id_equipo,
+  imagen_eqcom,
+  marca,
+  modelo,
+  notas
+)
 SELECT
   e.id_equipo,
   './uploads/equipo/comunicacion/Harris Falcon.jpeg',

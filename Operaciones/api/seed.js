@@ -22,24 +22,24 @@ const users = [
   { rol: "CET",  nombre: "Ricardo", apellido: "Vega",      puesto: "Teniente", username: "rvega",      apodo: "Vega" },
 
   // CELL
-  { rol: "CELL", nombre: "José",     apellido: "Martínez", puesto: "Sargento Primero",  username: "jmartinez", apodo: "Martínez" },
-  { rol: "CELL", nombre: "Pedro",    apellido: "Sánchez",  puesto: "Sargento Segundo",  username: "psanchez",  apodo: "Sánchez" },
-  { rol: "CELL", nombre: "Miguel",   apellido: "Cruz",     puesto: "Cabo",              username: "mcruz",     apodo: "Cruz" },
-  { rol: "CELL", nombre: "Laura",    apellido: "Gómez",    puesto: "Soldado / Marinero",username: "lgomez",    apodo: "Gómez" },
-  { rol: "CELL", nombre: "Juan",     apellido: "Flores",   puesto: "Soldado / Marinero",username: "jflores",   apodo: "Flores" },
-  { rol: "CELL", nombre: "Sofía",    apellido: "Morales",  puesto: "Cabo",              username: "smorales",  apodo: "Morales" },
-  { rol: "CELL", nombre: "Daniel",   apellido: "Ríos",     puesto: "Soldado / Marinero",username: "drios",     apodo: "Ríos" },
-  { rol: "CELL", nombre: "Fernanda", apellido: "Silva",    puesto: "Soldado / Marinero",username: "fsilva",    apodo: "Silva" },
-  { rol: "CELL", nombre: "Andrés",   apellido: "Navarro",  puesto: "Cabo",              username: "anavarro",  apodo: "Navarro" },
-  { rol: "CELL", nombre: "Paola",    apellido: "Mendoza",  puesto: "Soldado / Marinero",username: "pmendoza",  apodo: "Mendoza" },
-  { rol: "CELL", nombre: "Hugo",     apellido: "Castillo", puesto: "Sargento Segundo",  username: "hcastillo", apodo: "Castillo" },
-  { rol: "CELL", nombre: "Elena",    apellido: "Ruiz",     puesto: "Soldado / Marinero",username: "eruiz",     apodo: "Ruiz" },
-  { rol: "CELL", nombre: "Iván",     apellido: "Pérez",    puesto: "Cabo",              username: "iperez",    apodo: "Pérez" },
-  { rol: "CELL", nombre: "Diana",    apellido: "Ortega",   puesto: "Soldado / Marinero",username: "dortega",   apodo: "Ortega" },
-  { rol: "CELL", nombre: "Óscar",    apellido: "Reyes",    puesto: "Cabo",              username: "oreyes",    apodo: "Reyes" },
-  { rol: "CELL", nombre: "Daniela",  apellido: "Pérez",    puesto: "Soldado / Marinero",username: "dperez",    apodo: "Pérez" }, // <- duplicado a propósito (se resolverá)
-  { rol: "CELL", nombre: "Diana",    apellido: "Ortiz",    puesto: "Soldado / Marinero",username: "dortiz",    apodo: "Ortiz" },
-  { rol: "CELL", nombre: "Odalis",   apellido: "Lopez",    puesto: "Soldado / Marinero",username: "olopez",    apodo: "López" }, // <- puede chocar con "López" CET (se resolverá)
+  { rol: "CELL", nombre: "José",     apellido: "Martínez", puesto: "Sargento Primero",   username: "jmartinez", apodo: "Martínez" },
+  { rol: "CELL", nombre: "Pedro",    apellido: "Sánchez",  puesto: "Sargento Segundo",   username: "psanchez",  apodo: "Sánchez" },
+  { rol: "CELL", nombre: "Miguel",   apellido: "Cruz",     puesto: "Cabo",               username: "mcruz",     apodo: "Cruz" },
+  { rol: "CELL", nombre: "Laura",    apellido: "Gómez",    puesto: "Soldado / Marinero", username: "lgomez",    apodo: "Gómez" },
+  { rol: "CELL", nombre: "Juan",     apellido: "Flores",   puesto: "Soldado / Marinero", username: "jflores",   apodo: "Flores" },
+  { rol: "CELL", nombre: "Sofía",    apellido: "Morales",  puesto: "Cabo",               username: "smorales",  apodo: "Morales" },
+  { rol: "CELL", nombre: "Daniel",   apellido: "Ríos",     puesto: "Soldado / Marinero", username: "drios",     apodo: "Ríos" },
+  { rol: "CELL", nombre: "Fernanda", apellido: "Silva",    puesto: "Soldado / Marinero", username: "fsilva",    apodo: "Silva" },
+  { rol: "CELL", nombre: "Andrés",   apellido: "Navarro",  puesto: "Cabo",               username: "anavarro",  apodo: "Navarro" },
+  { rol: "CELL", nombre: "Paola",    apellido: "Mendoza",  puesto: "Soldado / Marinero", username: "pmendoza",  apodo: "Mendoza" },
+  { rol: "CELL", nombre: "Hugo",     apellido: "Castillo", puesto: "Sargento Segundo",   username: "hcastillo", apodo: "Castillo" },
+  { rol: "CELL", nombre: "Elena",    apellido: "Ruiz",     puesto: "Soldado / Marinero", username: "eruiz",     apodo: "Ruiz" },
+  { rol: "CELL", nombre: "Iván",     apellido: "Pérez",    puesto: "Cabo",               username: "iperez",    apodo: "Pérez" },
+  { rol: "CELL", nombre: "Diana",    apellido: "Ortega",   puesto: "Soldado / Marinero", username: "dortega",   apodo: "Ortega" },
+  { rol: "CELL", nombre: "Óscar",    apellido: "Reyes",    puesto: "Cabo",               username: "oreyes",    apodo: "Reyes" },
+  { rol: "CELL", nombre: "Daniela",  apellido: "Pérez",    puesto: "Soldado / Marinero", username: "dperez",    apodo: "Pérez" },
+  { rol: "CELL", nombre: "Diana",    apellido: "Ortiz",    puesto: "Soldado / Marinero", username: "dortiz",    apodo: "Ortiz" },
+  { rol: "CELL", nombre: "Odalis",   apellido: "Lopez",    puesto: "Soldado / Marinero", username: "olopez",    apodo: "López" },
 ];
 
 // ===== Helpers =====
@@ -54,11 +54,9 @@ function cleanApodo(s) {
 }
 
 async function generateUniqueApodo(client, wanted) {
-  // NOT NULL + UNIQUE (personal.apodo)
   let base = cleanApodo(wanted);
   if (!base) base = "SinApodo";
 
-  // Si ya existe, intenta "base 2", "base 3", ...
   for (let n = 0; n < 200; n++) {
     const apodo = (n === 0 ? base : `${base} ${n + 1}`).slice(0, 40);
 
@@ -69,7 +67,6 @@ async function generateUniqueApodo(client, wanted) {
     if (rows.length === 0) return apodo;
   }
 
-  // Último recurso
   return `${base}-${Date.now()}`.slice(0, 40);
 }
 
@@ -90,7 +87,9 @@ async function main() {
   try {
     await client.query("BEGIN");
 
+    // =========================================================
     // 1) ADMIN -> tabla usuario
+    // =========================================================
     for (const u of adminUsers) {
       const hash = await bcrypt.hash(DEFAULT_PASSWORD, BCRYPT_ROUNDS);
 
@@ -110,7 +109,9 @@ async function main() {
       );
     }
 
+    // =========================================================
     // 2) creado_por
+    // =========================================================
     const adminRow = await client.query(
       `SELECT id_usuario FROM usuario WHERE username = $1 LIMIT 1`,
       ["admin"]
@@ -118,11 +119,12 @@ async function main() {
     if (adminRow.rowCount === 0) throw new Error(`No existe el administrador "admin".`);
     const creadoPor = adminRow.rows[0].id_usuario;
 
+    // =========================================================
     // 3) Personal -> tabla personal
+    // =========================================================
     for (const p of personalUsers) {
       const hash = await bcrypt.hash(DEFAULT_PASSWORD, BCRYPT_ROUNDS);
 
-      // ✅ apodo humano (apellido / nombre / username) y garantizado único
       const wantedApodo =
         cleanApodo(p.apodo) ||
         cleanApodo(p.apellido) ||
@@ -150,7 +152,183 @@ async function main() {
     }
 
     // =========================================================
-    // 4) OPERACION DE PRUEBA
+    // 4) INVENTARIO BASE (VEHICULOS / EQUIPO)
+    // =========================================================
+
+    // -------------------------
+    // VEHICULOS
+    // -------------------------
+    const vehiculosBase = [
+      {
+        codigo_interno: "VH-001",
+        imagen_veh: "./uploads/vehiculo/Alacran.jpeg",
+        tipo: "TACTICO",
+        marca: "Alacran",
+        modelo: "4x4",
+        estado: "DISPONIBLE",
+        capacidad: 6,
+      },
+      {
+        codigo_interno: "VH-003",
+        imagen_veh: "./uploads/vehiculo/Ford F-150.jpeg",
+        tipo: "PICKUP",
+        marca: "Ford",
+        modelo: "F-150",
+        estado: "DISPONIBLE",
+        capacidad: 5,
+      },
+      {
+        codigo_interno: "VH-004",
+        imagen_veh: "./uploads/vehiculo/Panther.jpeg",
+        tipo: "BLINDADO",
+        marca: "Panther",
+        modelo: "Blindado",
+        estado: "DISPONIBLE",
+        capacidad: 8,
+      },
+      {
+        codigo_interno: "VH-005",
+        imagen_veh: "./uploads/vehiculo/Scualo.jpeg",
+        tipo: "INTERCEPTOR",
+        marca: "Scualo",
+        modelo: "Interceptor",
+        estado: "DISPONIBLE",
+        capacidad: 4,
+      },
+    ];
+
+    for (const v of vehiculosBase) {
+      await client.query(
+        `
+        INSERT INTO vehiculo
+          (imagen_veh, codigo_interno, tipo, marca, modelo, estado, capacidad)
+        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        ON CONFLICT (codigo_interno) DO UPDATE
+          SET imagen_veh = EXCLUDED.imagen_veh,
+              tipo       = EXCLUDED.tipo,
+              marca      = EXCLUDED.marca,
+              modelo     = EXCLUDED.modelo,
+              estado     = EXCLUDED.estado,
+              capacidad  = EXCLUDED.capacidad
+        `,
+        [
+          v.imagen_veh,
+          v.codigo_interno,
+          v.tipo,
+          v.marca,
+          v.modelo,
+          v.estado,
+          v.capacidad,
+        ]
+      );
+    }
+
+    // -------------------------
+    // EQUIPO BASE
+    // -------------------------
+    const equiposBase = [
+      {
+        numero_serie: "HFC-001",
+        nombre: "Harris Falcon",
+        categoria: "COMUNICACION",
+        estado: "DISPONIBLE",
+        subtipo: "COMUNICACION",
+        imagen_eq: "./uploads/equipo/comunicacion/Harris Falcon.jpeg",
+        marca: "Harris",
+        modelo: "Falcon III",
+        notas: "Radio táctico multibanda",
+      },
+      {
+        numero_serie: "DRN-001",
+        nombre: "Dron VANT 01",
+        categoria: "TACTICO",
+        estado: "DISPONIBLE",
+        subtipo: "TACTICO",
+        imagen_eq: "./uploads/equipo/tactico/Dron vant 01.jpeg",
+        tipo_tactico: "DRON",
+        calibre: null,
+        nivel: "VANT",
+        notas: "Dron de vigilancia táctica no tripulado",
+      },
+    ];
+
+    for (const e of equiposBase) {
+      const eqInsert = await client.query(
+        `
+        INSERT INTO equipo
+          (numero_serie, nombre, categoria, estado)
+        VALUES ($1,$2,$3,$4)
+        ON CONFLICT (numero_serie) DO UPDATE
+          SET nombre    = EXCLUDED.nombre,
+              categoria = EXCLUDED.categoria,
+              estado    = EXCLUDED.estado
+        RETURNING id_equipo
+        `,
+        [e.numero_serie, e.nombre, e.categoria, e.estado]
+      );
+
+      let idEquipo = eqInsert.rows?.[0]?.id_equipo;
+
+      if (!idEquipo) {
+        const eqRow = await client.query(
+          `SELECT id_equipo FROM equipo WHERE numero_serie = $1`,
+          [e.numero_serie]
+        );
+        if (eqRow.rowCount === 0) continue;
+        idEquipo = eqRow.rows[0].id_equipo;
+      }
+
+      if (e.subtipo === "COMUNICACION") {
+        await client.query(
+          `
+          INSERT INTO equipo_comunicacion
+            (id_equipo, imagen_eqcom, marca, modelo, notas)
+          VALUES ($1,$2,$3,$4,$5)
+          ON CONFLICT (id_equipo) DO UPDATE
+            SET imagen_eqcom = EXCLUDED.imagen_eqcom,
+                marca        = EXCLUDED.marca,
+                modelo       = EXCLUDED.modelo,
+                notas        = EXCLUDED.notas
+          `,
+          [idEquipo, e.imagen_eq, e.marca ?? null, e.modelo ?? null, e.notas ?? null]
+        );
+
+        await client.query(
+          `DELETE FROM equipo_tactico WHERE id_equipo = $1`,
+          [idEquipo]
+        );
+      } else {
+        await client.query(
+          `
+          INSERT INTO equipo_tactico
+            (id_equipo, imagen_eqtac, tipo_tactico, calibre, nivel, notas)
+          VALUES ($1,$2,$3,$4,$5,$6)
+          ON CONFLICT (id_equipo) DO UPDATE
+            SET imagen_eqtac = EXCLUDED.imagen_eqtac,
+                tipo_tactico = EXCLUDED.tipo_tactico,
+                calibre      = EXCLUDED.calibre,
+                nivel        = EXCLUDED.nivel,
+                notas        = EXCLUDED.notas
+          `,
+          [
+            idEquipo,
+            e.imagen_eq,
+            e.tipo_tactico ?? null,
+            e.calibre ?? null,
+            e.nivel ?? null,
+            e.notas ?? null,
+          ]
+        );
+
+        await client.query(
+          `DELETE FROM equipo_comunicacion WHERE id_equipo = $1`,
+          [idEquipo]
+        );
+      }
+    }
+
+    // =========================================================
+    // 5) OPERACION DE PRUEBA
     // =========================================================
     const OP_CODIGO = "OP-PRUEBA-001";
 
@@ -174,10 +352,10 @@ async function main() {
     );
     const idOp = opRow.rows[0].id_operacion;
 
-    // --------------------------------------------------------
-    // 5) PERSONAL -> OPERACION
-    // CET: mlopez  |  CELL: mcruz, jmartinez, psanchez, lgomez, jflores, smorales
-    // --------------------------------------------------------
+    // =========================================================
+    // 6) PERSONAL -> OPERACION
+    // CET: mlopez | CELL: mcruz, jmartinez, psanchez, lgomez, jflores, smorales
+    // =========================================================
     const personalOp = ["mlopez", "mcruz", "jmartinez", "psanchez", "lgomez", "jflores", "smorales"];
 
     for (const username of personalOp) {
@@ -202,9 +380,9 @@ async function main() {
       );
     }
 
-    // --------------------------------------------------------
-    // 6) MANDO: mlopez (CET) -> 6 CELL
-    // --------------------------------------------------------
+    // =========================================================
+    // 7) MANDO: mlopez (CET) -> 6 CELL
+    // =========================================================
     const cetRow = await client.query(
       `SELECT id_personal FROM personal WHERE username = 'mlopez'`
     );
@@ -229,9 +407,9 @@ async function main() {
       );
     }
 
-    // --------------------------------------------------------
-    // 7) GRUPO PADRE
-    // --------------------------------------------------------
+    // =========================================================
+    // 8) GRUPO PADRE
+    // =========================================================
     await client.query(
       `
       INSERT INTO grupo_operacion (id_operacion, nombre, apodo, id_grupo_padre, descripcion, creado_por)
@@ -247,9 +425,9 @@ async function main() {
     );
     const idPadre = padreRow.rows[0].id_grupo_operacion;
 
-    // --------------------------------------------------------
-    // 8) SUBGRUPOS
-    // --------------------------------------------------------
+    // =========================================================
+    // 9) SUBGRUPOS
+    // =========================================================
     for (const nombre of ["Aguila 1", "Aguila 2"]) {
       await client.query(
         `
@@ -272,9 +450,9 @@ async function main() {
     const idAguila1 = aguila1Row.rows[0].id_grupo_operacion;
     const idAguila2 = aguila2Row.rows[0].id_grupo_operacion;
 
-    // --------------------------------------------------------
-    // 9) CELULAS -> SUBGRUPOS (3 y 3)
-    // --------------------------------------------------------
+    // =========================================================
+    // 10) CELULAS -> SUBGRUPOS (3 y 3)
+    // =========================================================
     const subgrupos = [
       { idGrupo: idAguila1, usernames: ["mcruz", "jmartinez", "psanchez"] },
       { idGrupo: idAguila2, usernames: ["lgomez", "jflores", "smorales"] },
@@ -300,9 +478,9 @@ async function main() {
       }
     }
 
-    // --------------------------------------------------------
-    // 10) VEHICULOS -> OPERACION (reserva previa obligatoria)
-    // --------------------------------------------------------
+    // =========================================================
+    // 11) VEHICULOS -> OPERACION (reserva previa obligatoria)
+    // =========================================================
     const vehiculos = [
       { codigo: "VH-003", uso: "Transporte terrestre" },
       { codigo: "VH-005", uso: "Interceptor acuatico" },
@@ -313,7 +491,10 @@ async function main() {
         `SELECT id_vehiculo FROM vehiculo WHERE codigo_interno = $1`,
         [codigo]
       );
-      if (vRow.rowCount === 0) { console.warn(`  WARN: vehiculo "${codigo}" no encontrado`); continue; }
+      if (vRow.rowCount === 0) {
+        console.warn(`  WARN: vehiculo "${codigo}" no encontrado`);
+        continue;
+      }
       const idVehiculo = vRow.rows[0].id_vehiculo;
 
       await client.query(
@@ -326,10 +507,10 @@ async function main() {
       );
     }
 
-    // --------------------------------------------------------
-    // 11) VEHICULOS -> SUBGRUPOS
-    // Ford F-150 (VH-003) -> Aguila 1  |  Scualo (VH-005) -> Aguila 2
-    // --------------------------------------------------------
+    // =========================================================
+    // 12) VEHICULOS -> SUBGRUPOS
+    // Ford F-150 (VH-003) -> Aguila 1 | Scualo (VH-005) -> Aguila 2
+    // =========================================================
     const vehSubgrupos = [
       { codigo: "VH-003", idGrupo: idAguila1, uso: "Transporte terrestre" },
       { codigo: "VH-005", idGrupo: idAguila2, uso: "Interceptor acuatico" },
@@ -353,9 +534,9 @@ async function main() {
       );
     }
 
-    // --------------------------------------------------------
-    // 12) EQUIPO -> OPERACION (reserva previa obligatoria)
-    // --------------------------------------------------------
+    // =========================================================
+    // 13) EQUIPO -> OPERACION (reserva previa obligatoria)
+    // =========================================================
     const eqRow = await client.query(
       `SELECT id_equipo FROM equipo WHERE numero_serie = 'HFC-001'`
     );
@@ -371,9 +552,9 @@ async function main() {
         [idOp, idEquipo, creadoPor]
       );
 
-      // --------------------------------------------------------
-      // 13) EQUIPO -> VEHICULO (Harris Falcon en Ford F-150)
-      // --------------------------------------------------------
+      // =========================================================
+      // 14) EQUIPO -> VEHICULO (Harris Falcon en Ford F-150)
+      // =========================================================
       const vehFordRow = await client.query(
         `SELECT id_vehiculo FROM vehiculo WHERE codigo_interno = 'VH-003'`
       );
@@ -391,55 +572,50 @@ async function main() {
       }
     }
 
-
-    // --------------------------------------------------------
-    // 14) ZONA PRINCIPAL DE LA OPERACION — Lerdo de Tejada, Veracruz
-    // Polígono que delimita el municipio aproximadamente
-    // El centroide y zoom se calculan automáticamente pero aquí
-    // los ponemos explícito para el seed.
-    // --------------------------------------------------------
+    // =========================================================
+    // 15) ZONA PRINCIPAL DE LA OPERACION — Anton Lizardo, Veracruz
+    // =========================================================
     const zonaGeometria = {
       type: "Polygon",
       coordinates: [[
-        [-95.5583, 18.6536],   // NO
-        [-95.4783, 18.6536],   // NE
-        [-95.4783, 18.5936],   // SE
-        [-95.5583, 18.5936],   // SO
-        [-95.5583, 18.6536],   // cierre
+        [-95.9950, 19.0750],   // NO
+        [-95.9350, 19.0750],   // NE
+        [-95.9350, 19.0250],   // SE
+        [-95.9950, 19.0250],   // SO
+        [-95.9950, 19.0750],   // cierre
       ]]
     };
 
-    // Centroide calculado: lat 18.6236, lon -95.5183
-    // Zoom ~10000m para ver el municipio completo
     await client.query(
       `
       INSERT INTO zona_operacion
         (id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color, creado_por)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       ON CONFLICT (id_operacion) DO UPDATE SET
-        geometria     = EXCLUDED.geometria,
-        centroide_lat = EXCLUDED.centroide_lat,
-        centroide_lon = EXCLUDED.centroide_lon,
-        zoom_inicial  = EXCLUDED.zoom_inicial,
-        color         = EXCLUDED.color,
-        creado_por    = EXCLUDED.creado_por,
+        geometria      = EXCLUDED.geometria,
+        centroide_lat  = EXCLUDED.centroide_lat,
+        centroide_lon  = EXCLUDED.centroide_lon,
+        zoom_inicial   = EXCLUDED.zoom_inicial,
+        color          = EXCLUDED.color,
+        creado_por     = EXCLUDED.creado_por,
         fecha_creacion = NOW()
       `,
       [
         idOp,
-        "Zona Lerdo de Tejada",
+        "Zona Anton Lizardo",
         JSON.stringify(zonaGeometria),
-        18.6236,    // centroide_lat
-        -95.5183,   // centroide_lon
-        10000,      // zoom_inicial en metros
-        "#3b82f6",  // azul
+        19.0500,   // centroide_lat
+        -95.9650,  // centroide_lon
+        9000,
+        "#3b82f6",
         creadoPor,
       ]
     );
+
     console.log("  → Zona de operacion insertada: Lerdo de Tejada, Ver.");
 
     await client.query("COMMIT");
-    console.log("Seed OK (usuario ADMIN + personal CUT/CET/CELL)");
+    console.log("Seed OK (usuario ADMIN + personal CUT/CET/CELL + inventario + operación)");
     console.log(`Password para todos: ${DEFAULT_PASSWORD}`);
   } catch (e) {
     await client.query("ROLLBACK");

@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Control de Equipos</title>
+  <link rel="stylesheet" href="css/control_personal.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="brandText">
+        <div class="brandName">Centro de Operaciones</div>
+        <div class="brandSub">Control de equipos</div>
+      </div>
+    </div>
+
+    <div class="topActions">
+      <button id="btnBack" class="btnTop">Volver</button>
+      <button id="btnLogout" class="btnTop">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel">
+      <div class="panelHead">
+        <div>
+          <h1 class="title">Control de Equipos</h1>
+          <p class="subtitle">Administra equipos registrados (localStorage)</p>
+        </div>
+
+        <div class="headBtns">
+          <button id="btnAdd" class="btn primary"><span class="btnIcon">＋</span>Agregar</button>
+          <button id="btnEdit" class="btn soft" disabled><span class="btnIcon">✎</span>Modificar</button>
+          <button id="btnDelete" class="btn danger" disabled><span class="btnIcon">🗑</span>Eliminar</button>
+        </div>
+      </div>
+
+      <!-- Filtros -->
+      <div class="filtersCard">
+        <div class="field">
+          <label>Buscar</label>
+          <div class="searchRow">
+            <input id="searchInput" type="text" placeholder="Buscar por serie, nombre, categoría..." />
+            <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
+            <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label>Filtro por Categoría</label>
+          <select id="filterCategoria">
+            <option value="">Todas</option>
+            <option value="Comunicación">Equipo de comunicación</option>
+            <option value="Táctico">Equipo táctico</option>
+          </select>
+        </div>
+
+        <div class="hintRow">
+          <span id="resultHint" class="hint"></span>
+          <span class="hint">Tip: da clic en una fila para seleccionarla.</span>
+        </div>
+      </div>
+
+      <!-- Tabla -->
+      <div class="tableCard">
+        <div class="tableWrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Imagen</th>
+                <th>Número de serie</th>
+                <th>Nombre</th>
+                <th>Categoría</th>
+                <th>Estado</th>
+                <th>Detalles</th>
+                <th>Fecha registro</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal -->
+    <div id="modal" class="modal hidden" aria-hidden="true">
+      <div class="modalBackdrop" data-close="true"></div>
+      <div class="modalCard">
+        <div class="modalHead">
+          <div class="modalTitle" id="modalTitle">Agregar equipo</div>
+          <button class="iconBtn" id="btnCloseModal">✕</button>
+        </div>
+
+        <form id="form" class="modalBody">
+          <div class="grid2">
+            <div class="field full">
+              <label>Imagen</label>
+              <div id="dropZoneEq" class="dropZone">
+                Arrastra la imagen aquí o selecciona un archivo
+                <input id="fImagenEq" type="file" accept="image/*" />
+              </div>
+            </div>
+            <div class="field"><label>Número de serie</label><input id="fSerie" type="text" required /></div>
+            <div class="field"><label>Nombre</label><input id="fNombre" type="text" required /></div>
+            <div class="field"><label>Categoría</label>
+              <select id="fCategoria">
+                <option value="COMUNICACION">Equipo de comunicación</option>
+                <option value="TACTICO">Equipo táctico</option>
+              </select>
+            </div>
+            <div class="field"><label>Estado</label>
+              <select id="fEstado">
+                <option value="DISPONIBLE">Disponible</option>
+                <option value="EN_USO">En uso</option>
+                <option value="MANTENIMIENTO">Mantenimiento</option>
+              </select>
+            </div>
+            <div class="field full"><label>Detalles</label><textarea id="fDetalles"></textarea></div>
+          </div>
+
+          <div class="modalActions">
+            <button type="button" id="btnCancel" class="btn soft">Cancelar</button>
+            <button type="submit" id="btnSave" class="btn primary"><span class="btnIcon">✔</span>Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+  </main>
+
+  <script src="js/control_equipos.js"></script>
+</body>
+</html>
+
+

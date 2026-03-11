@@ -1,0 +1,380 @@
+// control_equipos.js (con backend)
+
+if (localStorage.getItem("session") !== "ok") {
+  window.location.href = "login.html";
+}
+
+const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+const token = localStorage.getItem("token");
+
+if (!token) {
+  localStorage.removeItem("session");
+  window.location.href = "login.html";
+}
+
+async function api(path, { method = "GET", body } = {}) {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    const msg = data?.mensaje || `Error ${res.status} en ${path}`;
+    throw new Error(msg);
+  }
+  return data;
+}
+
+/* =========================
+   Catálogos (UI)
+========================= */
+const CATEGORIAS = [
+  "COMUNICACION",
+  "TACTICO",
+];
+
+const ESTADOS = [
+  "DISPONIBLE",
+  "ASIGNADO",
+  "MANTENIMIENTO",
+  "BAJA",
+];
+
+function normalize(s){ return (s ?? "").toString().trim().toLowerCase(); }
+
+function escapeHtml(text) {
+  return (text ?? "").toString()
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function fillSelect(selectEl, options, includeAll=false) {
+  const base = includeAll
+    ? `<option value="">Todos</option>`
+    : `<option value="" disabled selected>Selecciona...</option>`;
+
+  selectEl.innerHTML =
+    base + options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
+}
+
+/* =========================
+   DOM
+========================= */
+const btnBack = document.getElementById("btnBack");
+const btnLogout = document.getElementById("btnLogout");
+
+const btnAdd = document.getElementById("btnAdd");
+const btnEdit = document.getElementById("btnEdit");
+const btnDelete = document.getElementById("btnDelete");
+
+const searchInput = document.getElementById("searchInput");
+const btnSearch = document.getElementById("btnSearch");
+const btnClear = document.getElementById("btnClear");
+
+const filterCategoria = document.getElementById("filterCategoria");
+const filterEstado = document.getElementById("filterEstado");
+
+const resultHint = document.getElementById("resultHint");
+const tbody = document.getElementById("tbody");
+
+// Modal
+const modal = document.getElementById("modal");
+const modalTitle = document.getElementById("modalTitle");
+const btnCloseModal = document.getElementById("btnCloseModal");
+const btnCancel = document.getElementById("btnCancel");
+const form = document.getElementById("form");
+
+const fImagenEq = document.getElementById("fImagenEq");
+const fSerie = document.getElementById("fSerie");
+const fNombre = document.getElementById("fNombre");
+const fCategoria = document.getElementById("fCategoria");
+const fEstado = document.getElementById("fEstado");
+const fDetalles = document.getElementById("fDetalles");
+
+/* =========================
+   Estado
+========================= */
+let equipos = [];
+let selectedId = null;
+let mode = "add";
+let imagenBase64 = "";
+
+/* =========================
+   Nav / Logout
+========================= */
+btnBack?.addEventListener("click", () => window.location.href = "menu_inicial.html");
+btnLogout?.addEventListener("click", () => {
+  localStorage.removeItem("session");
+  localStorage.removeItem("token");
+  window.location.href = "login.html";
+});
+
+/* =========================
+   Init catálogos UI
+========================= */
+function initCatalogs() {
+  if (filterCategoria) fillSelect(filterCategoria, CATEGORIAS, true);
+  if (filterEstado) fillSelect(filterEstado, ESTADOS, true);
+
+  if (fCategoria) fillSelect(fCategoria, CATEGORIAS, false);
+  if (fEstado) fillSelect(fEstado, ESTADOS, false);
+}
+
+/* =========================
+   Cargar desde backend
+========================= */
+async function loadFromApi() {
+  const r = await api("/catalog/equipos");
+  equipos = (r.items || []).map(e => ({
+    id_equipo: e.id_equipo,
+    imagen_eq: e.imagen_eq ?? "",
+    numero_serie: e.numero_serie ?? "",
+    nombre: e.nombre ?? "",
+    categoria: e.categoria ?? "",
+    estado: e.estado ?? "DISPONIBLE",
+    detalles: e.detalles ?? "",
+    fecha_registro: e.fecha_registro ?? "",
+  }));
+}
+
+/* =========================
+   Filtros + render
+========================= */
+function getFiltered(){
+  const q = normalize(searchInput?.value);
+  const categoria = filterCategoria?.value || "";
+  const estado = filterEstado?.value || "";
+
+  return equipos.filter(e => {
+    if (categoria && e.categoria !== categoria) return false;
+    if (estado && e.estado !== estado) return false;
+
+    if (!q) return true;
+
+    return (
+      normalize(e.numero_serie).includes(q) ||
+      normalize(e.nombre).includes(q) ||
+      normalize(e.categoria).includes(q) ||
+      normalize(e.estado).includes(q)
+    );
+  });
+}
+
+function updateButtons(){
+  const has = !!selectedId;
+  if (btnEdit) btnEdit.disabled = !has;
+  if (btnDelete) btnDelete.disabled = !has;
+}
+
+function renderTable(){
+  const list = getFiltered();
+
+  if (selectedId && !list.some(e => e.id_equipo === selectedId)) selectedId = null;
+
+  tbody.innerHTML = "";
+
+  if(!list.length){
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td colspan="7" style="color: rgba(11,18,32,.65); padding: 16px;">
+      No hay registros con los filtros actuales.
+    </td>`;
+    tbody.appendChild(tr);
+  } else {
+    list.forEach(e => {
+      const tr = document.createElement("tr");
+      if (e.id_equipo === selectedId) tr.classList.add("selected");
+
+      tr.innerHTML = `
+        <td>${e.imagen_eq ? `<img src="${e.imagen_eq}" style="width:60px; height:auto; border-radius:8px;">` : "-"}</td>
+        <td>${escapeHtml(e.numero_serie)}</td>
+        <td>${escapeHtml(e.nombre)}</td>
+        <td>${escapeHtml(e.categoria)}</td>
+        <td>${escapeHtml(e.estado)}</td>
+        <td>${escapeHtml(e.detalles || "-")}</td>
+        <td>${escapeHtml(e.fecha_registro || "-")}</td>
+      `;
+
+      tr.addEventListener("click", () => {
+        selectedId = e.id_equipo;
+        updateButtons();
+        renderTable();
+      });
+
+      tbody.appendChild(tr);
+    });
+  }
+
+  updateButtons();
+  if (resultHint) resultHint.textContent = `${list.length} resultado(s)`;
+}
+
+/* =========================
+   Modal
+========================= */
+function openModal(newMode){
+  mode = newMode;
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden","false");
+
+  if(mode === "add"){
+    modalTitle.textContent = "Agregar equipo";
+    form.reset();
+    imagenBase64 = "";
+    if (fCategoria) fCategoria.selectedIndex = 0;
+    if (fEstado) fEstado.value = "DISPONIBLE";
+    if (fSerie) fSerie.disabled = false;
+  } else {
+    modalTitle.textContent = "Modificar equipo";
+    const e = equipos.find(x => x.id_equipo === selectedId);
+    if(!e) return;
+
+    imagenBase64 = e.imagen_eq || "";
+    fSerie.value = e.numero_serie ?? "";
+    fNombre.value = e.nombre ?? "";
+    fCategoria.value = e.categoria ?? "";
+    fEstado.value = e.estado ?? "DISPONIBLE";
+    if (fDetalles) fDetalles.value = e.detalles ?? "";
+
+    fSerie.disabled = true;
+  }
+}
+
+function closeModal(){
+  modal.classList.add("hidden");
+  modal.setAttribute("aria-hidden","true");
+}
+
+btnCloseModal?.addEventListener("click", closeModal);
+btnCancel?.addEventListener("click", closeModal);
+modal?.addEventListener("click", (e) => {
+  if (e.target?.dataset?.close === "true") closeModal();
+});
+
+/* =========================
+   Acciones
+========================= */
+btnAdd?.addEventListener("click", () => openModal("add"));
+btnEdit?.addEventListener("click", () => selectedId && openModal("edit"));
+
+btnDelete?.addEventListener("click", async () => {
+  if (!selectedId) return;
+
+  const e = equipos.find(x => x.id_equipo === selectedId);
+  const name = e ? `${e.nombre} (${e.numero_serie})` : "este registro";
+
+  if (!confirm(`¿BORRAR definitivamente el equipo ${name}?\n(Si está referenciado, no te dejará.)`)) return;
+
+  try {
+    await api(`/catalog/equipos/${selectedId}`, { method: "DELETE" });
+    await loadFromApi();
+    selectedId = null;
+    renderTable();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+btnSearch?.addEventListener("click", renderTable);
+searchInput?.addEventListener("keydown", (e) => {
+  if(e.key === "Enter"){ e.preventDefault(); renderTable(); }
+});
+
+btnClear?.addEventListener("click", () => {
+  if (searchInput) searchInput.value = "";
+  if (filterCategoria) filterCategoria.value = "";
+  if (filterEstado) filterEstado.value = "";
+  renderTable();
+});
+
+filterCategoria?.addEventListener("change", renderTable);
+filterEstado?.addEventListener("change", renderTable);
+
+/* =========================
+   Guardar (POST/PUT)
+========================= */
+form?.addEventListener("submit", async (e) => {
+  e.preventDefault();
+
+  try {
+    if (fImagenEq?.files?.length > 0) {
+      imagenBase64 = await fileToBase64(fImagenEq.files[0]);
+    }
+
+    const body = {
+      imagen_eq: imagenBase64 || null,
+      numero_serie: fSerie.value.trim(),
+      nombre: fNombre.value.trim(),
+      categoria: fCategoria.value.trim(),
+      estado: fEstado.value.trim(),
+      detalles: fDetalles?.value?.trim() || null,
+    };
+
+    if (!body.numero_serie || !body.nombre || !body.categoria || !body.estado) {
+      alert("Completa todos los campos obligatorios.");
+      return;
+    }
+
+    if (!CATEGORIAS.includes(body.categoria)) {
+      alert("Categoría inválida.");
+      return;
+    }
+
+    if (!ESTADOS.includes(body.estado)) {
+      alert("Estado inválido.");
+      return;
+    }
+
+    if(mode === "add"){
+      await api("/catalog/equipos", { method: "POST", body });
+      alert("Equipo creado.");
+    } else {
+      await api(`/catalog/equipos/${selectedId}`, { method: "PUT", body });
+      alert("Equipo actualizado.");
+    }
+
+    closeModal();
+    await loadFromApi();
+    renderTable();
+
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+/* =========================
+   Helpers extra
+========================= */
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}
+
+/* =========================
+   Init
+========================= */
+(async function init(){
+  initCatalogs();
+  try {
+    await loadFromApi();
+    renderTable();
+  } catch (err) {
+    alert(`No se pudo cargar equipos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
+  }
+})();

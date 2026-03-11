@@ -4,13 +4,18 @@ if (localStorage.getItem("session") !== "ok") {
 
 const btnCreate = document.getElementById("btnCreate");
 const btnSelect = document.getElementById("btnSelect");
-const btnPersonal = document.getElementById("btnPersonal"); // ✅ NUEVO
+const btnPersonal = document.getElementById("btnPersonal"); // ✅ BOTÓN SISTEMA DE CONTROL
 const btnLogout = document.getElementById("btnLogout");
 
 const opsList = document.getElementById("opsList");
 const opsUl = document.getElementById("opsUl");
 
-const API = "http://localhost:3001";
+const submenuControl = document.getElementById("submenuControl");
+const btnControlPersonal = document.getElementById("btnControlPersonal");
+const btnControlVehiculos = document.getElementById("btnControlVehiculos");
+const btnControlEquipos = document.getElementById("btnControlEquipos");
+
+const API = `http://${window.location.hostname}:3001`;
 
 async function getOpsDB() {
   const token = localStorage.getItem("token");
@@ -89,8 +94,20 @@ btnSelect.addEventListener("click", async () => {
   opsList.classList.remove("hidden");
 });
 
-// ✅ Control de personal
+// ✅ Mostrar/ocultar submenú de Sistema de control
 btnPersonal.addEventListener("click", () => {
-  // Cambia esta ruta al nombre real de tu archivo si es diferente
+  submenuControl.classList.toggle("hidden");
+});
+
+// ✅ Navegación de cada opción
+btnControlPersonal.addEventListener("click", () => {
   window.location.href = "control_personal.html";
+});
+
+btnControlVehiculos.addEventListener("click", () => {
+  window.location.href = "control_vehiculos.html";
+});
+
+btnControlEquipos.addEventListener("click", () => {
+  window.location.href = "control_equipos.html";
 });

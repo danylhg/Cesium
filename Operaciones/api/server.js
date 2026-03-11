@@ -189,14 +189,29 @@ app.get("/catalog/personal", requireAuth, async (req, res) => {
 
 app.get("/catalog/vehiculos", requireAuth, async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT id_vehiculo, codigo_interno, marca, modelo, imagen_veh, estado
-       FROM vehiculo
-       ORDER BY codigo_interno ASC`
-    );
-    res.json({ ok: true, items: rows });
+    const { rows } = await pool.query(`
+      SELECT
+        id_vehiculo,
+        imagen_veh,
+        codigo_interno,
+        tipo,
+        marca,
+        modelo,
+        estado,
+        capacidad,
+        fecha_creacion AS fecha_registro
+      FROM vehiculo
+      ORDER BY codigo_interno ASC
+    `);
+
+    return res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo vehículos", error: err.message });
+    console.error("GET /catalog/vehiculos:", err);
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error obteniendo vehículos",
+      error: err.message
+    });
   }
 });
 
@@ -752,6 +767,459 @@ app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
   }
 });
 
+// ===============================
+// CATÁLOGOS - EQUIPOS
+// ===============================
+app.get("/catalog/equipos", requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        e.id_equipo,
+        e.numero_serie,
+        e.nombre,
+        e.categoria,
+        e.estado,
+        COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+        COALESCE(ec.notas, et.notas) AS detalles,
+        e.fecha_creacion AS fecha_registro
+      FROM equipo e
+      LEFT JOIN equipo_comunicacion ec
+        ON ec.id_equipo = e.id_equipo
+      LEFT JOIN equipo_tactico et
+        ON et.id_equipo = e.id_equipo
+      ORDER BY e.nombre ASC, e.numero_serie ASC
+    `);
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    console.error("GET /catalog/equipos ERROR:", err);
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error obteniendo equipos",
+      error: err.message
+    });
+  }
+});
+
+app.post("/catalog/equipos", requireAuth, async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const numero_serie = (req.body?.numero_serie || "").trim();
+    const nombre = (req.body?.nombre || "").trim();
+    const categoria = (req.body?.categoria || "").trim().toUpperCase();
+    const estado = (req.body?.estado || "DISPONIBLE").trim().toUpperCase();
+    const imagen_eq = req.body?.imagen_eq || null;
+    const detalles = req.body?.detalles || null;
+
+    if (!numero_serie || !nombre || !categoria) {
+      return res.status(400).json({ ok: false, mensaje: "Faltan campos obligatorios" });
+    }
+
+    if (!["COMUNICACION", "TACTICO"].includes(categoria)) {
+      return res.status(400).json({ ok: false, mensaje: "Categoría inválida. Solo se permite COMUNICACION o TACTICO" });
+    }
+
+    await client.query("BEGIN");
+
+    const insEquipo = await client.query(
+      `INSERT INTO equipo (numero_serie, nombre, categoria, estado)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id_equipo, numero_serie, nombre, categoria, estado, fecha_creacion`,
+      [numero_serie, nombre, categoria, estado]
+    );
+
+    const equipo = insEquipo.rows[0];
+
+    if (categoria === "COMUNICACION") {
+      await client.query(
+        `INSERT INTO equipo_comunicacion (id_equipo, imagen_eqcom, marca, modelo, notas)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id_equipo) DO UPDATE SET
+           imagen_eqcom = EXCLUDED.imagen_eqcom,
+           marca = EXCLUDED.marca,
+           modelo = EXCLUDED.modelo,
+           notas = EXCLUDED.notas`,
+        [
+          equipo.id_equipo,
+          imagen_eq,
+          req.body?.marca || null,
+          req.body?.modelo || null,
+          detalles
+        ]
+      );
+
+      await client.query(`DELETE FROM equipo_tactico WHERE id_equipo = $1`, [equipo.id_equipo]);
+    } else {
+      await client.query(
+        `INSERT INTO equipo_tactico (id_equipo, imagen_eqtac, tipo_tactico, calibre, nivel, notas)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id_equipo) DO UPDATE SET
+           imagen_eqtac = EXCLUDED.imagen_eqtac,
+           tipo_tactico = EXCLUDED.tipo_tactico,
+           calibre = EXCLUDED.calibre,
+           nivel = EXCLUDED.nivel,
+           notas = EXCLUDED.notas`,
+        [
+          equipo.id_equipo,
+          imagen_eq,
+          req.body?.tipo_tactico || "GENERAL",
+          req.body?.calibre || null,
+          req.body?.nivel || null,
+          detalles
+        ]
+      );
+
+      await client.query(`DELETE FROM equipo_comunicacion WHERE id_equipo = $1`, [equipo.id_equipo]);
+    }
+
+    await client.query("COMMIT");
+
+    const { rows } = await client.query(
+      `SELECT
+         e.id_equipo,
+         e.numero_serie,
+         e.nombre,
+         e.categoria,
+         e.estado,
+         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+         COALESCE(ec.notas, et.notas) AS detalles,
+         e.fecha_creacion AS fecha_registro
+       FROM equipo e
+       LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
+       LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+       WHERE e.id_equipo = $1`,
+      [equipo.id_equipo]
+    );
+
+    return res.json({ ok: true, item: rows[0] });
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("POST /catalog/equipos ERROR:", err);
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error creando equipo",
+      error: err.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.put("/catalog/equipos/:id", requireAuth, async (req, res) => {
+  const id_equipo = Number(req.params.id);
+  const client = await pool.connect();
+
+  try {
+    if (!Number.isInteger(id_equipo)) {
+      return res.status(400).json({ ok: false, mensaje: "id inválido" });
+    }
+
+    const numero_serie = (req.body?.numero_serie || "").trim();
+    const nombre = (req.body?.nombre || "").trim();
+    const categoria = (req.body?.categoria || "").trim().toUpperCase();
+    const estado = (req.body?.estado || "DISPONIBLE").trim().toUpperCase();
+    const imagen_eq = req.body?.imagen_eq || null;
+    const detalles = req.body?.detalles || null;
+
+    if (!numero_serie || !nombre || !categoria) {
+      return res.status(400).json({ ok: false, mensaje: "Faltan campos obligatorios" });
+    }
+
+    if (!["COMUNICACION", "TACTICO"].includes(categoria)) {
+      return res.status(400).json({ ok: false, mensaje: "Categoría inválida. Solo se permite COMUNICACION o TACTICO" });
+    }
+
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE equipo
+       SET numero_serie = $1,
+           nombre = $2,
+           categoria = $3,
+           estado = $4
+       WHERE id_equipo = $5`,
+      [numero_serie, nombre, categoria, estado, id_equipo]
+    );
+
+    if (categoria === "COMUNICACION") {
+      await client.query(
+        `INSERT INTO equipo_comunicacion (id_equipo, imagen_eqcom, marca, modelo, notas)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (id_equipo)
+         DO UPDATE SET
+           imagen_eqcom = EXCLUDED.imagen_eqcom,
+           marca = EXCLUDED.marca,
+           modelo = EXCLUDED.modelo,
+           notas = EXCLUDED.notas`,
+        [
+          id_equipo,
+          imagen_eq,
+          req.body?.marca || null,
+          req.body?.modelo || null,
+          detalles
+        ]
+      );
+
+      await client.query(`DELETE FROM equipo_tactico WHERE id_equipo = $1`, [id_equipo]);
+    } else {
+      await client.query(
+        `INSERT INTO equipo_tactico (id_equipo, imagen_eqtac, tipo_tactico, calibre, nivel, notas)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id_equipo)
+         DO UPDATE SET
+           imagen_eqtac = EXCLUDED.imagen_eqtac,
+           tipo_tactico = EXCLUDED.tipo_tactico,
+           calibre = EXCLUDED.calibre,
+           nivel = EXCLUDED.nivel,
+           notas = EXCLUDED.notas`,
+        [
+          id_equipo,
+          imagen_eq,
+          req.body?.tipo_tactico || "GENERAL",
+          req.body?.calibre || null,
+          req.body?.nivel || null,
+          detalles
+        ]
+      );
+
+      await client.query(`DELETE FROM equipo_comunicacion WHERE id_equipo = $1`, [id_equipo]);
+    }
+
+    await client.query("COMMIT");
+
+    const { rows } = await client.query(
+      `SELECT
+         e.id_equipo,
+         e.numero_serie,
+         e.nombre,
+         e.categoria,
+         e.estado,
+         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+         COALESCE(ec.notas, et.notas) AS detalles,
+         e.fecha_creacion AS fecha_registro
+       FROM equipo e
+       LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
+       LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+       WHERE e.id_equipo = $1`,
+      [id_equipo]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Equipo no existe" });
+    }
+
+    return res.json({ ok: true, item: rows[0] });
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("PUT /catalog/equipos/:id ERROR:", err);
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error actualizando equipo",
+      error: err.message
+    });
+  } finally {
+    client.release();
+  }
+});
+
+app.delete("/catalog/equipos/:id", requireAuth, async (req, res) => {
+  const id_equipo = Number(req.params.id);
+  if (!isInt(id_equipo)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    await pool.query(`DELETE FROM equipo WHERE id_equipo = $1`, [id_equipo]);
+    return res.json({ ok: true, deleted: true, id_equipo });
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "No se puede borrar porque el equipo está referenciado en operaciones, grupos o asignaciones.",
+        error: err.detail || err.message,
+      });
+    }
+    return res.status(500).json({ ok: false, mensaje: "Error eliminando equipo", error: err.message });
+  }
+});
+
+app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    const { asignado_por, items } = req.body ?? {};
+    const who = Number(asignado_por || req.user.sub);
+
+    if (!Array.isArray(items)) {
+      return res.status(400).json({ ok: false, mensaje: "items inválido" });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      await client.query(`DELETE FROM operacion_equipo WHERE id_operacion = $1`, [id_operacion]);
+
+      for (const it of items) {
+        const id_equipo = Number(it.id_equipo);
+        const cantidad = Number(it.cantidad || 1);
+        const uso_en_operacion = it.uso_en_operacion != null ? String(it.uso_en_operacion).trim() || null : null;
+        const estado_asignacion = (it.estado_asignacion || "ASIGNADO").toString().trim().toUpperCase();
+
+        if (!isInt(id_equipo)) continue;
+        if (!Number.isInteger(cantidad) || cantidad <= 0) continue;
+
+        await client.query(
+          `INSERT INTO operacion_equipo
+             (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (id_operacion, id_equipo)
+           DO UPDATE SET
+             cantidad = EXCLUDED.cantidad,
+             uso_en_operacion = EXCLUDED.uso_en_operacion,
+             estado_asignacion = EXCLUDED.estado_asignacion,
+             asignado_por = EXCLUDED.asignado_por,
+             fecha_asignacion = NOW()`,
+          [id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, who]
+        );
+      }
+
+      await client.query("COMMIT");
+      return res.json({ ok: true });
+    } catch (e) {
+      await client.query("ROLLBACK");
+      throw e;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    return res.status(500).json({ ok: false, mensaje: "Error guardando equipos", error: err.message });
+  }
+});
+
+// ===============================
+// CATÁLOGOS - VEHÍCULOS
+// ===============================
+app.post("/catalog/vehiculos", requireAuth, async (req, res) => {
+  try {
+    const codigo_interno = (req.body?.codigo_interno || "").toString().trim();
+    const tipo = (req.body?.tipo || "").toString().trim() || null;
+    const marca = (req.body?.marca || "").toString().trim() || null;
+    const modelo = (req.body?.modelo || "").toString().trim() || null;
+    const imagen_veh = (req.body?.imagen_veh || "").toString().trim() || null;
+    const capacidad = req.body?.capacidad != null ? Number(req.body.capacidad) : null;
+    const estado = (req.body?.estado || "DISPONIBLE").toString().trim().toUpperCase();
+
+    if (!codigo_interno) return res.status(400).json({ ok: false, mensaje: "Falta codigo_interno" });
+    if (capacidad != null && (!Number.isInteger(capacidad) || capacidad < 0)) {
+      return res.status(400).json({ ok: false, mensaje: "capacidad inválida" });
+    }
+
+    const estadosValidos = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
+    if (!estadosValidos.includes(estado)) {
+      return res.status(400).json({ ok: false, mensaje: `estado inválido (${estadosValidos.join("|")})` });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO vehiculo (codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id_vehiculo, codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad`,
+      [codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad]
+    );
+
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ ok: false, mensaje: "El código interno ya existe", error: err.detail || err.message });
+    }
+    return res.status(500).json({ ok: false, mensaje: "Error creando vehículo", error: err.message });
+  }
+});
+
+app.put("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
+  const id_vehiculo = Number(req.params.id);
+  if (!isInt(id_vehiculo)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    const codigo_interno = req.body?.codigo_interno != null ? String(req.body.codigo_interno).trim() : null;
+    const tipo = req.body?.tipo != null ? (String(req.body.tipo).trim() || null) : null;
+    const marca = req.body?.marca != null ? (String(req.body.marca).trim() || null) : null;
+    const modelo = req.body?.modelo != null ? (String(req.body.modelo).trim() || null) : null;
+    const imagen_veh = req.body?.imagen_veh != null ? (String(req.body.imagen_veh).trim() || null) : null;
+    const capacidad = req.body?.capacidad != null ? Number(req.body.capacidad) : undefined;
+    const estado = req.body?.estado != null ? String(req.body.estado).trim().toUpperCase() : null;
+
+    if (codigo_interno !== null && !codigo_interno) {
+      return res.status(400).json({ ok: false, mensaje: "codigo_interno inválido" });
+    }
+
+    if (capacidad !== undefined && (!Number.isInteger(capacidad) || capacidad < 0)) {
+      return res.status(400).json({ ok: false, mensaje: "capacidad inválida" });
+    }
+
+    if (estado !== null) {
+      const estadosValidos = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
+      if (!estadosValidos.includes(estado)) {
+        return res.status(400).json({ ok: false, mensaje: `estado inválido (${estadosValidos.join("|")})` });
+      }
+    }
+
+    const sets = [];
+    const vals = [];
+    let i = 1;
+
+    if (codigo_interno !== null)          { sets.push(`codigo_interno = $${i++}`); vals.push(codigo_interno); }
+    if (req.body?.tipo !== undefined)     { sets.push(`tipo = $${i++}`); vals.push(tipo); }
+    if (req.body?.marca !== undefined)    { sets.push(`marca = $${i++}`); vals.push(marca); }
+    if (req.body?.modelo !== undefined)   { sets.push(`modelo = $${i++}`); vals.push(modelo); }
+    if (req.body?.imagen_veh !== undefined){ sets.push(`imagen_veh = $${i++}`); vals.push(imagen_veh); }
+    if (req.body?.capacidad !== undefined){ sets.push(`capacidad = $${i++}`); vals.push(capacidad); }
+    if (estado !== null)                  { sets.push(`estado = $${i++}`); vals.push(estado); }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
+    }
+
+    vals.push(id_vehiculo);
+
+    const { rows } = await pool.query(
+      `UPDATE vehiculo
+       SET ${sets.join(", ")}
+       WHERE id_vehiculo = $${i}
+       RETURNING id_vehiculo, codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad`,
+      vals
+    );
+
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Vehículo no existe" });
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({ ok: false, mensaje: "El código interno ya existe", error: err.detail || err.message });
+    }
+    return res.status(500).json({ ok: false, mensaje: "Error editando vehículo", error: err.message });
+  }
+});
+
+app.delete("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
+  const id_vehiculo = Number(req.params.id);
+  if (!isInt(id_vehiculo)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    await pool.query(`DELETE FROM vehiculo WHERE id_vehiculo = $1`, [id_vehiculo]);
+    return res.json({ ok: true, deleted: true, id_vehiculo });
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "No se puede borrar porque el vehículo está referenciado en operaciones o grupos.",
+        error: err.detail || err.message,
+      });
+    }
+    return res.status(500).json({ ok: false, mensaje: "Error eliminando vehículo", error: err.message });
+  }
+});
 
 // ===============================
 // PATCH /ops/:id/estado
@@ -1467,4 +1935,4 @@ app.use((req, res) => {
 // LISTEN
 // ===============================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, "0.0.0.0", () => console.log(`API en http://localhost:${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`API en http://192.168.202.103/:${PORT}`));

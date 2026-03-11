@@ -275,3 +275,22 @@ input, select{
 
 /* ✅ FIX: si tiene hidden, no se muestra */
 .modal.hidden{ display:none !important; }
+
+.dropZone {
+  border: 2px dashed rgba(37,99,235,.35);
+  border-radius: 12px;
+  padding: 20px;
+  text-align: center;
+  color: var(--muted);
+  cursor: pointer;
+  background: rgba(37,99,235,.05);
+  transition: .25s ease;
+}
+.dropZone.dragover {
+  background: rgba(37,99,235,.12);
+  color: var(--blue2);
+}
+.dropZone input[type="file"] {
+  display: block;
+  margin-top: 10px;
+}

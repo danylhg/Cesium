@@ -4,7 +4,7 @@ if (localStorage.getItem("session") !== "ok") {
   window.location.href = "login.html";
 }
 
-const API_BASE = localStorage.getItem("API_BASE") || "http://localhost:3001";
+const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const token = localStorage.getItem("token"); // <-- AJUSTA si tu login guarda otro key
 
 if (!token) {

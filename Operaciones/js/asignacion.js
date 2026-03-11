@@ -7,7 +7,7 @@ if (localStorage.getItem("session") !== "ok") {
   window.location.href = "login.html";
 }
 
-const API_BASE = window.API_BASE || localStorage.getItem("API_BASE") || "http://localhost:3001";
+const API_BASE = window.API_BASE || localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
 function getToken() {
   return localStorage.getItem("token") || "";
