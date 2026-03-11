@@ -604,15 +604,15 @@ async function main() {
         idOp,
         "Zona Anton Lizardo",
         JSON.stringify(zonaGeometria),
-        19.0500,   // centroide_lat
-        -95.9650,  // centroide_lon
-        9000,
+        19.0460,   // centroide_lat
+        -95.9709,  // centroide_lon
+        1000,
         "#3b82f6",
         creadoPor,
       ]
     );
 
-    console.log("  → Zona de operacion insertada: Lerdo de Tejada, Ver.");
+    console.log("  → Zona de operacion insertada: Antón Lizardo, Ver.");
 
     await client.query("COMMIT");
     console.log("Seed OK (usuario ADMIN + personal CUT/CET/CELL + inventario + operación)");

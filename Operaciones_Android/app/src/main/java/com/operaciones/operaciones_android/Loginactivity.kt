@@ -31,27 +31,21 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // Sesión activa → saltar login
-        if (AuthManager.isLoggedIn(this)) {
-            setContentView(R.layout.activity_login)
-            progress = findViewById(R.id.loginProgress)
-            progress.visibility = View.VISIBLE
-            fetchOperacionYNavegar(AuthManager.getCurrentUser(this)!!)
-            return
-        }
-
         setContentView(R.layout.activity_login)
 
-        inputUsername = findViewById(R.id.inputNumControl)   // mismo id del layout
+        inputUsername = findViewById(R.id.inputNumControl)
         inputPassword = findViewById(R.id.inputPassword)
         btnLogin      = findViewById(R.id.btnLogin)
         tvError       = findViewById(R.id.tvError)
         progress      = findViewById(R.id.loginProgress)
 
         inputPassword.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) { attemptLogin(); true } else false
+            if (actionId == EditorInfo.IME_ACTION_DONE) {
+                attemptLogin()
+                true
+            } else false
         }
+
         btnLogin.setOnClickListener { attemptLogin() }
     }
 
@@ -222,11 +216,21 @@ class LoginActivity : AppCompatActivity() {
             else ->
                 Intent(this, OperationStatusActivity::class.java)
         }
-        intent.putExtra("USER_ID",      user.id)
+
+        intent.putExtra("USER_ID", user.id)
         intent.putExtra("OPERATION_ID", op.id)
-        intent.putExtra("OP_LAT",       op.zonaLat)
-        intent.putExtra("OP_LON",       op.zonaLon)
-        intent.putExtra("OP_ZOOM",      op.zonaZoom)
+
+        intent.putExtra("OP_CODIGO", op.codigo)
+        intent.putExtra("OP_NOMBRE", op.nombre)
+        intent.putExtra("OP_DESCRIPCION", op.descripcion)
+        intent.putExtra("OP_PRIORIDAD", op.prioridad)
+        intent.putExtra("OP_FECHA_INICIO", op.fechaInicio)
+        intent.putExtra("OP_FECHA_FIN", op.fechaFin)
+
+        intent.putExtra("OP_LAT", op.zonaLat)
+        intent.putExtra("OP_LON", op.zonaLon)
+        intent.putExtra("OP_ZOOM", op.zonaZoom)
+        android.util.Log.d("LOGIN_OP", "op enviada lat=${op.zonaLat}, lon=${op.zonaLon}, zoom=${op.zonaZoom}")
         startActivity(intent)
         finish()
     }
@@ -242,14 +246,26 @@ class LoginActivity : AppCompatActivity() {
     /** Fallback mientras el endpoint /ops/personal/:id no exista en el servidor */
     private fun navegarConMock(user: User) {
         val op = MockData.getOperationForUser(user.id)
+
         val intent = when {
             op?.status == OperationStatus.ACTIVA ->
                 Intent(this, MainActivity::class.java)
             else ->
                 Intent(this, OperationStatusActivity::class.java)
         }
-        intent.putExtra("USER_ID",      user.id)
+
+        intent.putExtra("USER_ID", user.id)
         intent.putExtra("OPERATION_ID", op?.id ?: -1)
+        intent.putExtra("OP_CODIGO", op?.codigo ?: "")
+        intent.putExtra("OP_NOMBRE", op?.nombre ?: "Operación")
+        intent.putExtra("OP_DESCRIPCION", op?.descripcion ?: "")
+        intent.putExtra("OP_PRIORIDAD", op?.prioridad ?: "MEDIA")
+        intent.putExtra("OP_FECHA_INICIO", op?.fechaInicio ?: "")
+        intent.putExtra("OP_FECHA_FIN", op?.fechaFin ?: "")
+        intent.putExtra("OP_LAT", op?.zonaLat ?: 0.0)
+        intent.putExtra("OP_LON", op?.zonaLon ?: 0.0)
+        intent.putExtra("OP_ZOOM", op?.zonaZoom ?: 8000)
+
         startActivity(intent)
         finish()
     }
