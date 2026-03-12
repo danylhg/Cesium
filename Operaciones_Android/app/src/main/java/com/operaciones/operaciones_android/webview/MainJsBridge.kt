@@ -1,2 +1,42 @@
 package com.operaciones.operaciones_android.webview
 
+import android.webkit.JavascriptInterface
+import com.operaciones.operaciones_android.model.ChatMessage
+import com.operaciones.operaciones_android.model.MessageType
+import com.operaciones.operaciones_android.ui.MainActivity
+
+class MainJsBridge(
+    private val activity: MainActivity
+) {
+
+    @JavascriptInterface
+    fun onMapTapped(lat: Double, lon: Double) {
+        activity.runOnUiThread {
+            activity.showMapActionDialogFromBridge(lat, lon)
+        }
+    }
+
+    @JavascriptInterface
+    fun sendTrafficAlert(message: String) {
+        activity.runOnUiThread {
+            if (message == "Mapa listo") {
+                activity.applyOperationViewFromBridge()
+            } else {
+                activity.addMessage(
+                    ChatMessage("Sistema", message, MessageType.SYSTEM)
+                )
+            }
+        }
+    }
+
+    @JavascriptInterface
+    fun requestLocation() {
+        activity.requestLocationPermissionFromBridge()
+    }
+
+    @JavascriptInterface
+    fun getUserRole(): String = activity.getCurrentUserRoleForBridge()
+
+    @JavascriptInterface
+    fun getOperationName(): String = activity.getCurrentOperationNameForBridge()
+}

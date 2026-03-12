@@ -1401,3 +1401,1071 @@ SELECT
   fecha_creacion
 FROM marca_edificio
 WHERE estado = 'ACTIVO';
+
+
+-- =========================================================
+-- PATCH 2026-03-12 — REGLAS OPERATIVAS, CHAT, DISPONIBILIDAD,
+-- GEOVALIDACIONES, AUDITORÍA Y VISTAS RESUMEN
+-- =========================================================
+
+-- =========================================================
+-- 17) FECHA_ACTUALIZACION EN TABLAS OPERATIVAS / GEO
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='operacion' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE operacion ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='chat_operacion' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE chat_operacion ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='puntos_interes' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE puntos_interes ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='area_interes' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE area_interes ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='ruta_operacion' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE ruta_operacion ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='marca_edificio' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE marca_edificio ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='zona_operacion' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE zona_operacion ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='aviso_operacion' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE aviso_operacion ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name='novedad_operacion' AND column_name='fecha_actualizacion'
+  ) THEN
+    ALTER TABLE novedad_operacion ADD COLUMN fecha_actualizacion TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION fn_touch_fecha_actualizacion()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.fecha_actualizacion := NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_operacion_touch') THEN
+    CREATE TRIGGER tr_operacion_touch
+    BEFORE UPDATE ON operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_chat_operacion_touch') THEN
+    CREATE TRIGGER tr_chat_operacion_touch
+    BEFORE UPDATE ON chat_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_poi_touch') THEN
+    CREATE TRIGGER tr_poi_touch
+    BEFORE UPDATE ON puntos_interes
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_area_interes_touch') THEN
+    CREATE TRIGGER tr_area_interes_touch
+    BEFORE UPDATE ON area_interes
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_ruta_operacion_touch') THEN
+    CREATE TRIGGER tr_ruta_operacion_touch
+    BEFORE UPDATE ON ruta_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_marca_edificio_touch') THEN
+    CREATE TRIGGER tr_marca_edificio_touch
+    BEFORE UPDATE ON marca_edificio
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_zona_operacion_touch') THEN
+    CREATE TRIGGER tr_zona_operacion_touch
+    BEFORE UPDATE ON zona_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_aviso_operacion_touch') THEN
+    CREATE TRIGGER tr_aviso_operacion_touch
+    BEFORE UPDATE ON aviso_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_novedad_operacion_touch') THEN
+    CREATE TRIGGER tr_novedad_operacion_touch
+    BEFORE UPDATE ON novedad_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_touch_fecha_actualizacion();
+  END IF;
+END $$;
+
+-- =========================================================
+-- 18) NOMBRE DE OPERACIÓN ÚNICO (case-insensitive / trim)
+-- =========================================================
+DO $$
+DECLARE
+  duplicados INT;
+BEGIN
+  SELECT COUNT(*) INTO duplicados
+  FROM (
+    SELECT LOWER(BTRIM(nombre))
+    FROM operacion
+    GROUP BY LOWER(BTRIM(nombre))
+    HAVING COUNT(*) > 1
+  ) t;
+
+  IF duplicados = 0 THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relkind = 'i'
+        AND c.relname = 'uq_operacion_nombre_ci'
+        AND n.nspname = 'public'
+    ) THEN
+      CREATE UNIQUE INDEX uq_operacion_nombre_ci
+      ON operacion (LOWER(BTRIM(nombre)));
+    END IF;
+  ELSE
+    RAISE NOTICE 'No se creó uq_operacion_nombre_ci porque hay nombres de operación duplicados existentes.';
+  END IF;
+END $$;
+
+-- =========================================================
+-- 19) CHECKS GEO ADICIONALES
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_poi_latitud'
+  ) THEN
+    ALTER TABLE puntos_interes
+      ADD CONSTRAINT chk_poi_latitud CHECK (latitud BETWEEN -90 AND 90);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_poi_longitud'
+  ) THEN
+    ALTER TABLE puntos_interes
+      ADD CONSTRAINT chk_poi_longitud CHECK (longitud BETWEEN -180 AND 180);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_area_color_hex'
+  ) THEN
+    ALTER TABLE area_interes
+      ADD CONSTRAINT chk_area_color_hex
+      CHECK (color ~* '^#[0-9A-F]{6}$');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_ruta_color_hex'
+  ) THEN
+    ALTER TABLE ruta_operacion
+      ADD CONSTRAINT chk_ruta_color_hex
+      CHECK (color ~* '^#[0-9A-F]{6}$');
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_zona_color_hex'
+  ) THEN
+    ALTER TABLE zona_operacion
+      ADD CONSTRAINT chk_zona_color_hex
+      CHECK (color ~* '^#[0-9A-F]{6}$');
+  END IF;
+END $$;
+
+-- =========================================================
+-- 20) HELPERS DE OPERACIÓN
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_operacion_esta_cerrada_o_cancelada(p_id_operacion INT)
+RETURNS BOOLEAN AS $$
+DECLARE
+  v_estado estado_operacion_enum;
+BEGIN
+  SELECT estado INTO v_estado
+  FROM operacion
+  WHERE id_operacion = p_id_operacion;
+
+  IF v_estado IS NULL THEN
+    RAISE EXCEPTION 'Operación % no existe', p_id_operacion;
+  END IF;
+
+  RETURN v_estado IN ('CERRADA', 'CANCELADA');
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_validar_operacion_modificable()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_id_operacion INT;
+  v_estado estado_operacion_enum;
+BEGIN
+  v_id_operacion := NULL;
+
+  -- Tablas con id_operacion directo
+  IF TG_TABLE_NAME IN (
+    'asignacion_operacion_personal',
+    'vehiculo_operacion',
+    'operacion_equipo',
+    'grupo_operacion',
+    'grupo_equipo',
+    'grupo_vehiculo',
+    'mando_operacion',
+    'puntos_interes',
+    'area_interes',
+    'ruta_operacion',
+    'marca_edificio',
+    'zona_operacion',
+    'chat_operacion',
+    'aviso_operacion',
+    'novedad_operacion'
+  ) THEN
+    v_id_operacion := COALESCE(NEW.id_operacion, OLD.id_operacion);
+  END IF;
+
+  -- grupo_personal: resolver por grupo_operacion
+  IF TG_TABLE_NAME = 'grupo_personal' THEN
+    SELECT go.id_operacion
+      INTO v_id_operacion
+    FROM grupo_operacion go
+    WHERE go.id_grupo_operacion = COALESCE(NEW.id_grupo_operacion, OLD.id_grupo_operacion)
+    LIMIT 1;
+  END IF;
+
+  -- participante_chat: resolver por chat_operacion
+  IF TG_TABLE_NAME = 'participante_chat' THEN
+    SELECT co.id_operacion
+      INTO v_id_operacion
+    FROM chat_operacion co
+    WHERE co.id_chat = COALESCE(NEW.id_chat, OLD.id_chat)
+    LIMIT 1;
+  END IF;
+
+  -- mensaje_chat: resolver por chat_operacion
+  IF TG_TABLE_NAME = 'mensaje_chat' THEN
+    SELECT co.id_operacion
+      INTO v_id_operacion
+    FROM chat_operacion co
+    WHERE co.id_chat = COALESCE(NEW.id_chat, OLD.id_chat)
+    LIMIT 1;
+  END IF;
+
+  IF v_id_operacion IS NULL THEN
+    RAISE EXCEPTION
+      'No se pudo resolver id_operacion para la tabla % en fn_validar_operacion_modificable()',
+      TG_TABLE_NAME;
+  END IF;
+
+  SELECT o.estado
+    INTO v_estado
+  FROM operacion o
+  WHERE o.id_operacion = v_id_operacion
+  LIMIT 1;
+
+  IF v_estado IS NULL THEN
+    RAISE EXCEPTION 'No existe la operación %', v_id_operacion;
+  END IF;
+
+  IF v_estado IN ('CERRADA', 'CANCELADA') THEN
+    RAISE EXCEPTION
+      'La operación % está en estado %, no se permiten modificaciones en %',
+      v_id_operacion, v_estado, TG_TABLE_NAME;
+  END IF;
+
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_validar_fechas_operacion_recurso(p_id_operacion INT)
+RETURNS TABLE(fecha_inicio TIMESTAMPTZ, fecha_fin TIMESTAMPTZ) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT o.fecha_inicio, o.fecha_fin
+  FROM operacion o
+  WHERE o.id_operacion = p_id_operacion;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Operación % no existe', p_id_operacion;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =========================================================
+-- 21) DISPONIBILIDAD TEMPORAL (PERSONAL / VEHÍCULO / EQUIPO)
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_rangos_conflictivos(
+  p_ini1 TIMESTAMPTZ,
+  p_fin1 TIMESTAMPTZ,
+  p_ini2 TIMESTAMPTZ,
+  p_fin2 TIMESTAMPTZ,
+  p_buffer INTERVAL DEFAULT INTERVAL '0 seconds'
+)
+RETURNS BOOLEAN AS $$
+BEGIN
+  IF p_ini1 IS NULL OR p_fin1 IS NULL OR p_ini2 IS NULL OR p_fin2 IS NULL THEN
+    RAISE EXCEPTION 'Las operaciones deben tener fecha_inicio y fecha_fin para validar disponibilidad.';
+  END IF;
+
+  RETURN (p_ini1 - p_buffer) <= (p_fin2 + p_buffer)
+     AND (p_ini2 - p_buffer) <= (p_fin1 + p_buffer);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_validar_disponibilidad_personal()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_ini TIMESTAMPTZ;
+  v_fin TIMESTAMPTZ;
+  r RECORD;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  SELECT fecha_inicio, fecha_fin INTO v_ini, v_fin
+  FROM operacion
+  WHERE id_operacion = NEW.id_operacion;
+
+  IF v_ini IS NULL OR v_fin IS NULL THEN
+    RAISE EXCEPTION 'La operación % debe tener fecha_inicio y fecha_fin antes de asignar personal.', NEW.id_operacion;
+  END IF;
+
+  FOR r IN
+    SELECT a.id_operacion, o.codigo, o.nombre, o.fecha_inicio, o.fecha_fin
+    FROM asignacion_operacion_personal a
+    JOIN operacion o ON o.id_operacion = a.id_operacion
+    WHERE a.id_personal = NEW.id_personal
+      AND a.id_operacion <> NEW.id_operacion
+      AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+      AND a.estado_asignacion <> 'LIBERADO'
+  LOOP
+    IF fn_rangos_conflictivos(v_ini, v_fin, r.fecha_inicio, r.fecha_fin, INTERVAL '12 hours') THEN
+      RAISE EXCEPTION
+        'El personal % ya está asignado a la operación % (%). Conflicto de fechas.',
+        NEW.id_personal, r.codigo, r.nombre;
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_validar_disponibilidad_vehiculo()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_ini TIMESTAMPTZ;
+  v_fin TIMESTAMPTZ;
+  r RECORD;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  SELECT fecha_inicio, fecha_fin INTO v_ini, v_fin
+  FROM operacion
+  WHERE id_operacion = NEW.id_operacion;
+
+  IF v_ini IS NULL OR v_fin IS NULL THEN
+    RAISE EXCEPTION 'La operación % debe tener fecha_inicio y fecha_fin antes de asignar vehículos.', NEW.id_operacion;
+  END IF;
+
+  FOR r IN
+    SELECT vo.id_operacion, o.codigo, o.nombre, o.fecha_inicio, o.fecha_fin
+    FROM vehiculo_operacion vo
+    JOIN operacion o ON o.id_operacion = vo.id_operacion
+    WHERE vo.id_vehiculo = NEW.id_vehiculo
+      AND vo.id_operacion <> NEW.id_operacion
+      AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+      AND vo.estado_asignacion <> 'LIBERADO'
+  LOOP
+    IF fn_rangos_conflictivos(v_ini, v_fin, r.fecha_inicio, r.fecha_fin, INTERVAL '0 seconds') THEN
+      RAISE EXCEPTION
+        'El vehículo % ya está asignado a la operación % (%). Conflicto de fechas.',
+        NEW.id_vehiculo, r.codigo, r.nombre;
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_validar_disponibilidad_equipo()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_ini TIMESTAMPTZ;
+  v_fin TIMESTAMPTZ;
+  r RECORD;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+
+  SELECT fecha_inicio, fecha_fin INTO v_ini, v_fin
+  FROM operacion
+  WHERE id_operacion = NEW.id_operacion;
+
+  IF v_ini IS NULL OR v_fin IS NULL THEN
+    RAISE EXCEPTION 'La operación % debe tener fecha_inicio y fecha_fin antes de reservar equipo.', NEW.id_operacion;
+  END IF;
+
+  FOR r IN
+    SELECT oe.id_operacion, o.codigo, o.nombre, o.fecha_inicio, o.fecha_fin
+    FROM operacion_equipo oe
+    JOIN operacion o ON o.id_operacion = oe.id_operacion
+    WHERE oe.id_equipo = NEW.id_equipo
+      AND oe.id_operacion <> NEW.id_operacion
+      AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+      AND oe.estado_asignacion <> 'LIBERADO'
+  LOOP
+    IF fn_rangos_conflictivos(v_ini, v_fin, r.fecha_inicio, r.fecha_fin, INTERVAL '0 seconds') THEN
+      RAISE EXCEPTION
+        'El equipo % ya está reservado en la operación % (%). Conflicto de fechas.',
+        NEW.id_equipo, r.codigo, r.nombre;
+    END IF;
+  END LOOP;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_personal') THEN
+    CREATE TRIGGER tr_validar_disponibilidad_personal
+    BEFORE INSERT OR UPDATE ON asignacion_operacion_personal
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_disponibilidad_personal();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_vehiculo') THEN
+    CREATE TRIGGER tr_validar_disponibilidad_vehiculo
+    BEFORE INSERT OR UPDATE ON vehiculo_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_disponibilidad_vehiculo();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_equipo') THEN
+    CREATE TRIGGER tr_validar_disponibilidad_equipo
+    BEFORE INSERT OR UPDATE ON operacion_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_disponibilidad_equipo();
+  END IF;
+END $$;
+
+-- =========================================================
+-- 22) BLOQUEAR CAMBIOS EN OPERACIONES CERRADAS/CANCELADAS
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_aop_operacion_modificable') THEN
+    CREATE TRIGGER tr_aop_operacion_modificable
+    BEFORE INSERT OR UPDATE ON asignacion_operacion_personal
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_vo_operacion_modificable') THEN
+    CREATE TRIGGER tr_vo_operacion_modificable
+    BEFORE INSERT OR UPDATE ON vehiculo_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_oe_operacion_modificable') THEN
+    CREATE TRIGGER tr_oe_operacion_modificable
+    BEFORE INSERT OR UPDATE ON operacion_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_gp_operacion_modificable') THEN
+    CREATE TRIGGER tr_gp_operacion_modificable
+    BEFORE INSERT OR UPDATE ON grupo_personal
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_ge_operacion_modificable') THEN
+    CREATE TRIGGER tr_ge_operacion_modificable
+    BEFORE INSERT OR UPDATE ON grupo_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_gv_operacion_modificable') THEN
+    CREATE TRIGGER tr_gv_operacion_modificable
+    BEFORE INSERT OR UPDATE ON grupo_vehiculo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_poi_operacion_modificable') THEN
+    CREATE TRIGGER tr_poi_operacion_modificable
+    BEFORE INSERT OR UPDATE ON puntos_interes
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_area_operacion_modificable') THEN
+    CREATE TRIGGER tr_area_operacion_modificable
+    BEFORE INSERT OR UPDATE ON area_interes
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_ruta_operacion_modificable') THEN
+    CREATE TRIGGER tr_ruta_operacion_modificable
+    BEFORE INSERT OR UPDATE ON ruta_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_marca_operacion_modificable') THEN
+    CREATE TRIGGER tr_marca_operacion_modificable
+    BEFORE INSERT OR UPDATE ON marca_edificio
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_zona_operacion_modificable') THEN
+    CREATE TRIGGER tr_zona_operacion_modificable
+    BEFORE INSERT OR UPDATE ON zona_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_tracking_personal_op_modificable') THEN
+    CREATE TRIGGER tr_tracking_personal_op_modificable
+    BEFORE INSERT OR UPDATE ON tracking_personal
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_tracking_vehiculo_op_modificable') THEN
+    CREATE TRIGGER tr_tracking_vehiculo_op_modificable
+    BEFORE INSERT OR UPDATE ON tracking_vehiculo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_aviso_operacion_modificable') THEN
+    CREATE TRIGGER tr_aviso_operacion_modificable
+    BEFORE INSERT OR UPDATE ON aviso_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_novedad_operacion_modificable') THEN
+    CREATE TRIGGER tr_novedad_operacion_modificable
+    BEFORE INSERT OR UPDATE ON novedad_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+END $$;
+
+-- =========================================================
+-- 23) VALIDACIÓN DE GEOMETRÍA PARA ÁREAS Y RUTAS
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_validar_geometria_area()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_type TEXT;
+  v_points INT;
+BEGIN
+  v_type := COALESCE(NEW.geometria->>'type','');
+  IF v_type NOT IN ('Polygon', 'MultiPolygon') THEN
+    RAISE EXCEPTION 'area_interes.geometria debe ser Polygon o MultiPolygon';
+  END IF;
+
+  IF jsonb_typeof(NEW.geometria->'coordinates') <> 'array' THEN
+    RAISE EXCEPTION 'area_interes.geometria.coordinates debe ser array';
+  END IF;
+
+  IF v_type = 'Polygon' THEN
+    v_points := COALESCE(jsonb_array_length((NEW.geometria->'coordinates')->0), 0);
+    IF v_points < 4 THEN
+      RAISE EXCEPTION 'Un Polygon debe tener al menos 4 puntos';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_validar_geometria_ruta()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_type TEXT;
+  v_points INT;
+BEGIN
+  v_type := COALESCE(NEW.geometria->>'type','');
+  IF v_type NOT IN ('LineString', 'MultiLineString') THEN
+    RAISE EXCEPTION 'ruta_operacion.geometria debe ser LineString o MultiLineString';
+  END IF;
+
+  IF jsonb_typeof(NEW.geometria->'coordinates') <> 'array' THEN
+    RAISE EXCEPTION 'ruta_operacion.geometria.coordinates debe ser array';
+  END IF;
+
+  IF v_type = 'LineString' THEN
+    v_points := COALESCE(jsonb_array_length(NEW.geometria->'coordinates'), 0);
+    IF v_points < 2 THEN
+      RAISE EXCEPTION 'Un LineString debe tener al menos 2 puntos';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_geometria_area') THEN
+    CREATE TRIGGER tr_validar_geometria_area
+    BEFORE INSERT OR UPDATE ON area_interes
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_geometria_area();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_geometria_ruta') THEN
+    CREATE TRIGGER tr_validar_geometria_ruta
+    BEFORE INSERT OR UPDATE ON ruta_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_geometria_ruta();
+  END IF;
+END $$;
+
+-- =========================================================
+-- 24) CHAT AUTOMÁTICO Y PARTICIPANTES
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_get_or_create_chat_operacion(p_id_operacion INT)
+RETURNS INT AS $$
+DECLARE
+  v_id_chat INT;
+BEGIN
+  INSERT INTO chat_operacion (id_operacion, activo, fecha_cierre)
+  VALUES (p_id_operacion, FALSE, NULL)
+  ON CONFLICT (id_operacion) DO UPDATE
+    SET id_operacion = EXCLUDED.id_operacion
+  RETURNING id_chat INTO v_id_chat;
+
+  RETURN v_id_chat;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_agregar_participante_chat_operacion(
+  p_id_operacion INT,
+  p_id_usuario INT DEFAULT NULL,
+  p_id_personal INT DEFAULT NULL
+)
+RETURNS INT AS $$
+DECLARE
+  v_id_chat INT;
+  v_id_participante INT;
+BEGIN
+  v_id_chat := fn_get_or_create_chat_operacion(p_id_operacion);
+
+  IF p_id_usuario IS NOT NULL THEN
+    INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
+    VALUES (v_id_chat, 'USUARIO', p_id_usuario, NULL)
+    ON CONFLICT (id_chat, id_usuario) DO UPDATE
+      SET id_usuario = EXCLUDED.id_usuario
+    RETURNING id_participante INTO v_id_participante;
+  ELSIF p_id_personal IS NOT NULL THEN
+    INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
+    VALUES (v_id_chat, 'PERSONAL', NULL, p_id_personal)
+    ON CONFLICT (id_chat, id_personal) DO UPDATE
+      SET id_personal = EXCLUDED.id_personal
+    RETURNING id_participante INTO v_id_participante;
+  ELSE
+    RAISE EXCEPTION 'Debe enviarse id_usuario o id_personal';
+  END IF;
+
+  RETURN v_id_participante;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_sync_chat_operacion()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_id_chat INT;
+  v_id_participante INT;
+BEGIN
+  v_id_chat := fn_get_or_create_chat_operacion(NEW.id_operacion);
+
+  IF TG_OP = 'INSERT' THEN
+    UPDATE chat_operacion
+    SET activo = (NEW.estado = 'ACTIVA'),
+        fecha_cierre = CASE WHEN NEW.estado IN ('CERRADA','CANCELADA') THEN NOW() ELSE NULL END
+    WHERE id_chat = v_id_chat;
+
+    PERFORM fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
+    RETURN NEW;
+  END IF;
+
+  IF NEW.estado = 'ACTIVA' AND OLD.estado IS DISTINCT FROM NEW.estado THEN
+    UPDATE chat_operacion
+    SET activo = TRUE,
+        fecha_cierre = NULL
+    WHERE id_chat = v_id_chat;
+
+    v_id_participante := fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
+
+    INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
+    VALUES (
+      v_id_chat,
+      v_id_participante,
+      'OPERACION ACTIVADA automáticamente por trigger de BD.',
+      'SISTEMA'
+    );
+  ELSIF NEW.estado IN ('CERRADA','CANCELADA') AND OLD.estado IS DISTINCT FROM NEW.estado THEN
+    UPDATE chat_operacion
+    SET activo = FALSE,
+        fecha_cierre = NOW()
+    WHERE id_chat = v_id_chat;
+
+    v_id_participante := fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
+
+    INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
+    VALUES (
+      v_id_chat,
+      v_id_participante,
+      'OPERACION ' || NEW.estado::text || ' automáticamente por trigger de BD.',
+      'SISTEMA'
+    );
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_sync_participante_chat_por_asignacion()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP IN ('INSERT','UPDATE') THEN
+    IF NEW.estado_asignacion <> 'LIBERADO' THEN
+      PERFORM fn_agregar_participante_chat_operacion(NEW.id_operacion, NULL, NEW.id_personal);
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_operacion_sync_chat_insert') THEN
+    CREATE TRIGGER tr_operacion_sync_chat_insert
+    AFTER INSERT ON operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_sync_chat_operacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_operacion_sync_chat_estado') THEN
+    CREATE TRIGGER tr_operacion_sync_chat_estado
+    AFTER UPDATE OF estado ON operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_sync_chat_operacion();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_aop_sync_participante_chat') THEN
+    CREATE TRIGGER tr_aop_sync_participante_chat
+    AFTER INSERT OR UPDATE ON asignacion_operacion_personal
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_sync_participante_chat_por_asignacion();
+  END IF;
+END $$;
+
+-- =========================================================
+-- 25) SINCRONIZAR ESTADOS DE INVENTARIO
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_recalcular_estado_vehiculo(p_id_vehiculo INT)
+RETURNS VOID AS $$
+DECLARE
+  v_estado estado_vehiculo_enum;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM vehiculo_operacion vo
+    JOIN operacion o ON o.id_operacion = vo.id_operacion
+    WHERE vo.id_vehiculo = p_id_vehiculo
+      AND vo.estado_asignacion IN ('ASIGNADO','EN_USO')
+      AND o.estado NOT IN ('CERRADA','CANCELADA')
+  ) THEN
+    v_estado := 'ASIGNADO';
+  ELSE
+    v_estado := 'DISPONIBLE';
+  END IF;
+
+  UPDATE vehiculo
+  SET estado = v_estado
+  WHERE id_vehiculo = p_id_vehiculo
+    AND estado <> 'MANTENIMIENTO'
+    AND estado <> 'BAJA';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_recalcular_estado_equipo(p_id_equipo INT)
+RETURNS VOID AS $$
+DECLARE
+  v_estado estado_equipo_enum;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM operacion_equipo oe
+    JOIN operacion o ON o.id_operacion = oe.id_operacion
+    WHERE oe.id_equipo = p_id_equipo
+      AND oe.estado_asignacion IN ('ASIGNADO','EN_USO')
+      AND o.estado NOT IN ('CERRADA','CANCELADA')
+  )
+  OR EXISTS (
+    SELECT 1
+    FROM personal_equipo pe
+    WHERE pe.id_equipo = p_id_equipo
+      AND pe.estado = 'ASIGNADO'
+  ) THEN
+    v_estado := 'ASIGNADO';
+  ELSE
+    v_estado := 'DISPONIBLE';
+  END IF;
+
+  UPDATE equipo
+  SET estado = v_estado
+  WHERE id_equipo = p_id_equipo
+    AND estado <> 'MANTENIMIENTO'
+    AND estado <> 'BAJA';
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_sync_estado_vehiculo_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM fn_recalcular_estado_vehiculo(OLD.id_vehiculo);
+    RETURN OLD;
+  ELSE
+    PERFORM fn_recalcular_estado_vehiculo(NEW.id_vehiculo);
+    IF TG_OP = 'UPDATE' AND NEW.id_vehiculo <> OLD.id_vehiculo THEN
+      PERFORM fn_recalcular_estado_vehiculo(OLD.id_vehiculo);
+    END IF;
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION fn_sync_estado_equipo_trigger()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM fn_recalcular_estado_equipo(OLD.id_equipo);
+    RETURN OLD;
+  ELSE
+    PERFORM fn_recalcular_estado_equipo(NEW.id_equipo);
+    IF TG_OP = 'UPDATE' AND NEW.id_equipo <> OLD.id_equipo THEN
+      PERFORM fn_recalcular_estado_equipo(OLD.id_equipo);
+    END IF;
+    RETURN NEW;
+  END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_vo_sync_estado_vehiculo') THEN
+    CREATE TRIGGER tr_vo_sync_estado_vehiculo
+    AFTER INSERT OR UPDATE OR DELETE ON vehiculo_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_sync_estado_vehiculo_trigger();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_oe_sync_estado_equipo') THEN
+    CREATE TRIGGER tr_oe_sync_estado_equipo
+    AFTER INSERT OR UPDATE OR DELETE ON operacion_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_sync_estado_equipo_trigger();
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_pe_sync_estado_equipo') THEN
+    CREATE TRIGGER tr_pe_sync_estado_equipo
+    AFTER INSERT OR UPDATE OR DELETE ON personal_equipo
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_sync_estado_equipo_trigger();
+  END IF;
+END $$;
+
+DROP TRIGGER IF EXISTS tr_participante_chat_operacion_modificable ON participante_chat;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'tr_mensaje_chat_operacion_modificable'
+  ) THEN
+    CREATE TRIGGER tr_mensaje_chat_operacion_modificable
+    BEFORE INSERT OR UPDATE OR DELETE ON mensaje_chat
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+END $$;
+
+-- =========================================================
+-- 26) VISTAS RESUMEN ADICIONALES
+-- =========================================================
+CREATE OR REPLACE VIEW v_operacion_resumen_extendido AS
+SELECT
+  o.id_operacion,
+  o.codigo,
+  o.nombre,
+  o.estado,
+  o.prioridad,
+  o.fecha_inicio,
+  o.fecha_fin,
+  o.fecha_creacion,
+  o.fecha_actualizacion,
+  o.creada_por,
+
+  (SELECT COUNT(*) FROM asignacion_operacion_personal a
+    WHERE a.id_operacion = o.id_operacion
+      AND a.estado_asignacion <> 'LIBERADO') AS total_personal_activo,
+
+  (SELECT COUNT(*) FROM asignacion_operacion_personal a
+    JOIN personal p ON p.id_personal = a.id_personal
+    WHERE a.id_operacion = o.id_operacion
+      AND p.rol = 'CET'
+      AND a.estado_asignacion <> 'LIBERADO') AS total_cet,
+
+  (SELECT COUNT(*) FROM asignacion_operacion_personal a
+    JOIN personal p ON p.id_personal = a.id_personal
+    WHERE a.id_operacion = o.id_operacion
+      AND p.rol = 'CELL'
+      AND a.estado_asignacion <> 'LIBERADO') AS total_cell,
+
+  (SELECT COUNT(*) FROM grupo_operacion g
+    WHERE g.id_operacion = o.id_operacion) AS total_grupos,
+
+  (SELECT COUNT(*) FROM vehiculo_operacion vo
+    WHERE vo.id_operacion = o.id_operacion
+      AND vo.estado_asignacion <> 'LIBERADO') AS total_vehiculos,
+
+  (SELECT COALESCE(SUM(oe.cantidad),0) FROM operacion_equipo oe
+    WHERE oe.id_operacion = o.id_operacion
+      AND oe.estado_asignacion <> 'LIBERADO') AS total_equipos_reservados,
+
+  (SELECT COUNT(*) FROM puntos_interes poi
+    WHERE poi.id_operacion = o.id_operacion
+      AND poi.activo = TRUE) AS total_poi,
+
+  (SELECT COUNT(*) FROM area_interes ai
+    WHERE ai.id_operacion = o.id_operacion
+      AND ai.estado = 'ACTIVA') AS total_areas,
+
+  (SELECT COUNT(*) FROM ruta_operacion ro
+    WHERE ro.id_operacion = o.id_operacion
+      AND ro.estado IN ('PLANIFICADA','ACTIVA')) AS total_rutas,
+
+  (SELECT COUNT(*) FROM marca_edificio me
+    WHERE me.id_operacion = o.id_operacion
+      AND me.estado = 'ACTIVO') AS total_estructuras,
+
+  (SELECT co.activo FROM chat_operacion co
+    WHERE co.id_operacion = o.id_operacion
+    LIMIT 1) AS chat_activo
+FROM operacion o;
+
+CREATE OR REPLACE VIEW v_chat_participantes_operacion AS
+SELECT
+  co.id_operacion,
+  co.id_chat,
+  pc.id_participante,
+  pc.tipo,
+  pc.id_usuario,
+  pc.id_personal,
+  CASE
+    WHEN pc.tipo = 'USUARIO' THEN (u.nombre || ' ' || u.apellido)
+    ELSE (p.apodo || ' (' || p.rol::text || ')')
+  END AS display_name,
+  CASE
+    WHEN pc.tipo = 'USUARIO' THEN u.username
+    ELSE p.username
+  END AS username_ref
+FROM chat_operacion co
+JOIN participante_chat pc ON pc.id_chat = co.id_chat
+LEFT JOIN usuario u ON u.id_usuario = pc.id_usuario
+LEFT JOIN personal p ON p.id_personal = pc.id_personal;
+
+
+
+-- =========================================================
+-- VEHICULOS BASE
+-- =========================================================
+
+INSERT INTO vehiculo
+  (imagen_veh, codigo_interno, tipo, marca, modelo, estado, capacidad)
+VALUES
+  ('./uploads/vehiculo/Alacran.jpeg', 'VH-001', 'TACTICO', 'Alacran', '4x4', 'DISPONIBLE', 6),
+  ('./uploads/vehiculo/Ford F-150.jpeg', 'VH-003', 'PICKUP', 'Ford', 'F-150', 'DISPONIBLE', 5),
+  ('./uploads/vehiculo/Panther.jpeg', 'VH-004', 'BLINDADO', 'Panther', 'Blindado', 'DISPONIBLE', 8),
+  ('./uploads/vehiculo/Scualo.jpeg', 'VH-005', 'INTERCEPTOR', 'Scualo', 'Interceptor', 'DISPONIBLE', 4)
+ON CONFLICT (codigo_interno)
+DO UPDATE SET
+  imagen_veh = EXCLUDED.imagen_veh,
+  tipo       = EXCLUDED.tipo,
+  marca      = EXCLUDED.marca,
+  modelo     = EXCLUDED.modelo,
+  estado     = EXCLUDED.estado,
+  capacidad  = EXCLUDED.capacidad;

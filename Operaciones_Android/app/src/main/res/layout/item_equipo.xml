@@ -6,22 +6,25 @@
     android:background="#0d1526"
     android:padding="10dp"
     android:layout_marginBottom="6dp"
-    android:gravity="center_vertical"
-    >
+    android:gravity="center_vertical">
 
+    <!-- android:textColor="#ffffff" agregado para que el emoji/ícono
+         no herede un color inesperado según el tema del sistema -->
     <TextView
         android:id="@+id/equipoIcon"
         android:layout_width="36dp"
         android:layout_height="36dp"
         android:gravity="center"
         android:textSize="18sp"
+        android:textColor="#ffffff"
         android:background="#0f172a"/>
 
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:layout_marginStart="10dp">
 
         <TextView
             android:id="@+id/equipoNombre"

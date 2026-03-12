@@ -21,6 +21,7 @@
 
 <script>
   let viewer = null;
+  let userMarker = null; // agrupado con el resto del estado
 
   try {
     viewer = new Cesium.Viewer('cesiumContainer', {
@@ -42,46 +43,34 @@
       selectionIndicator: false
     });
 
-    window.setOperationView = function(lat, lon, zoomMeters) {
-      try {
-        console.log("setOperationView:", lat, lon, zoomMeters);
-
-        if (!viewer) return;
-
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          lon,
-          lat,
-          zoomMeters || 15000
-        ),
-        duration: 2.5
-      });
-      } catch (e) {
-        console.error("Error en setOperationView: " + e.message);
-      }
-    };
-
-    if (window.Android && Android.sendTrafficAlert) {
+    // Notificar a Kotlin que el mapa está listo
+    if (window.Android && typeof Android.sendTrafficAlert === 'function') {
       Android.sendTrafficAlert("Mapa listo");
     }
 
     console.log("Cesium OK");
-  } catch(e) {
-    console.error("Error: " + e.message);
+  } catch (e) {
+    console.error("Error iniciando Cesium: " + e.message);
     document.body.innerHTML =
       '<div style="color:#ef4444;padding:20px;font-family:monospace;background:#0a0f1e">Error: ' + e.message + '</div>';
   }
 
-  let userMarker = null;
+  window.setOperationView = function(lat, lon, zoomMeters) {
+    try {
+      if (!viewer) return;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, zoomMeters || 15000),
+        duration: 2.5
+      });
+    } catch (e) {
+      console.error("Error en setOperationView: " + e.message);
+    }
+  };
 
   window.updateMyPosition = function(lat, lon) {
     try {
       if (!viewer) return;
-
-      // eliminar marcador anterior
-      if (userMarker) {
-        viewer.entities.remove(userMarker);
-      }
+      if (userMarker) viewer.entities.remove(userMarker);
 
       userMarker = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
@@ -92,11 +81,12 @@
           outlineWidth: 2
         }
       });
-
-    } catch(e) {
-      console.error("Error updateMyPosition:", e);
+    } catch (e) {
+      console.error("Error en updateMyPosition: " + e.message);
     }
   };
+
+  // TODO: implementar addPointOfInterest(lat, lon, label, color)
 </script>
 </body>
 </html>

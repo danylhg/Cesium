@@ -1,5 +1,5 @@
-package com.operaciones.operaciones_android
-
+package com.operaciones.operaciones_android.ui
+import com.operaciones.operaciones_android.config.ApiConfig
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
@@ -14,6 +14,12 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
+import com.operaciones.operaciones_android.auth.AuthManager
+import com.operaciones.operaciones_android.model.Operation
+import com.operaciones.operaciones_android.model.OperationStatus
+import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.model.UserRole
+import com.operaciones.operaciones_android.R
 
 class LoginActivity : AppCompatActivity() {
 
@@ -23,9 +29,8 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var tvError: TextView
     private lateinit var progress: ProgressBar
 
-    // Celular físico → IP local de tu PC (cámbiala por la que te da ipconfig)
-    // Emulador       → usar "http://192.168.202.103:3001"
-    private val BASE_URL = "http://192.168.202.103:3001"
+    // IP del servidor — cambiar por la IP local de tu máquina (ipconfig/ifconfig)
+    private val BASE_URL = ApiConfig.BASE_URL
 
     private val http = OkHttpClient()
 
@@ -40,10 +45,7 @@ class LoginActivity : AppCompatActivity() {
         progress      = findViewById(R.id.loginProgress)
 
         inputPassword.setOnEditorActionListener { _, actionId, _ ->
-            if (actionId == EditorInfo.IME_ACTION_DONE) {
-                attemptLogin()
-                true
-            } else false
+            if (actionId == EditorInfo.IME_ACTION_DONE) { attemptLogin(); true } else false
         }
 
         btnLogin.setOnClickListener { attemptLogin() }
@@ -112,12 +114,9 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
-        // El servidor devuelve id_personal o id_usuario según la tabla
-        // Para CET/CELL siempre viene en id_personal
         val tabla = u.optString("tabla", "personal")
         val id = if (tabla == "personal")
-            u.optInt("id_personal", 0).takeIf { it > 0 }
-                ?: u.optInt("id_usuario", 0)
+            u.optInt("id_personal", 0).takeIf { it > 0 } ?: u.optInt("id_usuario", 0)
         else
             u.optInt("id_usuario", 0)
 
@@ -135,27 +134,22 @@ class LoginActivity : AppCompatActivity() {
         fetchOperacionYNavegar(user)
     }
 
-    // ── Paso 2: consultar operación asignada al servidor ──────────────────────
+    // ── Paso 2: consultar operación asignada ──────────────────────────────────
 
     private fun fetchOperacionYNavegar(user: User) {
         setLoading(true)
 
-        val token = AuthManager.getToken(this)
-
-        // GET /ops/personal/:id_personal — operación activa del personal
-        // Si el endpoint no existe aún, cae al fallback con MockData
         val req = Request.Builder()
             .url("$BASE_URL/ops/personal/${user.id}")
             .get()
-            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Authorization", "Bearer ${AuthManager.getToken(this)}")
             .build()
 
         http.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                // Sin conexión → usar MockData como fallback
                 runOnUiThread {
                     setLoading(false)
-                    navegarConMock(user)
+                    showError("No se pudo obtener la operación asignada.\nVerifica tu conexión.")
                 }
             }
             override fun onResponse(call: Call, response: Response) {
@@ -163,22 +157,18 @@ class LoginActivity : AppCompatActivity() {
                 runOnUiThread {
                     setLoading(false)
                     try {
-                        if (response.isSuccessful) {
-                            val json = JSONObject(bodyStr)
-                            val opJson = json.optJSONObject("operacion")
-                            if (opJson != null) {
-                                navegarConOperacion(user, parseOperacion(opJson))
-                            } else {
-                                // Sin operación asignada → pantalla de espera
-                                navegarSinOperacion(user)
+                        when {
+                            response.isSuccessful -> {
+                                val json   = JSONObject(bodyStr)
+                                val opJson = json.optJSONObject("operacion")
+                                if (opJson != null) navegarConOperacion(user, parseOperacion(opJson))
+                                else                navegarSinOperacion(user)
                             }
-                        } else {
-                            // 404 = sin operación, otro error = fallback mock
-                            if (response.code == 404) navegarSinOperacion(user)
-                            else navegarConMock(user)
+                            response.code == 404 -> navegarSinOperacion(user)
+                            else -> showError("Error del servidor (${response.code}).\nIntenta de nuevo.")
                         }
                     } catch (_: Exception) {
-                        navegarConMock(user)
+                        showError("Error al procesar la respuesta del servidor.")
                     }
                 }
             }
@@ -189,7 +179,6 @@ class LoginActivity : AppCompatActivity() {
         val estadoStr = o.optString("estado", "PLANIFICADA").uppercase()
         val status = try { OperationStatus.valueOf(estadoStr) }
         catch (_: Exception) { OperationStatus.PLANIFICADA }
-        // Leer zona anidada { centroide_lat, centroide_lon, zoom_inicial }
         val zona = o.optJSONObject("zona")
 
         return Operation(
@@ -211,69 +200,41 @@ class LoginActivity : AppCompatActivity() {
 
     private fun navegarConOperacion(user: User, op: Operation) {
         val intent = when (op.status) {
-            OperationStatus.ACTIVA ->
-                Intent(this, MainActivity::class.java)
-            else ->
-                Intent(this, OperationStatusActivity::class.java)
+            OperationStatus.ACTIVA -> Intent(this, MainActivity::class.java)
+            else                   -> Intent(this, OperationStatusActivity::class.java)
         }
 
-        intent.putExtra("USER_ID", user.id)
-        intent.putExtra("OPERATION_ID", op.id)
-
-        intent.putExtra("OP_CODIGO", op.codigo)
-        intent.putExtra("OP_NOMBRE", op.nombre)
+        intent.putExtra("USER_ID",        user.id)
+        intent.putExtra("OPERATION_ID",   op.id)
+        intent.putExtra("OP_ESTADO",      op.status.name)   // necesario para OperationStatusActivity
+        intent.putExtra("OP_CODIGO",      op.codigo)
+        intent.putExtra("OP_NOMBRE",      op.nombre)
         intent.putExtra("OP_DESCRIPCION", op.descripcion)
-        intent.putExtra("OP_PRIORIDAD", op.prioridad)
+        intent.putExtra("OP_PRIORIDAD",   op.prioridad)
         intent.putExtra("OP_FECHA_INICIO", op.fechaInicio)
-        intent.putExtra("OP_FECHA_FIN", op.fechaFin)
+        intent.putExtra("OP_FECHA_FIN",    op.fechaFin)
+        intent.putExtra("OP_LAT",          op.zonaLat)
+        intent.putExtra("OP_LON",          op.zonaLon)
+        intent.putExtra("OP_ZOOM",         op.zonaZoom)
 
-        intent.putExtra("OP_LAT", op.zonaLat)
-        intent.putExtra("OP_LON", op.zonaLon)
-        intent.putExtra("OP_ZOOM", op.zonaZoom)
-        android.util.Log.d("LOGIN_OP", "op enviada lat=${op.zonaLat}, lon=${op.zonaLon}, zoom=${op.zonaZoom}")
         startActivity(intent)
         finish()
     }
 
     private fun navegarSinOperacion(user: User) {
-        val intent = Intent(this, OperationStatusActivity::class.java)
-        intent.putExtra("USER_ID",      user.id)
-        intent.putExtra("OPERATION_ID", -1)
-        startActivity(intent)
-        finish()
-    }
-
-    /** Fallback mientras el endpoint /ops/personal/:id no exista en el servidor */
-    private fun navegarConMock(user: User) {
-        val op = MockData.getOperationForUser(user.id)
-
-        val intent = when {
-            op?.status == OperationStatus.ACTIVA ->
-                Intent(this, MainActivity::class.java)
-            else ->
-                Intent(this, OperationStatusActivity::class.java)
-        }
-
-        intent.putExtra("USER_ID", user.id)
-        intent.putExtra("OPERATION_ID", op?.id ?: -1)
-        intent.putExtra("OP_CODIGO", op?.codigo ?: "")
-        intent.putExtra("OP_NOMBRE", op?.nombre ?: "Operación")
-        intent.putExtra("OP_DESCRIPCION", op?.descripcion ?: "")
-        intent.putExtra("OP_PRIORIDAD", op?.prioridad ?: "MEDIA")
-        intent.putExtra("OP_FECHA_INICIO", op?.fechaInicio ?: "")
-        intent.putExtra("OP_FECHA_FIN", op?.fechaFin ?: "")
-        intent.putExtra("OP_LAT", op?.zonaLat ?: 0.0)
-        intent.putExtra("OP_LON", op?.zonaLon ?: 0.0)
-        intent.putExtra("OP_ZOOM", op?.zonaZoom ?: 8000)
-
-        startActivity(intent)
+        startActivity(
+            Intent(this, OperationStatusActivity::class.java).apply {
+                putExtra("USER_ID",      user.id)
+                putExtra("OPERATION_ID", -1)
+            }
+        )
         finish()
     }
 
     // ── UI helpers ────────────────────────────────────────────────────────────
 
     private fun showError(msg: String) {
-        tvError.text = msg
+        tvError.text       = msg
         tvError.visibility = View.VISIBLE
         inputPassword.animate().translationX(10f).setDuration(50).withEndAction {
             inputPassword.animate().translationX(-10f).setDuration(50).withEndAction {
@@ -283,12 +244,8 @@ class LoginActivity : AppCompatActivity() {
     }
 
     private fun setLoading(loading: Boolean) {
-        if (::progress.isInitialized) {
-            progress.visibility = if (loading) View.VISIBLE else View.GONE
-        }
-        if (::btnLogin.isInitialized) {
-            btnLogin.isEnabled = !loading
-            btnLogin.alpha = if (loading) 0.6f else 1f
-        }
+        progress.visibility = if (loading) View.VISIBLE else View.GONE
+        btnLogin.isEnabled  = !loading
+        btnLogin.alpha      = if (loading) 0.6f else 1f
     }
 }

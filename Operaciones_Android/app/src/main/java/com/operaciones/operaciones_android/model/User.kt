@@ -1,12 +1,4 @@
-package com.operaciones.operaciones_android
-
-// Roles — exactamente igual que los ENUMs en PostgreSQL
-enum class UserRole(val display: String) {
-    CET("Comandante de Equipo de Trabajo"),
-    CELL("Célula Operativa"),       // BD usa CELL (no CELULA)
-    ADMIN("Administrador"),          // solo plataforma web
-    CUT("Comandante de Unidad")      // solo plataforma web
-}
+package com.operaciones.operaciones_android.model
 
 // Estados de operación — exactamente igual que estado_operacion_enum en la BD
 enum class OperationStatus {

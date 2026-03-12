@@ -1,4 +1,4 @@
-package com.operaciones.operaciones_android
+package com.operaciones.operaciones_android.model
 
 data class ChatMessage(
     val user: String,

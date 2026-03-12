@@ -1,6 +1,8 @@
-package com.operaciones.operaciones_android
+package com.operaciones.operaciones_android.auth
 
 import android.content.Context
+import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.model.UserRole
 
 object AuthManager {
 

@@ -1259,22 +1259,31 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
 
     const horaStr = () => new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "long", timeStyle: "short" });
 
-    async function getOrCreateParticipante(id_chat, id_usuario) {
+    // Distingue si quien activa/cierra la op es ADMIN/CUT (tabla usuario) o CET/CELL (tabla personal)
+    async function getOrCreateParticipante(id_chat, id_actor, esPersonal) {
+      const col  = esPersonal ? "id_personal" : "id_usuario";
+      const tipo = esPersonal ? "PERSONAL"    : "USUARIO";
       const { rows } = await client.query(
-        `INSERT INTO participante_chat (id_chat, tipo, id_usuario) VALUES ($1,'USUARIO',$2)
-         ON CONFLICT (id_chat, id_usuario) DO NOTHING RETURNING id_participante`, [id_chat, id_usuario]);
+        `INSERT INTO participante_chat (id_chat, tipo, ${col}) VALUES ($1,$2,$3)
+         ON CONFLICT (id_chat, ${col}) DO NOTHING RETURNING id_participante`,
+        [id_chat, tipo, id_actor]
+      );
       if (rows[0]) return rows[0].id_participante;
       const { rows: ex } = await client.query(
-        `SELECT id_participante FROM participante_chat WHERE id_chat=$1 AND id_usuario=$2 LIMIT 1`, [id_chat, id_usuario]);
+        `SELECT id_participante FROM participante_chat WHERE id_chat=$1 AND ${col}=$2 LIMIT 1`,
+        [id_chat, id_actor]
+      );
       return ex[0]?.id_participante;
     }
+    const esPersonal = req.user.tabla === "personal";
+    const id_actor   = Number(req.user.sub);
 
     if (nuevoEstado === "ACTIVA") {
       const { rows: cr } = await client.query(
         `INSERT INTO chat_operacion (id_operacion) VALUES ($1)
          ON CONFLICT (id_operacion) DO UPDATE SET activo=TRUE RETURNING id_chat`, [id_operacion]);
       const id_chat = cr[0].id_chat;
-      const id_participante = await getOrCreateParticipante(id_chat, id_usuario);
+      const id_participante = await getOrCreateParticipante(id_chat, id_actor, esPersonal);
       await client.query(
         `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
         [id_chat, id_participante, `OPERACION ACTIVADA\nCodigo: ${codigoOp}\nNombre: ${nombreOp}\nHora oficial de inicio: ${horaStr()}`]
@@ -1285,7 +1294,7 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       const { rows: cr } = await client.query(`SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 LIMIT 1`, [id_operacion]);
       if (cr[0]) {
         const id_chat = cr[0].id_chat;
-        const id_participante = await getOrCreateParticipante(id_chat, id_usuario);
+        const id_participante = await getOrCreateParticipante(id_chat, id_actor, esPersonal);
         if (id_participante) {
           await client.query(
             `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
@@ -1337,25 +1346,32 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
   if (!["NORMAL","URGENTE","SISTEMA"].includes(tipo_mensaje))
     return res.status(400).json({ ok: false, mensaje: "tipo_mensaje invalido" });
 
-  const id_usuario = Number(req.user.sub);
+  const esPersonal = req.user.tabla === "personal";
+  const id_actor   = Number(req.user.sub);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // Obtener o crear chat
+    // Obtener chat activo
     const { rows: cr } = await client.query(
       `SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 AND activo=TRUE LIMIT 1`, [id_operacion]);
     if (!cr[0]) { await client.query("ROLLBACK"); return res.status(409).json({ ok: false, mensaje: "El chat no esta activo o no existe" }); }
     const id_chat = cr[0].id_chat;
 
-    // Obtener o crear participante
+    // Obtener o crear participante — distingue PERSONAL vs USUARIO
+    const col  = esPersonal ? "id_personal" : "id_usuario";
+    const tipo = esPersonal ? "PERSONAL"    : "USUARIO";
     const { rows: pr } = await client.query(
-      `INSERT INTO participante_chat (id_chat, tipo, id_usuario) VALUES ($1,'USUARIO',$2)
-       ON CONFLICT (id_chat, id_usuario) DO NOTHING RETURNING id_participante`, [id_chat, id_usuario]);
+      `INSERT INTO participante_chat (id_chat, tipo, ${col}) VALUES ($1,$2,$3)
+       ON CONFLICT (id_chat, ${col}) DO NOTHING RETURNING id_participante`,
+      [id_chat, tipo, id_actor]
+    );
     let id_participante = pr[0]?.id_participante;
     if (!id_participante) {
       const { rows: ex } = await client.query(
-        `SELECT id_participante FROM participante_chat WHERE id_chat=$1 AND id_usuario=$2 LIMIT 1`, [id_chat, id_usuario]);
+        `SELECT id_participante FROM participante_chat WHERE id_chat=$1 AND ${col}=$2 LIMIT 1`,
+        [id_chat, id_actor]
+      );
       id_participante = ex[0]?.id_participante;
     }
 
@@ -1922,6 +1938,108 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
   }
 });
 
+
+// ===============================
+// PERSONAL ASIGNADO A OPERACIÓN (para paneles de la app móvil)
+// ===============================
+
+// GET /ops/:id/personal — lista el personal asignado, no requiere tracking
+app.get("/ops/:id/personal", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         p.id_personal,
+         p.apodo,
+         p.nombre,
+         p.apellido,
+         p.rol,
+         p.puesto,
+         a.rol_en_operacion,
+         a.estado_asignacion,
+         -- última posición conocida (null si no ha enviado tracking)
+         t.latitud,
+         t.longitud,
+         t.ultima_actualizacion
+       FROM asignacion_operacion_personal a
+       JOIN personal p ON p.id_personal = a.id_personal
+       LEFT JOIN v_ultima_posicion_personal t
+         ON t.id_personal = a.id_personal AND t.id_operacion = a.id_operacion
+       WHERE a.id_operacion = $1
+         AND a.estado_asignacion NOT IN ('LIBERADO')
+       ORDER BY p.rol, p.apellido`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo personal", error: err.message });
+  }
+});
+
+// GET /ops/:id/vehiculos-asignados — vehículos asignados (para panel de la app móvil)
+app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         v.id_vehiculo,
+         v.codigo_interno,
+         v.tipo,
+         v.marca,
+         v.modelo,
+         vo.uso_en_operacion,
+         vo.estado_asignacion,
+         -- última posición conocida (null si no ha enviado tracking)
+         t.latitud,
+         t.longitud,
+         t.ultima_actualizacion
+       FROM vehiculo_operacion vo
+       JOIN vehiculo v ON v.id_vehiculo = vo.id_vehiculo
+       LEFT JOIN v_ultima_posicion_vehiculo t
+         ON t.id_vehiculo = vo.id_vehiculo AND t.id_operacion = vo.id_operacion
+       WHERE vo.id_operacion = $1
+         AND vo.estado_asignacion != 'LIBERADO'
+       ORDER BY v.tipo, v.codigo_interno`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo vehiculos", error: err.message });
+  }
+});
+
+// GET /ops/:id/equipos-asignados — equipos asignados (para panel de la app móvil)
+app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         e.id_equipo,
+         e.numero_serie,
+         e.nombre,
+         e.categoria,
+         e.estado,
+         oe.cantidad,
+         oe.uso_en_operacion,
+         oe.estado_asignacion,
+         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq
+       FROM operacion_equipo oe
+       JOIN equipo e ON e.id_equipo = oe.id_equipo
+       LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
+       LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+       WHERE oe.id_operacion = $1
+         AND oe.estado_asignacion != 'LIBERADO'
+       ORDER BY e.categoria, e.nombre`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, mensaje: "Error obteniendo equipos", error: err.message });
+  }
+});
 
 // ===============================
 // 404 handler (para ver qué falla)

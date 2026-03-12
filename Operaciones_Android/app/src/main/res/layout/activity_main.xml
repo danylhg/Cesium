@@ -29,14 +29,17 @@
             android:layout_gravity="center_horizontal"
             android:layout_marginTop="8dp"
             android:layout_marginBottom="4dp"
-            android:background="#475569"
-            android:clickable="false"/>
+            android:background="#475569"/>
+        <!-- android:clickable="false" eliminado — es el valor por defecto para View -->
 
-        <!-- Contenedor del contenido del panel -->
+        <!-- Contenedor del contenido del panel.
+             altura dinámica: wrap_content + maxHeight controlado desde Kotlin con
+             panelContent.maxHeight = (resources.displayMetrics.heightPixels * 0.40).toInt()
+             Así se adapta a pantallas pequeñas y grandes sin valor fijo. -->
         <FrameLayout
             android:id="@+id/panelContent"
             android:layout_width="match_parent"
-            android:layout_height="260dp"
+            android:layout_height="wrap_content"
             android:visibility="gone"/>
 
         <!-- Barra de navegación inferior (3 botones) -->
