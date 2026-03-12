@@ -1,6 +1,4 @@
 package com.operaciones.operaciones_android.ui
-import com.operaciones.operaciones_android.auth.AuthManager
-import com.operaciones.operaciones_android.model.User
 
 import android.content.Intent
 import android.graphics.Color
@@ -12,10 +10,18 @@ import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+
 import com.operaciones.operaciones_android.R
+import com.operaciones.operaciones_android.auth.AuthManager
+import com.operaciones.operaciones_android.model.Operation
+import com.operaciones.operaciones_android.model.OperationStatus
+import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.network.OperationStatusRepository
 
 class OperationStatusActivity : AppCompatActivity() {
 
+    private lateinit var currentUser: User
+    private val operationStatusRepository = OperationStatusRepository()
     private lateinit var tvUserName: TextView
     private lateinit var tvUserRole: TextView
     private lateinit var tvUserHierarchy: TextView
@@ -60,7 +66,7 @@ class OperationStatusActivity : AppCompatActivity() {
         btnLogout           = findViewById(R.id.btnLogout)
         btnRefresh          = findViewById(R.id.btnRefresh)
 
-        val user = AuthManager.getCurrentUser(this) ?: run {
+        currentUser = AuthManager.getCurrentUser(this) ?: run {
             startActivity(Intent(this, LoginActivity::class.java))
             finish()
             return
@@ -79,7 +85,7 @@ class OperationStatusActivity : AppCompatActivity() {
         // Si no viene en el intent (compatibilidad), se asume PLANIFICADA.
         opEstado      = intent.getStringExtra("OP_ESTADO")      ?: "PLANIFICADA"
 
-        renderUserInfo(user)
+        renderUserInfo(currentUser)
         renderOperationStatus()
 
         btnLogout.setOnClickListener {
@@ -99,8 +105,6 @@ class OperationStatusActivity : AppCompatActivity() {
             btnRefresh.isEnabled = false
             btnRefresh.text = "Verificando..."
             refreshHandler.postDelayed({
-                btnRefresh.isEnabled = true
-                btnRefresh.text = "Verificar estado"
                 checkOperationStatus()
             }, 1200)
         }
@@ -144,10 +148,77 @@ class OperationStatusActivity : AppCompatActivity() {
     }
 
     private fun checkOperationStatus() {
-        // Si la operación pasó a ACTIVA el servidor lo reflejará en el próximo login.
-        // Aquí solo re-renderizamos con los datos actuales del intent.
-        // Para un refresco real habría que llamar GET /ops/personal/:id — mejora futura.
-        renderOperationStatus()
+        val token = AuthManager.getToken(this)
+
+        operationStatusRepository.fetchAssignedOperation(
+            userId = currentUser.id,
+            token = token,
+            onSuccess = { operation ->
+                runOnUiThread {
+                    btnRefresh.isEnabled = true
+                    btnRefresh.text = "Verificar estado"
+
+                    if (operation == null) {
+                        opId = -1
+                        opNombre = ""
+                        opCodigo = ""
+                        opDesc = ""
+                        opPrioridad = "MEDIA"
+                        opFechaInicio = ""
+                        opFechaFin = ""
+                        opEstado = "SIN_ASIGNACION"
+                        renderOperationStatus()
+                        return@runOnUiThread
+                    }
+
+                    updateOperationFields(operation)
+
+                    if (operation.status == OperationStatus.ACTIVA) {
+                        navigateToMain(operation)
+                    } else {
+                        renderOperationStatus()
+                    }
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    btnRefresh.isEnabled = true
+                    btnRefresh.text = "Verificar estado"
+                    tvStatusMessage.text = message
+                }
+            }
+        )
+    }
+
+    private fun updateOperationFields(operation: Operation) {
+        opId = operation.id
+        opNombre = operation.nombre
+        opCodigo = operation.codigo
+        opDesc = operation.descripcion
+        opPrioridad = operation.prioridad
+        opFechaInicio = operation.fechaInicio
+        opFechaFin = operation.fechaFin
+        opEstado = operation.status.name
+    }
+
+    private fun navigateToMain(operation: Operation) {
+        startActivity(
+            Intent(this, MainActivity::class.java).apply {
+                putExtra("USER_ID", currentUser.id)
+                putExtra("OPERATION_ID", operation.id)
+                putExtra("OP_ESTADO", operation.status.name)
+                putExtra("OP_CODIGO", operation.codigo)
+                putExtra("OP_NOMBRE", operation.nombre)
+                putExtra("OP_DESCRIPCION", operation.descripcion)
+                putExtra("OP_PRIORIDAD", operation.prioridad)
+                putExtra("OP_FECHA_INICIO", operation.fechaInicio)
+                putExtra("OP_FECHA_FIN", operation.fechaFin)
+                putExtra("OP_LAT", operation.zonaLat)
+                putExtra("OP_LON", operation.zonaLon)
+                putExtra("OP_ZOOM", operation.zonaZoom)
+            }
+        )
+        finish()
     }
 
     override fun onDestroy() {
