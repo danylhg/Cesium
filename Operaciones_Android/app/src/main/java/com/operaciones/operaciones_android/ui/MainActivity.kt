@@ -162,6 +162,7 @@ class MainActivity : AppCompatActivity(),
 
         if (currentOperation.id > 0) {
             fetchMapaData()
+            fetchPersonalData()
         }
     }
 
@@ -233,6 +234,36 @@ class MainActivity : AppCompatActivity(),
             onError = { message ->
                 runOnUiThread {
                     addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
+                }
+            }
+        )
+    }
+
+    private fun fetchPersonalData() {
+        val token = AuthManager.getToken(this)
+
+        operationMapRepository.fetchPersonalData(
+            operationId = currentOperation.id,
+            token = token,
+            onSuccess = { items ->
+                runOnUiThread {
+                    personalList.clear()
+                    personalList.addAll(items)
+
+                    if (panelNavigationController.activePanel == Panel.PERSONAL) {
+                        inflatePersonalPanel()
+                    }
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    addMessage(
+                        ChatMessage(
+                            user = "Sistema",
+                            text = message,
+                            type = MessageType.SYSTEM
+                        )
+                    )
                 }
             }
         )
@@ -356,6 +387,10 @@ class MainActivity : AppCompatActivity(),
             personalList = personalList,
             currentUser = currentUser
         )
+
+        if (currentOperation.id > 0 && personalList.isEmpty()) {
+            fetchPersonalData()
+        }
     }
 
     override fun inflateEquipoPanel() {

@@ -127,4 +127,59 @@ class OperationMapRepository(
             }
         })
     }
+
+    fun fetchPersonalData(
+        operationId: Int,
+        token: String,
+        onSuccess: (List<PersonalItem>) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val req = Request.Builder()
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/personal")
+            .get()
+            .addHeader("Authorization", "Bearer $token")
+            .build()
+
+        http.newCall(req).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                onError("Sin conexión cargando personal.")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val bodyStr = response.body?.string() ?: ""
+                try {
+                    val json = JSONObject(bodyStr)
+
+                    if (!response.isSuccessful || !json.optBoolean("ok")) {
+                        onError(json.optString("mensaje", "No se pudo cargar el personal."))
+                        return
+                    }
+
+                    val items = json.optJSONArray("items") ?: org.json.JSONArray()
+                    val result = mutableListOf<PersonalItem>()
+
+                    for (i in 0 until items.length()) {
+                        val p = items.getJSONObject(i)
+                        result.add(
+                            PersonalItem(
+                                idPersonal = p.optInt("id_personal"),
+                                apodo = p.optString("apodo", ""),
+                                nombre = p.optString("nombre", ""),
+                                apellido = p.optString("apellido", ""),
+                                rol = p.optString("rol", ""),
+                                puesto = p.optString("puesto", ""),
+                                lat = if (p.isNull("latitud")) null else p.optDouble("latitud"),
+                                lon = if (p.isNull("longitud")) null else p.optDouble("longitud")
+                            )
+                        )
+                    }
+
+                    onSuccess(result)
+                } catch (e: Exception) {
+                    onError("Error procesando personal.")
+                }
+            }
+        })
+    }
+
 }
