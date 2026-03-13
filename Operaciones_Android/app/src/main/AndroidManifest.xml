@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -15,9 +16,8 @@
         android:hardwareAccelerated="true"
         android:usesCleartextTraffic="true">
 
-        <!-- ① Login — pantalla de entrada -->
         <activity
-            android:name=".LoginActivity"
+            android:name=".ui.LoginActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
             android:screenOrientation="portrait">
@@ -27,15 +27,13 @@
             </intent-filter>
         </activity>
 
-        <!-- ② Pantalla de espera / operación inactiva -->
         <activity
-            android:name=".OperationStatusActivity"
+            android:name=".ui.OperationStatusActivity"
             android:exported="false"
             android:screenOrientation="portrait"/>
 
-        <!-- ③ Pantalla operativa: mapa + chat (operación EN_REALIZACION) -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ui.MainActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:hardwareAccelerated="true"/>
