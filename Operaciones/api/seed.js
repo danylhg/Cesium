@@ -482,7 +482,7 @@ async function main() {
         [
           idChat,
           idParticipanteAdmin,
-          "Chat operacional inicializado automáticamente por el seed.",
+          "OPERACIÓN INICIADA 9 DE FEBRERO DEL 2025.",
         ]
       );
     }
