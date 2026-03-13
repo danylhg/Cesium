@@ -26,6 +26,7 @@ class MainPanelRenderer(
         fun getLayoutInflater(): LayoutInflater
         fun addMessage(msg: ChatMessage)
         fun openChatPanel()
+        fun sendChatMessage(text: String, alert: Boolean = false)
     }
 
     fun inflateChatPanel(
@@ -54,14 +55,14 @@ class MainPanelRenderer(
         sendBtn.setOnClickListener {
             val t = msgInput.text.toString().trim()
             if (t.isNotEmpty()) {
-                host.addMessage(ChatMessage(currentUser.nombreCompleto, t, MessageType.NORMAL))
+                host.sendChatMessage(t, alert = false)
                 msgInput.text.clear()
             }
         }
 
         alertBtn.setOnClickListener {
             val t = msgInput.text.toString().trim().ifEmpty { "Aviso de posición" }
-            host.addMessage(ChatMessage("⚠️ ${currentUser.nombreCompleto}", t, MessageType.ALERT))
+            host.sendChatMessage(t, alert = true)
             msgInput.text.clear()
         }
 

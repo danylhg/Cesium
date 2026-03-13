@@ -4,9 +4,33 @@ import cors from "cors";
 import { pool } from "./db.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import http from "http";
+import { Server } from "socket.io";
+
 
 const app = express();
 const JWT_SECRET = process.env.JWT_SECRET || "cambia_esto";
+const server = http.createServer(app);
+
+const io = new Server(server, {
+  cors: {
+    origin: "*"
+  }
+});
+
+io.on("connection", (socket) => {
+  console.log("🟢 Cliente conectado:", socket.id);
+
+  socket.on("join_operacion", (id_operacion) => {
+    socket.join(`op_${id_operacion}`);
+    console.log(`Socket ${socket.id} unido a operación ${id_operacion}`);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("🔴 Cliente desconectado:", socket.id);
+  });
+});
+
 
 console.log("SERVER.JS CARGADO - build:", Date.now());
 
@@ -2041,6 +2065,177 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
   }
 });
 
+app.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  }
+
+  try {
+    const chatRes = await pool.query(
+      `SELECT id_chat
+       FROM chat_operacion
+       WHERE id_operacion = $1
+       LIMIT 1`,
+      [id_operacion]
+    );
+
+    if (chatRes.rowCount === 0) {
+      return res.json({ ok: true, items: [] });
+    }
+
+    const id_chat = chatRes.rows[0].id_chat;
+
+    const { rows } = await pool.query(
+      `
+      SELECT
+        m.id_mensaje,
+        m.id_chat,
+        m.contenido,
+        m.tipo_mensaje,
+        m.fecha_envio,
+        pc.tipo AS tipo_participante,
+        pc.id_usuario,
+        pc.id_personal,
+        COALESCE(
+          u.nombre || ' ' || u.apellido,
+          p.nombre || ' ' || p.apellido,
+          'Sistema'
+        ) AS autor_nombre
+      FROM mensaje_chat m
+      JOIN participante_chat pc
+        ON pc.id_participante = m.id_participante
+      LEFT JOIN usuario u
+        ON u.id_usuario = pc.id_usuario
+      LEFT JOIN personal p
+        ON p.id_personal = pc.id_personal
+      WHERE m.id_chat = $1
+      ORDER BY m.fecha_envio ASC, m.id_mensaje ASC
+      `,
+      [id_chat]
+    );
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error obteniendo mensajes del chat",
+      error: err.message
+    });
+  }
+});
+
+app.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  }
+
+  try {
+    const contenido = String(req.body?.contenido || "").trim();
+    const tipo_mensaje = String(req.body?.tipo_mensaje || "NORMAL").toUpperCase();
+
+    if (!contenido) {
+      return res.status(400).json({ ok: false, mensaje: "contenido vacío" });
+    }
+
+    if (!["NORMAL", "SISTEMA", "URGENTE"].includes(tipo_mensaje)) {
+      return res.status(400).json({ ok: false, mensaje: "tipo_mensaje inválido" });
+    }
+
+    const chatRes = await pool.query(
+      `SELECT id_chat
+       FROM chat_operacion
+       WHERE id_operacion = $1
+       LIMIT 1`,
+      [id_operacion]
+    );
+
+    if (chatRes.rowCount === 0) {
+      return res.status(404).json({ ok: false, mensaje: "La operación no tiene chat" });
+    }
+
+    const id_chat = chatRes.rows[0].id_chat;
+
+    let id_participante = null;
+
+    if (req.user.tabla === "usuario") {
+      const partRes = await pool.query(
+        `
+        INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
+        VALUES ($1, 'USUARIO', $2, NULL)
+        ON CONFLICT (id_chat, id_usuario) DO UPDATE
+          SET id_usuario = EXCLUDED.id_usuario
+        RETURNING id_participante
+        `,
+        [id_chat, Number(req.user.sub)]
+      );
+      id_participante = partRes.rows[0].id_participante;
+    } else {
+      const partRes = await pool.query(
+        `
+        INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
+        VALUES ($1, 'PERSONAL', NULL, $2)
+        ON CONFLICT (id_chat, id_personal) DO UPDATE
+          SET id_personal = EXCLUDED.id_personal
+        RETURNING id_participante
+        `,
+        [id_chat, Number(req.user.sub)]
+      );
+      id_participante = partRes.rows[0].id_participante;
+    }
+
+    const ins = await pool.query(
+      `
+      INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio
+      `,
+      [id_chat, id_participante, contenido, tipo_mensaje]
+    );
+
+    const autorRes = await pool.query(
+      `
+      SELECT
+        pc.tipo AS tipo_participante,
+        pc.id_usuario,
+        pc.id_personal,
+        COALESCE(
+          u.nombre || ' ' || u.apellido,
+          p.nombre || ' ' || p.apellido,
+          'Sistema'
+        ) AS autor_nombre
+      FROM participante_chat pc
+      LEFT JOIN usuario u
+        ON u.id_usuario = pc.id_usuario
+      LEFT JOIN personal p
+        ON p.id_personal = pc.id_personal
+      WHERE pc.id_participante = $1
+      LIMIT 1
+      `,
+      [id_participante]
+    );
+
+    const payload = {
+      ...ins.rows[0],
+      ...(autorRes.rows[0] || {})
+    };
+
+    io.to(`op_${id_operacion}`).emit("chat_message", payload);
+
+    return res.json({
+      ok: true,
+      item: payload
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error enviando mensaje",
+      error: err.message
+    });
+  }
+});
+
 // ===============================
 // 404 handler (para ver qué falla)
 // ===============================
@@ -2053,4 +2248,6 @@ app.use((req, res) => {
 // LISTEN
 // ===============================
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, "0.0.0.0", () => console.log(`API en http://192.168.202.103/:${PORT}`));
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`API + WS en http://192.168.202.103:${PORT}`);
+});

@@ -1,20 +1,18 @@
 package com.operaciones.operaciones_android.ui
 
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
-import android.view.View
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
 import com.operaciones.operaciones_android.location.LocationHelper
+import com.operaciones.operaciones_android.map.MapActionController
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.MessageType
@@ -22,17 +20,22 @@ import com.operaciones.operaciones_android.model.Operation
 import com.operaciones.operaciones_android.model.OperationStatus
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.network.ChatRepository
+import com.operaciones.operaciones_android.network.ChatSocketManager
 import com.operaciones.operaciones_android.network.OperationMapRepository
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
+import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController
+import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController.Panel
 import com.operaciones.operaciones_android.ui.panel.ChatPanelRefs
 import com.operaciones.operaciones_android.ui.panel.MainPanelRenderer
 import com.operaciones.operaciones_android.webview.CesiumWebController
 import com.operaciones.operaciones_android.webview.MainJsBridge
-import com.operaciones.operaciones_android.map.MapActionController
-import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController
-import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController.Panel
+import org.json.JSONObject
 
-class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionController.Host, PanelNavigationController.Host {
+class MainActivity : AppCompatActivity(),
+    MainPanelRenderer.Host,
+    MapActionController.Host,
+    PanelNavigationController.Host {
 
     private lateinit var webView: WebView
     private lateinit var panelContent: FrameLayout
@@ -40,6 +43,11 @@ class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionContr
     private lateinit var btnNavPersonal: LinearLayout
     private lateinit var btnNavEquipo: LinearLayout
     private lateinit var mapActionController: MapActionController
+
+    private var chatSocketManager: ChatSocketManager? = null
+
+    private val chatRepository = ChatRepository()
+    private var chatLoaded = false
 
     private val operationMapRepository = OperationMapRepository()
     private lateinit var panelRenderer: MainPanelRenderer
@@ -92,14 +100,18 @@ class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionContr
         )
 
         if (currentOperation.id > 0) {
-            val info = buildString {
-                append("Operación: ${currentOperation.nombre}")
-                if (currentOperation.codigo.isNotBlank()) {
-                    append("\nCódigo: ${currentOperation.codigo}")
+            chatSocketManager = ChatSocketManager(currentOperation.id) { item ->
+                runOnUiThread {
+                    val incoming = parseChatMessage(item)
+
+                    val alreadyExists = incoming.id != null &&
+                            messages.any { it.id == incoming.id }
+
+                    if (!alreadyExists) {
+                        addMessage(incoming)
+                    }
                 }
-                append("\nUbicación: %.5f, %.5f".format(opLat, opLon))
             }
-            addMessage(ChatMessage("Sistema", info, MessageType.SYSTEM))
         }
 
         setContentView(R.layout.activity_main)
@@ -146,15 +158,25 @@ class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionContr
         locationHelper.requestLocationPermissionOrStart()
         setupBackPress()
         panelNavigationController.showPanel(Panel.NONE)
+        chatSocketManager?.connect()
 
         if (currentOperation.id > 0) {
             fetchMapaData()
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        chatSocketManager?.disconnect()
+    }
+
     override fun addMessage(msg: ChatMessage) {
         runOnUiThread {
+            val exists = msg.id != null && messages.any { it.id == msg.id }
+            if (exists) return@runOnUiThread
+
             messages.add(msg)
+
             if (::chatAdapter.isInitialized) {
                 chatAdapter.notifyItemInserted(messages.size - 1)
                 if (::chatRecycler.isInitialized) {
@@ -210,7 +232,7 @@ class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionContr
             },
             onError = { message ->
                 runOnUiThread {
-                    addMessage(ChatMessage("Sistema", message, MessageType.SYSTEM))
+                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
                 }
             }
         )
@@ -218,6 +240,100 @@ class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionContr
 
     private fun setupWebView() {
         cesiumWebController.setup()
+    }
+
+    override fun sendChatMessage(text: String, alert: Boolean) {
+        if (currentOperation.id <= 0) {
+            addMessage(
+                ChatMessage(
+                    user = "Sistema",
+                    text = "No hay operación activa para enviar mensajes.",
+                    type = MessageType.SYSTEM
+                )
+            )
+            return
+        }
+
+        android.util.Log.d("CHAT_SEND", "Enviando mensaje: $text")
+        android.util.Log.d("CHAT_SEND", "Operacion: ${currentOperation.id}")
+
+        val token = AuthManager.getToken(this)
+        val tipoMensaje = if (alert) "URGENTE" else "NORMAL"
+
+        chatRepository.sendMessage(
+            operationId = currentOperation.id,
+            token = token,
+            contenido = text,
+            tipoMensaje = tipoMensaje,
+            onSuccess = { item ->
+                runOnUiThread {
+                    android.util.Log.d("CHAT_SEND", "POST success item=$item")
+                    addMessage(parseChatMessage(item))
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    android.util.Log.d("CHAT_SEND", "POST error=$message")
+                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
+                }
+            }
+        )
+    }
+
+    private fun loadChatHistoryIfNeeded() {
+        if (chatLoaded || currentOperation.id <= 0) return
+
+        val token = AuthManager.getToken(this)
+
+        chatRepository.getMessages(
+            operationId = currentOperation.id,
+            token = token,
+            onSuccess = { items ->
+                runOnUiThread {
+                    messages.clear()
+
+                    for (i in 0 until items.length()) {
+                        val item = items.optJSONObject(i) ?: continue
+                        messages.add(parseChatMessage(item))
+                    }
+
+                    chatLoaded = true
+
+                    if (::chatAdapter.isInitialized) {
+                        chatAdapter.notifyDataSetChanged()
+                        if (::chatRecycler.isInitialized && messages.isNotEmpty()) {
+                            chatRecycler.scrollToPosition(messages.size - 1)
+                        }
+                    }
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
+                }
+            }
+        )
+    }
+
+    private fun parseChatMessage(item: JSONObject): ChatMessage {
+        val id = item.optInt("id_mensaje", -1).takeIf { it > 0 }
+        val autor = item.optString("autor_nombre", "Sistema")
+        val contenido = item.optString("contenido", "")
+        val tipoMensaje = item.optString("tipo_mensaje", "NORMAL").uppercase()
+
+        val messageType = when (tipoMensaje) {
+            "URGENTE" -> MessageType.ALERT
+            "SISTEMA" -> MessageType.SYSTEM
+            else -> MessageType.NORMAL
+        }
+        android.util.Log.d("CHAT_PARSE", "json=$item")
+        android.util.Log.d("CHAT_PARSE", "tipo_mensaje=${item.optString("tipo_mensaje", "SIN_VALOR")}")
+        return ChatMessage(
+            id = id,
+            user = autor,
+            text = contenido,
+            type = messageType
+        )
     }
 
     override fun inflateChatPanel() {
@@ -230,6 +346,8 @@ class MainActivity : AppCompatActivity(), MainPanelRenderer.Host, MapActionContr
         chatRecycler = refs.recyclerView
         chatAdapter = refs.adapter
         msgInput = refs.input
+
+        loadChatHistoryIfNeeded()
     }
 
     override fun inflatePersonalPanel() {

@@ -42,7 +42,11 @@ class MapActionController(
                             "if (typeof addPointOfInterest === 'function') addPointOfInterest($lat, $lon, 'PDI', '$author');"
                         )
                         host.addMessage(
-                            ChatMessage(author, "📍 PDI agregado → $coord", MessageType.NORMAL)
+                            ChatMessage(
+                                user = author,
+                                text = "📍 PDI agregado → $coord",
+                                type = MessageType.NORMAL
+                            )
                         )
                     }
 
@@ -51,7 +55,11 @@ class MapActionController(
                             "if (typeof addAreaOfInterest === 'function') addAreaOfInterest($lat, $lon, '$author');"
                         )
                         host.addMessage(
-                            ChatMessage(author, "🔴 Área marcada → $coord", MessageType.NORMAL)
+                            ChatMessage(
+                                user = author,
+                                text = "🔴 Área marcada → $coord",
+                                type = MessageType.NORMAL
+                            )
                         )
                     }
 
@@ -60,13 +68,21 @@ class MapActionController(
                             "if (typeof addTacticalStructure === 'function') addTacticalStructure($lat, $lon, '$author');"
                         )
                         host.addMessage(
-                            ChatMessage(author, "🏗️ Estructura → $coord", MessageType.NORMAL)
+                            ChatMessage(
+                                user = author,
+                                text = "🏗️ Estructura → $coord",
+                                type = MessageType.NORMAL
+                            )
                         )
                     }
 
                     else -> {
                         host.addMessage(
-                            ChatMessage("⚠️ $author", "Aviso de posición → $coord", MessageType.ALERT)
+                            ChatMessage(
+                                user = "⚠️ $author",
+                                text = "Aviso de posición → $coord",
+                                type = MessageType.ALERT
+                            )
                         )
                     }
                 }

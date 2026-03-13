@@ -23,7 +23,7 @@ class MainJsBridge(
                 activity.applyOperationViewFromBridge()
             } else {
                 activity.addMessage(
-                    ChatMessage("Sistema", message, MessageType.SYSTEM)
+                    ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM)
                 )
             }
         }
