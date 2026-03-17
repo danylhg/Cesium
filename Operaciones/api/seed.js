@@ -175,6 +175,38 @@ async function getAvailableEquipos(client, limit = 4) {
   return rows;
 }
 
+async function getVehiculoByCodigo(client, codigoInterno) {
+  const { rows, rowCount } = await client.query(
+    `
+    SELECT id_vehiculo, codigo_interno, tipo, marca, modelo, capacidad, estado
+    FROM vehiculo
+    WHERE codigo_interno = $1
+    LIMIT 1
+    `,
+    [codigoInterno]
+  );
+  if (rowCount === 0) {
+    throw new Error(`No existe el vehículo fijo ${codigoInterno}`);
+  }
+  return rows[0];
+}
+
+async function getEquipoBySerie(client, numeroSerie) {
+  const { rows, rowCount } = await client.query(
+    `
+    SELECT id_equipo, numero_serie, nombre, categoria, estado
+    FROM equipo
+    WHERE numero_serie = $1
+    LIMIT 1
+    `,
+    [numeroSerie]
+  );
+  if (rowCount === 0) {
+    throw new Error(`No existe el equipo fijo ${numeroSerie}`);
+  }
+  return rows[0];
+}
+
 async function getGrupoId(client, idOperacion, nombre) {
   const { rows, rowCount } = await client.query(
     `
@@ -294,7 +326,7 @@ async function main() {
       [
         OP_CODIGO,
         "Operacion de Prueba SEDAM",
-        "Operacion de validacion del sistema. CET: mlopez. Dos subgrupos de 3 celulas. Vehiculos y equipo tomados del inventario real disponible.",
+        "Operacion de validacion del sistema. CET: mlopez. Dos subgrupos de 3 celulas. Vehiculos y equipos fijos del inventario: VH-001, VH-003, HFC-001 y DRN-001.",
         creadoPor,
       ]
     );
@@ -459,15 +491,12 @@ async function main() {
       idChat = chatLookup.rows[0].id_chat;
     }
 
-    // Admin como participante del chat
     const idParticipanteAdmin = await ensureChatParticipantUsuario(client, idChat, creadoPor);
 
-    // Todo el personal asignado como participante del chat
     for (const persona of personalAsignado) {
       await ensureChatParticipantPersonal(client, idChat, persona.id_personal);
     }
 
-    // Mensaje inicial de sistema (solo si aún no hay mensajes)
     const msgCount = await client.query(
       `SELECT COUNT(*)::int AS total FROM mensaje_chat WHERE id_chat = $1`,
       [idChat]
@@ -488,124 +517,177 @@ async function main() {
     }
 
     // =========================================================
-    // 10) VEHICULOS REALES DISPONIBLES -> OPERACION
+    // 10) RECURSOS FIJOS OP-PRUEBA-001
+    // - 2 vehículos fijos
+    // - 1 equipo de comunicación fijo instalado en 1 vehículo
+    // - 1 equipo táctico fijo asignado a 1 personal
     // =========================================================
-    const vehiculosDisponibles = await getAvailableVehiculos(client, 2);
+    const vehiculoAguila1 = await getVehiculoByCodigo(client, "VH-001");
+    const vehiculoAguila2 = await getVehiculoByCodigo(client, "VH-003");
 
-    if (vehiculosDisponibles.length === 0) {
-      console.warn("WARN: No hay vehículos DISPONIBLES para asignar a la operación.");
+    const equipoComunicacion = await getEquipoBySerie(client, "HFC-001");
+    const equipoTactico = await getEquipoBySerie(client, "DRN-001");
+
+    const operadorTactico = await getPersonalByUsername(client, "mcruz");
+    if (!operadorTactico) {
+      throw new Error(`No se encontró el personal "mcruz" para asignarle el equipo táctico.`);
     }
 
-    for (const [index, vehiculo] of vehiculosDisponibles.entries()) {
-      const uso = index === 0 ? "Transporte terrestre" : "Interceptor acuatico";
+    await client.query(
+      `
+      INSERT INTO vehiculo_operacion
+        (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,'ASIGNADO',$4)
+      ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE
+        SET uso_en_operacion = EXCLUDED.uso_en_operacion,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW()
+      `,
+      [idOp, vehiculoAguila1.id_vehiculo, "Vehículo fijo para Aguila 1", creadoPor]
+    );
 
-      await client.query(
-        `
-        INSERT INTO vehiculo_operacion
-          (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
-        VALUES ($1,$2,$3,'ASIGNADO',$4)
-        ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE
-          SET uso_en_operacion = EXCLUDED.uso_en_operacion,
-              estado_asignacion = EXCLUDED.estado_asignacion,
-              asignado_por = EXCLUDED.asignado_por,
-              fecha_asignacion = NOW()
-        `,
-        [idOp, vehiculo.id_vehiculo, uso, creadoPor]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO vehiculo_operacion
+        (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,'ASIGNADO',$4)
+      ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE
+        SET uso_en_operacion = EXCLUDED.uso_en_operacion,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW()
+      `,
+      [idOp, vehiculoAguila2.id_vehiculo, "Vehículo fijo para Aguila 2", creadoPor]
+    );
 
-    if (vehiculosDisponibles[0]) {
-      await client.query(
-        `
-        INSERT INTO grupo_vehiculo
-          (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-        VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
-        ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
-        `,
-        [idAguila1, idOp, vehiculosDisponibles[0].id_vehiculo, "Transporte terrestre", creadoPor]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO grupo_vehiculo
+        (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
+      ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
+      `,
+      [idAguila1, idOp, vehiculoAguila1.id_vehiculo, "Vehículo de traslado para Aguila 1", creadoPor]
+    );
 
-    if (vehiculosDisponibles[1]) {
-      await client.query(
-        `
-        INSERT INTO grupo_vehiculo
-          (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-        VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
-        ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
-        `,
-        [idAguila2, idOp, vehiculosDisponibles[1].id_vehiculo, "Interceptor acuatico", creadoPor]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO grupo_vehiculo
+        (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
+      ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
+      `,
+      [idAguila2, idOp, vehiculoAguila2.id_vehiculo, "Vehículo de traslado para Aguila 2", creadoPor]
+    );
 
-    // =========================================================
-    // 11) EQUIPO REAL DISPONIBLE -> OPERACION
-    // =========================================================
-    const equiposDisponibles = await getAvailableEquipos(client, 4);
+    await client.query(
+      `
+      INSERT INTO operacion_equipo
+        (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
+      VALUES ($1,$2,1,$3,'ASIGNADO',$4)
+      ON CONFLICT (id_operacion, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            uso_en_operacion = EXCLUDED.uso_en_operacion,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW()
+      `,
+      [idOp, equipoComunicacion.id_equipo, "Equipo de comunicación principal de la operación", creadoPor]
+    );
 
-    if (equiposDisponibles.length === 0) {
-      console.warn("WARN: No hay equipos DISPONIBLES para reservar en la operación.");
-    }
+    await client.query(
+      `
+      INSERT INTO operacion_equipo
+        (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
+      VALUES ($1,$2,1,$3,'ASIGNADO',$4)
+      ON CONFLICT (id_operacion, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            uso_en_operacion = EXCLUDED.uso_en_operacion,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW()
+      `,
+      [idOp, equipoTactico.id_equipo, "Equipo táctico principal de la operación", creadoPor]
+    );
 
-    for (const equipo of equiposDisponibles) {
-      await client.query(
-        `
-        INSERT INTO operacion_equipo
-          (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
-        VALUES ($1,$2,1,$3,'ASIGNADO',$4)
-        ON CONFLICT (id_operacion, id_equipo) DO UPDATE
-          SET cantidad = EXCLUDED.cantidad,
-              uso_en_operacion = EXCLUDED.uso_en_operacion,
-              estado_asignacion = EXCLUDED.estado_asignacion,
-              asignado_por = EXCLUDED.asignado_por,
-              fecha_asignacion = NOW()
-        `,
-        [idOp, equipo.id_equipo, `${equipo.nombre} en operación`, creadoPor]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO vehiculo_equipo
+        (id_vehiculo, id_equipo, cantidad, estado)
+      VALUES ($1,$2,1,'INSTALADO')
+      ON CONFLICT (id_vehiculo, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            estado = EXCLUDED.estado,
+            fecha_retiro = NULL
+      `,
+      [vehiculoAguila1.id_vehiculo, equipoComunicacion.id_equipo]
+    );
 
-    // Repartir hasta 2 equipos a subgrupos
-    if (equiposDisponibles[0]) {
-      await client.query(
-        `
-        INSERT INTO grupo_equipo
-          (id_grupo_operacion, id_operacion, id_equipo, cantidad, uso_en_grupo, estado_asignacion, asignado_por)
-        VALUES ($1,$2,$3,1,$4,'ASIGNADO',$5)
-        ON CONFLICT (id_grupo_operacion, id_equipo) DO NOTHING
-        `,
-        [idAguila1, idOp, equiposDisponibles[0].id_equipo, `${equiposDisponibles[0].nombre} para Aguila 1`, creadoPor]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO grupo_equipo
+        (id_grupo_operacion, id_operacion, id_equipo, cantidad, uso_en_grupo, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,1,$4,'ASIGNADO',$5)
+      ON CONFLICT (id_grupo_operacion, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            uso_en_grupo = EXCLUDED.uso_en_grupo,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW(),
+            fecha_fin_asignacion = NULL
+      `,
+      [idAguila1, idOp, equipoComunicacion.id_equipo, "Radio instalada en vehículo de Aguila 1", creadoPor]
+    );
 
-    if (equiposDisponibles[1]) {
-      await client.query(
-        `
-        INSERT INTO grupo_equipo
-          (id_grupo_operacion, id_operacion, id_equipo, cantidad, uso_en_grupo, estado_asignacion, asignado_por)
-        VALUES ($1,$2,$3,1,$4,'ASIGNADO',$5)
-        ON CONFLICT (id_grupo_operacion, id_equipo) DO NOTHING
-        `,
-        [idAguila2, idOp, equiposDisponibles[1].id_equipo, `${equiposDisponibles[1].nombre} para Aguila 2`, creadoPor]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO personal_equipo
+        (id_personal, id_equipo, cantidad, estado, asignado_por)
+      VALUES ($1,$2,1,'ASIGNADO',$3)
+      ON CONFLICT (id_personal, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            estado = EXCLUDED.estado,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW(),
+            fecha_devolucion = NULL
+      `,
+      [operadorTactico.id_personal, equipoTactico.id_equipo, creadoPor]
+    );
 
-    // Instalar un equipo de comunicación en el primer vehículo disponible
-    const equipoCom = equiposDisponibles.find((e) => e.categoria === "COMUNICACION");
-    const primerVehiculo = vehiculosDisponibles[0];
+    await client.query(
+      `
+      INSERT INTO uso_equipo_operacion
+        (id_operacion, id_equipo, id_personal, cantidad, asignado_por, notas)
+      VALUES ($1,$2,$3,1,$4,$5)
+      ON CONFLICT (id_operacion, id_equipo, id_personal) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            asignado_por = EXCLUDED.asignado_por,
+            notas = EXCLUDED.notas,
+            fecha_asignacion = NOW(),
+            fecha_devolucion = NULL
+      `,
+      [idOp, equipoTactico.id_equipo, operadorTactico.id_personal, creadoPor, "Equipo táctico asignado al operador principal de Aguila 1"]
+    );
 
-    if (equipoCom && primerVehiculo) {
-      await client.query(
-        `
-        INSERT INTO vehiculo_equipo
-          (id_vehiculo, id_equipo, cantidad, estado)
-        VALUES ($1,$2,1,'INSTALADO')
-        ON CONFLICT (id_vehiculo, id_equipo) DO UPDATE
-          SET cantidad = EXCLUDED.cantidad,
-              estado = EXCLUDED.estado
-        `,
-        [primerVehiculo.id_vehiculo, equipoCom.id_equipo]
-      );
-    }
+    await client.query(
+      `
+      INSERT INTO grupo_equipo
+        (id_grupo_operacion, id_operacion, id_equipo, cantidad, uso_en_grupo, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,1,$4,'ASIGNADO',$5)
+      ON CONFLICT (id_grupo_operacion, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            uso_en_grupo = EXCLUDED.uso_en_grupo,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW(),
+            fecha_fin_asignacion = NULL
+      `,
+      [idAguila1, idOp, equipoTactico.id_equipo, "Dron táctico bajo resguardo de mcruz", creadoPor]
+    );
+
+    const vehiculosFijos = [vehiculoAguila1, vehiculoAguila2];
+    const equiposFijos = [equipoComunicacion, equipoTactico];
 
     // =========================================================
     // 12) ZONA PRINCIPAL DE LA OPERACION — Anton Lizardo, Veracruz
@@ -656,18 +738,15 @@ async function main() {
     // =========================================================
     const OP2_CODIGO = "OP-NORTE-002";
 
-    // mlopez: REPETIDO de OP-PRUEBA-001
-    // rvega: CET nuevo
-    // drios, fsilva, anavarro, pmendoza, hcastillo, eruiz: CELLs nuevos
     const personalOp2Usernames = [
-      "mlopez",    // CET — REPETIDO
-      "rvega",     // CET nuevo
-      "drios",     // CELL nuevo
-      "fsilva",    // CELL nuevo
-      "anavarro",  // CELL nuevo
-      "pmendoza",  // CELL nuevo
-      "hcastillo", // CELL nuevo
-      "eruiz",     // CELL nuevo
+      "mlopez",
+      "rvega",
+      "drios",
+      "fsilva",
+      "anavarro",
+      "pmendoza",
+      "hcastillo",
+      "eruiz",
     ];
 
     await client.query(
@@ -699,7 +778,6 @@ async function main() {
     );
     const idOp2 = op2Row.rows[0].id_operacion;
 
-    // -- Personal -> Operacion 2
     const personalAsignado2 = [];
 
     for (const username of personalOp2Usernames) {
@@ -734,7 +812,6 @@ async function main() {
     if (!cet2a) throw new Error(`No se encontró mlopez para OP-NORTE-002.`);
     if (!cet2b) throw new Error(`No se encontró rvega para OP-NORTE-002.`);
 
-    // -- Mando: mlopez -> Aguila 3 CELLs | rvega -> Aguila 4 CELLs
     for (const cell of cells2_1) {
       await client.query(
         `INSERT INTO mando_operacion (id_operacion, id_cet, id_cell, asignado_por)
@@ -753,7 +830,6 @@ async function main() {
       );
     }
 
-    // -- Grupo padre
     await client.query(
       `
       INSERT INTO grupo_operacion
@@ -768,7 +844,6 @@ async function main() {
     const idPadre2 = await getGrupoId(client, idOp2, "Grupo NORTE");
     if (!idPadre2) throw new Error(`No se pudo obtener el grupo padre de OP-NORTE-002.`);
 
-    // -- Subgrupos
     for (const nombre of ["Aguila 3", "Aguila 4"]) {
       await client.query(
         `
@@ -786,7 +861,6 @@ async function main() {
 
     if (!idAguila3 || !idAguila4) throw new Error(`No se pudieron obtener los subgrupos de OP-NORTE-002.`);
 
-    // -- Personal -> subgrupos
     for (const username of ["drios", "fsilva", "anavarro"]) {
       const persona = personalAsignado2.find((p) => p.username === username);
       if (!persona) continue;
@@ -809,7 +883,6 @@ async function main() {
       );
     }
 
-    // -- Chat (inactivo, op está PLANIFICADA)
     const chat2Res = await client.query(
       `INSERT INTO chat_operacion (id_operacion, activo)
        VALUES ($1, FALSE)
@@ -847,7 +920,6 @@ async function main() {
       );
     }
 
-    // -- Zona — Puerto de Veracruz
     const zonaGeometria2 = {
       type: "Polygon",
       coordinates: [[
@@ -888,24 +960,19 @@ async function main() {
 
     // =========================================================
     // OP-HISTORICA-003 — CERRADA
-    // Operación que ya se ejecutó y concluyó exitosamente.
-    // Fechas pasadas. Personal distinto al de las ops anteriores.
-    // CET: lhernandez | CELLs: iperez, dortega, oreyes, dperez, dortiz, olopez
     // =========================================================
     const OP3_CODIGO = "OP-HISTORICA-003";
 
     const personalOp3Usernames = [
-      "lhernandez", // CET
-      "iperez",     // CELL
-      "dortega",    // CELL
-      "oreyes",     // CELL
-      "dperez",     // CELL
-      "dortiz",     // CELL
-      "olopez",     // CELL
+      "lhernandez",
+      "iperez",
+      "dortega",
+      "oreyes",
+      "dperez",
+      "dortiz",
+      "olopez",
     ];
 
-    // Insertar como PLANIFICADA para que los triggers permitan las asignaciones.
-    // Al final del bloque se actualiza a CERRADA.
     await client.query(
       `
       INSERT INTO operacion
@@ -928,7 +995,6 @@ async function main() {
     );
     const idOp3 = op3Row.rows[0].id_operacion;
 
-    // Personal -> Operacion 3
     const personalAsignado3 = [];
 
     for (const username of personalOp3Usernames) {
@@ -959,7 +1025,6 @@ async function main() {
 
     if (!cet3) throw new Error(`No se encontró lhernandez para OP-HISTORICA-003.`);
 
-    // Mando
     for (const cell of cells3) {
       await client.query(
         `INSERT INTO mando_operacion (id_operacion, id_cet, id_cell, asignado_por)
@@ -969,7 +1034,6 @@ async function main() {
       );
     }
 
-    // Grupo padre
     await client.query(
       `
       INSERT INTO grupo_operacion
@@ -984,7 +1048,6 @@ async function main() {
     const idPadre3 = await getGrupoId(client, idOp3, "Grupo HISTORICA");
     if (!idPadre3) throw new Error(`No se pudo obtener el grupo padre de OP-HISTORICA-003.`);
 
-    // Subgrupos
     for (const nombre of ["Condor 1", "Condor 2"]) {
       await client.query(
         `
@@ -1002,7 +1065,6 @@ async function main() {
 
     if (!idCondor1 || !idCondor2) throw new Error(`No se pudieron obtener los subgrupos de OP-HISTORICA-003.`);
 
-    // Personal -> subgrupos
     for (const username of ["iperez", "dortega", "oreyes"]) {
       const persona = personalAsignado3.find((p) => p.username === username);
       if (!persona) continue;
@@ -1025,7 +1087,6 @@ async function main() {
       );
     }
 
-    // Chat cerrado
     const chat3Res = await client.query(
       `INSERT INTO chat_operacion (id_operacion, activo)
        VALUES ($1, TRUE)
@@ -1052,7 +1113,6 @@ async function main() {
       await ensureChatParticipantPersonal(client, idChat3, persona.id_personal);
     }
 
-    // Mensajes representativos de la operación
     if (idPartAdmin3) {
       const msgCount3 = await client.query(
         `SELECT COUNT(*)::int AS total FROM mensaje_chat WHERE id_chat = $1`,
@@ -1078,7 +1138,6 @@ async function main() {
       }
     }
 
-    // Zona
     const zonaGeometria3 = {
       type: "Polygon",
       coordinates: [[
@@ -1117,8 +1176,6 @@ async function main() {
       ]
     );
 
-    // Deshabilitar triggers de validación/sync para poder cerrar la operación
-    // sin que el trigger de chat intente insertar mensajes en una op ya cerrada
     await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_sync_chat_estado`);
     await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_touch`);
     await client.query(`ALTER TABLE mensaje_chat DISABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
@@ -1141,7 +1198,6 @@ async function main() {
       [idOp3]
     );
 
-    // Re-habilitar triggers
     await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_sync_chat_estado`);
     await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_touch`);
     await client.query(`ALTER TABLE mensaje_chat ENABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
@@ -1150,26 +1206,17 @@ async function main() {
 
     // =========================================================
     // OP-CANCELADA-004 — CANCELADA
-    // Operación que fue planificada pero no llegó a ejecutarse.
-    // Fechas futuras que nunca se alcanzaron.
-    // CET: atorres | CELLs: cramirez es CUT así que solo personal disponible
-    // Usamos a cramirez como CUT (no necesita mando_operacion)
-    // y CELLs: mcruz, jmartinez, psanchez (ya libres, op1 cerrada en pasado)
-    // NOTA: estas personas ya tienen ops pasadas/futuras sin solaparse
     // =========================================================
     const OP4_CODIGO = "OP-CANCELADA-004";
 
     const personalOp4Usernames = [
-      "atorres",   // CUT
-      "lhernandez",// CET
-      "mcruz",     // CELL — también estuvo en OP-001 que es ACTIVA,
-                   // pero OP-004 tiene fechas distintas sin solapamiento
-      "jmartinez", // CELL
-      "psanchez",  // CELL
+      "atorres",
+      "lhernandez",
+      "mcruz",
+      "jmartinez",
+      "psanchez",
     ];
 
-    // Insertar como PLANIFICADA para que los triggers permitan las asignaciones.
-    // Al final del bloque se actualiza a CANCELADA.
     await client.query(
       `
       INSERT INTO operacion
@@ -1192,7 +1239,6 @@ async function main() {
     );
     const idOp4 = op4Row.rows[0].id_operacion;
 
-    // Personal -> Operacion 4
     const personalAsignado4 = [];
 
     for (const username of personalOp4Usernames) {
@@ -1223,7 +1269,6 @@ async function main() {
 
     if (!cet4) throw new Error(`No se encontró lhernandez para OP-CANCELADA-004.`);
 
-    // Mando (aunque se canceló, ya estaba asignado al planificar)
     for (const cell of cells4) {
       await client.query(
         `INSERT INTO mando_operacion (id_operacion, id_cet, id_cell, asignado_por)
@@ -1233,7 +1278,6 @@ async function main() {
       );
     }
 
-    // Grupo padre (ya estaba estructurado antes de cancelar)
     await client.query(
       `
       INSERT INTO grupo_operacion
@@ -1248,7 +1292,6 @@ async function main() {
     const idPadre4 = await getGrupoId(client, idOp4, "Grupo CANCELADA");
     if (!idPadre4) throw new Error(`No se pudo obtener el grupo padre de OP-CANCELADA-004.`);
 
-    // Un solo subgrupo (no llegaron a armar el segundo)
     await client.query(
       `
       INSERT INTO grupo_operacion
@@ -1273,7 +1316,6 @@ async function main() {
       );
     }
 
-    // Chat cerrado (nunca estuvo activo)
     const chat4Res = await client.query(
       `INSERT INTO chat_operacion (id_operacion, activo)
        VALUES ($1, FALSE)
@@ -1322,7 +1364,6 @@ async function main() {
       }
     }
 
-    // Zona (ya estaba definida antes de cancelar)
     const zonaGeometria4 = {
       type: "Polygon",
       coordinates: [[
@@ -1361,7 +1402,6 @@ async function main() {
       ]
     );
 
-    // Deshabilitar triggers para cancelar sin que el sync de chat falle
     await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_sync_chat_estado`);
     await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_touch`);
     await client.query(`ALTER TABLE mensaje_chat DISABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
@@ -1378,7 +1418,6 @@ async function main() {
       [idOp4]
     );
 
-    // Re-habilitar triggers
     await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_sync_chat_estado`);
     await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_touch`);
     await client.query(`ALTER TABLE mensaje_chat ENABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
@@ -1397,8 +1436,8 @@ async function main() {
     console.log(`Personal OP2: ${personalAsignado2.length} (mlopez repetido)`);
     console.log(`Personal OP3: ${personalAsignado3.length}`);
     console.log(`Personal OP4: ${personalAsignado4.length}`);
-    console.log(`Vehiculos del inventario: ${vehiculosDisponibles.length}`);
-    console.log(`Equipos del inventario:   ${equiposDisponibles.length}`);
+    console.log(`Vehiculos fijos OP1: ${vehiculosFijos.length}`);
+    console.log(`Equipos fijos OP1:   ${equiposFijos.length}`);
   } catch (e) {
     await client.query("ROLLBACK");
     console.error("Seed falló (detalle):", e);
