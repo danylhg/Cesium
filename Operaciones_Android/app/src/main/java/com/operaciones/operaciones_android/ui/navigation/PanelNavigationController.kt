@@ -14,11 +14,18 @@ class PanelNavigationController(
     private val host: Host
 ) {
 
-    enum class Panel { NONE, CHAT, PERSONAL, EQUIPO }
+    enum class Panel {
+        NONE,
+        CHAT,
+        PERSONAL,
+        VEHICULOS,
+        EQUIPOS
+    }
 
     interface Host {
         fun inflateChatPanel()
         fun inflatePersonalPanel()
+        fun inflateVehiculoPanel()
         fun inflateEquipoPanel()
     }
 
@@ -28,7 +35,10 @@ class PanelNavigationController(
     fun setupNavigation() {
         btnNavChat.setOnClickListener { togglePanel(Panel.CHAT) }
         btnNavPersonal.setOnClickListener { togglePanel(Panel.PERSONAL) }
-        btnNavEquipo.setOnClickListener { togglePanel(Panel.EQUIPO) }
+
+        // Por ahora este botón abre VEHÍCULOS.
+        // Luego, si quieres, aquí metemos selector entre vehículos y equipos.
+        btnNavEquipo.setOnClickListener { togglePanel(Panel.VEHICULOS) }
     }
 
     fun togglePanel(panel: Panel) {
@@ -41,7 +51,7 @@ class PanelNavigationController(
 
         setNavActive(btnNavChat, panel == Panel.CHAT)
         setNavActive(btnNavPersonal, panel == Panel.PERSONAL)
-        setNavActive(btnNavEquipo, panel == Panel.EQUIPO)
+        setNavActive(btnNavEquipo, panel == Panel.VEHICULOS || panel == Panel.EQUIPOS)
 
         if (panel == Panel.NONE) {
             panelContent.visibility = View.GONE
@@ -49,10 +59,12 @@ class PanelNavigationController(
         }
 
         panelContent.visibility = View.VISIBLE
+
         when (panel) {
             Panel.CHAT -> host.inflateChatPanel()
             Panel.PERSONAL -> host.inflatePersonalPanel()
-            Panel.EQUIPO -> host.inflateEquipoPanel()
+            Panel.VEHICULOS -> host.inflateVehiculoPanel()
+            Panel.EQUIPOS -> host.inflateEquipoPanel()
             Panel.NONE -> {}
         }
     }

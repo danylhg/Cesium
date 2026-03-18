@@ -1970,98 +1970,203 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
 // GET /ops/:id/personal — lista el personal asignado, no requiere tracking
 app.get("/ops/:id/personal", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
   try {
     const { rows } = await pool.query(
-      `SELECT
-         p.id_personal,
-         p.apodo,
-         p.nombre,
-         p.apellido,
-         p.rol,
-         p.puesto,
-         a.rol_en_operacion,
-         a.estado_asignacion,
-         -- última posición conocida (null si no ha enviado tracking)
-         t.latitud,
-         t.longitud,
-         t.ultima_actualizacion
-       FROM asignacion_operacion_personal a
-       JOIN personal p ON p.id_personal = a.id_personal
-       LEFT JOIN v_ultima_posicion_personal t
-         ON t.id_personal = a.id_personal AND t.id_operacion = a.id_operacion
-       WHERE a.id_operacion = $1
-         AND a.estado_asignacion NOT IN ('LIBERADO')
-       ORDER BY p.rol, p.apellido`,
+      `
+      SELECT
+        p.id_personal,
+        p.apodo,
+        p.nombre,
+        p.apellido,
+        p.rol,
+        p.puesto,
+        a.rol_en_operacion,
+        a.estado_asignacion,
+        gp.id_grupo_operacion,
+        gp.grupo_nombre,
+        gp.grupo_apodo,
+        gp.grupo_padre_nombre,
+        gp.grupo_padre_apodo,
+        t.latitud,
+        t.longitud,
+        t.ultima_actualizacion
+      FROM asignacion_operacion_personal a
+      JOIN personal p
+        ON p.id_personal = a.id_personal
+      LEFT JOIN LATERAL (
+        SELECT
+          go.id_grupo_operacion,
+          go.nombre AS grupo_nombre,
+          go.apodo AS grupo_apodo,
+          gp_padre.nombre AS grupo_padre_nombre,
+          gp_padre.apodo AS grupo_padre_apodo
+        FROM grupo_personal gper
+        JOIN grupo_operacion go
+          ON go.id_grupo_operacion = gper.id_grupo_operacion
+        LEFT JOIN grupo_operacion gp_padre
+          ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+        WHERE gper.id_personal = p.id_personal
+          AND go.id_operacion = a.id_operacion
+        ORDER BY
+          CASE WHEN go.id_grupo_padre IS NULL THEN 0 ELSE 1 END,
+          go.id_grupo_operacion
+        LIMIT 1
+      ) gp ON TRUE
+      LEFT JOIN v_ultima_posicion_personal t
+        ON t.id_personal = a.id_personal
+       AND t.id_operacion = a.id_operacion
+      WHERE a.id_operacion = $1
+        AND a.estado_asignacion NOT IN ('LIBERADO')
+      ORDER BY
+        COALESCE(gp.grupo_padre_nombre, gp.grupo_nombre, ''),
+        COALESCE(gp.grupo_nombre, ''),
+        p.rol,
+        p.apellido,
+        p.nombre
+      `,
       [id_operacion]
     );
-    res.json({ ok: true, items: rows });
+
+    return res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo personal", error: err.message });
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error obteniendo personal",
+      error: err.message
+    });
   }
 });
 
 // GET /ops/:id/vehiculos-asignados — vehículos asignados (para panel de la app móvil)
 app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
   try {
     const { rows } = await pool.query(
-      `SELECT
-         v.id_vehiculo,
-         v.codigo_interno,
-         v.tipo,
-         v.marca,
-         v.modelo,
-         vo.uso_en_operacion,
-         vo.estado_asignacion,
-         -- última posición conocida (null si no ha enviado tracking)
-         t.latitud,
-         t.longitud,
-         t.ultima_actualizacion
-       FROM vehiculo_operacion vo
-       JOIN vehiculo v ON v.id_vehiculo = vo.id_vehiculo
-       LEFT JOIN v_ultima_posicion_vehiculo t
-         ON t.id_vehiculo = vo.id_vehiculo AND t.id_operacion = vo.id_operacion
-       WHERE vo.id_operacion = $1
-         AND vo.estado_asignacion != 'LIBERADO'
-       ORDER BY v.tipo, v.codigo_interno`,
+      `
+      SELECT
+        v.id_vehiculo,
+        v.codigo_interno,
+        v.tipo,
+        v.marca,
+        v.modelo,
+        vo.uso_en_operacion,
+        vo.estado_asignacion,
+        gv.id_grupo_operacion,
+        gv.grupo_nombre,
+        gv.grupo_apodo,
+        gv.grupo_padre_nombre,
+        gv.grupo_padre_apodo,
+        t.latitud,
+        t.longitud,
+        t.ultima_actualizacion
+      FROM vehiculo_operacion vo
+      JOIN vehiculo v
+        ON v.id_vehiculo = vo.id_vehiculo
+      LEFT JOIN LATERAL (
+        SELECT
+          go.id_grupo_operacion,
+          go.nombre AS grupo_nombre,
+          go.apodo AS grupo_apodo,
+          gp_padre.nombre AS grupo_padre_nombre,
+          gp_padre.apodo AS grupo_padre_apodo
+        FROM grupo_vehiculo gv
+        JOIN grupo_operacion go
+          ON go.id_grupo_operacion = gv.id_grupo_operacion
+        LEFT JOIN grupo_operacion gp_padre
+          ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+        WHERE gv.id_vehiculo = v.id_vehiculo
+          AND go.id_operacion = vo.id_operacion
+        ORDER BY
+          CASE WHEN go.id_grupo_padre IS NULL THEN 0 ELSE 1 END,
+          go.id_grupo_operacion
+        LIMIT 1
+      ) gv ON TRUE
+      LEFT JOIN v_ultima_posicion_vehiculo t
+        ON t.id_vehiculo = vo.id_vehiculo
+       AND t.id_operacion = vo.id_operacion
+      WHERE vo.id_operacion = $1
+        AND vo.estado_asignacion != 'LIBERADO'
+      ORDER BY
+        COALESCE(gv.grupo_padre_nombre, gv.grupo_nombre, ''),
+        COALESCE(gv.grupo_nombre, ''),
+        v.tipo,
+        v.codigo_interno
+      `,
       [id_operacion]
     );
-    res.json({ ok: true, items: rows });
+
+    return res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo vehiculos", error: err.message });
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error obteniendo vehiculos",
+      error: err.message
+    });
   }
 });
 
 // GET /ops/:id/equipos-asignados — equipos asignados (para panel de la app móvil)
 app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
   try {
     const { rows } = await pool.query(
-      `SELECT
-         e.id_equipo,
-         e.numero_serie,
-         e.nombre,
-         e.categoria,
-         e.estado,
-         oe.cantidad,
-         oe.uso_en_operacion,
-         oe.estado_asignacion,
-         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq
-       FROM operacion_equipo oe
-       JOIN equipo e ON e.id_equipo = oe.id_equipo
-       LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
-       LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
-       WHERE oe.id_operacion = $1
-         AND oe.estado_asignacion != 'LIBERADO'
-       ORDER BY e.categoria, e.nombre`,
+      `
+      SELECT
+        e.id_equipo,
+        e.numero_serie,
+        e.nombre,
+        e.categoria,
+        e.estado,
+        oe.cantidad,
+        oe.uso_en_operacion,
+        oe.estado_asignacion,
+        COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+        CONCAT_WS(' ', p.nombre, p.apellido) AS personal_asignado,
+        p.apodo AS personal_apodo,
+        v.codigo_interno AS vehiculo_asignado,
+        v.marca AS vehiculo_marca,
+        v.modelo AS vehiculo_modelo
+      FROM operacion_equipo oe
+      JOIN equipo e
+        ON e.id_equipo = oe.id_equipo
+      LEFT JOIN equipo_comunicacion ec
+        ON ec.id_equipo = e.id_equipo
+      LEFT JOIN equipo_tactico et
+        ON et.id_equipo = e.id_equipo
+      LEFT JOIN personal_equipo pe
+        ON pe.id_equipo = e.id_equipo
+      LEFT JOIN personal p
+        ON p.id_personal = pe.id_personal
+      LEFT JOIN vehiculo_equipo ve
+        ON ve.id_equipo = e.id_equipo
+      LEFT JOIN vehiculo v
+        ON v.id_vehiculo = ve.id_vehiculo
+      WHERE oe.id_operacion = $1
+        AND oe.estado_asignacion != 'LIBERADO'
+      ORDER BY e.categoria, e.nombre, e.numero_serie
+      `,
       [id_operacion]
     );
-    res.json({ ok: true, items: rows });
+
+    return res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo equipos", error: err.message });
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error obteniendo equipos",
+      error: err.message
+    });
   }
 });
 

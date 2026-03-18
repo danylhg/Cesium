@@ -1,9 +1,12 @@
 package com.operaciones.operaciones_android.model
 
 data class EquipoItem(
-    val id: Int,
+    val idEquipo: Int,
+    val numeroSerie: String,
     val nombre: String,
-    val detalle: String,
-    val tipo: String,
-    val esVehiculo: Boolean
+    val categoria: String,
+    val detalle: String = "",
+    val asignadoA: String = "",
+    val personalAsignado: String = "",
+    val vehiculoAsignado: String = ""
 )

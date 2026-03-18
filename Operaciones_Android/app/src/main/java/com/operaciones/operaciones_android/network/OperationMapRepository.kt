@@ -4,6 +4,7 @@ import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.OperationMapData
 import com.operaciones.operaciones_android.model.PersonalItem
+import com.operaciones.operaciones_android.model.VehiculoItem
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.OkHttpClient
@@ -35,10 +36,12 @@ class OperationMapRepository(
 
             override fun onResponse(call: Call, response: Response) {
                 val bodyStr = response.body?.string() ?: ""
+
                 try {
                     val json = JSONObject(bodyStr)
-                    if (!json.optBoolean("ok")) {
-                        onError("No se pudieron cargar los datos del mapa.")
+
+                    if (!response.isSuccessful || !json.optBoolean("ok")) {
+                        onError(json.optString("mensaje", "No se pudieron cargar los datos del mapa."))
                         return
                     }
 
@@ -61,6 +64,7 @@ class OperationMapRepository(
                         for (i in 0 until capas.length()) {
                             val c = capas.getJSONObject(i)
                             if (c.optString("tipo_capa") != "PERSONAL") continue
+
                             val idP = c.optInt("id_referencia")
                             val pos = posMap[idP]
 
@@ -79,18 +83,25 @@ class OperationMapRepository(
                         }
                     }
 
-                    val vehiculos = mutableListOf<EquipoItem>()
+                    val vehiculos = mutableListOf<VehiculoItem>()
                     val posVehiculos = json.optJSONArray("vehiculos")
                     if (posVehiculos != null) {
                         for (i in 0 until posVehiculos.length()) {
                             val v = posVehiculos.getJSONObject(i)
+
+                            val codigoInterno = v.optString("codigo_interno", "")
+                            val nombreVehiculo = v.optString("nombre", "").ifBlank {
+                                if (codigoInterno.isNotBlank()) codigoInterno else "Vehículo"
+                            }
+
                             vehiculos.add(
-                                EquipoItem(
-                                    id = v.optInt("id_vehiculo"),
-                                    nombre = v.optString("nombre", v.optString("codigo_interno", "Vehículo")),
-                                    detalle = v.optString("codigo_interno", ""),
-                                    tipo = v.optString("tipo", "VEHÍCULO"),
-                                    esVehiculo = true
+                                VehiculoItem(
+                                    idVehiculo = v.optInt("id_vehiculo"),
+                                    codigoInterno = codigoInterno,
+                                    nombre = nombreVehiculo,
+                                    tipo = v.optString("tipo", ""),
+                                    detalle = "",
+                                    flotillaAsignada = ""
                                 )
                             )
                         }
@@ -101,13 +112,17 @@ class OperationMapRepository(
                         for (i in 0 until capas.length()) {
                             val c = capas.getJSONObject(i)
                             if (c.optString("tipo_capa") != "EQUIPO") continue
+
+                            val numeroSerie = c.optString("numero_serie", "")
+
                             equipos.add(
                                 EquipoItem(
-                                    id = c.optInt("id_referencia"),
+                                    idEquipo = c.optInt("id_referencia"),
+                                    numeroSerie = numeroSerie,
                                     nombre = c.optString("nombre", "Equipo"),
-                                    detalle = "S/N: ${c.optString("numero_serie", "-")}",
-                                    tipo = c.optString("categoria", "EQUIPO"),
-                                    esVehiculo = false
+                                    categoria = c.optString("categoria", ""),
+                                    detalle = if (numeroSerie.isNotBlank()) "S/N: $numeroSerie" else "",
+                                    asignadoA = ""
                                 )
                             )
                         }
@@ -147,6 +162,7 @@ class OperationMapRepository(
 
             override fun onResponse(call: Call, response: Response) {
                 val bodyStr = response.body?.string() ?: ""
+
                 try {
                     val json = JSONObject(bodyStr)
 
@@ -181,5 +197,4 @@ class OperationMapRepository(
             }
         })
     }
-
 }

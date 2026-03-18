@@ -203,8 +203,72 @@ CREATE TABLE IF NOT EXISTS operacion (
   fecha_fin TIMESTAMPTZ,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   creada_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
+  id_cut INT REFERENCES personal(id_personal) ON DELETE RESTRICT,
   CHECK (fecha_inicio IS NULL OR fecha_fin IS NULL OR fecha_fin >= fecha_inicio)
 );
+
+-- =========================================================
+-- PATCH: agregar id_cut a operacion si no existe
+-- Regla de negocio: cada operación puede tener un CUT principal
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_name = 'operacion'
+      AND column_name = 'id_cut'
+  ) THEN
+    ALTER TABLE operacion
+      ADD COLUMN id_cut INT REFERENCES personal(id_personal) ON DELETE RESTRICT;
+  END IF;
+END
+$$;
+
+CREATE INDEX IF NOT EXISTS idx_operacion_id_cut
+  ON operacion (id_cut);
+
+-- =========================================================
+-- VALIDACIÓN: id_cut debe pertenecer a personal y tener rol CUT
+-- =========================================================
+CREATE OR REPLACE FUNCTION fn_validar_cut_operacion()
+RETURNS TRIGGER AS $$
+DECLARE
+  rol_cut rol_personal_enum;
+BEGIN
+  IF NEW.id_cut IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  SELECT p.rol INTO rol_cut
+  FROM personal p
+  WHERE p.id_personal = NEW.id_cut;
+
+  IF rol_cut IS NULL THEN
+    RAISE EXCEPTION 'id_cut % no existe en personal', NEW.id_cut;
+  END IF;
+
+  IF rol_cut <> 'CUT' THEN
+    RAISE EXCEPTION 'El responsable principal de la operación debe tener rol CUT. id_cut=% tiene rol=%', NEW.id_cut, rol_cut;
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'tr_validar_cut_operacion'
+  ) THEN
+    CREATE TRIGGER tr_validar_cut_operacion
+    BEFORE INSERT OR UPDATE ON operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_cut_operacion();
+  END IF;
+END $$;
 
 -- =========================================================
 -- 4.1) PUNTOS DE INTERÉS (POI) — CREADOR: USUARIO o PERSONAL (uno u otro)
@@ -833,9 +897,23 @@ SELECT
   o.fecha_fin,
   o.fecha_creacion,
   o.creada_por,
+  o.id_cut,
+  cut.apodo   AS cut_apodo,
+  cut.nombre  AS cut_nombre,
+  cut.apellido AS cut_apellido,
 
   (SELECT COUNT(*) FROM asignacion_operacion_personal a
     WHERE a.id_operacion = o.id_operacion) AS total_personal,
+
+  (SELECT COUNT(*) FROM asignacion_operacion_personal a
+    JOIN personal p ON p.id_personal = a.id_personal
+    WHERE a.id_operacion = o.id_operacion
+      AND p.rol = 'CET') AS total_cet,
+
+  (SELECT COUNT(*) FROM asignacion_operacion_personal a
+    JOIN personal p ON p.id_personal = a.id_personal
+    WHERE a.id_operacion = o.id_operacion
+      AND p.rol = 'CELL') AS total_cell,
 
   (SELECT COUNT(*) FROM vehiculo_operacion vo
     WHERE vo.id_operacion = o.id_operacion) AS total_vehiculos,
@@ -845,7 +923,8 @@ SELECT
 
   (SELECT COUNT(*) FROM grupo_operacion g
     WHERE g.id_operacion = o.id_operacion) AS total_grupos
-FROM operacion o;
+FROM operacion o
+LEFT JOIN personal cut ON cut.id_personal = o.id_cut;
 
 -- 2) Árbol de grupos (padre/hijo) + etiqueta útil
 CREATE OR REPLACE VIEW v_grupo_arbol AS
@@ -956,10 +1035,16 @@ FROM uso_equipo_operacion ueo
 JOIN personal p ON p.id_personal = ueo.id_personal
 JOIN equipo e   ON e.id_equipo   = ueo.id_equipo;
 
--- 6) Jerarquía de mando (CET -> CELL) con nombres
+-- 6) Jerarquía de mando (CUT -> CET -> CELL) con nombres
 CREATE OR REPLACE VIEW v_mando_operacion_detalle AS
 SELECT
   mo.id_operacion,
+
+  o.id_cut,
+  cut.apodo AS cut_apodo,
+  cut.nombre AS cut_nombre,
+  cut.apellido AS cut_apellido,
+
   mo.id_cet,
   cet.apodo AS cet_apodo,
   cet.nombre AS cet_nombre,
@@ -973,6 +1058,8 @@ SELECT
   mo.fecha_asignacion,
   mo.asignado_por
 FROM mando_operacion mo
+JOIN operacion o   ON o.id_operacion    = mo.id_operacion
+LEFT JOIN personal cut  ON cut.id_personal  = o.id_cut
 JOIN personal cet  ON cet.id_personal  = mo.id_cet
 JOIN personal cell ON cell.id_personal = mo.id_cell;
 

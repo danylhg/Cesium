@@ -221,6 +221,14 @@ async function getGrupoId(client, idOperacion, nombre) {
   return rows[0].id_grupo_operacion;
 }
 
+async function getPersonalIdStrict(client, username) {
+  const persona = await getPersonalByUsername(client, username);
+  if (!persona) {
+    throw new Error(`No se encontró personal con username=${username}`);
+  }
+  return persona.id_personal;
+}
+
 async function main() {
   const client = new Client({
     host: requireEnv("PGHOST"),
@@ -237,6 +245,7 @@ async function main() {
 
   const OP_CODIGO = "OP-PRUEBA-001";
   const personalOpUsernames = [
+    "cramirez",
     "mlopez",
     "mcruz",
     "jmartinez",
@@ -308,12 +317,14 @@ async function main() {
     // =========================================================
     // 3) OPERACION DE PRUEBA
     // =========================================================
+    const cutOp1 = await getPersonalIdStrict(client, "cramirez");
+
     await client.query(
       `
       INSERT INTO operacion
-        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por)
+        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
       VALUES
-        ($1,$2,$3,'MEDIA','ACTIVA','2025-02-09 08:00:00-06','2025-06-09 23:59:59-06',$4)
+        ($1,$2,$3,'MEDIA','ACTIVA','2025-02-09 08:00:00-06','2025-06-09 23:59:59-06',$4,$5)
       ON CONFLICT (codigo) DO UPDATE
         SET nombre       = EXCLUDED.nombre,
             descripcion  = EXCLUDED.descripcion,
@@ -321,13 +332,15 @@ async function main() {
             estado       = EXCLUDED.estado,
             fecha_inicio = EXCLUDED.fecha_inicio,
             fecha_fin    = EXCLUDED.fecha_fin,
-            creada_por   = EXCLUDED.creada_por
+            creada_por   = EXCLUDED.creada_por,
+            id_cut       = EXCLUDED.id_cut
       `,
       [
         OP_CODIGO,
         "Operacion de Prueba SEDAM",
-        "Operacion de validacion del sistema. CET: mlopez. Dos subgrupos de 3 celulas. Vehiculos y equipos fijos del inventario: VH-001, VH-003, HFC-001 y DRN-001.",
+        "Operacion de validacion del sistema. CUT: cramirez. CET: mlopez. Dos subgrupos de 3 celulas. Vehiculos y equipos fijos del inventario: VH-001, VH-003, HFC-001 y DRN-001.",
         creadoPor,
+        cutOp1,
       ]
     );
 
@@ -739,6 +752,7 @@ async function main() {
     const OP2_CODIGO = "OP-NORTE-002";
 
     const personalOp2Usernames = [
+      "atorres",
       "mlopez",
       "rvega",
       "drios",
@@ -749,12 +763,14 @@ async function main() {
       "eruiz",
     ];
 
+    const cutOp2 = await getPersonalIdStrict(client, "atorres");
+
     await client.query(
       `
       INSERT INTO operacion
-        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por)
+        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
       VALUES
-        ($1,$2,$3,'ALTA','PLANIFICADA','2025-07-01 08:00:00-06','2025-09-30 23:59:59-06',$4)
+        ($1,$2,$3,'ALTA','PLANIFICADA','2025-07-01 08:00:00-06','2025-09-30 23:59:59-06',$4,$5)
       ON CONFLICT (codigo) DO UPDATE
         SET nombre       = EXCLUDED.nombre,
             descripcion  = EXCLUDED.descripcion,
@@ -762,13 +778,15 @@ async function main() {
             estado       = EXCLUDED.estado,
             fecha_inicio = EXCLUDED.fecha_inicio,
             fecha_fin    = EXCLUDED.fecha_fin,
-            creada_por   = EXCLUDED.creada_por
+            creada_por   = EXCLUDED.creada_por,
+            id_cut       = EXCLUDED.id_cut
       `,
       [
         OP2_CODIGO,
         "Operacion Norte 002",
-        "Segunda operacion de prueba. mlopez (CET repetido de OP-001) lidera Aguila 3. rvega (CET nuevo) lidera Aguila 4. Celulas completamente distintas a OP-001.",
+        "Segunda operacion de prueba. CUT: atorres. mlopez (CET repetido de OP-001) lidera Aguila 3. rvega (CET nuevo) lidera Aguila 4. Celulas completamente distintas a OP-001.",
         creadoPor,
+        cutOp2,
       ]
     );
 
@@ -964,6 +982,7 @@ async function main() {
     const OP3_CODIGO = "OP-HISTORICA-003";
 
     const personalOp3Usernames = [
+      "cramirez",
       "lhernandez",
       "iperez",
       "dortega",
@@ -973,19 +992,30 @@ async function main() {
       "olopez",
     ];
 
+    const cutOp3 = await getPersonalIdStrict(client, "cramirez");
+
     await client.query(
       `
       INSERT INTO operacion
-        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por)
+        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
       VALUES
-        ($1,$2,$3,'ALTA','PLANIFICADA','2024-09-01 06:00:00-06','2024-11-30 22:00:00-06',$4)
-      ON CONFLICT (codigo) DO UPDATE SET estado = 'PLANIFICADA', nombre = EXCLUDED.nombre, descripcion = EXCLUDED.descripcion, prioridad = EXCLUDED.prioridad, fecha_inicio = EXCLUDED.fecha_inicio, fecha_fin = EXCLUDED.fecha_fin, creada_por = EXCLUDED.creada_por
+        ($1,$2,$3,'ALTA','PLANIFICADA','2024-09-01 06:00:00-06','2024-11-30 22:00:00-06',$4,$5)
+      ON CONFLICT (codigo) DO UPDATE
+        SET estado       = 'PLANIFICADA',
+            nombre       = EXCLUDED.nombre,
+            descripcion  = EXCLUDED.descripcion,
+            prioridad    = EXCLUDED.prioridad,
+            fecha_inicio = EXCLUDED.fecha_inicio,
+            fecha_fin    = EXCLUDED.fecha_fin,
+            creada_por   = EXCLUDED.creada_por,
+            id_cut       = EXCLUDED.id_cut
       `,
       [
         OP3_CODIGO,
         "Operacion Historica 003",
-        "Operacion concluida exitosamente. Periodo: sept-nov 2024. CET lhernandez al mando. Objetivos cumplidos al 100%.",
+        "Operacion concluida exitosamente. Periodo: sept-nov 2024. CUT: cramirez. CET lhernandez al mando. Objetivos cumplidos al 100%.",
         creadoPor,
+        cutOp3,
       ]
     );
 
@@ -1217,19 +1247,30 @@ async function main() {
       "psanchez",
     ];
 
+    const cutOp4 = await getPersonalIdStrict(client, "atorres");
+
     await client.query(
       `
       INSERT INTO operacion
-        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por)
+        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
       VALUES
-        ($1,$2,$3,'MEDIA','PLANIFICADA','2024-06-01 08:00:00-06','2024-08-31 23:59:59-06',$4)
-      ON CONFLICT (codigo) DO UPDATE SET estado = 'PLANIFICADA', nombre = EXCLUDED.nombre, descripcion = EXCLUDED.descripcion, prioridad = EXCLUDED.prioridad, fecha_inicio = EXCLUDED.fecha_inicio, fecha_fin = EXCLUDED.fecha_fin, creada_por = EXCLUDED.creada_por
+        ($1,$2,$3,'MEDIA','PLANIFICADA','2024-06-01 08:00:00-06','2024-08-31 23:59:59-06',$4,$5)
+      ON CONFLICT (codigo) DO UPDATE
+        SET estado       = 'PLANIFICADA',
+            nombre       = EXCLUDED.nombre,
+            descripcion  = EXCLUDED.descripcion,
+            prioridad    = EXCLUDED.prioridad,
+            fecha_inicio = EXCLUDED.fecha_inicio,
+            fecha_fin    = EXCLUDED.fecha_fin,
+            creada_por   = EXCLUDED.creada_por,
+            id_cut       = EXCLUDED.id_cut
       `,
       [
         OP4_CODIGO,
         "Operacion Cancelada 004",
-        "Operacion planificada que fue cancelada antes de iniciar. Periodo junio-agosto 2024. Recursos liberados sin uso.",
+        "Operacion planificada que fue cancelada antes de iniciar. Periodo junio-agosto 2024. CUT: atorres. Recursos liberados sin uso.",
         creadoPor,
+        cutOp4,
       ]
     );
 
@@ -1427,10 +1468,10 @@ async function main() {
     await client.query("COMMIT");
 
     console.log("Seed OK");
-    console.log(`Operacion 1 creada/actualizada: ${OP_CODIGO}      — ACTIVA      (id=${idOp})`);
-    console.log(`Operacion 2 creada/actualizada: ${OP2_CODIGO}   — PLANIFICADA  (id=${idOp2})`);
-    console.log(`Operacion 3 creada/actualizada: ${OP3_CODIGO} — CERRADA      (id=${idOp3})`);
-    console.log(`Operacion 4 creada/actualizada: ${OP4_CODIGO} — CANCELADA    (id=${idOp4})`);
+    console.log(`Operacion 1 creada/actualizada: ${OP_CODIGO}      — ACTIVA      (id=${idOp})  CUT=cramirez`);
+    console.log(`Operacion 2 creada/actualizada: ${OP2_CODIGO}   — PLANIFICADA  (id=${idOp2}) CUT=atorres`);
+    console.log(`Operacion 3 creada/actualizada: ${OP3_CODIGO} — CERRADA      (id=${idOp3}) CUT=cramirez`);
+    console.log(`Operacion 4 creada/actualizada: ${OP4_CODIGO} — CANCELADA    (id=${idOp4}) CUT=atorres`);
     console.log(`Password para usuarios seed: ${DEFAULT_PASSWORD}`);
     console.log(`Personal OP1: ${personalAsignado.length}`);
     console.log(`Personal OP2: ${personalAsignado2.length} (mlopez repetido)`);

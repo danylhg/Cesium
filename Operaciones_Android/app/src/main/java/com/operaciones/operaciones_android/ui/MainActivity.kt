@@ -20,9 +20,13 @@ import com.operaciones.operaciones_android.model.Operation
 import com.operaciones.operaciones_android.model.OperationStatus
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.model.VehiculoItem
 import com.operaciones.operaciones_android.network.ChatRepository
 import com.operaciones.operaciones_android.network.ChatSocketManager
+import com.operaciones.operaciones_android.network.EquipoRepository
 import com.operaciones.operaciones_android.network.OperationMapRepository
+import com.operaciones.operaciones_android.network.PersonalRepository
+import com.operaciones.operaciones_android.network.VehiculoRepository
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
 import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController
 import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController.Panel
@@ -36,6 +40,10 @@ class MainActivity : AppCompatActivity(),
     MainPanelRenderer.Host,
     MapActionController.Host,
     PanelNavigationController.Host {
+
+    private val personalRepository = PersonalRepository()
+    private val vehiculoRepository = VehiculoRepository()
+    private val equipoRepository = EquipoRepository()
 
     private lateinit var webView: WebView
     private lateinit var panelContent: FrameLayout
@@ -65,7 +73,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var currentOperation: Operation
 
     private val personalList = mutableListOf<PersonalItem>()
-    private val vehiculosList = mutableListOf<EquipoItem>()
+    private val vehiculosList = mutableListOf<VehiculoItem>()
     private val equiposList = mutableListOf<EquipoItem>()
 
     private var opLat = 0.0
@@ -103,7 +111,6 @@ class MainActivity : AppCompatActivity(),
             chatSocketManager = ChatSocketManager(currentOperation.id) { item ->
                 runOnUiThread {
                     val incoming = parseChatMessage(item)
-
                     val alreadyExists = incoming.id != null &&
                             messages.any { it.id == incoming.id }
 
@@ -162,7 +169,9 @@ class MainActivity : AppCompatActivity(),
 
         if (currentOperation.id > 0) {
             fetchMapaData()
-            fetchPersonalData()
+            fetchPersonalPanelData()
+            fetchVehiculosPanelData()
+            fetchEquiposPanelData()
         }
     }
 
@@ -213,23 +222,9 @@ class MainActivity : AppCompatActivity(),
         operationMapRepository.fetchMapaData(
             operationId = currentOperation.id,
             token = token,
-            onSuccess = { data ->
-                runOnUiThread {
-                    personalList.clear()
-                    personalList.addAll(data.personal)
-
-                    vehiculosList.clear()
-                    vehiculosList.addAll(data.vehiculos)
-
-                    equiposList.clear()
-                    equiposList.addAll(data.equipos)
-
-                    when (panelNavigationController.activePanel) {
-                        Panel.PERSONAL -> inflatePersonalPanel()
-                        Panel.EQUIPO -> inflateEquipoPanel()
-                        else -> {}
-                    }
-                }
+            onSuccess = {
+                // Ya no llenamos paneles desde aquí.
+                // Este endpoint queda solo para mapa/webview.
             },
             onError = { message ->
                 runOnUiThread {
@@ -239,10 +234,10 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
-    private fun fetchPersonalData() {
+    private fun fetchPersonalPanelData() {
         val token = AuthManager.getToken(this)
 
-        operationMapRepository.fetchPersonalData(
+        personalRepository.fetchPersonal(
             operationId = currentOperation.id,
             token = token,
             onSuccess = { items ->
@@ -252,6 +247,66 @@ class MainActivity : AppCompatActivity(),
 
                     if (panelNavigationController.activePanel == Panel.PERSONAL) {
                         inflatePersonalPanel()
+                    }
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    addMessage(
+                        ChatMessage(
+                            user = "Sistema",
+                            text = message,
+                            type = MessageType.SYSTEM
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    private fun fetchVehiculosPanelData() {
+        val token = AuthManager.getToken(this)
+
+        vehiculoRepository.fetchVehiculos(
+            operationId = currentOperation.id,
+            token = token,
+            onSuccess = { items ->
+                runOnUiThread {
+                    vehiculosList.clear()
+                    vehiculosList.addAll(items)
+
+                    if (panelNavigationController.activePanel == Panel.VEHICULOS) {
+                        inflateVehiculoPanel()
+                    }
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    addMessage(
+                        ChatMessage(
+                            user = "Sistema",
+                            text = message,
+                            type = MessageType.SYSTEM
+                        )
+                    )
+                }
+            }
+        )
+    }
+
+    private fun fetchEquiposPanelData() {
+        val token = AuthManager.getToken(this)
+
+        equipoRepository.fetchEquipos(
+            operationId = currentOperation.id,
+            token = token,
+            onSuccess = { items ->
+                runOnUiThread {
+                    equiposList.clear()
+                    equiposList.addAll(items)
+
+                    if (panelNavigationController.activePanel == Panel.EQUIPOS) {
+                        inflateEquipoPanel()
                     }
                 }
             },
@@ -357,8 +412,10 @@ class MainActivity : AppCompatActivity(),
             "SISTEMA" -> MessageType.SYSTEM
             else -> MessageType.NORMAL
         }
+
         android.util.Log.d("CHAT_PARSE", "json=$item")
         android.util.Log.d("CHAT_PARSE", "tipo_mensaje=${item.optString("tipo_mensaje", "SIN_VALOR")}")
+
         return ChatMessage(
             id = id,
             user = autor,
@@ -389,16 +446,30 @@ class MainActivity : AppCompatActivity(),
         )
 
         if (currentOperation.id > 0 && personalList.isEmpty()) {
-            fetchPersonalData()
+            fetchPersonalPanelData()
         }
     }
 
     override fun inflateEquipoPanel() {
         panelRenderer.inflateEquipoPanel(
             panelContent = panelContent,
-            vehiculosList = vehiculosList,
             equiposList = equiposList
         )
+
+        if (currentOperation.id > 0 && equiposList.isEmpty()) {
+            fetchEquiposPanelData()
+        }
+    }
+
+    override fun inflateVehiculoPanel() {
+        panelRenderer.inflateVehiculoPanel(
+            panelContent = panelContent,
+            vehiculosList = vehiculosList
+        )
+
+        if (currentOperation.id > 0 && vehiculosList.isEmpty()) {
+            fetchVehiculosPanelData()
+        }
     }
 
     override fun onStop() {

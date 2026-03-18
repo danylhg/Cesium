@@ -7,6 +7,10 @@ data class PersonalItem(
     val apellido: String,
     val rol: String,
     val puesto: String,
-    val lat: Double?,
-    val lon: Double?
+    val lat: Double? = null,
+    val lon: Double? = null,
+    val grupoNombre: String = "",
+    val grupoApodo: String = "",
+    val grupoPadreNombre: String = "",
+    val grupoPadreApodo: String = ""
 )
