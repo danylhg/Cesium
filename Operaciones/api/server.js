@@ -1977,7 +1977,7 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
-      SELECT
+      SELECT DISTINCT ON (p.id_personal)
         p.id_personal,
         p.apodo,
         p.nombre,
@@ -1986,47 +1986,33 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
         p.puesto,
         a.rol_en_operacion,
         a.estado_asignacion,
-        gp.id_grupo_operacion,
-        gp.grupo_nombre,
-        gp.grupo_apodo,
-        gp.grupo_padre_nombre,
-        gp.grupo_padre_apodo,
+        go.id_grupo_operacion,
+        go.nombre AS grupo_nombre,
+        go.apodo AS grupo_apodo,
+        gp_padre.nombre AS grupo_padre_nombre,
+        gp_padre.apodo AS grupo_padre_apodo,
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
       FROM asignacion_operacion_personal a
       JOIN personal p
         ON p.id_personal = a.id_personal
-      LEFT JOIN LATERAL (
-        SELECT
-          go.id_grupo_operacion,
-          go.nombre AS grupo_nombre,
-          go.apodo AS grupo_apodo,
-          gp_padre.nombre AS grupo_padre_nombre,
-          gp_padre.apodo AS grupo_padre_apodo
-        FROM grupo_personal gper
-        JOIN grupo_operacion go
-          ON go.id_grupo_operacion = gper.id_grupo_operacion
-        LEFT JOIN grupo_operacion gp_padre
-          ON gp_padre.id_grupo_operacion = go.id_grupo_padre
-        WHERE gper.id_personal = p.id_personal
-          AND go.id_operacion = a.id_operacion
-        ORDER BY
-          CASE WHEN go.id_grupo_padre IS NULL THEN 0 ELSE 1 END,
-          go.id_grupo_operacion
-        LIMIT 1
-      ) gp ON TRUE
+      LEFT JOIN grupo_personal gper
+        ON gper.id_personal = p.id_personal
+      LEFT JOIN grupo_operacion go
+        ON go.id_grupo_operacion = gper.id_grupo_operacion
+       AND go.id_operacion = a.id_operacion
+      LEFT JOIN grupo_operacion gp_padre
+        ON gp_padre.id_grupo_operacion = go.id_grupo_padre
       LEFT JOIN v_ultima_posicion_personal t
         ON t.id_personal = a.id_personal
        AND t.id_operacion = a.id_operacion
       WHERE a.id_operacion = $1
         AND a.estado_asignacion NOT IN ('LIBERADO')
       ORDER BY
-        COALESCE(gp.grupo_padre_nombre, gp.grupo_nombre, ''),
-        COALESCE(gp.grupo_nombre, ''),
-        p.rol,
-        p.apellido,
-        p.nombre
+        p.id_personal,
+        CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
+        go.id_grupo_operacion
       `,
       [id_operacion]
     );
