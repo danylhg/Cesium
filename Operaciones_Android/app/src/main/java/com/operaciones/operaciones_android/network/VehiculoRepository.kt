@@ -62,11 +62,10 @@ class VehiculoRepository(
                             else -> ""
                         }
 
-                        val marca = v.safeString("marca")
-                        val modelo = v.safeString("modelo")
+                        val alias = v.safeString("alias")
                         val codigoInterno = v.safeString("codigo_interno")
 
-                        val nombreVehiculo = listOf(marca, modelo)
+                        val nombreVehiculo = listOf(alias)
                             .filter { it.isNotBlank() }
                             .joinToString(" ")
                             .ifBlank { codigoInterno.ifBlank { "Vehículo" } }
@@ -77,8 +76,7 @@ class VehiculoRepository(
                                 codigoInterno = codigoInterno,
                                 nombre = nombreVehiculo,
                                 tipo = v.safeString("tipo"),
-                                marca = marca,
-                                modelo = modelo,
+                                alias = alias,
                                 detalle = v.safeString("uso_en_operacion"),
                                 flotillaAsignada = grupoTexto,
                                 grupoNombre = grupoNombre,

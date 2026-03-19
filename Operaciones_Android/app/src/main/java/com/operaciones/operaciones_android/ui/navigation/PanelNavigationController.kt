@@ -10,7 +10,8 @@ class PanelNavigationController(
     private val panelContent: FrameLayout,
     private val btnNavChat: LinearLayout,
     private val btnNavPersonal: LinearLayout,
-    private val btnNavEquipo: LinearLayout,
+    private val btnNavVehiculos: LinearLayout,
+    private val btnNavEquipos: LinearLayout,
     private val host: Host
 ) {
 
@@ -35,10 +36,8 @@ class PanelNavigationController(
     fun setupNavigation() {
         btnNavChat.setOnClickListener { togglePanel(Panel.CHAT) }
         btnNavPersonal.setOnClickListener { togglePanel(Panel.PERSONAL) }
-
-        // Por ahora este botón abre VEHÍCULOS.
-        // Luego, si quieres, aquí metemos selector entre vehículos y equipos.
-        btnNavEquipo.setOnClickListener { togglePanel(Panel.VEHICULOS) }
+        btnNavVehiculos.setOnClickListener { togglePanel(Panel.VEHICULOS) }
+        btnNavEquipos.setOnClickListener { togglePanel(Panel.EQUIPOS) }
     }
 
     fun togglePanel(panel: Panel) {
@@ -51,7 +50,8 @@ class PanelNavigationController(
 
         setNavActive(btnNavChat, panel == Panel.CHAT)
         setNavActive(btnNavPersonal, panel == Panel.PERSONAL)
-        setNavActive(btnNavEquipo, panel == Panel.VEHICULOS || panel == Panel.EQUIPOS)
+        setNavActive(btnNavVehiculos, panel == Panel.VEHICULOS)
+        setNavActive(btnNavEquipos, panel == Panel.EQUIPOS)
 
         if (panel == Panel.NONE) {
             panelContent.visibility = View.GONE

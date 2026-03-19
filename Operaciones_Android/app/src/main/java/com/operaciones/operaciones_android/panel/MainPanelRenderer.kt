@@ -94,56 +94,88 @@ class MainPanelRenderer(
             return
         }
 
-        val grouped = personalList.groupBy { p ->
-            when {
-                p.grupoApodo.isNotBlank() -> p.grupoApodo
-                p.grupoNombre.isNotBlank() -> p.grupoNombre
-                p.grupoPadreApodo.isNotBlank() -> p.grupoPadreApodo
-                p.grupoPadreNombre.isNotBlank() -> p.grupoPadreNombre
-                else -> "Sin flotilla"
-            }
-        }
-
-        grouped.forEach { (flotilla, personas) ->
+        fun addSectionHeader(text: String) {
             val header = TextView(view.context).apply {
-                text = flotilla.uppercase()
+                this.text = text.uppercase()
                 setTextColor(Color.parseColor("#94a3b8"))
                 textSize = 11f
-                setPadding(0, 18, 0, 10)
+                setPadding(0, 20, 0, 10)
                 letterSpacing = 0.08f
             }
             list.addView(header)
+        }
 
-            personas.forEach { p ->
-                val row = host.getLayoutInflater().inflate(R.layout.item_personal, list, false)
+        fun addPersonRow(p: PersonalItem) {
+            val row = host.getLayoutInflater().inflate(R.layout.item_personal, list, false)
 
-                row.findViewById<TextView>(R.id.personalAvatar).text =
-                    p.nombre.firstOrNull()?.toString() ?: "?"
+            row.findViewById<TextView>(R.id.personalAvatar).text =
+                p.nombre.firstOrNull()?.toString() ?: "?"
 
-                row.findViewById<TextView>(R.id.personalNombre).text =
-                    if (p.apodo.isNotBlank()) p.apodo else "${p.nombre} ${p.apellido}"
+            row.findViewById<TextView>(R.id.personalNombre).text =
+                if (p.apodo.isNotBlank()) p.apodo else "${p.nombre} ${p.apellido}"
 
-                row.findViewById<TextView>(R.id.personalRol).text =
-                    buildString {
-                        if (p.rol.isNotBlank()) append(p.rol)
-                        if (p.puesto.isNotBlank()) append(" · ${p.puesto}")
-                    }
-
-                val statusColor = if (p.lat != null && p.lon != null) {
-                    Color.parseColor("#22c55e")
-                } else {
-                    Color.parseColor("#475569")
-                }
-                row.findViewById<View>(R.id.personalStatus).setBackgroundColor(statusColor)
-
-                if (p.idPersonal == currentUser.id) {
-                    row.setBackgroundColor(Color.parseColor("#0d1f3c"))
-                    row.findViewById<TextView>(R.id.personalNombre)
-                        .setTextColor(Color.parseColor("#3b82f6"))
+            row.findViewById<TextView>(R.id.personalRol).text =
+                buildString {
+                    if (p.rol.isNotBlank()) append(p.rol)
+                    if (p.puesto.isNotBlank()) append(" · ${p.puesto}")
                 }
 
-                list.addView(row)
+            val statusColor = if (p.lat != null && p.lon != null) {
+                Color.parseColor("#22c55e")
+            } else {
+                Color.parseColor("#475569")
             }
+            row.findViewById<View>(R.id.personalStatus).setBackgroundColor(statusColor)
+
+            if (p.idPersonal == currentUser.id) {
+                row.setBackgroundColor(Color.parseColor("#0d1f3c"))
+                row.findViewById<TextView>(R.id.personalNombre)
+                    .setTextColor(Color.parseColor("#3b82f6"))
+            }
+
+            list.addView(row)
+        }
+
+        val administrativos = personalList
+            .filter { it.rol.equals("CUT", ignoreCase = true) }
+            .sortedBy { it.apodo.ifBlank { "${it.nombre} ${it.apellido}" } }
+
+        val cets = personalList
+            .filter { it.rol.equals("CET", ignoreCase = true) }
+            .sortedBy { it.apodo.ifBlank { "${it.nombre} ${it.apellido}" } }
+
+        val cells = personalList
+            .filter { it.rol.equals("CELL", ignoreCase = true) }
+
+        if (administrativos.isNotEmpty()) {
+            addSectionHeader("Personal Administrativo")
+            administrativos.forEach { addPersonRow(it) }
+        }
+
+        if (cets.isNotEmpty() || cells.isNotEmpty()) {
+            addSectionHeader("Personal Táctico")
+        }
+
+        if (cets.isNotEmpty()) {
+            addSectionHeader("CET")
+            cets.forEach { addPersonRow(it) }
+        }
+
+        val flotillas = cells
+            .groupBy {
+                when {
+                    it.grupoApodo.isNotBlank() -> it.grupoApodo
+                    it.grupoNombre.isNotBlank() -> it.grupoNombre
+                    else -> "Sin flotilla"
+                }
+            }
+            .toSortedMap()
+
+        flotillas.forEach { (flotilla, personas) ->
+            addSectionHeader(flotilla)
+            personas
+                .sortedBy { it.apodo.ifBlank { "${it.nombre} ${it.apellido}" } }
+                .forEach { addPersonRow(it) }
         }
     }
 
@@ -151,10 +183,10 @@ class MainPanelRenderer(
         panelContent: FrameLayout,
         vehiculosList: List<VehiculoItem>
     ) {
-        val view = host.getLayoutInflater().inflate(R.layout.panel_equipo, panelContent, false)
+        val view = host.getLayoutInflater().inflate(R.layout.panel_vehiculo, panelContent, false)
         panelContent.addView(view)
 
-        val list = view.findViewById<LinearLayout>(R.id.equipoList)
+        val list = view.findViewById<LinearLayout>(R.id.vehiculoList)
 
         if (vehiculosList.isEmpty()) {
             val tv = TextView(view.context).apply {
@@ -182,17 +214,15 @@ class MainPanelRenderer(
                 buildString {
                     if (item.codigoInterno.isNotBlank()) {
                         append(item.codigoInterno)
-                    } else {
+                    } else if (item.nombre.isNotBlank()) {
                         append(item.nombre)
+                    } else {
+                        append("Vehículo")
                     }
 
-                    val marcaModelo = listOf(item.marca, item.modelo)
-                        .filter { it.isNotBlank() }
-                        .joinToString(" ")
-
-                    if (marcaModelo.isNotBlank()) {
+                    if (item.alias.isNotBlank()) {
                         append(" · ")
-                        append(marcaModelo)
+                        append(item.alias)
                     }
                 }
 

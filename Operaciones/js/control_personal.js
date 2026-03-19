@@ -1,14 +1,13 @@
-// control_personal.js (con backend)
+// control_personal.js (backend + actualización UI)
 
 if (localStorage.getItem("session") !== "ok") {
   window.location.href = "login.html";
 }
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-const token = localStorage.getItem("token"); // <-- AJUSTA si tu login guarda otro key
+const token = localStorage.getItem("token");
 
 if (!token) {
-  // si no hay token, no podemos pegarle al backend
   localStorage.removeItem("session");
   window.location.href = "login.html";
 }
@@ -35,7 +34,6 @@ async function api(path, { method = "GET", body } = {}) {
 /* =========================
    Catálogos (UI)
 ========================= */
-// UI labels
 const ROLES_UI = [
   "Comandante de Unidad de Trabajo",
   "Comandante de Equipo de trabajo",
@@ -59,10 +57,8 @@ const PUESTOS = [
   "Contraalmirante",
   "Vicealmirante",
   "Almirante",
-  // (si quieres, también puedes meter aquí tus puestos “tácticos”)
 ];
 
-// mapeo UI <-> backend
 function uiRolToApi(uiRol) {
   const r = (uiRol || "").toLowerCase();
   if (r.includes("unidad")) return "CUT";
@@ -77,7 +73,9 @@ function apiRolToUi(apiRol) {
   return "Celulas";
 }
 
-function normalize(s){ return (s ?? "").toString().trim().toLowerCase(); }
+function normalize(s) {
+  return (s ?? "").toString().trim().toLowerCase();
+}
 
 function escapeHtml(text) {
   return (text ?? "").toString()
@@ -88,7 +86,7 @@ function escapeHtml(text) {
     .replaceAll("'", "&#039;");
 }
 
-function fillSelect(selectEl, options, includeAll=false) {
+function fillSelect(selectEl, options, includeAll = false) {
   const base = includeAll
     ? `<option value="">Todos</option>`
     : `<option value="" disabled selected>Selecciona...</option>`;
@@ -138,15 +136,18 @@ const fLastAccess = document.getElementById("fLastAccess");
 /* =========================
    Estado
 ========================= */
-let personal = [];          // lista en memoria desde backend
-let selectedId = null;      // id_personal seleccionado
-let mode = "add";           // add|edit
+let personal = [];
+let selectedId = null;
+let mode = "add";
 
 /* =========================
    Nav / Logout
 ========================= */
-btnBack.addEventListener("click", () => window.location.href = "menu_inicial.html");
-btnLogout.addEventListener("click", () => {
+btnBack?.addEventListener("click", () => {
+  window.location.href = "menu_inicial.html";
+});
+
+btnLogout?.addEventListener("click", () => {
   localStorage.removeItem("session");
   localStorage.removeItem("token");
   window.location.href = "login.html";
@@ -167,7 +168,6 @@ function initCatalogs() {
    Cargar desde backend
 ========================= */
 async function loadFromApi() {
-  // Trae CUT/CET/CELL y junta
   const [cut, cet, cell] = await Promise.all([
     api("/catalog/personal?rol=CUT"),
     api("/catalog/personal?rol=CET"),
@@ -176,30 +176,28 @@ async function loadFromApi() {
 
   const all = [...(cut.items || []), ...(cet.items || []), ...(cell.items || [])];
 
-  // Normaliza a estructura de UI
   personal = all.map(p => ({
     id_personal: p.id_personal,
-    apodo: p.apodo ?? "",              // OJO: tu backend/seed ya debe llenar apodo
+    apodo: p.apodo ?? "",
     nombre: p.nombre ?? "",
     apellido: p.apellido ?? "",
     rol_api: (p.rol || "").toUpperCase(),
     rol_ui: apiRolToUi(p.rol),
     puesto: p.puesto ?? "",
     username: p.username ?? "",
-    activo: p.activo !== false,        // por defecto true
+    activo: p.activo !== false,
     ultimo_acceso: p.ultimo_acceso ?? "",
-    // password NO existe en backend (correcto). Si backend manda tempPassword al crear, se maneja aparte.
   }));
 }
 
 /* =========================
-   Filtros + render
+   Filtros
 ========================= */
-function getFiltered(){
+function getFiltered() {
   const q = normalize(searchInput.value);
   const rol = filterRol.value;
   const puesto = filterPuesto.value;
-  const act = filterActivo.value; // "" | "true" | "false"
+  const act = filterActivo.value;
 
   return personal.filter(p => {
     if (rol && p.rol_ui !== rol) return false;
@@ -219,20 +217,22 @@ function getFiltered(){
   });
 }
 
-function updateButtons(){
+function updateButtons() {
   const has = !!selectedId;
   btnEdit.disabled = !has;
   btnDelete.disabled = !has;
 }
 
-function renderTable(){
+function renderTable() {
   const list = getFiltered();
 
-  if (selectedId && !list.some(p => p.id_personal === selectedId)) selectedId = null;
+  if (selectedId && !list.some(p => p.id_personal === selectedId)) {
+    selectedId = null;
+  }
 
   tbody.innerHTML = "";
 
-  if(!list.length){
+  if (!list.length) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td colspan="9" style="color: rgba(11,18,32,.65); padding: 16px;">
       No hay registros con los filtros actuales.
@@ -243,7 +243,6 @@ function renderTable(){
       const tr = document.createElement("tr");
       if (p.id_personal === selectedId) tr.classList.add("selected");
 
-      // ✅ IMPORTANTE: 9 celdas EXACTAS (para que nunca “se corra”)
       tr.innerHTML = `
         <td>${escapeHtml(p.apodo)}</td>
         <td>${escapeHtml(p.nombre)}</td>
@@ -253,7 +252,7 @@ function renderTable(){
         <td>${escapeHtml(p.username)}</td>
         <td style="color: rgba(11,18,32,.45);">—</td>
         <td>${p.activo ? `<span class="badge ok">Sí</span>` : `<span class="badge no">No</span>`}</td>
-        <td>${escapeHtml(p.ultimo_acceso)}</td>
+        <td>${escapeHtml(p.ultimo_acceso || "Sin acceso")}</td>
       `;
 
       tr.addEventListener("click", () => {
@@ -273,28 +272,30 @@ function renderTable(){
 /* =========================
    Modal
 ========================= */
-function openModal(newMode){
+function openModal(newMode) {
   mode = newMode;
   modal.classList.remove("hidden");
-  modal.setAttribute("aria-hidden","false");
+  modal.setAttribute("aria-hidden", "false");
 
-  if(mode === "add"){
+  if (mode === "add") {
     modalTitle.textContent = "Agregar personal";
     form.reset();
+
     fActivo.value = "true";
-    fLastAccess.value = "";
+    if (fLastAccess) fLastAccess.value = "";
+
     fRol.selectedIndex = 0;
     fPuesto.selectedIndex = 0;
 
-    // en alta sí permitimos
     fRol.disabled = false;
-    fUsername.disabled = false;
-    fPassword.disabled = true; // backend genera temporal, no metas passwords en claro aquí
+    fUsername.disabled = true;
+    fPassword.disabled = true;
+    fUsername.value = "";
     fPassword.value = "";
   } else {
     modalTitle.textContent = "Modificar personal";
     const p = personal.find(x => x.id_personal === selectedId);
-    if(!p) return;
+    if (!p) return;
 
     fApodo.value = p.apodo ?? "";
     fRol.value = p.rol_ui ?? "";
@@ -304,39 +305,38 @@ function openModal(newMode){
     fUsername.value = p.username ?? "";
     fPassword.value = "";
     fActivo.value = String(!!p.activo);
-    fLastAccess.value = p.ultimo_acceso ?? "";
+    if (fLastAccess) fLastAccess.value = p.ultimo_acceso ?? "";
 
-    // en edición, tu backend NO cambia rol ni username en PUT
     fRol.disabled = true;
     fUsername.disabled = true;
     fPassword.disabled = true;
   }
 }
 
-function closeModal(){
+function closeModal() {
   modal.classList.add("hidden");
-  modal.setAttribute("aria-hidden","true");
+  modal.setAttribute("aria-hidden", "true");
 }
 
-btnCloseModal.addEventListener("click", closeModal);
-btnCancel.addEventListener("click", closeModal);
-modal.addEventListener("click", (e) => {
+btnCloseModal?.addEventListener("click", closeModal);
+btnCancel?.addEventListener("click", closeModal);
+
+modal?.addEventListener("click", (e) => {
   if (e.target?.dataset?.close === "true") closeModal();
 });
 
 /* =========================
    Acciones
 ========================= */
-btnAdd.addEventListener("click", () => openModal("add"));
-btnEdit.addEventListener("click", () => selectedId && openModal("edit"));
+btnAdd?.addEventListener("click", () => openModal("add"));
+btnEdit?.addEventListener("click", () => selectedId && openModal("edit"));
 
-btnDelete.addEventListener("click", async () => {
+btnDelete?.addEventListener("click", async () => {
   if (!selectedId) return;
 
   const p = personal.find(x => x.id_personal === selectedId);
   const name = p ? `${p.nombre} ${p.apellido}` : "este registro";
 
-  // Si quieres hard delete real:
   if (!confirm(`¿BORRAR definitivamente a ${name}?\n(Si tiene asignaciones, no te dejará.)`)) return;
 
   try {
@@ -349,38 +349,36 @@ btnDelete.addEventListener("click", async () => {
   }
 });
 
-btnSearch.addEventListener("click", renderTable);
-searchInput.addEventListener("keydown", (e) => {
-  if(e.key === "Enter"){ e.preventDefault(); renderTable(); }
+btnSearch?.addEventListener("click", renderTable);
+
+searchInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    renderTable();
+  }
 });
 
-btnClear.addEventListener("click", () => {
+btnClear?.addEventListener("click", () => {
   searchInput.value = "";
   filterRol.value = "";
   filterPuesto.value = "";
   filterActivo.value = "";
+  selectedId = null;
   renderTable();
 });
 
-filterRol.addEventListener("change", renderTable);
-filterPuesto.addEventListener("change", renderTable);
-filterActivo.addEventListener("change", renderTable);
+filterRol?.addEventListener("change", renderTable);
+filterPuesto?.addEventListener("change", renderTable);
+filterActivo?.addEventListener("change", renderTable);
 
 /* =========================
-   Guardar (POST/PUT al backend)
+   Guardar
 ========================= */
-form.addEventListener("submit", async (e) => {
+form?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   try {
-    if(mode === "add"){
-      // En tu backend actual POST /catalog/personal NO recibe apodo, y genera username+tempPassword.
-      // Pero tu DB exige apodo. Así que:
-      //  - o cambias backend para que apodo = username (recomendado)
-      //  - o cambias backend para aceptar apodo
-      //
-      // Aquí mando rol/nombre/apellido/puesto como tú lo tienes.
-
+    if (mode === "add") {
       const body = {
         rol: uiRolToApi(fRol.value),
         apodo: fApodo.value.trim(),
@@ -389,9 +387,23 @@ form.addEventListener("submit", async (e) => {
         puesto: fPuesto.value.trim(),
       };
 
+      if (!body.apodo || !body.rol || !body.nombre || !body.apellido || !body.puesto) {
+        alert("Completa los campos obligatorios (incluye Rol, Apodo y Puesto).");
+        return;
+      }
+
+      if (!ROLES_UI.includes(fRol.value)) {
+        alert("Rol inválido.");
+        return;
+      }
+
+      if (!PUESTOS.includes(body.puesto)) {
+        alert("Puesto inválido.");
+        return;
+      }
+
       const r = await api("/catalog/personal", { method: "POST", body });
 
-      // Si backend regresa tempPassword, muéstralo una sola vez
       if (r?.tempPassword) {
         alert(`Personal creado.\nUsername: ${r.item.username}\nPassword temporal: ${r.tempPassword}`);
       } else {
@@ -399,7 +411,6 @@ form.addEventListener("submit", async (e) => {
       }
 
     } else {
-      // Edit: tu backend PUT no cambia rol/username
       const body = {
         apodo: fApodo.value.trim(),
         nombre: fNombre.value.trim(),
@@ -407,6 +418,17 @@ form.addEventListener("submit", async (e) => {
         puesto: fPuesto.value.trim(),
         activo: (fActivo.value === "true"),
       };
+
+      if (!body.apodo || !body.nombre || !body.apellido || !body.puesto) {
+        alert("Completa los campos obligatorios.");
+        return;
+      }
+
+      if (!PUESTOS.includes(body.puesto)) {
+        alert("Puesto inválido.");
+        return;
+      }
+
       await api(`/catalog/personal/${selectedId}`, { method: "PUT", body });
       alert("Personal actualizado.");
     }
@@ -423,7 +445,7 @@ form.addEventListener("submit", async (e) => {
 /* =========================
    Init
 ========================= */
-(async function init(){
+(async function init() {
   initCatalogs();
   try {
     await loadFromApi();

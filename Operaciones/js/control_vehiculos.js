@@ -1,4 +1,4 @@
-// control_vehiculos.js (con backend)
+// control_vehiculos.js (backend + actualización UI, solo alias)
 
 if (localStorage.getItem("session") !== "ok") {
   window.location.href = "login.html";
@@ -41,7 +41,9 @@ const ESTADOS = [
   "BAJA",
 ];
 
-function normalize(s){ return (s ?? "").toString().trim().toLowerCase(); }
+function normalize(s) {
+  return (s ?? "").toString().trim().toLowerCase();
+}
 
 function escapeHtml(text) {
   return (text ?? "").toString()
@@ -52,7 +54,7 @@ function escapeHtml(text) {
     .replaceAll("'", "&#039;");
 }
 
-function fillSelect(selectEl, options, includeAll=false) {
+function fillSelect(selectEl, options, includeAll = false) {
   const base = includeAll
     ? `<option value="">Todos</option>`
     : `<option value="" disabled selected>Selecciona...</option>`;
@@ -76,8 +78,6 @@ const btnSearch = document.getElementById("btnSearch");
 const btnClear = document.getElementById("btnClear");
 
 const filterEstado = document.getElementById("filterEstado");
-const filterMarca = document.getElementById("filterMarca");
-
 const resultHint = document.getElementById("resultHint");
 const tbody = document.getElementById("tbody");
 
@@ -88,11 +88,17 @@ const btnCloseModal = document.getElementById("btnCloseModal");
 const btnCancel = document.getElementById("btnCancel");
 const form = document.getElementById("form");
 
+const dropZone = document.getElementById("dropZone");
+const previewImg = document.getElementById("previewImg");
 const fImagenVeh = document.getElementById("fImagenVeh");
+
+const fCodigoPrefijo = document.getElementById("fCodigoPrefijo");
+const fCodigoOtro = document.getElementById("fCodigoOtro");
+const fCodigoNumero = document.getElementById("fCodigoNumero");
+
 const fCodigoInterno = document.getElementById("fCodigoInterno");
 const fTipo = document.getElementById("fTipo");
-const fMarca = document.getElementById("fMarca");
-const fModelo = document.getElementById("fModelo");
+const fAlias = document.getElementById("fAlias");
 const fEstado = document.getElementById("fEstado");
 const fCapacidad = document.getElementById("fCapacidad");
 
@@ -126,8 +132,81 @@ async function fileToBase64(file) {
   });
 }
 
-function uniqueSorted(values) {
-  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+function updateButtons() {
+  const has = !!selectedId;
+  if (btnEdit) btnEdit.disabled = !has;
+  if (btnDelete) btnDelete.disabled = !has;
+}
+
+function setPreview(src) {
+  if (!previewImg) return;
+  if (src) {
+    previewImg.src = src;
+    previewImg.classList.add("show");
+  } else {
+    previewImg.src = "";
+    previewImg.classList.remove("show");
+  }
+}
+
+function getCodigoInternoArmado() {
+  if (fCodigoPrefijo && fCodigoNumero) {
+    const prefijoSel = fCodigoPrefijo.value;
+    const numero = (fCodigoNumero.value || "").trim();
+
+    let prefijo = prefijoSel;
+
+    if (prefijoSel === "OTRO") {
+      prefijo = (fCodigoOtro?.value || "").trim().toUpperCase();
+      if (!prefijo) return "";
+      if (!prefijo.endsWith("-")) prefijo += "-";
+    }
+
+    if (!numero) return "";
+    return `${prefijo}${numero}`;
+  }
+
+  return fCodigoInterno?.value?.trim() || "";
+}
+
+function separarCodigoInterno(codigo) {
+  const match = String(codigo || "").match(/^([A-Za-z]+-)(\d+)$/);
+
+  if (!match) {
+    return {
+      prefijo: "OTRO",
+      otro: "",
+      numero: ""
+    };
+  }
+
+  const prefijo = match[1].toUpperCase();
+  const numero = match[2];
+
+  if (prefijo === "VT-" || prefijo === "AM-" || prefijo === "AV-") {
+    return {
+      prefijo,
+      otro: "",
+      numero
+    };
+  }
+
+  return {
+    prefijo: "OTRO",
+    otro: prefijo,
+    numero
+  };
+}
+
+function toggleCodigoOtro() {
+  if (!fCodigoPrefijo || !fCodigoOtro) return;
+
+  if (fCodigoPrefijo.value === "OTRO") {
+    fCodigoOtro.style.display = "block";
+  } else {
+    fCodigoOtro.style.display = "none";
+    fCodigoOtro.value = "";
+  }
 }
 
 /* =========================
@@ -136,12 +215,6 @@ function uniqueSorted(values) {
 function initCatalogs() {
   if (filterEstado) fillSelect(filterEstado, ESTADOS, true);
   if (fEstado) fillSelect(fEstado, ESTADOS, false);
-}
-
-function refreshMarcaFilter() {
-  if (!filterMarca) return;
-  const marcas = uniqueSorted(vehiculos.map(v => v.marca || ""));
-  fillSelect(filterMarca, marcas, true);
 }
 
 /* =========================
@@ -154,56 +227,44 @@ async function loadFromApi() {
     imagen_veh: v.imagen_veh ?? "",
     codigo_interno: v.codigo_interno ?? "",
     tipo: v.tipo ?? "",
-    marca: v.marca ?? "",
-    modelo: v.modelo ?? "",
+    alias: v.alias ?? "",
     estado: v.estado ?? "DISPONIBLE",
     capacidad: v.capacidad ?? "",
     fecha_registro: v.fecha_registro ?? "",
   }));
-
-  refreshMarcaFilter();
 }
 
 /* =========================
    Filtros + render
 ========================= */
-function getFiltered(){
+function getFiltered() {
   const q = normalize(searchInput?.value);
   const estado = filterEstado?.value || "";
-  const marca = filterMarca?.value || "";
 
   return vehiculos.filter(v => {
     if (estado && v.estado !== estado) return false;
-    if (marca && v.marca !== marca) return false;
 
     if (!q) return true;
 
     return (
       normalize(v.codigo_interno).includes(q) ||
       normalize(v.tipo).includes(q) ||
-      normalize(v.marca).includes(q) ||
-      normalize(v.modelo).includes(q) ||
+      normalize(v.alias).includes(q) ||
       normalize(v.estado).includes(q)
     );
   });
 }
 
-function updateButtons(){
-  const has = !!selectedId;
-  if (btnEdit) btnEdit.disabled = !has;
-  if (btnDelete) btnDelete.disabled = !has;
-}
-
-function renderTable(){
+function renderTable() {
   const list = getFiltered();
 
   if (selectedId && !list.some(v => v.id_vehiculo === selectedId)) selectedId = null;
 
   tbody.innerHTML = "";
 
-  if(!list.length){
+  if (!list.length) {
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="8" style="color: rgba(11,18,32,.65); padding: 16px;">
+    tr.innerHTML = `<td colspan="7" style="color: rgba(11,18,32,.65); padding: 16px;">
       No hay registros con los filtros actuales.
     </td>`;
     tbody.appendChild(tr);
@@ -213,11 +274,10 @@ function renderTable(){
       if (v.id_vehiculo === selectedId) tr.classList.add("selected");
 
       tr.innerHTML = `
-        <td>${v.imagen_veh ? `<img src="${v.imagen_veh}" style="width:60px;">` : "-"}</td>
+        <td>${v.imagen_veh ? `<img src="${v.imagen_veh}" alt="Vehículo" style="width:60px; height:60px; object-fit:cover; border-radius:8px;">` : "-"}</td>
         <td>${escapeHtml(v.codigo_interno)}</td>
         <td>${escapeHtml(v.tipo || "-")}</td>
-        <td>${escapeHtml(v.marca || "-")}</td>
-        <td>${escapeHtml(v.modelo || "-")}</td>
+        <td>${escapeHtml(v.alias || "-")}</td>
         <td>${escapeHtml(v.estado || "DISPONIBLE")}</td>
         <td>${escapeHtml(v.capacidad || "-")}</td>
         <td>${escapeHtml(v.fecha_registro || "-")}</td>
@@ -240,44 +300,92 @@ function renderTable(){
 /* =========================
    Modal
 ========================= */
-function openModal(newMode){
+function openModal(newMode) {
   mode = newMode;
   modal.classList.remove("hidden");
-  modal.setAttribute("aria-hidden","false");
+  modal.setAttribute("aria-hidden", "false");
 
-  if(mode === "add"){
+  if (mode === "add") {
     modalTitle.textContent = "Agregar vehículo";
     form.reset();
     imagenBase64 = "";
+    setPreview("");
+
     if (fEstado) fEstado.value = "DISPONIBLE";
+
+    if (fCodigoPrefijo && fCodigoNumero) {
+      fCodigoPrefijo.value = "VT-";
+      fCodigoOtro.value = "";
+      fCodigoNumero.value = "";
+      toggleCodigoOtro();
+    }
+
     if (fCodigoInterno) fCodigoInterno.disabled = false;
   } else {
     modalTitle.textContent = "Modificar vehículo";
     const v = vehiculos.find(x => x.id_vehiculo === selectedId);
-    if(!v) return;
+    if (!v) return;
 
     imagenBase64 = v.imagen_veh || "";
-    fCodigoInterno.value = v.codigo_interno ?? "";
+    setPreview(imagenBase64);
+
+    if (fCodigoPrefijo && fCodigoNumero) {
+      const codigoInfo = separarCodigoInterno(v.codigo_interno ?? "");
+      fCodigoPrefijo.value = codigoInfo.prefijo;
+      fCodigoOtro.value = codigoInfo.otro;
+      fCodigoNumero.value = codigoInfo.numero;
+      toggleCodigoOtro();
+    } else if (fCodigoInterno) {
+      fCodigoInterno.value = v.codigo_interno ?? "";
+    }
+
     fTipo.value = v.tipo ?? "";
-    fMarca.value = v.marca ?? "";
-    fModelo.value = v.modelo ?? "";
+    fAlias.value = v.alias ?? "";
     fEstado.value = v.estado ?? "DISPONIBLE";
     fCapacidad.value = v.capacidad ?? "";
 
-    // si quieres permitir editar código interno, cambia esto a false
-    fCodigoInterno.disabled = true;
+    if (fCodigoInterno) fCodigoInterno.disabled = true;
   }
 }
 
-function closeModal(){
+function closeModal() {
   modal.classList.add("hidden");
-  modal.setAttribute("aria-hidden","true");
+  modal.setAttribute("aria-hidden", "true");
 }
 
 btnCloseModal?.addEventListener("click", closeModal);
 btnCancel?.addEventListener("click", closeModal);
 modal?.addEventListener("click", (e) => {
   if (e.target?.dataset?.close === "true") closeModal();
+});
+
+/* =========================
+   Imagen / Dropzone
+========================= */
+dropZone?.addEventListener("click", () => {
+  fImagenVeh?.click();
+});
+
+fImagenVeh?.addEventListener("change", async () => {
+  const file = fImagenVeh.files?.[0];
+  if (!file) return;
+
+  imagenBase64 = await fileToBase64(file);
+  setPreview(imagenBase64);
+});
+
+dropZone?.addEventListener("dragover", (e) => {
+  e.preventDefault();
+});
+
+dropZone?.addEventListener("drop", async (e) => {
+  e.preventDefault();
+
+  const file = e.dataTransfer.files?.[0];
+  if (!file || !file.type.startsWith("image/")) return;
+
+  imagenBase64 = await fileToBase64(file);
+  setPreview(imagenBase64);
 });
 
 /* =========================
@@ -306,18 +414,20 @@ btnDelete?.addEventListener("click", async () => {
 
 btnSearch?.addEventListener("click", renderTable);
 searchInput?.addEventListener("keydown", (e) => {
-  if(e.key === "Enter"){ e.preventDefault(); renderTable(); }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    renderTable();
+  }
 });
 
 btnClear?.addEventListener("click", () => {
   if (searchInput) searchInput.value = "";
   if (filterEstado) filterEstado.value = "";
-  if (filterMarca) filterMarca.value = "";
   renderTable();
 });
 
 filterEstado?.addEventListener("change", renderTable);
-filterMarca?.addEventListener("change", renderTable);
+fCodigoPrefijo?.addEventListener("change", toggleCodigoOtro);
 
 /* =========================
    Guardar (POST/PUT)
@@ -330,20 +440,25 @@ form?.addEventListener("submit", async (e) => {
       imagenBase64 = await fileToBase64(fImagenVeh.files[0]);
     }
 
+    const codigoInterno = getCodigoInternoArmado();
     const capacidadNum = fCapacidad.value.trim() === "" ? null : Number(fCapacidad.value);
 
     const body = {
       imagen_veh: imagenBase64 || null,
-      codigo_interno: fCodigoInterno.value.trim(),
+      codigo_interno: codigoInterno,
       tipo: fTipo.value.trim() || null,
-      marca: fMarca.value.trim() || null,
-      modelo: fModelo.value.trim() || null,
+      alias: fAlias.value.trim() || null,
       estado: fEstado.value.trim(),
       capacidad: Number.isNaN(capacidadNum) ? null : capacidadNum,
     };
 
     if (!body.codigo_interno || !body.estado) {
       alert("Completa los campos obligatorios.");
+      return;
+    }
+
+    if (!body.tipo) {
+      alert("Selecciona el tipo de vehículo.");
       return;
     }
 
@@ -357,7 +472,7 @@ form?.addEventListener("submit", async (e) => {
       return;
     }
 
-    if(mode === "add"){
+    if (mode === "add") {
       await api("/catalog/vehiculos", { method: "POST", body });
       alert("Vehículo creado.");
     } else {
@@ -377,8 +492,10 @@ form?.addEventListener("submit", async (e) => {
 /* =========================
    Init
 ========================= */
-(async function init(){
+(async function init() {
   initCatalogs();
+  toggleCodigoOtro();
+
   try {
     await loadFromApi();
     renderTable();

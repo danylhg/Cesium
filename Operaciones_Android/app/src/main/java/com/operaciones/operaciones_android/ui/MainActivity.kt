@@ -49,7 +49,8 @@ class MainActivity : AppCompatActivity(),
     private lateinit var panelContent: FrameLayout
     private lateinit var btnNavChat: LinearLayout
     private lateinit var btnNavPersonal: LinearLayout
-    private lateinit var btnNavEquipo: LinearLayout
+    private lateinit var btnNavVehiculos: LinearLayout
+    private lateinit var btnNavEquipos: LinearLayout
     private lateinit var mapActionController: MapActionController
 
     private var chatSocketManager: ChatSocketManager? = null
@@ -126,7 +127,8 @@ class MainActivity : AppCompatActivity(),
         panelContent = findViewById(R.id.panelContent)
         btnNavChat = findViewById(R.id.btnNavChat)
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
-        btnNavEquipo = findViewById(R.id.btnNavEquipo)
+        btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
+        btnNavEquipos = findViewById(R.id.btnNavEquipos)
         webView = findViewById(R.id.cesiumWebView)
 
         panelRenderer = MainPanelRenderer(this)
@@ -156,7 +158,8 @@ class MainActivity : AppCompatActivity(),
             panelContent = panelContent,
             btnNavChat = btnNavChat,
             btnNavPersonal = btnNavPersonal,
-            btnNavEquipo = btnNavEquipo,
+            btnNavVehiculos = btnNavVehiculos,
+            btnNavEquipos = btnNavEquipos,
             host = this
         )
 
@@ -223,7 +226,6 @@ class MainActivity : AppCompatActivity(),
             operationId = currentOperation.id,
             token = token,
             onSuccess = {
-                // Ya no llenamos paneles desde aquí.
                 // Este endpoint queda solo para mapa/webview.
             },
             onError = { message ->
@@ -252,13 +254,7 @@ class MainActivity : AppCompatActivity(),
             },
             onError = { message ->
                 runOnUiThread {
-                    addMessage(
-                        ChatMessage(
-                            user = "Sistema",
-                            text = message,
-                            type = MessageType.SYSTEM
-                        )
-                    )
+                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
                 }
             }
         )
@@ -282,13 +278,7 @@ class MainActivity : AppCompatActivity(),
             },
             onError = { message ->
                 runOnUiThread {
-                    addMessage(
-                        ChatMessage(
-                            user = "Sistema",
-                            text = message,
-                            type = MessageType.SYSTEM
-                        )
-                    )
+                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
                 }
             }
         )
@@ -312,13 +302,7 @@ class MainActivity : AppCompatActivity(),
             },
             onError = { message ->
                 runOnUiThread {
-                    addMessage(
-                        ChatMessage(
-                            user = "Sistema",
-                            text = message,
-                            type = MessageType.SYSTEM
-                        )
-                    )
+                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
                 }
             }
         )
@@ -340,9 +324,6 @@ class MainActivity : AppCompatActivity(),
             return
         }
 
-        android.util.Log.d("CHAT_SEND", "Enviando mensaje: $text")
-        android.util.Log.d("CHAT_SEND", "Operacion: ${currentOperation.id}")
-
         val token = AuthManager.getToken(this)
         val tipoMensaje = if (alert) "URGENTE" else "NORMAL"
 
@@ -353,13 +334,11 @@ class MainActivity : AppCompatActivity(),
             tipoMensaje = tipoMensaje,
             onSuccess = { item ->
                 runOnUiThread {
-                    android.util.Log.d("CHAT_SEND", "POST success item=$item")
                     addMessage(parseChatMessage(item))
                 }
             },
             onError = { message ->
                 runOnUiThread {
-                    android.util.Log.d("CHAT_SEND", "POST error=$message")
                     addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
                 }
             }
@@ -413,9 +392,6 @@ class MainActivity : AppCompatActivity(),
             else -> MessageType.NORMAL
         }
 
-        android.util.Log.d("CHAT_PARSE", "json=$item")
-        android.util.Log.d("CHAT_PARSE", "tipo_mensaje=${item.optString("tipo_mensaje", "SIN_VALOR")}")
-
         return ChatMessage(
             id = id,
             user = autor,
@@ -450,17 +426,6 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun inflateEquipoPanel() {
-        panelRenderer.inflateEquipoPanel(
-            panelContent = panelContent,
-            equiposList = equiposList
-        )
-
-        if (currentOperation.id > 0 && equiposList.isEmpty()) {
-            fetchEquiposPanelData()
-        }
-    }
-
     override fun inflateVehiculoPanel() {
         panelRenderer.inflateVehiculoPanel(
             panelContent = panelContent,
@@ -469,6 +434,17 @@ class MainActivity : AppCompatActivity(),
 
         if (currentOperation.id > 0 && vehiculosList.isEmpty()) {
             fetchVehiculosPanelData()
+        }
+    }
+
+    override fun inflateEquipoPanel() {
+        panelRenderer.inflateEquipoPanel(
+            panelContent = panelContent,
+            equiposList = equiposList
+        )
+
+        if (currentOperation.id > 0 && equiposList.isEmpty()) {
+            fetchEquiposPanelData()
         }
     }
 

@@ -165,8 +165,7 @@ CREATE TABLE IF NOT EXISTS vehiculo (
   imagen_veh TEXT,
   codigo_interno TEXT NOT NULL UNIQUE,
   tipo TEXT,
-  marca TEXT,
-  modelo TEXT,
+  alias TEXT,
   estado estado_vehiculo_enum NOT NULL DEFAULT 'DISPONIBLE',
   capacidad INT,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -761,8 +760,7 @@ INSERT INTO vehiculo (
   imagen_veh,
   codigo_interno,
   tipo,
-  marca,
-  modelo,
+  alias,
   estado,
   capacidad
 )
@@ -977,7 +975,7 @@ SELECT
   'VEHICULO'::text AS tipo_recurso,
   gv.id_vehiculo::int AS id_recurso,
   v.codigo_interno AS recurso_nombre,
-  COALESCE(v.marca,'') || ' ' || COALESCE(v.modelo,'') AS recurso_categoria,
+  COALESCE(v.alias,'') AS recurso_categoria,
   1 AS cantidad,
   gv.estado_asignacion::text AS estado_asignacion,
   gv.uso_en_grupo,
@@ -2542,17 +2540,16 @@ LEFT JOIN personal p ON p.id_personal = pc.id_personal;
 -- =========================================================
 
 INSERT INTO vehiculo
-  (imagen_veh, codigo_interno, tipo, marca, modelo, estado, capacidad)
+  (imagen_veh, codigo_interno, tipo, alias, estado, capacidad)
 VALUES
-  ('./uploads/vehiculo/Alacran.jpeg', 'VH-001', 'TACTICO', 'Alacran', '4x4', 'DISPONIBLE', 6),
-  ('./uploads/vehiculo/Ford F-150.jpeg', 'VH-003', 'PICKUP', 'Ford', 'F-150', 'DISPONIBLE', 5),
-  ('./uploads/vehiculo/Panther.jpeg', 'VH-004', 'BLINDADO', 'Panther', 'Blindado', 'DISPONIBLE', 8),
-  ('./uploads/vehiculo/Scualo.jpeg', 'VH-005', 'INTERCEPTOR', 'Scualo', 'Interceptor', 'DISPONIBLE', 4)
+  ('./uploads/vehiculo/Alacran.jpeg', 'VH-001', 'TACTICO', 'Alacran 4x4', 'DISPONIBLE', 6),
+  ('./uploads/vehiculo/Ford F-150.jpeg', 'VH-003', 'PICKUP', 'Ford F-150', 'DISPONIBLE', 5),
+  ('./uploads/vehiculo/Panther.jpeg', 'VH-004', 'BLINDADO', 'Panther Blindado', 'DISPONIBLE', 8),
+  ('./uploads/vehiculo/Scualo.jpeg', 'VH-005', 'INTERCEPTOR', 'Scualo Interceptor', 'DISPONIBLE', 4)
 ON CONFLICT (codigo_interno)
 DO UPDATE SET
   imagen_veh = EXCLUDED.imagen_veh,
   tipo       = EXCLUDED.tipo,
-  marca      = EXCLUDED.marca,
-  modelo     = EXCLUDED.modelo,
+  alias      = EXCLUDED.alias,
   estado     = EXCLUDED.estado,
   capacidad  = EXCLUDED.capacidad;

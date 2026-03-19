@@ -143,7 +143,7 @@ async function ensureChatParticipantPersonal(client, idChat, idPersonal) {
 async function getAvailableVehiculos(client, limit = 2) {
   const { rows } = await client.query(
     `
-    SELECT id_vehiculo, codigo_interno, tipo, marca, modelo, capacidad, estado
+    SELECT id_vehiculo, codigo_interno, tipo, alias, capacidad, estado
     FROM vehiculo
     WHERE estado = 'DISPONIBLE'
     ORDER BY fecha_creacion ASC, id_vehiculo ASC
@@ -178,7 +178,7 @@ async function getAvailableEquipos(client, limit = 4) {
 async function getVehiculoByCodigo(client, codigoInterno) {
   const { rows, rowCount } = await client.query(
     `
-    SELECT id_vehiculo, codigo_interno, tipo, marca, modelo, capacidad, estado
+    SELECT id_vehiculo, codigo_interno, tipo, alias, capacidad, estado
     FROM vehiculo
     WHERE codigo_interno = $1
     LIMIT 1
@@ -784,7 +784,7 @@ async function main() {
       [
         OP2_CODIGO,
         "Operacion Norte 002",
-        "Segunda operacion de prueba. CUT: atorres. mlopez (CET repetido de OP-001) lidera Aguila 3. rvega (CET nuevo) lidera Aguila 4. Celulas completamente distintas a OP-001.",
+        "Segunda operacion de prueba. CUT: atorres. mlopez (CET repetido de OP-001) lidera Aguila 1. rvega (CET nuevo) lidera Aguila 2. Celulas completamente distintas a OP-001.",
         creadoPor,
         cutOp2,
       ]
@@ -862,7 +862,7 @@ async function main() {
     const idPadre2 = await getGrupoId(client, idOp2, "Grupo NORTE");
     if (!idPadre2) throw new Error(`No se pudo obtener el grupo padre de OP-NORTE-002.`);
 
-    for (const nombre of ["Aguila 3", "Aguila 4"]) {
+    for (const nombre of ["Aguila 1", "Aguila 2"]) {
       await client.query(
         `
         INSERT INTO grupo_operacion
@@ -874,10 +874,12 @@ async function main() {
       );
     }
 
-    const idAguila3 = await getGrupoId(client, idOp2, "Aguila 3");
-    const idAguila4 = await getGrupoId(client, idOp2, "Aguila 4");
+    const idAguila1_OP2 = await getGrupoId(client, idOp2, "Aguila 1");
+    const idAguila2_OP2 = await getGrupoId(client, idOp2, "Aguila 2");
 
-    if (!idAguila3 || !idAguila4) throw new Error(`No se pudieron obtener los subgrupos de OP-NORTE-002.`);
+    if (!idAguila1_OP2 || !idAguila2_OP2) {
+      throw new Error(`No se pudieron obtener los subgrupos de OP-NORTE-002.`);
+    }
 
     for (const username of ["drios", "fsilva", "anavarro"]) {
       const persona = personalAsignado2.find((p) => p.username === username);
@@ -886,7 +888,7 @@ async function main() {
         `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, rol_en_grupo, asignado_por)
          VALUES ($1,$2,'CELL',$3)
          ON CONFLICT (id_grupo_operacion, id_personal) DO NOTHING`,
-        [idAguila3, persona.id_personal, creadoPor]
+        [idAguila1_OP2, persona.id_personal, creadoPor]
       );
     }
 
@@ -897,7 +899,7 @@ async function main() {
         `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, rol_en_grupo, asignado_por)
          VALUES ($1,$2,'CELL',$3)
          ON CONFLICT (id_grupo_operacion, id_personal) DO NOTHING`,
-        [idAguila4, persona.id_personal, creadoPor]
+        [idAguila2_OP2, persona.id_personal, creadoPor]
       );
     }
 

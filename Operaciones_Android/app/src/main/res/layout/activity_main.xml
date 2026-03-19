@@ -100,9 +100,9 @@
                     android:textSize="10sp"/>
             </LinearLayout>
 
-            <!-- Botón Vehículos/Equipo -->
+            <!-- Botón Vehículos -->
             <LinearLayout
-                android:id="@+id/btnNavEquipo"
+                android:id="@+id/btnNavVehiculos"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
@@ -112,7 +112,7 @@
                 android:focusable="true"
                 android:background="?attr/selectableItemBackground">
                 <TextView
-                    android:id="@+id/iconNavEquipo"
+                    android:id="@+id/iconNavVehiculos"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="🚗"
@@ -121,6 +121,34 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Vehículos"
+
+                    android:textColor="#64748b"
+                    android:textSize="10sp"/>
+            </LinearLayout>
+
+            <!-- Botón Vehículos/Equipo -->
+            <LinearLayout
+                android:id="@+id/btnNavEquipos"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+
+                <TextView
+                    android:id="@+id/iconNavEquipos"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🧰"
+                    android:textSize="20sp"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Equipos"
                     android:textColor="#64748b"
                     android:textSize="10sp"/>
             </LinearLayout>

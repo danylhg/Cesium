@@ -5,6 +5,49 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Control de Vehículos</title>
   <link rel="stylesheet" href="css/control_personal.css" />
+
+  <style>
+    .tbl tbody tr {
+      cursor: pointer;
+    }
+
+    .tbl tbody tr:hover {
+      background: rgba(76, 110, 245, 0.06);
+    }
+
+    .tbl tbody tr.selected {
+      background: rgba(76, 110, 245, 0.14);
+    }
+
+    .vehThumb {
+      width: 54px;
+      height: 38px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid rgba(0,0,0,.08);
+      display: block;
+    }
+
+    .dropZonePreview {
+      margin-top: 10px;
+      width: 100%;
+      max-height: 180px;
+      object-fit: contain;
+      border-radius: 10px;
+      border: 1px solid rgba(0,0,0,.08);
+      background: #fff;
+      display: none;
+    }
+
+    .dropZonePreview.show {
+      display: block;
+    }
+
+    .dropZoneText {
+      color: rgba(11,18,32,.65);
+      font-size: 14px;
+    }
+  </style>
 </head>
 <body>
 
@@ -23,6 +66,12 @@
     </div>
   </header>
 
+  <div class="bgOrbs" aria-hidden="true">
+    <span class="orb orb1"></span>
+    <span class="orb orb2"></span>
+    <span class="orb orb3"></span>
+  </div>
+
   <main class="wrap">
     <section class="panel">
       <div class="panelHead">
@@ -32,19 +81,32 @@
         </div>
 
         <div class="headBtns">
-          <button id="btnAdd" class="btn primary"><span class="btnIcon">＋</span>Agregar</button>
-          <button id="btnEdit" class="btn soft" disabled><span class="btnIcon">✎</span>Modificar</button>
-          <button id="btnDelete" class="btn danger" disabled><span class="btnIcon">🗑</span>Eliminar</button>
+          <button id="btnAdd" class="btn primary">
+            <span class="btnIcon">＋</span>
+            Agregar
+          </button>
+
+          <button id="btnEdit" class="btn soft" disabled>
+            <span class="btnIcon">✎</span>
+            Modificar
+          </button>
+
+          <button id="btnDelete" class="btn danger" disabled>
+            <span class="btnIcon">🗑</span>
+            Eliminar
+          </button>
         </div>
       </div>
 
-      <!-- Filtros -->
       <div class="filtersCard">
         <div class="field">
           <label>Buscar</label>
           <div class="searchRow">
-            <input id="searchInput" type="text" placeholder="Buscar por código, marca, modelo..." />
-            <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
+            <input id="searchInput" type="text" placeholder="Buscar por código, alias, tipo..." />
+            <button id="btnSearch" class="btn mini soft" type="button">
+              <span class="btnIcon miniIcon">⌕</span>
+              Buscar
+            </button>
             <button id="btnClear" class="btn mini" type="button">Limpiar</button>
           </div>
         </div>
@@ -54,11 +116,13 @@
             <label>Filtro por Tipo</label>
             <select id="filterTipo">
               <option value="">Todos</option>
-              <option value="Helicóptero">Helicóptero</option>
-              <option value="Camioneta">Camioneta</option>
-              <option value="Tanque">Tanque</option>
-              <option value="Avión">Avión</option>
-              <option value="Barco">Barco</option>
+              <option value="coche">coche</option>
+              <option value="camioneta">camioneta</option>
+              <option value="camión">camión</option>
+              <option value="moto">moto</option>
+              <option value="helicóptero">helicóptero</option>
+              <option value="lancha">lancha</option>
+              <option value="otro">otro</option>
             </select>
           </div>
         </div>
@@ -69,7 +133,6 @@
         </div>
       </div>
 
-      <!-- Tabla -->
       <div class="tableCard">
         <div class="tableWrap">
           <table class="tbl">
@@ -78,8 +141,7 @@
                 <th>Imagen</th>
                 <th>Código interno</th>
                 <th>Tipo</th>
-                <th>Marca</th>
-                <th>Modelo</th>
+                <th>Alias</th>
                 <th>Estado</th>
                 <th>Capacidad</th>
                 <th>Fecha registro</th>
@@ -91,51 +153,107 @@
       </div>
     </section>
 
-    <!-- Modal -->
     <div id="modal" class="modal hidden" aria-hidden="true">
       <div class="modalBackdrop" data-close="true"></div>
-      <div class="modalCard">
+
+      <div class="modalCard" role="dialog" aria-modal="true">
         <div class="modalHead">
           <div class="modalTitle" id="modalTitle">Agregar vehículo</div>
-          <button class="iconBtn" id="btnCloseModal">✕</button>
+          <button class="iconBtn" id="btnCloseModal" title="Cerrar">✕</button>
         </div>
 
         <form id="form" class="modalBody">
           <div class="grid2">
-            <div class="field full">
-              <label>Imagen</label>
+            <div class="field">
+              <label>Imagen del vehículo</label>
               <div id="dropZone" class="dropZone">
-                Arrastra la imagen aquí o selecciona un archivo
-                <input id="fImagenVeh" type="file" accept="image/*" />
+                <div class="dropZoneText">Haz clic o arrastra una imagen aquí</div>
+                <input id="fImagenVeh" type="file" accept="image/*" hidden />
+                <img id="previewImg" class="dropZonePreview" alt="Vista previa">
               </div>
             </div>
-            <div class="field"><label>Código interno</label><input id="fCodigoInterno" type="text" required /></div>
-            <div class="field"><label>Tipo</label><input id="fTipo" type="text" /></div>
-            <div class="field"><label>Marca</label><input id="fMarca" type="text" /></div>
-            <div class="field"><label>Modelo</label><input id="fModelo" type="text" /></div>
-            <div class="field"><label>Estado</label>
-              <select id="fEstado">
-                <option value="DISPONIBLE">Disponible</option>
-                <option value="EN_USO">En uso</option>
-                <option value="MANTENIMIENTO">Mantenimiento</option>
+
+            <div class="field">
+              <label>Código interno</label>
+
+              <div style="display:flex; gap:10px; align-items:center;">
+                <select id="fCodigoPrefijo" style="max-width:140px;">
+                  <option value="VT-">VT-</option>
+                  <option value="AM-">AM-</option>
+                  <option value="AV-">AV-</option>
+                  <option value="OTRO">Otro</option>
+                </select>
+
+                <input
+                  id="fCodigoOtro"
+                  type="text"
+                  maxlength="10"
+                  placeholder="Prefijo"
+                  style="display:none; max-width:120px;"
+                />
+
+                <input
+                  id="fCodigoNumero"
+                  type="number"
+                  min="1"
+                  step="1"
+                  required
+                  placeholder="Número"
+                />
+              </div>
+            </div>
+
+            <div class="field">
+              <label>Tipo</label>
+              <select id="fTipo" required>
+                <option value="" disabled selected>Selecciona...</option>
+                <option value="coche">coche</option>
+                <option value="camioneta">camioneta</option>
+                <option value="camión">camión</option>
+                <option value="moto">moto</option>
+                <option value="helicóptero">helicóptero</option>
+                <option value="lancha">lancha</option>
+                <option value="otro">otro</option>
               </select>
             </div>
-            <div class="field"><label>Capacidad</label><input id="fCapacidad" type="number" /></div>
+
+            <div class="field">
+              <label>Alias</label>
+              <input id="fAlias" type="text" maxlength="50" />
+            </div>
+
+            <div class="field">
+              <label>Estado</label>
+              <select id="fEstado">
+                <option value="DISPONIBLE">DISPONIBLE</option>
+                <option value="ASIGNADO">ASIGNADO</option>
+                <option value="MANTENIMIENTO">MANTENIMIENTO</option>
+                <option value="FUERA DE SERVICIO">FUERA DE SERVICIO</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Capacidad</label>
+              <input id="fCapacidad" type="number" min="1" step="1" />
+            </div>
           </div>
 
           <div class="modalActions">
             <button type="button" id="btnCancel" class="btn soft">Cancelar</button>
-            <button type="submit" id="btnSave" class="btn primary"><span class="btnIcon">✔</span>Guardar</button>
+            <button type="submit" id="btnSave" class="btn primary">
+              <span class="btnIcon">✔</span>
+              Guardar
+            </button>
           </div>
         </form>
       </div>
     </div>
-
   </main>
 
   <script src="js/control_vehiculos.js"></script>
 </body>
 </html>
+
 
 
 

@@ -31,8 +31,6 @@ body{
     linear-gradient(180deg, var(--bg1), var(--bg2));
 }
 
-/* ------------------ TOP ------------------ */
-
 .topbar{
   display:flex;
   align-items:center;
@@ -47,8 +45,6 @@ body{
   border:1px solid var(--stroke);
   font-weight:700;
 }
-
-/* ------------------ BOTONES ------------------ */
 
 .btnPrimary{
   width:100%;
@@ -138,6 +134,17 @@ body{
   font-weight:900;
   width:max-content;
   margin-bottom:14px;
+}
+
+/* ------------------ ✅ NUEVO: CONTENEDOR LEFT (form + vehiculos) ------------------ */
+#leftCardContent{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+#vehiculosLeft{
+  display:none; /* JS lo cambia a block */
 }
 
 /* ------------------ FORM ------------------ */
@@ -236,7 +243,7 @@ input[type="date"]{
   z-index:10;
 }
 
-/* ------------------ BOTONES ASIGNAR (NO TOSCOS) ------------------ */
+/* ------------------ BOTONES ASIGNAR ------------------ */
 
 .optGrid{
   display:flex;
@@ -341,7 +348,7 @@ input[type="date"]{
   color:var(--danger);
 }
 
-/* ------------------ CHIPS (SELECCIÓN CET) ------------------ */
+/* ------------------ CHIPS ------------------ */
 
 .chipRow{
   display:flex;
@@ -438,7 +445,7 @@ input[type="date"]{
   color:#6b7280;
 }
 
-/* ✅ NUEVO: header sticky para flotilla + grupos + búsqueda */
+/* header sticky */
 .stickyTop{
   position: sticky;
   top: 0;
@@ -476,9 +483,8 @@ input[type="date"]{
   margin: 0 0 10px;
 }
 
-/* ------------------ RESPONSIVE ------------------ */
-
-@media (max-width: 980px){
+/* ✅ RESPONSIVE: SOLO EN CELULAR se va abajo */
+@media (max-width: 640px){
   .cols{ grid-template-columns: 1fr; }
   .divider{ display:none; }
 }

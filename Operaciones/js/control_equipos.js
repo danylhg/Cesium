@@ -1,4 +1,4 @@
-// control_equipos.js (con backend)
+// control_equipos.js (backend + actualización UI)
 
 if (localStorage.getItem("session") !== "ok") {
   window.location.href = "login.html";
@@ -46,7 +46,9 @@ const ESTADOS = [
   "BAJA",
 ];
 
-function normalize(s){ return (s ?? "").toString().trim().toLowerCase(); }
+function normalize(s) {
+  return (s ?? "").toString().trim().toLowerCase();
+}
 
 function escapeHtml(text) {
   return (text ?? "").toString()
@@ -57,7 +59,7 @@ function escapeHtml(text) {
     .replaceAll("'", "&#039;");
 }
 
-function fillSelect(selectEl, options, includeAll=false) {
+function fillSelect(selectEl, options, includeAll = false) {
   const base = includeAll
     ? `<option value="">Todos</option>`
     : `<option value="" disabled selected>Selecciona...</option>`;
@@ -93,7 +95,7 @@ const btnCloseModal = document.getElementById("btnCloseModal");
 const btnCancel = document.getElementById("btnCancel");
 const form = document.getElementById("form");
 
-const fImagenEq = document.getElementById("fImagenEq");
+const dropZoneEq = document.getElementById("dropZoneEq");
 const fSerie = document.getElementById("fSerie");
 const fNombre = document.getElementById("fNombre");
 const fCategoria = document.getElementById("fCategoria");
@@ -112,6 +114,7 @@ let imagenBase64 = "";
    Nav / Logout
 ========================= */
 btnBack?.addEventListener("click", () => window.location.href = "menu_inicial.html");
+
 btnLogout?.addEventListener("click", () => {
   localStorage.removeItem("session");
   localStorage.removeItem("token");
@@ -127,6 +130,76 @@ function initCatalogs() {
 
   if (fCategoria) fillSelect(fCategoria, CATEGORIAS, false);
   if (fEstado) fillSelect(fEstado, ESTADOS, false);
+}
+
+/* =========================
+   Helpers imagen / dropzone
+========================= */
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function setDropZoneContent(src = "") {
+  if (!dropZoneEq) return;
+
+  if (src) {
+    dropZoneEq.innerHTML = `
+      <img src="${src}" alt="preview" style="max-width:100%; max-height:180px; border-radius:8px; display:block; margin:auto;">
+      <input id="fImagenEq" type="file" accept="image/*" />
+    `;
+  } else {
+    dropZoneEq.innerHTML = `
+      Arrastra la imagen aquí o selecciona un archivo
+      <input id="fImagenEq" type="file" accept="image/*" />
+    `;
+  }
+
+  const nuevoInput = dropZoneEq.querySelector("#fImagenEq");
+  if (!nuevoInput) return;
+
+  nuevoInput.style.display = "none";
+
+  nuevoInput.addEventListener("change", async () => {
+    if (nuevoInput.files && nuevoInput.files.length > 0) {
+      imagenBase64 = await fileToBase64(nuevoInput.files[0]);
+      setDropZoneContent(imagenBase64);
+    }
+  });
+}
+
+function bindDropZoneEvents() {
+  if (!dropZoneEq) return;
+
+  dropZoneEq.addEventListener("click", () => {
+    const input = dropZoneEq.querySelector("#fImagenEq");
+    if (input) input.click();
+  });
+
+  dropZoneEq.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    dropZoneEq.classList.add("dragover");
+  });
+
+  dropZoneEq.addEventListener("dragleave", () => {
+    dropZoneEq.classList.remove("dragover");
+  });
+
+  dropZoneEq.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    dropZoneEq.classList.remove("dragover");
+
+    if (e.dataTransfer.files.length > 0) {
+      const file = e.dataTransfer.files[0];
+      if (!file.type.startsWith("image/")) return;
+      imagenBase64 = await fileToBase64(file);
+      setDropZoneContent(imagenBase64);
+    }
+  });
 }
 
 /* =========================
@@ -149,7 +222,7 @@ async function loadFromApi() {
 /* =========================
    Filtros + render
 ========================= */
-function getFiltered(){
+function getFiltered() {
   const q = normalize(searchInput?.value);
   const categoria = filterCategoria?.value || "";
   const estado = filterEstado?.value || "";
@@ -164,25 +237,28 @@ function getFiltered(){
       normalize(e.numero_serie).includes(q) ||
       normalize(e.nombre).includes(q) ||
       normalize(e.categoria).includes(q) ||
-      normalize(e.estado).includes(q)
+      normalize(e.estado).includes(q) ||
+      normalize(e.detalles).includes(q)
     );
   });
 }
 
-function updateButtons(){
+function updateButtons() {
   const has = !!selectedId;
   if (btnEdit) btnEdit.disabled = !has;
   if (btnDelete) btnDelete.disabled = !has;
 }
 
-function renderTable(){
+function renderTable() {
   const list = getFiltered();
 
-  if (selectedId && !list.some(e => e.id_equipo === selectedId)) selectedId = null;
+  if (selectedId && !equipos.some(e => e.id_equipo === selectedId)) {
+    selectedId = null;
+  }
 
   tbody.innerHTML = "";
 
-  if(!list.length){
+  if (!list.length) {
     const tr = document.createElement("tr");
     tr.innerHTML = `<td colspan="7" style="color: rgba(11,18,32,.65); padding: 16px;">
       No hay registros con los filtros actuales.
@@ -194,7 +270,7 @@ function renderTable(){
       if (e.id_equipo === selectedId) tr.classList.add("selected");
 
       tr.innerHTML = `
-        <td>${e.imagen_eq ? `<img src="${e.imagen_eq}" style="width:60px; height:auto; border-radius:8px;">` : "-"}</td>
+        <td>${e.imagen_eq ? `<img src="${e.imagen_eq}" style="width:60px; height:60px; object-fit:cover; border-radius:8px;">` : "-"}</td>
         <td>${escapeHtml(e.numero_serie)}</td>
         <td>${escapeHtml(e.nombre)}</td>
         <td>${escapeHtml(e.categoria)}</td>
@@ -220,22 +296,24 @@ function renderTable(){
 /* =========================
    Modal
 ========================= */
-function openModal(newMode){
+function openModal(newMode) {
   mode = newMode;
   modal.classList.remove("hidden");
-  modal.setAttribute("aria-hidden","false");
+  modal.setAttribute("aria-hidden", "false");
 
-  if(mode === "add"){
+  if (mode === "add") {
     modalTitle.textContent = "Agregar equipo";
     form.reset();
     imagenBase64 = "";
+    setDropZoneContent("");
+
     if (fCategoria) fCategoria.selectedIndex = 0;
     if (fEstado) fEstado.value = "DISPONIBLE";
     if (fSerie) fSerie.disabled = false;
   } else {
     modalTitle.textContent = "Modificar equipo";
     const e = equipos.find(x => x.id_equipo === selectedId);
-    if(!e) return;
+    if (!e) return;
 
     imagenBase64 = e.imagen_eq || "";
     fSerie.value = e.numero_serie ?? "";
@@ -244,17 +322,19 @@ function openModal(newMode){
     fEstado.value = e.estado ?? "DISPONIBLE";
     if (fDetalles) fDetalles.value = e.detalles ?? "";
 
+    setDropZoneContent(imagenBase64);
     fSerie.disabled = true;
   }
 }
 
-function closeModal(){
+function closeModal() {
   modal.classList.add("hidden");
-  modal.setAttribute("aria-hidden","true");
+  modal.setAttribute("aria-hidden", "true");
 }
 
 btnCloseModal?.addEventListener("click", closeModal);
 btnCancel?.addEventListener("click", closeModal);
+
 modal?.addEventListener("click", (e) => {
   if (e.target?.dataset?.close === "true") closeModal();
 });
@@ -263,7 +343,14 @@ modal?.addEventListener("click", (e) => {
    Acciones
 ========================= */
 btnAdd?.addEventListener("click", () => openModal("add"));
-btnEdit?.addEventListener("click", () => selectedId && openModal("edit"));
+
+btnEdit?.addEventListener("click", () => {
+  if (!selectedId) {
+    alert("Selecciona un equipo.");
+    return;
+  }
+  openModal("edit");
+});
 
 btnDelete?.addEventListener("click", async () => {
   if (!selectedId) return;
@@ -284,14 +371,19 @@ btnDelete?.addEventListener("click", async () => {
 });
 
 btnSearch?.addEventListener("click", renderTable);
+
 searchInput?.addEventListener("keydown", (e) => {
-  if(e.key === "Enter"){ e.preventDefault(); renderTable(); }
+  if (e.key === "Enter") {
+    e.preventDefault();
+    renderTable();
+  }
 });
 
 btnClear?.addEventListener("click", () => {
   if (searchInput) searchInput.value = "";
   if (filterCategoria) filterCategoria.value = "";
   if (filterEstado) filterEstado.value = "";
+  selectedId = null;
   renderTable();
 });
 
@@ -305,10 +397,6 @@ form?.addEventListener("submit", async (e) => {
   e.preventDefault();
 
   try {
-    if (fImagenEq?.files?.length > 0) {
-      imagenBase64 = await fileToBase64(fImagenEq.files[0]);
-    }
-
     const body = {
       imagen_eq: imagenBase64 || null,
       numero_serie: fSerie.value.trim(),
@@ -333,7 +421,7 @@ form?.addEventListener("submit", async (e) => {
       return;
     }
 
-    if(mode === "add"){
+    if (mode === "add") {
       await api("/catalog/equipos", { method: "POST", body });
       alert("Equipo creado.");
     } else {
@@ -344,33 +432,19 @@ form?.addEventListener("submit", async (e) => {
     closeModal();
     await loadFromApi();
     renderTable();
-
   } catch (err) {
     alert(err.message);
   }
 });
 
 /* =========================
-   Helpers extra
-========================= */
-async function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function uniqueSorted(values) {
-  return [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b));
-}
-
-/* =========================
    Init
 ========================= */
-(async function init(){
+(async function init() {
   initCatalogs();
+  setDropZoneContent("");
+  bindDropZoneEvents();
+
   try {
     await loadFromApi();
     renderTable();

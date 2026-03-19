@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="VEHÍCULOS Y EQUIPO"
+        android:text="EQUIPO ASIGNADOS"
         android:textColor="#94a3b8"
         android:textSize="10sp"
         android:letterSpacing="0.15"

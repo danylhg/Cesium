@@ -219,8 +219,7 @@ app.get("/catalog/vehiculos", requireAuth, async (req, res) => {
         imagen_veh,
         codigo_interno,
         tipo,
-        marca,
-        modelo,
+        alias,
         estado,
         capacidad,
         fecha_creacion AS fecha_registro
@@ -1070,7 +1069,9 @@ app.delete("/catalog/equipos/:id", requireAuth, async (req, res) => {
 
 app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  }
 
   try {
     const { asignado_por, items } = req.body ?? {};
@@ -1084,17 +1085,73 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
     try {
       await client.query("BEGIN");
 
-      await client.query(`DELETE FROM operacion_equipo WHERE id_operacion = $1`, [id_operacion]);
+      // 1) Obtener equipos previamente ligados a la operación
+      const prevRes = await client.query(
+        `SELECT id_equipo
+         FROM operacion_equipo
+         WHERE id_operacion = $1`,
+        [id_operacion]
+      );
+      const prevEquipoIds = prevRes.rows
+        .map(r => Number(r.id_equipo))
+        .filter(id => Number.isInteger(id) && id > 0);
 
+      // 2) Limpiar relaciones derivadas de esos equipos
+      if (prevEquipoIds.length > 0) {
+        await client.query(
+          `DELETE FROM uso_equipo_operacion
+           WHERE id_operacion = $1`,
+          [id_operacion]
+        );
+
+        await client.query(
+          `DELETE FROM personal_equipo
+           WHERE id_equipo = ANY($1::int[])`,
+          [prevEquipoIds]
+        );
+
+        await client.query(
+          `DELETE FROM vehiculo_equipo
+           WHERE id_equipo = ANY($1::int[])`,
+          [prevEquipoIds]
+        );
+      }
+
+      // 3) Limpiar la reserva de equipos en la operación
+      await client.query(
+        `DELETE FROM operacion_equipo
+         WHERE id_operacion = $1`,
+        [id_operacion]
+      );
+
+      // 4) Reinsertar todo desde cero
       for (const it of items) {
         const id_equipo = Number(it.id_equipo);
         const cantidad = Number(it.cantidad || 1);
-        const uso_en_operacion = it.uso_en_operacion != null ? String(it.uso_en_operacion).trim() || null : null;
-        const estado_asignacion = (it.estado_asignacion || "ASIGNADO").toString().trim().toUpperCase();
+        const estado_asignacion = String(it.estado_asignacion || "ASIGNADO").toUpperCase().trim();
+        const uso_en_operacion =
+          it.uso_en_operacion != null
+            ? String(it.uso_en_operacion).trim() || null
+            : null;
+
+        const id_personal =
+          it.id_personal != null ? Number(it.id_personal) : null;
+        const id_vehiculo =
+          it.id_vehiculo != null ? Number(it.id_vehiculo) : null;
 
         if (!isInt(id_equipo)) continue;
         if (!Number.isInteger(cantidad) || cantidad <= 0) continue;
 
+        // No permitir destino doble
+        if (isInt(id_personal) && isInt(id_vehiculo)) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El equipo ${id_equipo} no puede asignarse a personal y vehículo al mismo tiempo`
+          });
+        }
+
+        // 4.1 Reservar equipo para la operación
         await client.query(
           `INSERT INTO operacion_equipo
              (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
@@ -1105,9 +1162,65 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
              uso_en_operacion = EXCLUDED.uso_en_operacion,
              estado_asignacion = EXCLUDED.estado_asignacion,
              asignado_por = EXCLUDED.asignado_por,
-             fecha_asignacion = NOW()`,
+             fecha_asignacion = NOW(),
+             fecha_fin_asignacion = NULL`,
           [id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, who]
         );
+
+        // 4.2 Si va a persona: inventario entregado a personal
+        if (isInt(id_personal)) {
+          await client.query(
+            `INSERT INTO personal_equipo
+               (id_personal, id_equipo, cantidad, estado, asignado_por)
+             VALUES ($1,$2,$3,'ASIGNADO',$4)
+             ON CONFLICT (id_personal, id_equipo)
+             DO UPDATE SET
+               cantidad = EXCLUDED.cantidad,
+               estado = EXCLUDED.estado,
+               asignado_por = EXCLUDED.asignado_por,
+               fecha_asignacion = NOW(),
+               fecha_devolucion = NULL`,
+            [id_personal, id_equipo, cantidad, who]
+          );
+
+          // 4.3 Si además quieres reflejar uso del equipo dentro de la operación
+          await client.query(
+            `INSERT INTO uso_equipo_operacion
+               (id_operacion, id_equipo, id_personal, cantidad, asignado_por, notas)
+             VALUES ($1,$2,$3,$4,$5,$6)
+             ON CONFLICT (id_operacion, id_equipo, id_personal)
+             DO UPDATE SET
+               cantidad = EXCLUDED.cantidad,
+               asignado_por = EXCLUDED.asignado_por,
+               notas = EXCLUDED.notas,
+               fecha_asignacion = NOW(),
+               fecha_devolucion = NULL`,
+            [
+              id_operacion,
+              id_equipo,
+              id_personal,
+              cantidad,
+              who,
+              uso_en_operacion
+            ]
+          );
+        }
+
+        // 4.4 Si va a vehículo: equipo instalado en vehículo
+        if (isInt(id_vehiculo)) {
+          await client.query(
+            `INSERT INTO vehiculo_equipo
+               (id_vehiculo, id_equipo, cantidad, estado)
+             VALUES ($1,$2,$3,'INSTALADO')
+             ON CONFLICT (id_vehiculo, id_equipo)
+             DO UPDATE SET
+               cantidad = EXCLUDED.cantidad,
+               estado = EXCLUDED.estado,
+               fecha_instalacion = NOW(),
+               fecha_retiro = NULL`,
+            [id_vehiculo, id_equipo, cantidad]
+          );
+        }
       }
 
       await client.query("COMMIT");
@@ -1119,7 +1232,11 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error guardando equipos", error: err.message });
+    return res.status(500).json({
+      ok: false,
+      mensaje: "Error guardando equipos",
+      error: err.message
+    });
   }
 });
 
@@ -1130,8 +1247,7 @@ app.post("/catalog/vehiculos", requireAuth, async (req, res) => {
   try {
     const codigo_interno = (req.body?.codigo_interno || "").toString().trim();
     const tipo = (req.body?.tipo || "").toString().trim() || null;
-    const marca = (req.body?.marca || "").toString().trim() || null;
-    const modelo = (req.body?.modelo || "").toString().trim() || null;
+    const alias = (req.body?.alias || "").toString().trim() || null;
     const imagen_veh = (req.body?.imagen_veh || "").toString().trim() || null;
     const capacidad = req.body?.capacidad != null ? Number(req.body.capacidad) : null;
     const estado = (req.body?.estado || "DISPONIBLE").toString().trim().toUpperCase();
@@ -1147,10 +1263,10 @@ app.post("/catalog/vehiculos", requireAuth, async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO vehiculo (codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id_vehiculo, codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad`,
-      [codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad]
+      `INSERT INTO vehiculo (codigo_interno, tipo, alias, imagen_veh, estado, capacidad)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING id_vehiculo, codigo_interno, tipo, alias, imagen_veh, estado, capacidad`,
+      [codigo_interno, tipo, alias, imagen_veh, estado, capacidad]
     );
 
     return res.json({ ok: true, item: rows[0] });
@@ -1169,8 +1285,7 @@ app.put("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
   try {
     const codigo_interno = req.body?.codigo_interno != null ? String(req.body.codigo_interno).trim() : null;
     const tipo = req.body?.tipo != null ? (String(req.body.tipo).trim() || null) : null;
-    const marca = req.body?.marca != null ? (String(req.body.marca).trim() || null) : null;
-    const modelo = req.body?.modelo != null ? (String(req.body.modelo).trim() || null) : null;
+    const alias = req.body?.alias != null ? (String(req.body.alias).trim() || null) : null;
     const imagen_veh = req.body?.imagen_veh != null ? (String(req.body.imagen_veh).trim() || null) : null;
     const capacidad = req.body?.capacidad != null ? Number(req.body.capacidad) : undefined;
     const estado = req.body?.estado != null ? String(req.body.estado).trim().toUpperCase() : null;
@@ -1196,8 +1311,7 @@ app.put("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
 
     if (codigo_interno !== null)          { sets.push(`codigo_interno = $${i++}`); vals.push(codigo_interno); }
     if (req.body?.tipo !== undefined)     { sets.push(`tipo = $${i++}`); vals.push(tipo); }
-    if (req.body?.marca !== undefined)    { sets.push(`marca = $${i++}`); vals.push(marca); }
-    if (req.body?.modelo !== undefined)   { sets.push(`modelo = $${i++}`); vals.push(modelo); }
+    if (req.body?.alias !== undefined)    { sets.push(`alias = $${i++}`); vals.push(alias); }
     if (req.body?.imagen_veh !== undefined){ sets.push(`imagen_veh = $${i++}`); vals.push(imagen_veh); }
     if (req.body?.capacidad !== undefined){ sets.push(`capacidad = $${i++}`); vals.push(capacidad); }
     if (estado !== null)                  { sets.push(`estado = $${i++}`); vals.push(estado); }
@@ -1212,7 +1326,7 @@ app.put("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
       `UPDATE vehiculo
        SET ${sets.join(", ")}
        WHERE id_vehiculo = $${i}
-       RETURNING id_vehiculo, codigo_interno, tipo, marca, modelo, imagen_veh, estado, capacidad`,
+       RETURNING id_vehiculo, codigo_interno, tipo, alias, imagen_veh, estado, capacidad`,
       vals
     );
 
@@ -2041,8 +2155,7 @@ app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         v.id_vehiculo,
         v.codigo_interno,
         v.tipo,
-        v.marca,
-        v.modelo,
+        v.alias,
         vo.uso_en_operacion,
         vo.estado_asignacion,
         gv.id_grupo_operacion,
@@ -2119,11 +2232,13 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
         oe.uso_en_operacion,
         oe.estado_asignacion,
         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+
         CONCAT_WS(' ', p.nombre, p.apellido) AS personal_asignado,
         p.apodo AS personal_apodo,
+
         v.codigo_interno AS vehiculo_asignado,
-        v.marca AS vehiculo_marca,
-        v.modelo AS vehiculo_modelo
+        v.alias AS vehiculo_alias
+
       FROM operacion_equipo oe
       JOIN equipo e
         ON e.id_equipo = oe.id_equipo
@@ -2131,14 +2246,18 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
         ON ec.id_equipo = e.id_equipo
       LEFT JOIN equipo_tactico et
         ON et.id_equipo = e.id_equipo
-      LEFT JOIN personal_equipo pe
-        ON pe.id_equipo = e.id_equipo
+
+      LEFT JOIN uso_equipo_operacion ueo
+        ON ueo.id_operacion = oe.id_operacion
+       AND ueo.id_equipo = oe.id_equipo
       LEFT JOIN personal p
-        ON p.id_personal = pe.id_personal
+        ON p.id_personal = ueo.id_personal
+
       LEFT JOIN vehiculo_equipo ve
         ON ve.id_equipo = e.id_equipo
       LEFT JOIN vehiculo v
         ON v.id_vehiculo = ve.id_vehiculo
+
       WHERE oe.id_operacion = $1
         AND oe.estado_asignacion != 'LIBERADO'
       ORDER BY e.categoria, e.nombre, e.numero_serie

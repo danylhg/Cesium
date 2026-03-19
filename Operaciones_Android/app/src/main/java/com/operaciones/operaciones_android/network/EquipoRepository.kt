@@ -13,6 +13,11 @@ import java.io.IOException
 class EquipoRepository(
     private val http: OkHttpClient = OkHttpClient()
 ) {
+    private fun JSONObject.safeString(key: String): String {
+        if (isNull(key)) return ""
+        return optString(key, "").takeUnless { it.equals("null", ignoreCase = true) } ?: ""
+    }
+
     fun fetchEquipos(
         operationId: Int,
         token: String,
@@ -46,20 +51,28 @@ class EquipoRepository(
                     for (i in 0 until items.length()) {
                         val e = items.getJSONObject(i)
 
-                        val personalAsignado = e.optString("personal_apodo", "")
-                            .ifBlank { e.optString("personal_asignado", "") }
+                        val personalApodo = e.safeString("personal_apodo")
+                        val personalNombre = e.safeString("personal_asignado")
+                        val vehiculoAsignado = e.safeString("vehiculo_asignado")
 
-                        val vehiculoAsignado = e.optString("vehiculo_asignado", "")
-
-                        val asignadoA = when {
-                            personalAsignado.isNotBlank() -> "Asignado a personal: $personalAsignado"
-                            vehiculoAsignado.isNotBlank() -> "Asignado a vehículo: $vehiculoAsignado"
+                        val personalAsignado = when {
+                            personalApodo.isNotBlank() -> personalApodo
+                            personalNombre.isNotBlank() -> personalNombre
                             else -> ""
                         }
 
+                        val asignadoA = when {
+                            personalAsignado.isNotBlank() ->
+                                "Asignado a personal: $personalAsignado"
+                            vehiculoAsignado.isNotBlank() ->
+                                "Asignado a vehículo: $vehiculoAsignado"
+                            else ->
+                                "Sin asignación"
+                        }
+
                         val detalle = buildString {
-                            val uso = e.optString("uso_en_operacion", "")
-                            val ns = e.optString("numero_serie", "")
+                            val uso = e.safeString("uso_en_operacion")
+                            val ns = e.safeString("numero_serie")
 
                             if (uso.isNotBlank()) append(uso)
                             if (uso.isNotBlank() && ns.isNotBlank()) append(" · ")
@@ -69,9 +82,9 @@ class EquipoRepository(
                         result.add(
                             EquipoItem(
                                 idEquipo = e.optInt("id_equipo"),
-                                numeroSerie = e.optString("numero_serie", ""),
-                                nombre = e.optString("nombre", "Equipo"),
-                                categoria = e.optString("categoria", ""),
+                                numeroSerie = e.safeString("numero_serie"),
+                                nombre = e.safeString("nombre").ifBlank { "Equipo" },
+                                categoria = e.safeString("categoria"),
                                 detalle = detalle,
                                 asignadoA = asignadoA,
                                 personalAsignado = personalAsignado,
