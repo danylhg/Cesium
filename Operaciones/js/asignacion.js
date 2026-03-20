@@ -1,4 +1,4 @@
-/// asignacion.js — Integrado con backend real (personal + vehículos + equipos)
+/// asignacion.js — Integrado con backend real + borrador local + dashboard opcional
 
 // ===============================
 // Sesión / token
@@ -67,18 +67,54 @@ const btnBack = document.getElementById("btnBack");
 const btnVolver = document.getElementById("btnVolver");
 const lblOperacion = document.getElementById("lblOperacion");
 
-// Form izquierdo (datos de la operación)
+// form izquierda
 const opNombreEl = document.getElementById("opNombre");
 const opDescEl = document.getElementById("opDesc");
 const opInicioEl = document.getElementById("opInicio");
 const opFinEl = document.getElementById("opFin");
 const opPrioridadEl = document.getElementById("opPrioridad");
 
-// Panel izquierdo
+// panel izquierdo
 const leftCardTitleEl = document.getElementById("leftCardTitle");
 const opInfoFormEl = document.getElementById("opInfoForm");
 const vehiculosLeftEl = document.getElementById("vehiculosLeft");
 
+// dashboard opcional
+const dashboardWrap = document.getElementById("dashboardWrap");
+const btnDashboardGo = document.getElementById("btnDashboardGo");
+
+// ===============================
+// Storage borrador local
+// ===============================
+const STORAGE_WIZARD_DRAFT = "asignacion_wizard_draft";
+const STORAGE_OPERACION_ACTUAL = "operacion_actual";
+
+function readObjectStorage(key, fallback = {}) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const data = JSON.parse(raw);
+    return data && typeof data === "object" ? data : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeStorage(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function removeStorage(key) {
+  localStorage.removeItem(key);
+}
+
+function normalizeText(value) {
+  return String(value ?? "").trim();
+}
+
+// ===============================
+// UI helpers layout
+// ===============================
 function showOperacionInfo() {
   if (leftCardTitleEl) leftCardTitleEl.textContent = "Información de operación";
   if (opInfoFormEl) opInfoFormEl.style.display = "flex";
@@ -95,6 +131,14 @@ function showVehiculosLeftPanel(title = "Asignación de personal al vehículo") 
     vehiculosLeftEl.style.display = "block";
     vehiculosLeftEl.innerHTML = "";
   }
+}
+
+function hideDashboardButton() {
+  if (dashboardWrap) dashboardWrap.style.display = "none";
+}
+
+function showDashboardButton() {
+  if (dashboardWrap) dashboardWrap.style.display = "flex";
 }
 
 // ===============================
@@ -121,7 +165,7 @@ const state = {
 
   flotillaByCet: {},
   searchByCet: {},
-  gruposByCet: {},
+  gruposByCet: {}, // { [cetId]: { names:[], active:null, map:{[grupo]: [id_personal...]}, idx:0, vehActive:null } }
 
   // vehículos
   asignacionVehiculos: {}, // { [id_personal]: id_vehiculo }
@@ -133,9 +177,9 @@ const state = {
   equipoCategoria: null, // tactico | comunicacion
   equipoDestino: null, // personal | vehiculo
   equipoSelectedItems: [], // [id_equipo]
-  equipoSelectedResource: null, // destino seleccionado
+  equipoSelectedResource: null, // { tipo, id_personal? id_vehiculo? label }
   asignacionEquipos: {
-    tactico: {}, // { [id_equipo]: { tipo, id_personal?, id_vehiculo?, label } }
+    tactico: {},
     comunicacion: {}
   }
 };
@@ -185,15 +229,24 @@ function mkOpt(txt) {
 }
 
 function ensureCetState(cetId) {
-  if (state.flotillaByCet[cetId] === undefined) state.flotillaByCet[cetId] = "";
-  if (state.searchByCet[cetId] === undefined) state.searchByCet[cetId] = "";
-  if (!state.gruposByCet[cetId]) {
-    state.gruposByCet[cetId] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
+  const id = Number(cetId);
+
+  if (state.flotillaByCet[id] === undefined) state.flotillaByCet[id] = "";
+  if (state.searchByCet[id] === undefined) state.searchByCet[id] = "";
+
+  if (!state.gruposByCet[id]) {
+    state.gruposByCet[id] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
   } else {
-    const gi = state.gruposByCet[cetId];
+    const gi = state.gruposByCet[id];
+    if (!Array.isArray(gi.names)) gi.names = [];
+    if (!gi.map || typeof gi.map !== "object") gi.map = {};
     if (gi.idx === undefined) gi.idx = 0;
     if (gi.vehActive === undefined) gi.vehActive = null;
-    if (!gi.map) gi.map = {};
+
+    Object.keys(gi.map).forEach(k => {
+      if (!Array.isArray(gi.map[k])) gi.map[k] = [];
+      gi.map[k] = gi.map[k].map(Number).filter(isPositiveInt);
+    });
   }
 }
 
@@ -257,6 +310,135 @@ function resetEquipoFlow() {
 }
 
 // ===============================
+// Persistencia local del borrador
+// ===============================
+function collectOperacionActual() {
+  return {
+    nombre: normalizeText(opNombreEl?.value),
+    descripcion: normalizeText(opDescEl?.value),
+    fecha_inicio: normalizeText(opInicioEl?.value),
+    fecha_fin: normalizeText(opFinEl?.value),
+    prioridad: normalizeText(opPrioridadEl?.value),
+    updated_at: new Date().toISOString()
+  };
+}
+
+function saveOperacionActualLocal() {
+  const data = collectOperacionActual();
+  writeStorage(STORAGE_OPERACION_ACTUAL, data);
+
+  if (lblOperacion) {
+    lblOperacion.textContent = data.nombre || "—";
+  }
+}
+
+function loadOperacionActualIntoForm() {
+  const stored = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+  const qsName = normalizeText(lblOperacion?.textContent);
+
+  const nombre = normalizeText(stored.nombre) || (qsName && qsName !== "—" ? qsName : "");
+
+  if (opNombreEl) opNombreEl.value = nombre;
+  if (opDescEl) opDescEl.value = normalizeText(stored.descripcion);
+  if (opInicioEl) opInicioEl.value = normalizeText(stored.fecha_inicio);
+  if (opFinEl) opFinEl.value = normalizeText(stored.fecha_fin);
+  if (opPrioridadEl) opPrioridadEl.value = normalizeText(stored.prioridad || "MEDIA");
+
+  if (lblOperacion) lblOperacion.textContent = nombre || "—";
+}
+
+function buildDraftPayload() {
+  return {
+    opId: state.opId,
+    categoria: state.categoria,
+    pasoPersonal: state.pasoPersonal,
+
+    cutSeleccionadoId: state.cutSeleccionadoId,
+    cetSeleccionadosIds: [...state.cetSeleccionadosIds],
+    cetActivoIndex: state.cetActivoIndex,
+    asignacionCelulas: { ...state.asignacionCelulas },
+
+    flotillaByCet: { ...state.flotillaByCet },
+    searchByCet: { ...state.searchByCet },
+    gruposByCet: JSON.parse(JSON.stringify(state.gruposByCet || {})),
+
+    asignacionVehiculos: { ...state.asignacionVehiculos },
+    cetActivoIndexVeh: state.cetActivoIndexVeh,
+    selectedVehicleId: state.selectedVehicleId,
+    selectedPersonIds: [...state.selectedPersonIds],
+
+    equipoCategoria: state.equipoCategoria,
+    equipoDestino: state.equipoDestino,
+    equipoSelectedItems: [...state.equipoSelectedItems],
+    equipoSelectedResource: state.equipoSelectedResource ? { ...state.equipoSelectedResource } : null,
+    asignacionEquipos: JSON.parse(JSON.stringify(state.asignacionEquipos || { tactico: {}, comunicacion: {} })),
+
+    operacion: collectOperacionActual(),
+    updated_at: new Date().toISOString()
+  };
+}
+
+function saveDraftLocal() {
+  writeStorage(STORAGE_WIZARD_DRAFT, buildDraftPayload());
+  saveOperacionActualLocal();
+}
+
+function restoreDraftLocal() {
+  const draft = readObjectStorage(STORAGE_WIZARD_DRAFT, null);
+  if (!draft || typeof draft !== "object") return false;
+
+  state.opId = isPositiveInt(draft.opId) ? Number(draft.opId) : null;
+  state.categoria = draft.categoria || null;
+  state.pasoPersonal = draft.pasoPersonal || "home";
+
+  state.cutSeleccionadoId = isPositiveInt(draft.cutSeleccionadoId) ? Number(draft.cutSeleccionadoId) : null;
+  state.cetSeleccionadosIds = Array.isArray(draft.cetSeleccionadosIds)
+    ? draft.cetSeleccionadosIds.map(Number).filter(isPositiveInt)
+    : [];
+  state.cetActivoIndex = Number(draft.cetActivoIndex || 0);
+
+  state.asignacionCelulas = draft.asignacionCelulas || {};
+  Object.keys(state.asignacionCelulas).forEach(k => {
+    state.asignacionCelulas[k] = (state.asignacionCelulas[k] || []).map(Number).filter(isPositiveInt);
+  });
+
+  state.flotillaByCet = draft.flotillaByCet || {};
+  state.searchByCet = draft.searchByCet || {};
+  state.gruposByCet = draft.gruposByCet || {};
+
+  Object.keys(state.gruposByCet).forEach(cetId => ensureCetState(Number(cetId)));
+
+  state.asignacionVehiculos = draft.asignacionVehiculos || {};
+  Object.keys(state.asignacionVehiculos).forEach(k => {
+    state.asignacionVehiculos[k] = Number(state.asignacionVehiculos[k]);
+  });
+
+  state.cetActivoIndexVeh = Number(draft.cetActivoIndexVeh || 0);
+  state.selectedVehicleId = isPositiveInt(draft.selectedVehicleId) ? Number(draft.selectedVehicleId) : null;
+  state.selectedPersonIds = Array.isArray(draft.selectedPersonIds)
+    ? draft.selectedPersonIds.map(Number).filter(isPositiveInt)
+    : [];
+
+  state.equipoCategoria = draft.equipoCategoria || null;
+  state.equipoDestino = draft.equipoDestino || null;
+  state.equipoSelectedItems = Array.isArray(draft.equipoSelectedItems)
+    ? draft.equipoSelectedItems.map(Number).filter(isPositiveInt)
+    : [];
+  state.equipoSelectedResource = draft.equipoSelectedResource || null;
+  state.asignacionEquipos = draft.asignacionEquipos || { tactico: {}, comunicacion: {} };
+
+  if (draft.operacion && typeof draft.operacion === "object") {
+    writeStorage(STORAGE_OPERACION_ACTUAL, draft.operacion);
+  }
+
+  return true;
+}
+
+function clearDraftLocal() {
+  removeStorage(STORAGE_WIZARD_DRAFT);
+}
+
+// ===============================
 // Carga inicial backend
 // ===============================
 async function loadCatalogs() {
@@ -276,7 +458,7 @@ async function loadCatalogs() {
     ...v,
     id_vehiculo: Number(v.id_vehiculo),
     capacidad: Number(v.capacidad || 0),
-    label: [v.codigo_interno, v.alias].filter(Boolean).join(" — "),
+    label: [v.codigo_interno, v.alias].filter(Boolean).join(" — ") || v.codigo_interno || v.alias || `Vehículo ${v.id_vehiculo}`,
     image: v.imagen_veh || ""
   }));
 
@@ -293,6 +475,10 @@ async function loadCatalogs() {
 // Guardado backend
 // ===============================
 async function crearOperacionYPersonal() {
+  if (state.opId) {
+    return { nombre: opNombreEl?.value.trim() || "", codigo: null, yaExistia: true };
+  }
+
   const nombre = opNombreEl?.value.trim() || "";
   const descripcion = opDescEl?.value.trim() || "";
   const prioridad = opPrioridadEl?.value || "MEDIA";
@@ -345,7 +531,8 @@ async function crearOperacionYPersonal() {
     body: { items: mandoItems },
   });
 
-  return { nombre, codigo: opRes.codigo };
+  saveDraftLocal();
+  return { nombre, codigo: opRes.codigo, yaExistia: false };
 }
 
 async function saveVehiculos() {
@@ -360,6 +547,8 @@ async function saveVehiculos() {
     method: "POST",
     body: { items: vehItems },
   });
+
+  saveDraftLocal();
 }
 
 async function saveEquipos() {
@@ -401,12 +590,15 @@ async function saveEquipos() {
     method: "POST",
     body: { items }
   });
+
+  saveDraftLocal();
 }
 
 // ===============================
 // Home
 // ===============================
 function renderHome() {
+  hideDashboardButton();
   showOperacionInfo();
   clearPanel();
   state.categoria = null;
@@ -426,6 +618,7 @@ function renderHome() {
   btnPersonal.addEventListener("click", () => {
     state.categoria = "personal";
     state.pasoPersonal = "cut";
+    saveDraftLocal();
     renderCUT();
   });
 
@@ -435,12 +628,14 @@ function renderHome() {
       alert("Primero asigna CUT y CET/CELL.");
       state.categoria = "personal";
       state.pasoPersonal = "cut";
+      saveDraftLocal();
       renderCUT();
       return;
     }
     state.cetActivoIndexVeh = 0;
     state.selectedVehicleId = null;
     state.selectedPersonIds = [];
+    saveDraftLocal();
     renderVehiculos();
   });
 
@@ -451,6 +646,7 @@ function renderHome() {
     }
     state.categoria = "equipo";
     resetEquipoFlow();
+    saveDraftLocal();
     renderEquipoHome();
   });
 
@@ -507,7 +703,9 @@ function renderCUT() {
           state.flotillaByCet = {};
           state.searchByCet = {};
           state.asignacionEquipos = { tactico: {}, comunicacion: {} };
+          state.opId = null;
           resetEquipoFlow();
+          saveDraftLocal();
           renderCUT();
         });
 
@@ -527,6 +725,7 @@ function renderCUT() {
   btnAccion.onclick = () => {
     if (!state.cutSeleccionadoId) return;
     state.pasoPersonal = "cet";
+    saveDraftLocal();
     renderCET();
   };
 }
@@ -594,10 +793,16 @@ function renderCET() {
         left.addEventListener("click", () => {
           if (isSel) {
             state.cetSeleccionadosIds = state.cetSeleccionadosIds.filter(id => Number(id) !== Number(p.id_personal));
+            delete state.asignacionCelulas[Number(p.id_personal)];
+            delete state.flotillaByCet[Number(p.id_personal)];
+            delete state.searchByCet[Number(p.id_personal)];
+            delete state.gruposByCet[Number(p.id_personal)];
           } else {
             state.cetSeleccionadosIds.push(Number(p.id_personal));
             ensureCetState(Number(p.id_personal));
           }
+          state.opId = null;
+          saveDraftLocal();
           renderCET();
         });
 
@@ -633,6 +838,7 @@ function renderCET() {
       if (!gi.vehActive) gi.vehActive = gi.active;
     }
 
+    saveDraftLocal();
     renderCelulas();
   };
 }
@@ -664,6 +870,7 @@ function pintarChipsGrupos(cetId, container) {
     chip.addEventListener("click", () => {
       info.idx = index;
       info.active = gName;
+      saveDraftLocal();
       renderCelulas();
     });
     container.appendChild(chip);
@@ -701,7 +908,7 @@ function renderCelulas() {
 
   const lastCet = state.cetActivoIndex === state.cetSeleccionadosIds.length - 1;
   const lastGroup = !hasGroups || (info.idx === info.names.length - 1);
-  setAccion((lastCet && lastGroup) ? "Finalizar" : "Siguiente", false);
+  setAccion((lastCet && lastGroup) ? "Crear operación" : "Siguiente", false);
 
   const chips = document.createElement("div");
   chips.className = "chipRow";
@@ -733,6 +940,7 @@ function renderCelulas() {
           gi.vehActive = null;
         }
       }
+      saveDraftLocal();
       renderCelulas();
     });
     chips.appendChild(c);
@@ -762,6 +970,7 @@ function renderCelulas() {
   flotInp.value = state.flotillaByCet[cetId] || "";
   flotInp.addEventListener("input", () => {
     state.flotillaByCet[cetId] = flotInp.value;
+    saveDraftLocal();
   });
 
   flotWrap.appendChild(flotLbl);
@@ -822,6 +1031,7 @@ function renderCelulas() {
 
             if (grupoActivo) {
               if (!info.map[grupoActivo]) info.map[grupoActivo] = [];
+
               if (enEste) {
                 state.asignacionCelulas[cetId] = asignadas.filter(x => Number(x) !== cellId);
                 Object.keys(info.map).forEach(g => {
@@ -839,6 +1049,8 @@ function renderCelulas() {
               }
             }
 
+            state.opId = null;
+            saveDraftLocal();
             renderCelulas();
           }
         });
@@ -849,6 +1061,7 @@ function renderCelulas() {
 
   searchInp.addEventListener("input", () => {
     state.searchByCet[cetId] = searchInp.value;
+    saveDraftLocal();
     paintCells();
   });
 
@@ -863,6 +1076,7 @@ function renderCelulas() {
       info.idx += 1;
       info.active = info.names[info.idx];
       if (!info.vehActive) info.vehActive = info.active;
+      saveDraftLocal();
       renderCelulas();
       return;
     }
@@ -884,6 +1098,7 @@ function renderCelulas() {
           ngi.vehActive = null;
         }
       }
+      saveDraftLocal();
       renderCelulas();
       return;
     }
@@ -894,9 +1109,10 @@ function renderCelulas() {
       state.cetActivoIndexVeh = 0;
       state.selectedVehicleId = null;
       state.selectedPersonIds = [];
+      saveDraftLocal();
       renderVehiculos();
     } catch (e) {
-      setAccion("Finalizar", false);
+      setAccion("Crear operación", false);
       alert(`Error al crear la operación: ${e.message}`);
     }
   };
@@ -1030,6 +1246,7 @@ function abrirModalCrearGrupo(cetId) {
       info.vehActive = info.active || info.names[0];
     }
 
+    saveDraftLocal();
     overlay.remove();
     renderCelulas();
   });
@@ -1078,7 +1295,7 @@ function renderVehiculos() {
   setHeader("Asignación de Vehículos", "");
   const lastCet = state.cetActivoIndexVeh === state.cetSeleccionadosIds.length - 1;
   const isLastOverall = lastCet && (!hasGroups || groupIndex === lastGroupIndex);
-  setAccion(isLastOverall ? "Finalizar" : "Siguiente", false);
+  setAccion(isLastOverall ? "Guardar y pasar a equipos" : "Siguiente", false);
 
   const cetButtons = document.createElement("div");
   cetButtons.className = "chipRow";
@@ -1094,6 +1311,7 @@ function renderVehiculos() {
       state.cetActivoIndexVeh = i;
       state.selectedPersonIds = [];
       state.selectedVehicleId = null;
+      saveDraftLocal();
       renderVehiculos();
     });
     cetButtons.appendChild(btn);
@@ -1140,6 +1358,7 @@ function renderVehiculos() {
         ginfo.vehActive = gName;
         state.selectedPersonIds = [];
         state.selectedVehicleId = null;
+        saveDraftLocal();
         renderVehiculos();
       });
       grpRow.appendChild(chip);
@@ -1157,6 +1376,7 @@ function renderVehiculos() {
 
   const cellsForCet = state.asignacionCelulas[cetId] || [];
   let cellsToShow = cellsForCet.slice();
+
   if (hasGroups && ginfo.vehActive) {
     const arr = (ginfo.map[ginfo.vehActive] || []);
     cellsToShow = arr.filter(id => cellsForCet.includes(id));
@@ -1346,6 +1566,7 @@ function renderVehiculos() {
 
     state.selectedVehicleId = null;
     state.selectedPersonIds = [];
+    saveDraftLocal();
     renderVehiculos();
   });
 
@@ -1356,6 +1577,7 @@ function renderVehiculos() {
       ginfo.vehActive = ginfo.names[groupIndex + 1];
       state.selectedVehicleId = null;
       state.selectedPersonIds = [];
+      saveDraftLocal();
       renderVehiculos();
       return;
     }
@@ -1375,6 +1597,7 @@ function renderVehiculos() {
       }
       state.selectedVehicleId = null;
       state.selectedPersonIds = [];
+      saveDraftLocal();
       renderVehiculos();
       return;
     }
@@ -1384,9 +1607,10 @@ function renderVehiculos() {
       await saveVehiculos();
       state.categoria = "equipo";
       resetEquipoFlow();
+      saveDraftLocal();
       renderEquipoHome();
     } catch (e) {
-      setAccion("Finalizar", false);
+      setAccion("Guardar y pasar a equipos", false);
       alert(`Error guardando vehículos: ${e.message}`);
     }
   };
@@ -1418,11 +1642,13 @@ function renderEquipoHome() {
 
   btnPersonal.addEventListener("click", () => {
     state.equipoDestino = "personal";
+    saveDraftLocal();
     renderEquipoAsignacion();
   });
 
   btnVehiculo.addEventListener("click", () => {
     state.equipoDestino = "vehiculo";
+    saveDraftLocal();
     renderEquipoAsignacion();
   });
 
@@ -1438,11 +1664,13 @@ function renderEquipoHome() {
 
   btnTactico.addEventListener("click", () => {
     state.equipoCategoria = "tactico";
+    saveDraftLocal();
     renderEquipoHome();
   });
 
   btnCom.addEventListener("click", () => {
     state.equipoCategoria = "comunicacion";
+    saveDraftLocal();
     renderEquipoHome();
   });
 
@@ -1468,7 +1696,7 @@ function renderEquipoAsignacion() {
     state.equipoCategoria === "tactico" ? "Equipo táctico" : "Equipo de comunicación",
     ""
   );
-  setAccion("Finalizar", false);
+  setAccion("Guardar equipos", false);
 
   vehiculosLeftEl.innerHTML = "";
 
@@ -1482,6 +1710,7 @@ function renderEquipoAsignacion() {
     state.equipoDestino = "personal";
     state.equipoSelectedResource = null;
     state.equipoSelectedItems = [];
+    saveDraftLocal();
     renderEquipoAsignacion();
   });
 
@@ -1492,6 +1721,7 @@ function renderEquipoAsignacion() {
     state.equipoDestino = "vehiculo";
     state.equipoSelectedResource = null;
     state.equipoSelectedItems = [];
+    saveDraftLocal();
     renderEquipoAsignacion();
   });
 
@@ -1586,6 +1816,7 @@ function renderEquipoAsignacion() {
       } else {
         state.equipoSelectedItems.push(eqKey);
       }
+      saveDraftLocal();
       renderEquipoAsignacion();
     });
 
@@ -1613,6 +1844,7 @@ function renderEquipoAsignacion() {
     });
 
     state.equipoSelectedItems = [];
+    saveDraftLocal();
     renderEquipoAsignacion();
   });
 
@@ -1626,6 +1858,8 @@ function renderEquipoAsignacion() {
       setAccion("Guardando...", true);
       await saveEquipos();
       const nombre = opNombreEl?.value.trim() || "";
+      clearDraftLocal();
+      showDashboardButton();
       alert(`Operación "${nombre}" guardada completamente.`);
 
       state.categoria = null;
@@ -1633,7 +1867,7 @@ function renderEquipoAsignacion() {
       resetEquipoFlow();
       renderHome();
     } catch (e) {
-      setAccion("Finalizar", false);
+      setAccion("Guardar equipos", false);
       alert(`Error guardando equipos: ${e.message}`);
     }
   };
@@ -1646,7 +1880,6 @@ function renderEquipoLeftPersonal() {
   const box = document.createElement("div");
   box.className = "listBox";
 
-  // CUT
   if (state.cutSeleccionadoId) {
     const cut = getPersonalById(state.cutSeleccionadoId);
     if (cut) {
@@ -1676,6 +1909,7 @@ function renderEquipoLeftPersonal() {
           id_personal: Number(cut.id_personal),
           label: cut.label
         };
+        saveDraftLocal();
         renderEquipoAsignacion();
       });
 
@@ -1738,6 +1972,7 @@ function renderEquipoLeftPersonal() {
         id_personal: Number(cet),
         label: cetObj?.label || `CET ${cet}`
       };
+      saveDraftLocal();
       renderEquipoAsignacion();
     });
     bloque.appendChild(cetRow);
@@ -1804,6 +2039,7 @@ function renderEquipoLeftPersonal() {
               id_personal: Number(idPersona),
               label: persona.label
             };
+            saveDraftLocal();
             renderEquipoAsignacion();
           });
 
@@ -1837,6 +2073,7 @@ function renderEquipoLeftPersonal() {
             id_personal: Number(idPersona),
             label: persona.label
           };
+          saveDraftLocal();
           renderEquipoAsignacion();
         });
 
@@ -1991,6 +2228,7 @@ function renderEquipoLeftVehiculo() {
         id_vehiculo: Number(v.id_vehiculo),
         label: v.label
       };
+      saveDraftLocal();
       renderEquipoAsignacion();
     });
 
@@ -2026,52 +2264,76 @@ function celulaRow({ name, selected = false, disabled = false, status = "Disponi
 }
 
 // ===============================
-// Back / volver
+// Navegación
 // ===============================
 btnBack.addEventListener("click", () => {
   if (state.categoria === "vehiculos") {
     state.categoria = "personal";
     state.pasoPersonal = "celulas";
+    saveDraftLocal();
     renderCelulas();
     return;
   }
 
   if (state.categoria === "equipo") {
     if (state.equipoDestino) {
+      saveDraftLocal();
       renderEquipoHome();
       return;
     }
 
     state.categoria = "vehiculos";
+    saveDraftLocal();
     renderVehiculos();
     return;
   }
 
   if (state.categoria !== "personal") {
+    saveDraftLocal();
     renderHome();
     return;
   }
 
   if (state.pasoPersonal === "celulas") {
     state.pasoPersonal = "cet";
+    saveDraftLocal();
     renderCET();
     return;
   }
 
   if (state.pasoPersonal === "cet") {
     state.pasoPersonal = "cut";
+    saveDraftLocal();
     renderCUT();
     return;
   }
 
   if (state.pasoPersonal === "cut") {
+    saveDraftLocal();
     renderHome();
     return;
   }
 });
 
 btnVolver.addEventListener("click", () => {
+  saveDraftLocal();
   window.location.href = "menu_inicial.html";
+});
+
+btnDashboardGo?.addEventListener("click", () => {
+  saveDraftLocal();
+  window.location.href = "dashboard.html";
+});
+
+[opNombreEl, opDescEl, opInicioEl, opFinEl, opPrioridadEl].forEach((el) => {
+  el?.addEventListener("input", () => {
+    saveOperacionActualLocal();
+    saveDraftLocal();
+  });
+  el?.addEventListener("change", () => {
+    saveOperacionActualLocal();
+    saveDraftLocal();
+  });
 });
 
 // ===============================
@@ -2080,6 +2342,13 @@ btnVolver.addEventListener("click", () => {
 (async function init() {
   try {
     await loadCatalogs();
+
+    loadOperacionActualIntoForm();
+    restoreDraftLocal();
+
+    if (state.opId) showDashboardButton();
+    else hideDashboardButton();
+
     renderHome();
   } catch (e) {
     alert(`Error inicializando: ${e.message}\n\n¿Hay token en localStorage.token? ¿API en ${API_BASE}?`);

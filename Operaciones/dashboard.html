@@ -7,116 +7,119 @@
 
   <link rel="stylesheet" href="css/dashboard.css"/>
 
-  <!-- Cesium -->
-  <link href="https://unpkg.com/cesium/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
-  <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
+  <!-- Cesium oficial -->
+  <link
+    href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css"
+    rel="stylesheet"
+  >
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
 
-  <!-- MILSTD 2525C symbols (milsymbol) -->
+  <!-- MILSTD 2525C -->
   <script src="https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.min.js"></script>
 </head>
-
 <body>
+
   <header class="topbar">
     <div class="topbarLeft">
+      <span class="brandDot"></span>
       <strong>Sistema de Operaciones</strong>
       <span id="who" class="who">(admin)</span>
     </div>
+
     <div class="topbarRight">
       <button id="logout" class="topBtn">Salir</button>
     </div>
   </header>
 
-  <main class="layout">
-    <!-- MAPA -->
-    <section class="panel mapPanel">
-      <div class="panelHeader">
-        <h2>Mapa (Cesium)</h2>
+  <div class="floatingTools">
+    <button id="toggleInfoPanel" class="toolFab active" title="Información">📋</button>
+    <button id="toggleRoutePanel" class="toolFab" title="Rutas">🗺️</button>
+    <button id="toggleTacticalPanel" class="toolFab" title="Símbolos">✚</button>
+  </div>
 
-        <div class="mapControls">
-          <select id="layerSelect">
-            <option value="osm">Normal (OSM)</option>
-            <option value="toner">Toner</option>
-            <option value="watercolor">Watercolor</option>
-          </select>
-
-          <select id="modeSelect">
-            <option value="3d">3D</option>
-            <option value="2d">2D</option>
-            <option value="columbus">Columbus</option>
-          </select>
-        </div>
-      </div>
-
-      <div id="map" class="mapBox"></div>
-
-      <div id="routeInfo" class="routeInfo">
-        Listo. Elige ORIGEN y DESTINO para crear una operación.
-      </div>
-
-      <!-- ===== MENU TÁCTICO (MILSTD + MARCADORES) ===== -->
-      <div class="tacticalBar">
-        <div class="tbRow">
-          <select id="toolSelect">
-            <option value="none">Selecciona herramienta...</option>
-            <option value="mil">Símbolo MILSTD 2525C</option>
-            <option value="bldg">Edificio / Marcador</option>
-          </select>
-
-          <select id="milPreset" disabled>
-            <option value="">Elegir símbolo...</option>
-            <option value="SFGPUCI----K---">Infantería (Friendly)</option>
-            <option value="SHGPUCI----K---">Infantería (Hostile)</option>
-            <option value="SFGPUAR----K---">Artillería (Friendly)</option>
-            <option value="SHGPUAR----K---">Artillería (Hostile)</option>
-            <option value="SFGPUH-----K---">Hospital (Friendly)</option>
-            <option value="SFGPUS-----K---">Logística (Friendly)</option>
-          </select>
-
-          <input id="symLabel" placeholder="Texto / etiqueta" disabled />
-        </div>
-
-        <div class="tbRow tbRow2">
-          <button id="placeBtn" class="btnBeige" disabled>Colocar (click en mapa)</button>
-          <button id="cancelPlace" class="btnBeige">Cancelar</button>
-          <button id="clearTactical" class="btnBeige">Limpiar símbolos</button>
-        </div>
-
-        <div class="tbHint" id="tbHint">Selecciona una herramienta para comenzar.</div>
-      </div>
-    </section>
-
-    <!-- OPERACIONES -->
-    <section class="panel ops">
-      <h2>Operaciones</h2>
-
-      <div class="opsForm">
-        <input id="opTitle" class="opsInput" placeholder="Título de la operación"/>
-        <input id="opDesc" class="opsInput" placeholder="Descripción"/>
-
-        <div class="latlngRow">
-          <input id="opLat" class="latlngBox" placeholder="LAT-LNG" readonly />
-          <input id="opLng" class="latlngBox" placeholder="LAT-LNG" readonly />
-        </div>
-
-        <div class="btnGrid">
-          <button id="setStart" class="btnBeige">Elegir Origen</button>
-          <button id="setEnd" class="btnBeige">Elegir Destino</button>
-
-          <button id="calcRoute" class="btnBeige">Calcular ruta (OSRM)</button>
-          <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
-
-          <button id="saveOp" class="btnBeige">Guardar</button>
-          <button id="clearOps" class="btnBeige">Borrar todo</button>
-
-          <button id="goHistory" class="btnBeige historyBtn">Historial de operaciones</button>
-        </div>
-
-        <p id="opsMsg" class="msg"></p>
-      </div>
-
-      <div id="opsList" class="list"></div>
-    </section>
+  <main class="mapStage">
+    <div id="map" class="mapBox"></div>
   </main>
+
+  <aside id="infoPanel" class="glassPanel open">
+    <h2 class="panelTitle">Información</h2>
+    <div id="infoPanelContent" class="infoPanelContent"></div>
+  </aside>
+
+  <aside id="routePanel" class="glassPanel">
+    <h2 class="panelTitle">Rutas y mapa</h2>
+
+    <div class="groupTitle">Vista del mapa</div>
+    <select id="layerSelect">
+      <option value="osm">Normal (OSM)</option>
+      <option value="toner">Toner</option>
+      <option value="watercolor">Watercolor</option>
+    </select>
+
+    <select id="modeSelect">
+      <option value="3d">3D</option>
+      <option value="2d">2D</option>
+      <option value="columbus">Columbus</option>
+    </select>
+
+    <div class="groupTitle">Ruta</div>
+
+    <input id="opTitle" class="opsInput" placeholder="Título de la operación"/>
+    <input id="opDesc" class="opsInput" placeholder="Descripción"/>
+
+    <div class="latlngRow">
+      <input id="opLat" class="latlngBox" placeholder="Origen LAT-LNG" readonly />
+      <input id="opLng" class="latlngBox" placeholder="Destino LAT-LNG" readonly />
+    </div>
+
+    <div class="routeInfo" id="routeInfo">
+      Listo. Elige ORIGEN y DESTINO para crear una operación.
+    </div>
+
+    <div class="btnGrid">
+      <button id="setStart" class="btnBeige">Elegir origen</button>
+      <button id="setEnd" class="btnBeige">Elegir destino</button>
+      <button id="calcRoute" class="btnBeige">Calcular ruta</button>
+      <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
+      <button id="saveOp" class="btnBeige">Guardar operación</button>
+      <button id="clearOps" class="btnBeige">Borrar operación actual</button>
+      <button id="goHistory" class="btnBeige historyBtn">Historial de operaciones</button>
+    </div>
+
+    <p id="opsMsg" class="msg"></p>
+  </aside>
+
+  <aside id="tacticalPanel" class="glassPanel">
+    <h2 class="panelTitle">Símbolos tácticos</h2>
+
+    <select id="toolSelect">
+      <option value="none">Selecciona herramienta...</option>
+      <option value="mil">Símbolo MILSTD 2525C</option>
+      <option value="bldg">Edificio / Marcador</option>
+    </select>
+
+    <select id="milPreset" disabled>
+      <option value="">Elegir símbolo...</option>
+      <option value="SFGPUCI----K---">Infantería (Friendly)</option>
+      <option value="SHGPUCI----K---">Infantería (Hostile)</option>
+      <option value="SFGPUAR----K---">Artillería (Friendly)</option>
+      <option value="SHGPUAR----K---">Artillería (Hostile)</option>
+      <option value="SFGPUH-----K---">Hospital (Friendly)</option>
+      <option value="SFGPUS-----K---">Logística (Friendly)</option>
+    </select>
+
+    <input id="symLabel" class="opsInput" placeholder="Texto / etiqueta" disabled />
+
+    <div class="btnGrid">
+      <button id="placeBtn" class="btnBeige" disabled>Colocar</button>
+      <button id="cancelPlace" class="btnBeige">Cancelar</button>
+      <button id="clearTactical" class="btnBeige historyBtn">Limpiar símbolos</button>
+    </div>
+
+    <div class="routeInfo" id="tbHint">
+      Selecciona una herramienta para comenzar.
+    </div>
+  </aside>
 
   <script src="js/dashboard.js"></script>
 </body>

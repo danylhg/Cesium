@@ -1,6 +1,12 @@
+// =================== TOKEN CESIUM ION ===================
+// Reemplaza este valor con tu token real de Cesium ion.
+Cesium.Ion.defaultAccessToken = "TU_TOKEN_DE_CESIUM_ION";
+
 // =================== SESION ===================
 const session = localStorage.getItem("session");
-if (session !== "ok") window.location.href = "login.html";
+if (session !== "ok") {
+  window.location.href = "login.html";
+}
 
 const username = localStorage.getItem("username") || "admin";
 document.getElementById("who").textContent = `(${username})`;
@@ -12,8 +18,10 @@ document.getElementById("logout").onclick = () => {
 };
 
 // =================== STORAGE ===================
-const OPS_KEY = "ops";                 // lista visible en dashboard
-const HISTORY_KEY = "ops_history";     // historial "para siempre"
+const OPS_KEY = "ops";
+const HISTORY_KEY = "ops_history";
+const OPERACION_ACTUAL_KEY = "operacion_actual";
+const ASIGNACION_ACTUAL_KEY = "asignacion_actual";
 
 let operations = JSON.parse(localStorage.getItem(OPS_KEY) || "[]");
 let historyOps = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
@@ -21,10 +29,10 @@ let historyOps = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
 // =================== CESIUM + OSRM ===================
 let viewer;
 
-let pickMode = null;      // "start" | "end" | null
-let startPoint = null;    // { lat, lng }
-let endPoint = null;      // { lat, lng }
-let lastRoute = null;     // OSRM route
+let pickMode = null;
+let startPoint = null;
+let endPoint = null;
+let lastRoute = null;
 
 let startEntity = null;
 let endEntity = null;
@@ -32,9 +40,11 @@ let routeEntity = null;
 
 const OSRM_BASE = "https://router.project-osrm.org";
 
-// Providers gratis (sin token)
+// Providers
 const providers = {
-  osm: new Cesium.OpenStreetMapImageryProvider({ url: "https://a.tile.openstreetmap.org/" }),
+  osm: new Cesium.OpenStreetMapImageryProvider({
+    url: "https://a.tile.openstreetmap.org/"
+  }),
   toner: new Cesium.UrlTemplateImageryProvider({
     url: "https://stamen-tiles.a.ssl.fastly.net/toner/{z}/{x}/{y}.png",
     credit: "Map tiles by Stamen Design"
@@ -45,10 +55,10 @@ const providers = {
   })
 };
 
-// =================== MENU TACTICO (MILSTD + MARCADORES) ===================
+// =================== MENU TACTICO ===================
 let tacticalEntities = [];
 let placingMode = false;
-let toolMode = "none"; // "mil" | "bldg" | "none"
+let toolMode = "none";
 
 const toolSelect = document.getElementById("toolSelect");
 const milPreset = document.getElementById("milPreset");
@@ -58,6 +68,167 @@ const cancelPlace = document.getElementById("cancelPlace");
 const clearTactical = document.getElementById("clearTactical");
 const tbHint = document.getElementById("tbHint");
 
+// =================== PANELES ===================
+const infoPanel = document.getElementById("infoPanel");
+const routePanel = document.getElementById("routePanel");
+const tacticalPanel = document.getElementById("tacticalPanel");
+
+const toggleInfoPanel = document.getElementById("toggleInfoPanel");
+const toggleRoutePanel = document.getElementById("toggleRoutePanel");
+const toggleTacticalPanel = document.getElementById("toggleTacticalPanel");
+
+function closeAllPanels() {
+  infoPanel.classList.remove("open");
+  routePanel.classList.remove("open");
+  tacticalPanel.classList.remove("open");
+
+  toggleInfoPanel.classList.remove("active");
+  toggleRoutePanel.classList.remove("active");
+  toggleTacticalPanel.classList.remove("active");
+}
+
+function togglePanel(panel, button) {
+  const wasOpen = panel.classList.contains("open");
+  closeAllPanels();
+
+  if (!wasOpen) {
+    panel.classList.add("open");
+    button.classList.add("active");
+  }
+}
+
+toggleInfoPanel.addEventListener("click", () => togglePanel(infoPanel, toggleInfoPanel));
+toggleRoutePanel.addEventListener("click", () => togglePanel(routePanel, toggleRoutePanel));
+toggleTacticalPanel.addEventListener("click", () => togglePanel(tacticalPanel, toggleTacticalPanel));
+
+// =================== UTIL ===================
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  }[c]));
+}
+
+function getJsonStorage(key, fallback = null) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+function setRouteInfo(text) {
+  document.getElementById("routeInfo").textContent = text;
+}
+
+function formatCoord(point) {
+  if (!point || typeof point.lat !== "number" || typeof point.lng !== "number") {
+    return "No definido";
+  }
+  return `${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}`;
+}
+
+// =================== PANEL INFORMACION ===================
+function renderInfoPanel() {
+  const container = document.getElementById("infoPanelContent");
+  if (!container) return;
+
+  const operacion = getJsonStorage(OPERACION_ACTUAL_KEY, {});
+  const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {});
+
+  const personal = Array.isArray(asignacion.personal) ? asignacion.personal : [];
+  const vehiculos = Array.isArray(asignacion.vehiculos) ? asignacion.vehiculos : [];
+  const equipos = Array.isArray(asignacion.equipos) ? asignacion.equipos : [];
+
+  const titulo = operacion.title || operacion.titulo || "Sin título";
+  const descripcion = operacion.description || operacion.descripcion || "Sin descripción";
+
+  const origen = operacion.start || operacion.origen || null;
+  const destino = operacion.end || operacion.destino || null;
+
+  const distancia = operacion.route?.distance
+    ? `${(operacion.route.distance / 1000).toFixed(2)} km`
+    : (operacion.ruta?.distancia ? `${operacion.ruta.distancia} km` : "No calculada");
+
+  const duracion = operacion.route?.duration
+    ? `${(operacion.route.duration / 60).toFixed(1)} min`
+    : (operacion.ruta?.duracion ? `${operacion.ruta.duracion} min` : "No calculada");
+
+  const fecha = operacion.created_at
+    ? new Date(operacion.created_at).toLocaleString()
+    : "No disponible";
+
+  container.innerHTML = `
+    <div class="infoBlock">
+      <h3>Operación</h3>
+      <p><strong>Título:</strong> ${escapeHtml(titulo)}</p>
+      <p><strong>Descripción:</strong> ${escapeHtml(descripcion)}</p>
+      <p><strong>Fecha:</strong> ${escapeHtml(fecha)}</p>
+    </div>
+
+    <div class="infoBlock">
+      <h3>Ruta</h3>
+      <p><strong>Origen:</strong> ${escapeHtml(formatCoord(origen))}</p>
+      <p><strong>Destino:</strong> ${escapeHtml(formatCoord(destino))}</p>
+      <p><strong>Distancia:</strong> ${escapeHtml(distancia)}</p>
+      <p><strong>Duración:</strong> ${escapeHtml(duracion)}</p>
+    </div>
+
+    <div class="infoBlock">
+      <h3>Personal asignado</h3>
+      ${
+        personal.length
+          ? personal.map(p => `
+            <div class="miniCard">
+              <p><strong>Nombre:</strong> ${escapeHtml(p.nombre || p.name || "")}</p>
+              <p><strong>Cargo:</strong> ${escapeHtml(p.cargo || p.rol || "")}</p>
+              <p><strong>Grupo:</strong> ${escapeHtml(p.grupo || p.team || "")}</p>
+            </div>
+          `).join("")
+          : `<p>Sin personal asignado.</p>`
+      }
+    </div>
+
+    <div class="infoBlock">
+      <h3>Vehículos asignados</h3>
+      ${
+        vehiculos.length
+          ? vehiculos.map(v => `
+            <div class="miniCard">
+              <p><strong>Unidad:</strong> ${escapeHtml(v.unidad || v.nombre || "")}</p>
+              <p><strong>Tipo:</strong> ${escapeHtml(v.tipo || "")}</p>
+              <p><strong>Placas:</strong> ${escapeHtml(v.placas || "")}</p>
+              <p><strong>CET / Flotilla:</strong> ${escapeHtml(v.cet || v.flotilla || "")}</p>
+            </div>
+          `).join("")
+          : `<p>Sin vehículos asignados.</p>`
+      }
+    </div>
+
+    <div class="infoBlock">
+      <h3>Equipos asignados</h3>
+      ${
+        equipos.length
+          ? equipos.map(e => `
+            <div class="miniCard">
+              <p><strong>Nombre:</strong> ${escapeHtml(e.nombre || "")}</p>
+              <p><strong>Código:</strong> ${escapeHtml(e.codigo || e.codigoInterno || "")}</p>
+              <p><strong>Cantidad:</strong> ${escapeHtml(String(e.cantidad || 1))}</p>
+              <p><strong>Vehículo:</strong> ${escapeHtml(e.vehiculo || e.asignadoA || "")}</p>
+            </div>
+          `).join("")
+          : `<p>Sin equipos asignados.</p>`
+      }
+    </div>
+  `;
+}
+
+// =================== TACTICAL UI ===================
 function setTacticalUI() {
   const isMil = toolMode === "mil";
   const isBldg = toolMode === "bldg";
@@ -77,12 +248,12 @@ toolSelect.addEventListener("change", (e) => {
   setTacticalUI();
 });
 
-milPreset.addEventListener("change", () => setTacticalUI());
+milPreset.addEventListener("change", setTacticalUI);
 
 placeBtn.addEventListener("click", () => {
   if (toolMode === "mil" && !milPreset.value) return;
   placingMode = true;
-  tbHint.textContent = "Modo colocar activo  Haz click en el mapa para colocar.";
+  tbHint.textContent = "Modo colocar activo. Haz click en el mapa para colocar.";
 });
 
 cancelPlace.addEventListener("click", () => {
@@ -91,6 +262,7 @@ cancelPlace.addEventListener("click", () => {
 });
 
 clearTactical.addEventListener("click", () => {
+  if (!viewer) return;
   tacticalEntities.forEach(ent => viewer.entities.remove(ent));
   tacticalEntities = [];
   tbHint.textContent = "Símbolos limpiados.";
@@ -99,12 +271,10 @@ clearTactical.addEventListener("click", () => {
 function handleTacticalPlacement(lat, lng) {
   if (!placingMode || toolMode === "none") return false;
 
-  // ===== MILSTD 2525C =====
   if (toolMode === "mil") {
     const sidc = milPreset.value;
     const label = (symLabel.value || "").trim();
 
-    // Genera el símbolo como SVG (milsymbol)
     const sym = new ms.Symbol(sidc, { size: 40 });
     const svg = sym.asSVG();
     const dataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
@@ -131,12 +301,11 @@ function handleTacticalPlacement(lat, lng) {
 
     tacticalEntities.push(ent);
     placingMode = false;
-    tbHint.textContent = "Símbolo colocado ";
+    tbHint.textContent = "Símbolo colocado.";
     setTacticalUI();
     return true;
   }
 
-  // ===== EDIFICIO / MARCADOR =====
   if (toolMode === "bldg") {
     const label = (symLabel.value || "Edificio").trim();
 
@@ -163,7 +332,7 @@ function handleTacticalPlacement(lat, lng) {
 
     tacticalEntities.push(ent);
     placingMode = false;
-    tbHint.textContent = "Marcador colocado ";
+    tbHint.textContent = "Marcador colocado.";
     setTacticalUI();
     return true;
   }
@@ -171,7 +340,7 @@ function handleTacticalPlacement(lat, lng) {
   return false;
 }
 
-// =================== INIT CESIUM ===================
+// =================== INIT MAPA ===================
 function initCesium() {
   viewer = new Cesium.Viewer("map", {
     timeline: false,
@@ -190,12 +359,10 @@ function initCesium() {
     destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, 2500000)
   });
 
-  // Layer selector
   document.getElementById("layerSelect").addEventListener("change", (e) => {
     setBaseLayer(e.target.value);
   });
 
-  // Mode selector
   document.getElementById("modeSelect").addEventListener("change", (e) => {
     const v = e.target.value;
     if (v === "3d") viewer.scene.mode = Cesium.SceneMode.SCENE3D;
@@ -203,7 +370,6 @@ function initCesium() {
     if (v === "columbus") viewer.scene.mode = Cesium.SceneMode.COLUMBUS_VIEW;
   });
 
-  // Click handler (UNO SOLO)
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
   handler.setInputAction((movement) => {
     const cartesian = viewer.camera.pickEllipsoid(
@@ -216,30 +382,36 @@ function initCesium() {
     const lat = Cesium.Math.toDegrees(cartographic.latitude);
     const lng = Cesium.Math.toDegrees(cartographic.longitude);
 
-    //  1) Primero: colocar símbolos si está activo
     if (handleTacticalPlacement(lat, lng)) return;
 
-    //  2) Luego: ORIGEN/DESTINO
     if (pickMode === "start") {
       startPoint = { lat, lng };
       lastRoute = null;
 
       document.getElementById("opLat").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 
+      if (routeEntity) {
+        viewer.entities.remove(routeEntity);
+        routeEntity = null;
+      }
+
       if (startEntity) viewer.entities.remove(startEntity);
       startEntity = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lng, lat),
-        point: { pixelSize: 12, color: Cesium.Color.LIME },
+        point: {
+          pixelSize: 12,
+          color: Cesium.Color.LIME
+        },
         label: {
           text: "ORIGEN",
           font: "14px sans-serif",
           fillColor: Cesium.Color.WHITE,
-          pixelOffset: new Cesium.Cartesian2(0, -24),
+          pixelOffset: new Cesium.Cartesian2(0, -24)
         }
       });
 
       pickMode = null;
-      setRouteInfo("Origen seleccionado. Ahora elige DESTINO.");
+      setRouteInfo("Origen seleccionado. Ahora elige destino.");
       return;
     }
 
@@ -249,15 +421,23 @@ function initCesium() {
 
       document.getElementById("opLng").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 
+      if (routeEntity) {
+        viewer.entities.remove(routeEntity);
+        routeEntity = null;
+      }
+
       if (endEntity) viewer.entities.remove(endEntity);
       endEntity = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lng, lat),
-        point: { pixelSize: 12, color: Cesium.Color.YELLOW },
+        point: {
+          pixelSize: 12,
+          color: Cesium.Color.YELLOW
+        },
         label: {
           text: "DESTINO",
           font: "14px sans-serif",
           fillColor: Cesium.Color.WHITE,
-          pixelOffset: new Cesium.Cartesian2(0, -24),
+          pixelOffset: new Cesium.Cartesian2(0, -24)
         }
       });
 
@@ -265,57 +445,60 @@ function initCesium() {
       setRouteInfo("Destino seleccionado. Ya puedes calcular ruta.");
       return;
     }
-
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-  renderOps();
-  setTacticalUI();
 }
-
-window.addEventListener("load", initCesium);
 
 function setBaseLayer(key) {
   const provider = providers[key];
-  if (!provider) return;
+  if (!provider || !viewer) return;
+
   viewer.imageryLayers.removeAll();
   viewer.imageryLayers.addImageryProvider(provider);
 }
 
-// =================== BOTÓN HISTORIAL ===================
-document.getElementById("goHistory").onclick = () => {
-  window.location.href = "historial.html";
-};
-
-// =================== BOTONES ORIGEN/DESTINO/RUTA ===================
+// =================== BOTONES DE RUTA ===================
 document.getElementById("setStart").onclick = () => {
   pickMode = "start";
-  setRouteInfo("Modo ORIGEN activo: haz click en el mapa.");
+  setRouteInfo("Modo origen activo: haz click en el mapa.");
+  routePanel.classList.add("open");
+  toggleRoutePanel.classList.add("active");
 };
 
 document.getElementById("setEnd").onclick = () => {
   pickMode = "end";
-  setRouteInfo("Modo DESTINO activo: haz click en el mapa.");
+  setRouteInfo("Modo destino activo: haz click en el mapa.");
+  routePanel.classList.add("open");
+  toggleRoutePanel.classList.add("active");
 };
 
 document.getElementById("clearRoute").onclick = () => {
   lastRoute = null;
+  startPoint = null;
+  endPoint = null;
+  pickMode = null;
 
   if (routeEntity) viewer.entities.remove(routeEntity);
+  if (startEntity) viewer.entities.remove(startEntity);
+  if (endEntity) viewer.entities.remove(endEntity);
+
   routeEntity = null;
+  startEntity = null;
+  endEntity = null;
 
   document.getElementById("opLat").value = "";
   document.getElementById("opLng").value = "";
 
-  setRouteInfo("Ruta limpia.");
+  setRouteInfo("Ruta y puntos limpiados.");
 };
 
 document.getElementById("calcRoute").onclick = async () => {
   if (!startPoint || !endPoint) {
-    setRouteInfo("Selecciona ORIGEN y DESTINO primero.");
+    setRouteInfo("Selecciona origen y destino primero.");
     return;
   }
 
   setRouteInfo("Calculando ruta con OSRM...");
+
   try {
     const route = await getOsrmRoute(startPoint, endPoint);
     lastRoute = route;
@@ -325,13 +508,14 @@ document.getElementById("calcRoute").onclick = async () => {
 
     const km = route.distance / 1000;
     const min = route.duration / 60;
-    setRouteInfo(`Ruta lista  Distancia: ${km.toFixed(2)} km · Tiempo: ${min.toFixed(1)} min`);
+
+    setRouteInfo(`Ruta lista. Distancia: ${km.toFixed(2)} km · Tiempo: ${min.toFixed(1)} min`);
   } catch (err) {
     setRouteInfo(`Error OSRM: ${err.message}`);
   }
 };
 
-// =================== GUARDAR OPERACIÓN (DASHBOARD + HISTORIAL) ===================
+// =================== GUARDAR OPERACION ===================
 document.getElementById("saveOp").onclick = () => {
   const msg = document.getElementById("opsMsg");
   msg.textContent = "";
@@ -340,13 +524,15 @@ document.getElementById("saveOp").onclick = () => {
   const description = document.getElementById("opDesc").value.trim();
 
   if (!startPoint || !endPoint) {
-    msg.textContent = "Primero selecciona ORIGEN y DESTINO.";
+    msg.textContent = "Primero selecciona origen y destino.";
     return;
   }
+
   if (!lastRoute) {
-    msg.textContent = "Primero calcula la ruta (OSRM).";
+    msg.textContent = "Primero calcula la ruta.";
     return;
   }
+
   if (!title) {
     msg.textContent = "Pon un título para guardar la operación.";
     return;
@@ -362,25 +548,47 @@ document.getElementById("saveOp").onclick = () => {
     created_at: new Date().toISOString()
   };
 
-  // dashboard
   operations.unshift(op);
   localStorage.setItem(OPS_KEY, JSON.stringify(operations));
 
-  // historial para siempre
   historyOps.unshift(op);
   localStorage.setItem(HISTORY_KEY, JSON.stringify(historyOps));
+
+  localStorage.setItem(OPERACION_ACTUAL_KEY, JSON.stringify(op));
 
   document.getElementById("opTitle").value = "";
   document.getElementById("opDesc").value = "";
 
-  renderOps();
+  renderInfoPanel();
+  msg.textContent = "Operación guardada correctamente.";
 };
 
 document.getElementById("clearOps").onclick = () => {
-  // solo limpia el dashboard (no el historial)
-  operations = [];
-  localStorage.setItem(OPS_KEY, "[]");
-  renderOps();
+  localStorage.removeItem(OPERACION_ACTUAL_KEY);
+
+  document.getElementById("opTitle").value = "";
+  document.getElementById("opDesc").value = "";
+  document.getElementById("opLat").value = "";
+  document.getElementById("opLng").value = "";
+  document.getElementById("opsMsg").textContent = "Operación actual eliminada.";
+
+  lastRoute = null;
+  startPoint = null;
+  endPoint = null;
+
+  if (routeEntity) viewer.entities.remove(routeEntity);
+  if (startEntity) viewer.entities.remove(startEntity);
+  if (endEntity) viewer.entities.remove(endEntity);
+
+  routeEntity = null;
+  startEntity = null;
+  endEntity = null;
+
+  renderInfoPanel();
+};
+
+document.getElementById("goHistory").onclick = () => {
+  window.location.href = "historial.html";
 };
 
 // =================== OSRM ===================
@@ -391,18 +599,22 @@ async function getOsrmRoute(start, end) {
     `?overview=full&geometries=geojson`;
 
   const r = await fetch(url);
-  if (!r.ok) throw new Error("No se pudo obtener ruta (OSRM)");
+  if (!r.ok) throw new Error("No se pudo obtener ruta");
 
   const data = await r.json();
-  if (!data.routes || !data.routes.length) throw new Error("No hay ruta disponible");
+  if (!data.routes || !data.routes.length) {
+    throw new Error("No hay ruta disponible");
+  }
 
   return data.routes[0];
 }
 
-// =================== RUTA EN CESIUM ===================
+// =================== DIBUJO RUTA ===================
 function drawRouteOnCesium(geojsonLineString) {
   const coords = geojsonLineString.coordinates;
-  const positions = coords.map(([lon, lat]) => Cesium.Cartesian3.fromDegrees(lon, lat));
+  const positions = coords.map(([lon, lat]) =>
+    Cesium.Cartesian3.fromDegrees(lon, lat)
+  );
 
   if (routeEntity) viewer.entities.remove(routeEntity);
 
@@ -431,58 +643,80 @@ function zoomToRoute(geojsonLineString) {
   viewer.camera.flyTo({ destination: rect });
 }
 
-function setRouteInfo(text) {
-  document.getElementById("routeInfo").textContent = text;
-}
+// =================== CARGA DE OPERACION ACTUAL ===================
+function loadCurrentOperationOnMap() {
+  const op = getJsonStorage(OPERACION_ACTUAL_KEY, null);
+  if (!op || !viewer) return;
 
-// =================== LISTA OPS (DASHBOARD) ===================
-function renderOps() {
-  const list = document.getElementById("opsList");
-  list.innerHTML = "";
+  if (op.start && op.end) {
+    startPoint = op.start;
+    endPoint = op.end;
+    lastRoute = op.route || null;
 
-  operations.forEach(op => {
-    const km = (op.route?.distance ?? 0) / 1000;
-    const min = (op.route?.duration ?? 0) / 60;
+    document.getElementById("opTitle").value = op.title || "";
+    document.getElementById("opDesc").value = op.description || "";
+    document.getElementById("opLat").value = `${op.start.lat.toFixed(5)}, ${op.start.lng.toFixed(5)}`;
+    document.getElementById("opLng").value = `${op.end.lat.toFixed(5)}, ${op.end.lng.toFixed(5)}`;
 
-    const div = document.createElement("div");
-    div.className = "item";
-    div.innerHTML = `
-      <strong>${escapeHtml(op.title)}</strong><br/>
-      <span>${escapeHtml(op.description || "")}</span>
-      <div class="meta">
-        Origen: (${op.start.lat.toFixed(5)}, ${op.start.lng.toFixed(5)})<br/>
-        Destino: (${op.end.lat.toFixed(5)}, ${op.end.lng.toFixed(5)})<br/>
-        Ruta: ${km.toFixed(2)} km · ${min.toFixed(1)} min<br/>
-        ${new Date(op.created_at).toLocaleString()}
-      </div>
-      <div class="btns">
-        <button data-view="${op.id}">Ver ruta</button>
-        <button data-del="${op.id}">Eliminar</button>
-      </div>
-    `;
+    if (startEntity) viewer.entities.remove(startEntity);
+    if (endEntity) viewer.entities.remove(endEntity);
 
-    div.querySelector(`[data-view="${op.id}"]`).onclick = () => {
-      if (op.route?.geometry) {
-        drawRouteOnCesium(op.route.geometry);
-        zoomToRoute(op.route.geometry);
-        setRouteInfo(`Mostrando: ${op.title}`);
+    startEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(op.start.lng, op.start.lat),
+      point: {
+        pixelSize: 12,
+        color: Cesium.Color.LIME
+      },
+      label: {
+        text: "ORIGEN",
+        font: "14px sans-serif",
+        fillColor: Cesium.Color.WHITE,
+        pixelOffset: new Cesium.Cartesian2(0, -24)
       }
-    };
+    });
 
-    // elimina SOLO del dashboard (NO del historial)
-    div.querySelector(`[data-del="${op.id}"]`).onclick = () => {
-      operations = operations.filter(x => x.id !== op.id);
-      localStorage.setItem(OPS_KEY, JSON.stringify(operations));
-      renderOps();
-    };
+    endEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(op.end.lng, op.end.lat),
+      point: {
+        pixelSize: 12,
+        color: Cesium.Color.YELLOW
+      },
+      label: {
+        text: "DESTINO",
+        font: "14px sans-serif",
+        fillColor: Cesium.Color.WHITE,
+        pixelOffset: new Cesium.Cartesian2(0, -24)
+      }
+    });
 
-    list.appendChild(div);
-  });
+    if (op.route?.geometry) {
+      drawRouteOnCesium(op.route.geometry);
+      zoomToRoute(op.route.geometry);
+      setRouteInfo(`Mostrando operación actual: ${op.title}`);
+    } else {
+      setRouteInfo("Operación cargada. Falta ruta calculada.");
+    }
+  }
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[c]));
-}
+// =================== INIT GENERAL ===================
+window.addEventListener("load", () => {
+  initCesium();
+  setTacticalUI();
+  renderInfoPanel();
+  loadCurrentOperationOnMap();
+
+  infoPanel.classList.add("open");
+  toggleInfoPanel.classList.add("active");
+});
+
+// =================== CERRAR PANELES AL DAR CLICK FUERA ===================
+document.addEventListener("click", (e) => {
+  const clickedInsidePanel = e.target.closest(".glassPanel");
+  const clickedToolButton = e.target.closest(".toolFab");
+
+  if (!clickedInsidePanel && !clickedToolButton) {
+    closeAllPanels();
+  }
+});
 

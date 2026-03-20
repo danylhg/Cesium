@@ -46,6 +46,13 @@ btnCreate.addEventListener("click", () => {
 
 // seleccionar
 btnSelect.addEventListener("click", async () => {
+   // Si ya está visible, ocultar
+  if (!opsList.classList.contains("hidden")) {
+    opsList.classList.add("hidden");
+    return;
+  }
+
+  // Si está oculto, cargar y mostrar
   opsUl.innerHTML = "";
 
   let ops = [];

@@ -4,14 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Asignación</title>
-
-  <!-- ✅ CSS bien enlazado -->
   <link rel="stylesheet" href="css/asignacion.css" />
 </head>
 
 <body>
 
-  <!-- Top -->
   <header class="topbar">
     <div class="topLeft">
       <span class="pill">Asignados para operación</span>
@@ -21,18 +18,14 @@
     <button class="btnGhost" id="btnVolver">Volver</button>
   </header>
 
-  <!-- Layout -->
   <main class="wrap">
     <section class="shell">
       <div class="cols">
 
-        <!-- LEFT -->
         <aside class="card leftCard" id="leftCard">
           <div class="cardTitle" id="leftCardTitle">Información de operación</div>
 
           <div id="leftCardContent">
-
-            <!-- ✅ Form original (NO se destruye) -->
             <div class="form" id="opInfoForm">
               <label class="lbl">Nombre</label>
               <input class="inp" id="opNombre" placeholder="Nombre de la operación" />
@@ -55,15 +48,12 @@
               </select>
             </div>
 
-            <!-- ✅ Panel SOLO Vehículos (JS lo llena) -->
             <div id="vehiculosLeft" style="display:none;"></div>
-
           </div>
         </aside>
 
         <div class="divider"></div>
 
-        <!-- RIGHT -->
         <section class="card rightCard">
           <div class="rightHeader">
             <div class="rightTitle" id="rightTitle">Asignar</div>
@@ -73,10 +63,8 @@
             </button>
           </div>
 
-          <!-- Panel (contenido dinámico) -->
           <div class="panel" id="panel"></div>
 
-          <!-- Footer fixed -->
           <div class="rightFooter">
             <button class="btnPrimary" id="btnAccion">Siguiente</button>
             <p class="hint" id="rightHint"></p>
@@ -87,7 +75,17 @@
     </section>
   </main>
 
-  <!-- ✅ JS bien enlazado (esto regresa la funcionalidad) -->
+  <div id="dashboardWrap" style="display:none; justify-content:center; margin: 18px 0 28px;">
+    <button id="btnDashboardGo" class="btnPrimary" style="max-width: 280px;">
+      Dashboard →
+    </button>
+  </div>
+  
   <script src="js/asignacion.js"></script>
 </body>
 </html>
+
+
+
+
+
