@@ -49,7 +49,8 @@ app.use(cors({
 // Responde preflight siempre
 app.options("*", cors());
 
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Logger: ver TODO lo que llega
 app.use((req, res, next) => {
@@ -58,7 +59,59 @@ app.use((req, res, next) => {
 });
 
 // ===============================
-// Helpers
+// Helpers de respuesta de error
+// ===============================
+
+/**
+ * Respuesta de error genérica.
+ * @param {import('express').Response} res
+ * @param {number} status  Código HTTP
+ * @param {string} mensaje Mensaje legible
+ * @param {any}    [extra] Campos adicionales opcionales
+ */
+function sendError(res, status, mensaje, extra = {}) {
+  return res.status(status).json({ ok: false, mensaje, ...extra });
+}
+
+/** Mapa de códigos de error PostgreSQL → mensaje amigable */
+const PG_ERROR_MSGS = {
+  "23505": "Registro duplicado: ya existe un dato con ese valor único.",
+  "23503": "No se puede completar: el registro está referenciado por otro dato.",
+  "23502": "Falta un dato obligatorio en la base de datos.",
+  "22P02": "Formato de dato inválido.",
+  "22001": "El texto enviado es demasiado largo para el campo.",
+  "22003": "El número está fuera del rango permitido.",
+  "23514": "El valor no cumple con una regla de validación de la base de datos.",
+};
+
+/**
+ * Respuesta de error de base de datos.
+ * Traduce códigos PG conocidos; para el resto manda 500 genérico.
+ * @param {import('express').Response} res
+ * @param {Error & { code?: string, detail?: string }} err
+ * @param {string} [fallbackMsg] Mensaje de contexto si el código no está mapeado
+ */
+function sendDbError(res, err, fallbackMsg = "Error interno en base de datos") {
+  const msg = PG_ERROR_MSGS[err.code];
+  if (msg) {
+    const status = err.code === "23503" ? 409 : 422;
+    return res.status(status).json({
+      ok: false,
+      mensaje: msg,
+      detalle: err.detail || err.message,
+      pg_code: err.code,
+    });
+  }
+  console.error("[DB ERROR]", err);
+  return res.status(500).json({
+    ok: false,
+    mensaje: fallbackMsg,
+    error: err.message,
+  });
+}
+
+// ===============================
+// Helpers de autenticación / utilidad
 // ===============================
 function requireAuth(req, res, next) {
   const h = req.headers.authorization || "";
@@ -88,7 +141,7 @@ app.get("/db-test", async (req, res) => {
     const result = await pool.query("SELECT NOW()");
     res.json({ conectado: true, hora_db: result.rows[0].now });
   } catch (err) {
-    res.status(500).json({ conectado: false, error: err.message });
+    return sendDbError(res, err, "Error conectando a la base de datos");
   }
 });
 
@@ -161,7 +214,7 @@ app.post("/auth/login", async (req, res) => {
       },
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error interno", error: err.message });
+    return sendDbError(res, err, "Error interno");
   }
 });
 
@@ -181,7 +234,7 @@ app.get("/me", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Usuario no existe" });
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error /me", error: err.message });
+    sendDbError(res, err, "Error /me");
   }
 });
 
@@ -207,7 +260,7 @@ app.get("/catalog/personal", requireAuth, async (req, res) => {
 
     return res.json({ ok: true, items: rows });
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error catálogo personal", error: err.message });
+    return sendDbError(res, err, "Error catálogo personal");
   }
 });
 
@@ -230,11 +283,7 @@ app.get("/catalog/vehiculos", requireAuth, async (req, res) => {
     return res.json({ ok: true, items: rows });
   } catch (err) {
     console.error("GET /catalog/vehiculos:", err);
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error obteniendo vehículos",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error obteniendo vehículos");
   }
 });
 
@@ -253,22 +302,25 @@ function slug(s = "") {
     .slice(0, 30);
 }
 
-async function generateUniqueUsername(base, client) {
-  // base ya viene "cut.nombreapellido"
-  let attempt = 0;
-  while (attempt < 20) {
-    const suffix = attempt === 0 ? "" : `.${Math.floor(1000 + Math.random() * 9000)}`;
-    const username = `${base}${suffix}`.slice(0, 40);
+async function generateUniqueUsername(base, client, ignoreId = null) {
+  let username = base;
+  let counter = 1;
 
-    const { rows } = await client.query(
-      `SELECT 1 FROM personal WHERE username = $1 LIMIT 1`,
-      [username]
+  while (true) {
+    const { rowCount } = await client.query(
+      `SELECT 1 FROM personal 
+       WHERE username = $1 
+       ${ignoreId ? "AND id_personal <> $2" : ""}`,
+      ignoreId ? [username, ignoreId] : [username]
     );
-    if (rows.length === 0) return username;
-    attempt++;
+
+    if (rowCount === 0) break;
+
+    username = `${base}${counter}`;
+    counter++;
   }
-  // última opción
-  return `${base}.${Date.now()}`.slice(0, 40);
+
+  return username;
 }
 
 async function generateUniqueApodo(baseApodo, client) {
@@ -293,7 +345,7 @@ async function generateUniqueApodo(baseApodo, client) {
 
 /**
  * POST /catalog/personal
- * body: { rol: "CUT"|"CET"|"CELL", nombre: string, apellido: string, puesto?: string }
+ * body: { rol: "CUT"|"CET"|"CELL", nombre: string, apellido: string, puesto?: string, apodo?: string }
  * crea en tabla personal.
  */
 app.post("/catalog/personal", requireAuth, async (req, res) => {
@@ -309,34 +361,54 @@ app.post("/catalog/personal", requireAuth, async (req, res) => {
     if (!["CUT", "CET", "CELL"].includes(rol)) {
       return res.status(400).json({ ok: false, mensaje: "rol inválido (CUT|CET|CELL)" });
     }
-    if (!nombre) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
-    if (!apellido) return res.status(400).json({ ok: false, mensaje: "Falta apellido" });
+    if (!nombre) {
+      return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
+    }
+    if (!apellido) {
+      return res.status(400).json({ ok: false, mensaje: "Falta apellido" });
+    }
 
     const creado_por = Number(req.user.sub);
-    if (!isInt(creado_por)) return res.status(401).json({ ok: false, mensaje: "Usuario inválido" });
+    if (!isInt(creado_por)) {
+      return res.status(401).json({ ok: false, mensaje: "Usuario inválido" });
+    }
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      // username único
-      const base = `${rol}.${slug(nombre)}${slug(apellido) ? "." + slug(apellido) : ""}`.slice(0, 35);
+      // username único: primera letra del nombre + apellido
+      const nombreSlug = slug(nombre);
+      const apellidoSlug = slug(apellido);
+
+      const base = `${(nombreSlug[0] || "")}${apellidoSlug}`.slice(0, 35);
       const username = await generateUniqueUsername(base, client);
 
-      // ✅ apodo obligatorio y UNIQUE
+      // apodo obligatorio y UNIQUE
       // preferimos el apodo que mande el frontend, si no, usamos "Nombre Apellido"
       const apodoBase = apodoIn || `${nombre} ${apellido}`;
       const apodo = await generateUniqueApodo(apodoBase, client);
 
-      // password temporal
-      const tempPassword = `Temp-${Math.floor(100000 + Math.random() * 900000)}`;
+      // username: usar el que mande el frontend si es válido, si no, generar
+      const usernameIn = (req.body?.username || "").toString().trim();
+      if (usernameIn && !/^[a-zA-Z0-9._-]+$/.test(usernameIn)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: "username inválido: solo letras, números, punto, guion y guion bajo." });
+      }
+      const finalUsername = usernameIn
+        ? await generateUniqueUsername(usernameIn, client)
+        : await generateUniqueUsername(base, client);
+
+      // password: usar el que mande el frontend si no está vacío, si no, generar temporal
+      const passwordIn = (req.body?.password || "").toString();
+      const tempPassword = passwordIn || `Temp-${Math.floor(100000 + Math.random() * 900000)}`;
       const password_hash = await bcrypt.hash(tempPassword, 10);
 
       const { rows } = await client.query(
         `INSERT INTO personal (rol, apodo, nombre, apellido, puesto, username, password_hash, creado_por)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING id_personal, rol, apodo, nombre, apellido, puesto, activo, fecha_creacion, username, ultimo_acceso`,
-        [rol, apodo, nombre, apellido, puesto, username, password_hash, creado_por]
+        [rol, apodo, nombre, apellido, puesto, finalUsername, password_hash, creado_por]
       );
 
       await client.query("COMMIT");
@@ -349,47 +421,135 @@ app.post("/catalog/personal", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error creando personal", error: err.message });
+    return sendDbError(res, err, "Error creando personal");
   }
 });
 
 /**
  * PUT /catalog/personal/:id
- * body: { nombre?, apellido?, puesto?, activo? }
- * NO cambia rol ni username aquí (para evitar problemas).
+ * body: { apodo?, nombre?, apellido?, puesto?, activo? }
+ * ✔ Regenera username si cambia nombre o apellido
  */
 app.put("/catalog/personal/:id", requireAuth, async (req, res) => {
   const id_personal = Number(req.params.id);
-  if (!isInt(id_personal)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  if (!isInt(id_personal)) {
+    return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  }
 
+  const client = await pool.connect();
   try {
+    await client.query("BEGIN");
+
+    // Obtener registro actual
+    const { rows: currentRows } = await client.query(
+      `SELECT * FROM personal WHERE id_personal = $1`,
+      [id_personal]
+    );
+
+    if (!currentRows[0]) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, mensaje: "Personal no existe" });
+    }
+
+    const current = currentRows[0];
+
     const apodo = req.body?.apodo != null ? String(req.body.apodo).trim() : null;
     const nombre = req.body?.nombre != null ? String(req.body.nombre).trim() : null;
     const apellido = req.body?.apellido != null ? String(req.body.apellido).trim() : null;
     const puesto = req.body?.puesto != null ? (String(req.body.puesto).trim() || null) : null;
     const activo = req.body?.activo != null ? !!req.body.activo : null;
+    const usernameIn = req.body?.username != null ? String(req.body.username).trim() : null;
+    const passwordIn = req.body?.password != null ? String(req.body.password) : null;
 
-    if (apodo !== null && !apodo) return res.status(400).json({ ok: false, mensaje: "apodo inválido" });
-    if (nombre !== null && !nombre) return res.status(400).json({ ok: false, mensaje: "nombre inválido" });
-    if (apellido !== null && !apellido) return res.status(400).json({ ok: false, mensaje: "apellido inválido" });
+    if (usernameIn !== null) {
+      if (!usernameIn) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: "username no puede estar vacío" });
+      }
+      if (!/^[a-zA-Z0-9._-]+$/.test(usernameIn)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: "username inválido: solo letras, números, punto, guion y guion bajo." });
+      }
+    }
+
+    if (apodo !== null && !apodo) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, mensaje: "apodo inválido" });
+    }
+    if (nombre !== null && !nombre) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, mensaje: "nombre inválido" });
+    }
+    if (apellido !== null && !apellido) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, mensaje: "apellido inválido" });
+    }
+
+    // Valores finales (si no mandan, usamos los actuales)
+    const finalNombre = nombre ?? current.nombre;
+    const finalApellido = apellido ?? current.apellido;
 
     const sets = [];
     const vals = [];
     let i = 1;
 
-    if (apodo !== null)  { sets.push(`apodo = $${i++}`); vals.push(apodo); }
-    if (nombre !== null) { sets.push(`nombre = $${i++}`); vals.push(nombre); }
-    if (apellido !== null){ sets.push(`apellido = $${i++}`); vals.push(apellido); }
-    if (req.body?.puesto !== undefined){ sets.push(`puesto = $${i++}`); vals.push(puesto); }
-    if (req.body?.activo !== undefined){ sets.push(`activo = $${i++}`); vals.push(activo); }
+    if (apodo !== null) {
+      const apodoUnique = await generateUniqueApodo(apodo, client);
+      sets.push(`apodo = $${i++}`);
+      vals.push(apodoUnique);
+    }
+
+    if (nombre !== null) {
+      sets.push(`nombre = $${i++}`);
+      vals.push(nombre);
+    }
+
+    if (apellido !== null) {
+      sets.push(`apellido = $${i++}`);
+      vals.push(apellido);
+    }
+
+    if (req.body?.puesto !== undefined) {
+      sets.push(`puesto = $${i++}`);
+      vals.push(puesto);
+    }
+
+    if (req.body?.activo !== undefined) {
+      sets.push(`activo = $${i++}`);
+      vals.push(activo);
+    }
+
+    // 🔥 username manual tiene prioridad; si no se mandó pero cambiaron nombre/apellido, regenerar
+    if (usernameIn !== null) {
+      const usernameUnique = await generateUniqueUsername(usernameIn, client, id_personal);
+      sets.push(`username = $${i++}`);
+      vals.push(usernameUnique);
+    } else if (nombre !== null || apellido !== null) {
+      const nombreSlug = slug(finalNombre);
+      const apellidoSlug = slug(finalApellido);
+
+      const base = `${(nombreSlug[0] || "")}${apellidoSlug}`.slice(0, 35);
+      const username = await generateUniqueUsername(base, client, id_personal);
+
+      sets.push(`username = $${i++}`);
+      vals.push(username);
+    }
+
+    // password: solo si mandan uno no vacío
+    if (passwordIn) {
+      const newHash = await bcrypt.hash(passwordIn, 10);
+      sets.push(`password_hash = $${i++}`);
+      vals.push(newHash);
+    }
 
     if (sets.length === 0) {
+      await client.query("ROLLBACK");
       return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
     }
 
     vals.push(id_personal);
 
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `UPDATE personal
        SET ${sets.join(", ")}
        WHERE id_personal = $${i}
@@ -397,11 +557,16 @@ app.put("/catalog/personal/:id", requireAuth, async (req, res) => {
       vals
     );
 
-    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Personal no existe" });
+    await client.query("COMMIT");
+
     return res.json({ ok: true, item: rows[0] });
+
   } catch (err) {
-    // si apodo choca por UNIQUE, postgres suele dar code 23505
-    return res.status(500).json({ ok: false, mensaje: "Error editando personal", error: err.message });
+    await client.query("ROLLBACK");
+
+    return sendDbError(res, err, "Error editando personal");
+  } finally {
+    client.release();
   }
 });
 
@@ -444,7 +609,7 @@ app.delete("/catalog/personal/:id", requireAuth, async (req, res) => {
         error: err.detail || err.message,
       });
     }
-    return res.status(500).json({ ok: false, mensaje: "Error eliminando personal", error: err.message });
+    return sendDbError(res, err, "Error eliminando personal");
   }
 });
 
@@ -498,7 +663,7 @@ app.get("/ops", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error listando ops", error: err.message });
+    sendDbError(res, err, "Error listando ops");
   }
 });
 
@@ -555,7 +720,7 @@ app.get("/ops/personal/:id_personal", requireAuth, async (req, res) => {
       },
     });
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error obteniendo operacion del personal", error: err.message });
+    return sendDbError(res, err, "Error obteniendo operacion del personal");
   }
 });
 
@@ -575,7 +740,7 @@ app.get("/ops/:id", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Operación no existe" });
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo operación", error: err.message });
+    sendDbError(res, err, "Error obteniendo operación");
   }
 });
 
@@ -593,7 +758,7 @@ app.get("/ops/by-codigo/:codigo", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Operación no existe" });
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error por código", error: err.message });
+    sendDbError(res, err, "Error por código");
   }
 });
 
@@ -633,7 +798,7 @@ app.post("/ops", requireAuth, async (req, res) => {
 
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error creando operación", error: err.message });
+    sendDbError(res, err, "Error creando operación");
   }
 });
 
@@ -686,7 +851,7 @@ app.post("/ops/:id/personal", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error guardando personal", error: err.message });
+    return sendDbError(res, err, "Error guardando personal");
   }
 });
 
@@ -730,7 +895,7 @@ app.post("/ops/:id/mando", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error guardando mando", error: err.message });
+    return sendDbError(res, err, "Error guardando mando");
   }
 });
 
@@ -786,7 +951,7 @@ app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    return res.status(500).json({ ok: false, mensaje: "Error guardando vehículos", error: err.message });
+    return sendDbError(res, err, "Error guardando vehículos");
   }
 });
 
@@ -816,11 +981,7 @@ app.get("/catalog/equipos", requireAuth, async (req, res) => {
     return res.json({ ok: true, items: rows });
   } catch (err) {
     console.error("GET /catalog/equipos ERROR:", err);
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error obteniendo equipos",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error obteniendo equipos");
   }
 });
 
@@ -920,11 +1081,7 @@ app.post("/catalog/equipos", requireAuth, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("POST /catalog/equipos ERROR:", err);
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error creando equipo",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error creando equipo");
   } finally {
     client.release();
   }
@@ -1038,11 +1195,7 @@ app.put("/catalog/equipos/:id", requireAuth, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("PUT /catalog/equipos/:id ERROR:", err);
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error actualizando equipo",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error actualizando equipo");
   } finally {
     client.release();
   }
@@ -1063,7 +1216,7 @@ app.delete("/catalog/equipos/:id", requireAuth, async (req, res) => {
         error: err.detail || err.message,
       });
     }
-    return res.status(500).json({ ok: false, mensaje: "Error eliminando equipo", error: err.message });
+    return sendDbError(res, err, "Error eliminando equipo");
   }
 });
 
@@ -1232,11 +1385,7 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error guardando equipos",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error guardando equipos");
   }
 });
 
@@ -1274,7 +1423,7 @@ app.post("/catalog/vehiculos", requireAuth, async (req, res) => {
     if (err.code === "23505") {
       return res.status(409).json({ ok: false, mensaje: "El código interno ya existe", error: err.detail || err.message });
     }
-    return res.status(500).json({ ok: false, mensaje: "Error creando vehículo", error: err.message });
+    return sendDbError(res, err, "Error creando vehículo");
   }
 });
 
@@ -1336,7 +1485,7 @@ app.put("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
     if (err.code === "23505") {
       return res.status(409).json({ ok: false, mensaje: "El código interno ya existe", error: err.detail || err.message });
     }
-    return res.status(500).json({ ok: false, mensaje: "Error editando vehículo", error: err.message });
+    return sendDbError(res, err, "Error editando vehículo");
   }
 });
 
@@ -1355,7 +1504,7 @@ app.delete("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
         error: err.detail || err.message,
       });
     }
-    return res.status(500).json({ ok: false, mensaje: "Error eliminando vehículo", error: err.message });
+    return sendDbError(res, err, "Error eliminando vehículo");
   }
 });
 
@@ -1450,7 +1599,7 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
     return res.json({ ok: true, operacion: updated[0] });
   } catch (err) {
     await client.query("ROLLBACK");
-    return res.status(500).json({ ok: false, mensaje: "Error cambiando estado", error: err.message });
+    return sendDbError(res, err, "Error cambiando estado");
   } finally { client.release(); }
 });
 
@@ -1469,7 +1618,7 @@ app.get("/ops/:id/chat", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo chat", error: err.message });
+    sendDbError(res, err, "Error obteniendo chat");
   }
 });
 
@@ -1521,7 +1670,7 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
     res.json({ ok: true, mensaje: msg[0] });
   } catch (err) {
     await client.query("ROLLBACK");
-    res.status(500).json({ ok: false, mensaje: "Error enviando mensaje", error: err.message });
+    sendDbError(res, err, "Error enviando mensaje");
   } finally { client.release(); }
 });
 
@@ -1549,7 +1698,7 @@ app.get("/ops/:id/avisos", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo avisos", error: err.message });
+    sendDbError(res, err, "Error obteniendo avisos");
   }
 });
 
@@ -1579,7 +1728,7 @@ app.post("/ops/:id/avisos", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, aviso: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error creando aviso", error: err.message });
+    sendDbError(res, err, "Error creando aviso");
   }
 });
 
@@ -1598,7 +1747,7 @@ app.patch("/ops/:id/avisos/:id_aviso", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Aviso no existe" });
     res.json({ ok: true, aviso: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error actualizando aviso", error: err.message });
+    sendDbError(res, err, "Error actualizando aviso");
   }
 });
 
@@ -1617,7 +1766,7 @@ app.get("/ops/:id/pois", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo POIs", error: err.message });
+    sendDbError(res, err, "Error obteniendo POIs");
   }
 });
 
@@ -1644,7 +1793,7 @@ app.post("/ops/:id/pois", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, poi: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error creando POI", error: err.message });
+    sendDbError(res, err, "Error creando POI");
   }
 });
 
@@ -1658,7 +1807,7 @@ app.delete("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "POI no existe" });
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error eliminando POI", error: err.message });
+    sendDbError(res, err, "Error eliminando POI");
   }
 });
 
@@ -1677,7 +1826,7 @@ app.get("/ops/:id/areas", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo areas", error: err.message });
+    sendDbError(res, err, "Error obteniendo areas");
   }
 });
 
@@ -1703,7 +1852,7 @@ app.post("/ops/:id/areas", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, area: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error creando area", error: err.message });
+    sendDbError(res, err, "Error creando area");
   }
 });
 
@@ -1717,7 +1866,7 @@ app.delete("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Area no existe" });
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error eliminando area", error: err.message });
+    sendDbError(res, err, "Error eliminando area");
   }
 });
 
@@ -1736,7 +1885,7 @@ app.get("/ops/:id/rutas", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo rutas", error: err.message });
+    sendDbError(res, err, "Error obteniendo rutas");
   }
 });
 
@@ -1762,7 +1911,7 @@ app.post("/ops/:id/rutas", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, ruta: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error creando ruta", error: err.message });
+    sendDbError(res, err, "Error creando ruta");
   }
 });
 
@@ -1781,7 +1930,7 @@ app.patch("/ops/:id/rutas/:id_ruta/estado", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Ruta no existe" });
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error actualizando ruta", error: err.message });
+    sendDbError(res, err, "Error actualizando ruta");
   }
 });
 
@@ -1800,7 +1949,7 @@ app.get("/ops/:id/edificios", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo edificios", error: err.message });
+    sendDbError(res, err, "Error obteniendo edificios");
   }
 });
 
@@ -1830,7 +1979,7 @@ app.post("/ops/:id/edificios", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, edificio: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error creando edificio", error: err.message });
+    sendDbError(res, err, "Error creando edificio");
   }
 });
 
@@ -1844,7 +1993,7 @@ app.delete("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Edificio no existe" });
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error eliminando edificio", error: err.message });
+    sendDbError(res, err, "Error eliminando edificio");
   }
 });
 
@@ -1870,7 +2019,7 @@ app.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, tracking: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error registrando tracking personal", error: err.message });
+    sendDbError(res, err, "Error registrando tracking personal");
   }
 });
 
@@ -1883,7 +2032,7 @@ app.get("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
       `SELECT * FROM v_ultima_posicion_personal WHERE id_operacion=$1`, [id_operacion]);
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo posiciones personal", error: err.message });
+    sendDbError(res, err, "Error obteniendo posiciones personal");
   }
 });
 
@@ -1903,7 +2052,7 @@ app.get("/ops/:id/tracking/personal/:id_personal/historial", requireAuth, async 
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo historial personal", error: err.message });
+    sendDbError(res, err, "Error obteniendo historial personal");
   }
 });
 
@@ -1932,7 +2081,7 @@ app.post("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, tracking: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error registrando tracking vehiculo", error: err.message });
+    sendDbError(res, err, "Error registrando tracking vehiculo");
   }
 });
 
@@ -1945,7 +2094,7 @@ app.get("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
       `SELECT * FROM v_ultima_posicion_vehiculo WHERE id_operacion=$1`, [id_operacion]);
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo posiciones vehiculos", error: err.message });
+    sendDbError(res, err, "Error obteniendo posiciones vehiculos");
   }
 });
 
@@ -1965,7 +2114,7 @@ app.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, async
     );
     res.json({ ok: true, items: rows });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo historial vehiculo", error: err.message });
+    sendDbError(res, err, "Error obteniendo historial vehiculo");
   }
 });
 
@@ -1987,7 +2136,7 @@ app.get("/ops/:id/zona", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Sin zona definida" });
     res.json({ ok: true, zona: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo zona", error: err.message });
+    sendDbError(res, err, "Error obteniendo zona");
   }
 });
 
@@ -2029,7 +2178,7 @@ app.post("/ops/:id/zona", requireAuth, async (req, res) => {
     );
     res.json({ ok: true, zona: rows[0] });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error guardando zona", error: err.message });
+    sendDbError(res, err, "Error guardando zona");
   }
 });
 
@@ -2047,7 +2196,7 @@ app.delete("/ops/:id/zona", requireAuth, async (req, res) => {
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "No existe zona para esta operacion" });
     res.json({ ok: true, deleted: rows[0].id_zona });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error eliminando zona", error: err.message });
+    sendDbError(res, err, "Error eliminando zona");
   }
 });
 
@@ -2072,7 +2221,7 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       vehiculos: vehiculos.rows,
     });
   } catch (err) {
-    res.status(500).json({ ok: false, mensaje: "Error obteniendo mapa", error: err.message });
+    sendDbError(res, err, "Error obteniendo mapa");
   }
 });
 
@@ -2133,11 +2282,7 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
 
     return res.json({ ok: true, items: rows });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error obteniendo personal",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error obteniendo personal");
   }
 });
 
@@ -2204,11 +2349,7 @@ app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
 
     return res.json({ ok: true, items: rows });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error obteniendo vehiculos",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error obteniendo vehiculos");
   }
 });
 
@@ -2267,11 +2408,7 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
 
     return res.json({ ok: true, items: rows });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error obteniendo equipos",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error obteniendo equipos");
   }
 });
 
@@ -2327,11 +2464,7 @@ app.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
 
     return res.json({ ok: true, items: rows });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error obteniendo mensajes del chat",
-      error: err.message
-    });
+    return sendDbError(res, err, "Error obteniendo mensajes del chat");
   }
 });
 
@@ -2438,12 +2571,193 @@ app.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       item: payload
     });
   } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      mensaje: "Error enviando mensaje",
-      error: err.message
+    return sendDbError(res, err, "Error enviando mensaje");
+  }
+});
+
+
+// ===============================
+// POST /validate/disponibilidad
+// Verifica si personal, vehículos o equipos están ocupados
+// en operaciones cuyas fechas se solapan con las dadas.
+// body: { fecha_inicio?, fecha_fin?, personal_ids:[], vehiculo_ids:[], equipo_ids:[] }
+// ===============================
+app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
+  try {
+    const {
+      fecha_inicio = null,
+      fecha_fin    = null,
+      personal_ids = [],
+      vehiculo_ids = [],
+      equipo_ids   = [],
+    } = req.body ?? {};
+
+    // Al menos un array debe tener elementos
+    const pIds = (Array.isArray(personal_ids) ? personal_ids : []).map(Number).filter(isInt);
+    const vIds = (Array.isArray(vehiculo_ids) ? vehiculo_ids : []).map(Number).filter(isInt);
+    const eIds = (Array.isArray(equipo_ids)   ? equipo_ids   : []).map(Number).filter(isInt);
+
+    if (!pIds.length && !vIds.length && !eIds.length) {
+      return res.status(400).json({ ok: false, mensaje: "Debes enviar al menos un id en personal_ids, vehiculo_ids o equipo_ids." });
+    }
+
+    // Función auxiliar: construye la condición de solapamiento de fechas.
+    // Dos rangos [A_ini, A_fin] y [B_ini, B_fin] se solapan si A_ini <= B_fin AND A_fin >= B_ini.
+    // Si no se manda fecha consideramos que se solapa con todo (null = abierto).
+    function overlapCondition(aliasIni, aliasFin) {
+      if (!fecha_inicio && !fecha_fin) return "TRUE"; // sin fechas = verificar contra cualquier op activa
+      const parts = [];
+      if (fecha_fin)   parts.push(`(${aliasIni} IS NULL OR ${aliasIni} <= $FIN)`);
+      if (fecha_inicio) parts.push(`(${aliasFin} IS NULL OR ${aliasFin} >= $INI)`);
+      return parts.length ? parts.join(" AND ") : "TRUE";
+    }
+
+    const conflictos = { personal: [], vehiculos: [], equipos: [] };
+
+    // ── Personal ──────────────────────────────────────────────────────────
+    if (pIds.length) {
+      const params = [pIds];
+      let cond = "TRUE";
+      if (fecha_inicio || fecha_fin) {
+        if (fecha_fin)    { params.push(fecha_fin);    cond  = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
+        if (fecha_inicio) { params.push(fecha_inicio); cond += ` AND (o.fecha_fin IS NULL OR o.fecha_fin >= $${params.length})`; }
+      }
+
+      const { rows } = await pool.query(
+        `SELECT
+           a.id_personal,
+           p.nombre,
+           p.apellido,
+           p.apodo,
+           o.id_operacion,
+           o.codigo   AS op_codigo,
+           o.nombre   AS op_nombre,
+           o.estado   AS op_estado,
+           o.fecha_inicio AS op_inicio,
+           o.fecha_fin    AS op_fin
+         FROM asignacion_operacion_personal a
+         JOIN personal  p ON p.id_personal  = a.id_personal
+         JOIN operacion o ON o.id_operacion = a.id_operacion
+         WHERE a.id_personal = ANY($1::int[])
+           AND a.estado_asignacion NOT IN ('LIBERADO')
+           AND o.estado NOT IN ('CANCELADA', 'CERRADA', 'FINALIZADA')
+           AND ${cond}
+         ORDER BY a.id_personal, o.id_operacion`,
+        params
+      );
+      conflictos.personal = rows;
+    }
+
+    // ── Vehículos ─────────────────────────────────────────────────────────
+    if (vIds.length) {
+      const params = [vIds];
+      let cond = "TRUE";
+      if (fecha_inicio || fecha_fin) {
+        if (fecha_fin)    { params.push(fecha_fin);    cond  = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
+        if (fecha_inicio) { params.push(fecha_inicio); cond += ` AND (o.fecha_fin IS NULL OR o.fecha_fin >= $${params.length})`; }
+      }
+
+      const { rows } = await pool.query(
+        `SELECT
+           vo.id_vehiculo,
+           v.codigo_interno,
+           v.alias,
+           v.tipo,
+           o.id_operacion,
+           o.codigo   AS op_codigo,
+           o.nombre   AS op_nombre,
+           o.estado   AS op_estado,
+           o.fecha_inicio AS op_inicio,
+           o.fecha_fin    AS op_fin
+         FROM vehiculo_operacion vo
+         JOIN vehiculo  v ON v.id_vehiculo  = vo.id_vehiculo
+         JOIN operacion o ON o.id_operacion = vo.id_operacion
+         WHERE vo.id_vehiculo = ANY($1::int[])
+           AND vo.estado_asignacion NOT IN ('LIBERADO')
+           AND o.estado NOT IN ('CANCELADA', 'CERRADA', 'FINALIZADA')
+           AND ${cond}
+         ORDER BY vo.id_vehiculo, o.id_operacion`,
+        params
+      );
+      conflictos.vehiculos = rows;
+    }
+
+    // ── Equipos ───────────────────────────────────────────────────────────
+    if (eIds.length) {
+      const params = [eIds];
+      let cond = "TRUE";
+      if (fecha_inicio || fecha_fin) {
+        if (fecha_fin)    { params.push(fecha_fin);    cond  = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
+        if (fecha_inicio) { params.push(fecha_inicio); cond += ` AND (o.fecha_fin IS NULL OR o.fecha_fin >= $${params.length})`; }
+      }
+
+      const { rows } = await pool.query(
+        `SELECT
+           oe.id_equipo,
+           e.nombre   AS equipo_nombre,
+           e.numero_serie,
+           e.categoria,
+           o.id_operacion,
+           o.codigo   AS op_codigo,
+           o.nombre   AS op_nombre,
+           o.estado   AS op_estado,
+           o.fecha_inicio AS op_inicio,
+           o.fecha_fin    AS op_fin
+         FROM operacion_equipo oe
+         JOIN equipo    e ON e.id_equipo    = oe.id_equipo
+         JOIN operacion o ON o.id_operacion = oe.id_operacion
+         WHERE oe.id_equipo = ANY($1::int[])
+           AND oe.estado_asignacion NOT IN ('LIBERADO')
+           AND o.estado NOT IN ('CANCELADA', 'CERRADA', 'FINALIZADA')
+           AND ${cond}
+         ORDER BY oe.id_equipo, o.id_operacion`,
+        params
+      );
+      conflictos.equipos = rows;
+    }
+
+    const hayConflictos =
+      conflictos.personal.length > 0 ||
+      conflictos.vehiculos.length > 0 ||
+      conflictos.equipos.length > 0;
+
+    return res.json({
+      ok: true,
+      disponible: !hayConflictos,
+      conflictos,
+    });
+
+  } catch (err) {
+    return sendDbError(res, err, "Error verificando disponibilidad");
+  }
+});
+
+// ===============================
+// Manejadores globales de error
+// ===============================
+
+// 413 - Payload demasiado grande
+app.use((err, req, res, next) => {
+  if (err.type === "entity.too.large") {
+    return sendError(res, 413, "El cuerpo de la petición supera el límite permitido (10 MB).");
+  }
+  next(err);
+});
+
+// JSON mal formado
+app.use((err, req, res, next) => {
+  if (err.type === "entity.parse.failed") {
+    return sendError(res, 400, "JSON inválido. Revisa la sintaxis del cuerpo enviado.", {
+      detalle: err.message,
     });
   }
+  next(err);
+});
+
+// Catch-all: cualquier error no manejado antes
+app.use((err, req, res, _next) => {
+  console.error("[UNHANDLED ERROR]", err);
+  return sendDbError(res, err, "Error interno no controlado");
 });
 
 // ===============================

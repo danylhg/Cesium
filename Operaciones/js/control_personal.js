@@ -1,456 +1,881 @@
-// control_personal.js (backend + actualización UI)
+// control_personal.js (alineado con backend real)
 
-if (localStorage.getItem("session") !== "ok") {
-  window.location.href = "login.html";
-}
+(() => {
+  "use strict";
 
-const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-const token = localStorage.getItem("token");
-
-if (!token) {
-  localStorage.removeItem("session");
-  window.location.href = "login.html";
-}
-
-async function api(path, { method = "GET", body } = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${token}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
-  const data = await res.json().catch(() => ({}));
-
-  if (!res.ok) {
-    const msg = data?.mensaje || `Error ${res.status} en ${path}`;
-    throw new Error(msg);
+  /* =========================
+     Sesión / seguridad
+  ========================= */
+  function clearSession() {
+    localStorage.removeItem("session");
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    localStorage.removeItem("rol");
+    localStorage.removeItem("nombre");
+    localStorage.removeItem("active_operation_id");
   }
-  return data;
-}
 
-/* =========================
-   Catálogos (UI)
-========================= */
-const ROLES_UI = [
-  "Comandante de Unidad de Trabajo",
-  "Comandante de Equipo de trabajo",
-  "Celulas",
-];
+  function redirectToLogin(message = "") {
+    clearSession();
+    if (message) alert(message);
+    window.location.href = "login.html";
+  }
 
-const PUESTOS = [
-  "Soldado / Marinero",
-  "Cabo",
-  "Sargento Segundo",
-  "Sargento Primero",
-  "Subteniente",
-  "Teniente",
-  "Capitán",
-  "Mayor",
-  "Teniente Coronel",
-  "Coronel",
-  "General Brigadier",
-  "General de Brigada",
-  "General de División",
-  "Contraalmirante",
-  "Vicealmirante",
-  "Almirante",
-];
+  const sessionOk = localStorage.getItem("session") === "ok";
+  const initialToken = localStorage.getItem("token");
+  const currentRole = (localStorage.getItem("rol") || "").toUpperCase();
 
-function uiRolToApi(uiRol) {
-  const r = (uiRol || "").toLowerCase();
-  if (r.includes("unidad")) return "CUT";
-  if (r.includes("equipo")) return "CET";
-  return "CELL";
-}
+  if (!sessionOk || !initialToken) {
+    redirectToLogin();
+    return;
+  }
 
-function apiRolToUi(apiRol) {
-  const r = (apiRol || "").toUpperCase();
-  if (r === "CUT") return "Comandante de Unidad de Trabajo";
-  if (r === "CET") return "Comandante de Equipo de trabajo";
-  return "Celulas";
-}
+  const ALLOWED_WEB_ROLES = ["ADMIN", "CUT"];
+  if (!ALLOWED_WEB_ROLES.includes(currentRole)) {
+    redirectToLogin("No tienes permisos para acceder a esta sección.");
+    return;
+  }
 
-function normalize(s) {
-  return (s ?? "").toString().trim().toLowerCase();
-}
+  const API_BASE =
+    localStorage.getItem("API_BASE") ||
+    `http://${window.location.hostname}:3001`;
 
-function escapeHtml(text) {
-  return (text ?? "").toString()
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
+  async function api(path, { method = "GET", body } = {}) {
+    const liveToken = localStorage.getItem("token");
 
-function fillSelect(selectEl, options, includeAll = false) {
-  const base = includeAll
-    ? `<option value="">Todos</option>`
-    : `<option value="" disabled selected>Selecciona...</option>`;
+    if (!liveToken) {
+      redirectToLogin("Tu sesión expiró. Inicia sesión nuevamente.");
+      throw new Error("Sesión no disponible.");
+    }
 
-  selectEl.innerHTML =
-    base + options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("");
-}
+    let res;
+    try {
+      res = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers: {
+          ...(body ? { "Content-Type": "application/json" } : {}),
+          Authorization: `Bearer ${liveToken}`,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      throw new Error("No se pudo conectar con el servidor.");
+    }
 
-/* =========================
-   DOM
-========================= */
-const btnBack = document.getElementById("btnBack");
-const btnLogout = document.getElementById("btnLogout");
+    const data = await res.json().catch(() => null);
 
-const btnAdd = document.getElementById("btnAdd");
-const btnEdit = document.getElementById("btnEdit");
-const btnDelete = document.getElementById("btnDelete");
+    if (res.status === 401 || res.status === 403) {
+      redirectToLogin("Tu sesión expiró o ya no es válida.");
+      throw new Error("Sesión expirada.");
+    }
 
-const searchInput = document.getElementById("searchInput");
-const btnSearch = document.getElementById("btnSearch");
-const btnClear = document.getElementById("btnClear");
+    if (!res.ok) {
+      const msg = data?.mensaje || `Error ${res.status} en ${path}`;
+      throw new Error(msg);
+    }
 
-const filterRol = document.getElementById("filterRol");
-const filterPuesto = document.getElementById("filterPuesto");
-const filterActivo = document.getElementById("filterActivo");
+    return data;
+  }
 
-const resultHint = document.getElementById("resultHint");
-const tbody = document.getElementById("tbody");
+  /* =========================
+     Catálogos (UI)
+  ========================= */
+  const ROLES_UI = [
+    "Comandante de Unidad de Trabajo",
+    "Comandante de Equipo de trabajo",
+    "Celulas",
+  ];
 
-// Modal
-const modal = document.getElementById("modal");
-const modalTitle = document.getElementById("modalTitle");
-const btnCloseModal = document.getElementById("btnCloseModal");
-const btnCancel = document.getElementById("btnCancel");
-const form = document.getElementById("form");
+  const PUESTOS = [
+    "Soldado / Marinero",
+    "Cabo",
+    "Sargento Segundo",
+    "Sargento Primero",
+    "Subteniente",
+    "Teniente",
+    "Capitán",
+    "Mayor",
+    "Teniente Coronel",
+    "Coronel",
+    "General Brigadier",
+    "General de Brigada",
+    "General de División",
+    "Contraalmirante",
+    "Vicealmirante",
+    "Almirante",
+  ];
 
-const fApodo = document.getElementById("fApodo");
-const fRol = document.getElementById("fRol");
-const fNombre = document.getElementById("fNombre");
-const fApellido = document.getElementById("fApellido");
-const fPuesto = document.getElementById("fPuesto");
-const fUsername = document.getElementById("fUsername");
-const fPassword = document.getElementById("fPassword");
-const fActivo = document.getElementById("fActivo");
-const fLastAccess = document.getElementById("fLastAccess");
+  const VALID_API_ROLES = ["CUT", "CET", "CELL"];
 
-/* =========================
-   Estado
-========================= */
-let personal = [];
-let selectedId = null;
-let mode = "add";
+  function uiRolToApi(uiRol) {
+    const r = (uiRol || "").toString().trim().toLowerCase();
 
-/* =========================
-   Nav / Logout
-========================= */
-btnBack?.addEventListener("click", () => {
-  window.location.href = "menu_inicial.html";
-});
+    if (r === "comandante de unidad de trabajo") return "CUT";
+    if (r === "comandante de equipo de trabajo") return "CET";
+    if (r === "celulas") return "CELL";
 
-btnLogout?.addEventListener("click", () => {
-  localStorage.removeItem("session");
-  localStorage.removeItem("token");
-  window.location.href = "login.html";
-});
+    return "";
+  }
 
-/* =========================
-   Init catálogos UI
-========================= */
-function initCatalogs() {
-  fillSelect(filterRol, ROLES_UI, true);
-  fillSelect(filterPuesto, PUESTOS, true);
+  function apiRolToUi(apiRol) {
+    const r = (apiRol || "").toString().trim().toUpperCase();
 
-  fillSelect(fRol, ROLES_UI, false);
-  fillSelect(fPuesto, PUESTOS, false);
-}
+    if (r === "CUT") return "Comandante de Unidad de Trabajo";
+    if (r === "CET") return "Comandante de Equipo de trabajo";
+    if (r === "CELL") return "Celulas";
 
-/* =========================
-   Cargar desde backend
-========================= */
-async function loadFromApi() {
-  const [cut, cet, cell] = await Promise.all([
-    api("/catalog/personal?rol=CUT"),
-    api("/catalog/personal?rol=CET"),
-    api("/catalog/personal?rol=CELL"),
-  ]);
+    return "Celulas";
+  }
 
-  const all = [...(cut.items || []), ...(cet.items || []), ...(cell.items || [])];
+  function normalize(s) {
+    return (s ?? "").toString().trim().toLowerCase();
+  }
 
-  personal = all.map(p => ({
-    id_personal: p.id_personal,
-    apodo: p.apodo ?? "",
-    nombre: p.nombre ?? "",
-    apellido: p.apellido ?? "",
-    rol_api: (p.rol || "").toUpperCase(),
-    rol_ui: apiRolToUi(p.rol),
-    puesto: p.puesto ?? "",
-    username: p.username ?? "",
-    activo: p.activo !== false,
-    ultimo_acceso: p.ultimo_acceso ?? "",
-  }));
-}
+  function escapeHtml(text) {
+    return (text ?? "")
+      .toString()
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
 
-/* =========================
-   Filtros
-========================= */
-function getFiltered() {
-  const q = normalize(searchInput.value);
-  const rol = filterRol.value;
-  const puesto = filterPuesto.value;
-  const act = filterActivo.value;
+  function fillSelect(selectEl, options, includeAll = false) {
+    if (!selectEl) return;
 
-  return personal.filter(p => {
-    if (rol && p.rol_ui !== rol) return false;
-    if (puesto && p.puesto !== puesto) return false;
-    if (act !== "" && String(!!p.activo) !== act) return false;
+    const base = includeAll
+      ? `<option value="">Todos</option>`
+      : `<option value="" disabled selected>Selecciona...</option>`;
 
-    if (!q) return true;
+    selectEl.innerHTML =
+      base +
+      options
+        .map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`)
+        .join("");
+  }
 
+  function isValidBooleanString(v) {
+    return v === "true" || v === "false";
+  }
+
+  /* =========================
+     Validadores
+  ========================= */
+  function soloLetrasYEspacios(value) {
+    return /^[A-Za-zÁÉÍÓÚáéíóúÜüÑñ\s]+$/.test((value || "").trim());
+  }
+
+  function apodoValido(value) {
+    return /^[A-Za-zÁÉÍÓÚáéíóúÜüÑñ0-9\s._-]+$/.test((value || "").trim());
+  }
+
+  function validarNombreCampo(value, fieldName, { min = 2, max = 80 } = {}) {
+    const clean = (value || "").trim();
+
+    if (!clean) return `${fieldName} es obligatorio.`;
+    if (clean.length < min) return `${fieldName} es demasiado corto.`;
+    if (clean.length > max) return `${fieldName} es demasiado largo.`;
+    if (!soloLetrasYEspacios(clean)) {
+      return `${fieldName} no debe contener números ni símbolos.`;
+    }
+
+    return "";
+  }
+
+  function validarApodo(value) {
+    const clean = (value || "").trim();
+
+    if (!clean) return "Apodo es obligatorio.";
+    if (clean.length < 2) return "Apodo es demasiado corto.";
+    if (clean.length > 50) return "Apodo es demasiado largo.";
+    if (!apodoValido(clean)) {
+      return "Apodo contiene caracteres no permitidos.";
+    }
+
+    return "";
+  }
+
+  function validarUsername(value) {
+    const clean = (value || "").trim();
+    if (!clean) return "Username es obligatorio.";
+    if (!/^[a-zA-Z0-9._-]+$/.test(clean)) return "Username solo puede tener letras, números, punto, guion y guion bajo.";
+    if (clean.length > 60) return "Username demasiado largo.";
+    return "";
+  }
+
+  function validarPassword(value, requerida = true) {
+    const clean = (value || "");
+    if (requerida && !clean) return "Contraseña es obligatoria.";
+    if (clean && clean.length < 6) return "Contraseña demasiado corta (mínimo 6 caracteres).";
+    return "";
+  }
+
+  function validarPuesto(value) {
+    const clean = (value || "").trim();
+
+    if (!clean) return "Puesto es obligatorio.";
+    if (!PUESTOS.includes(clean)) return "Puesto inválido.";
+
+    return "";
+  }
+
+  /* =========================
+     Generación visual alineada al backend
+  ========================= */
+  function slugify(text) {
+    return (text || "")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "");
+  }
+
+  function generarUsernameVisual(nombre, apellido) {
+    const n = slugify(nombre);
+    const a = slugify(apellido);
+
+    if (!n && !a) return "";
+
+    return `${n.charAt(0)}${a}`;
+  }
+
+  function generarPasswordVisual() {
+    return "Temp-123456";
+  }
+
+  function getFieldWrapper(el) {
+    if (!el) return null;
     return (
-      normalize(p.apodo).includes(q) ||
-      normalize(p.nombre).includes(q) ||
-      normalize(p.apellido).includes(q) ||
-      normalize(p.rol_ui).includes(q) ||
-      normalize(p.puesto).includes(q) ||
-      normalize(p.username).includes(q)
+      el.closest("[data-field-wrap]") ||
+      el.closest(".field") ||
+      el.closest(".form-group") ||
+      el.closest(".input-group") ||
+      el.parentElement
     );
-  });
-}
-
-function updateButtons() {
-  const has = !!selectedId;
-  btnEdit.disabled = !has;
-  btnDelete.disabled = !has;
-}
-
-function renderTable() {
-  const list = getFiltered();
-
-  if (selectedId && !list.some(p => p.id_personal === selectedId)) {
-    selectedId = null;
   }
 
-  tbody.innerHTML = "";
+  function setFieldVisible(el, visible) {
+    if (!el) return;
+    const wrap = getFieldWrapper(el);
 
-  if (!list.length) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td colspan="9" style="color: rgba(11,18,32,.65); padding: 16px;">
-      No hay registros con los filtros actuales.
-    </td>`;
-    tbody.appendChild(tr);
-  } else {
-    list.forEach(p => {
-      const tr = document.createElement("tr");
-      if (p.id_personal === selectedId) tr.classList.add("selected");
+    if (wrap && wrap !== document.body) {
+      wrap.style.display = visible ? "" : "none";
+    } else {
+      el.style.display = visible ? "" : "none";
+    }
+  }
 
-      tr.innerHTML = `
-        <td>${escapeHtml(p.apodo)}</td>
-        <td>${escapeHtml(p.nombre)}</td>
-        <td>${escapeHtml(p.apellido)}</td>
-        <td>${escapeHtml(p.rol_ui)}</td>
-        <td>${escapeHtml(p.puesto)}</td>
-        <td>${escapeHtml(p.username)}</td>
-        <td style="color: rgba(11,18,32,.45);">—</td>
-        <td>${p.activo ? `<span class="badge ok">Sí</span>` : `<span class="badge no">No</span>`}</td>
-        <td>${escapeHtml(p.ultimo_acceso || "Sin acceso")}</td>
-      `;
+  /* =========================
+     DOM
+  ========================= */
+  const btnBack = document.getElementById("btnBack");
+  const btnLogout = document.getElementById("btnLogout");
 
-      tr.addEventListener("click", () => {
-        selectedId = p.id_personal;
-        updateButtons();
-        renderTable();
+  const btnAdd = document.getElementById("btnAdd");
+  const btnEdit = document.getElementById("btnEdit");
+  const btnDelete = document.getElementById("btnDelete");
+
+  const searchInput = document.getElementById("searchInput");
+  const btnSearch = document.getElementById("btnSearch");
+  const btnClear = document.getElementById("btnClear");
+
+  const filterRol = document.getElementById("filterRol");
+  const filterPuesto = document.getElementById("filterPuesto");
+  const filterActivo = document.getElementById("filterActivo");
+
+  const resultHint = document.getElementById("resultHint");
+  const tbody = document.getElementById("tbody");
+
+  const modal = document.getElementById("modal");
+  const modalTitle = document.getElementById("modalTitle");
+  const btnCloseModal = document.getElementById("btnCloseModal");
+  const btnCancel = document.getElementById("btnCancel");
+  const form = document.getElementById("form");
+
+  const fApodo = document.getElementById("fApodo");
+  const fRol = document.getElementById("fRol");
+  const fNombre = document.getElementById("fNombre");
+  const fApellido = document.getElementById("fApellido");
+  const fPuesto = document.getElementById("fPuesto");
+  const fUsername = document.getElementById("fUsername");
+  const fPassword = document.getElementById("fPassword");
+  const fActivo = document.getElementById("fActivo");
+  const fLastAccess = document.getElementById("fLastAccess");
+
+  const requiredEls = {
+    tbody,
+    resultHint,
+    modal,
+    modalTitle,
+    form,
+    fApodo,
+    fRol,
+    fNombre,
+    fApellido,
+    fPuesto,
+    fUsername,
+    fPassword,
+    fActivo,
+    searchInput,
+    filterRol,
+    filterPuesto,
+    filterActivo,
+    btnEdit,
+    btnDelete,
+  };
+
+  for (const [name, el] of Object.entries(requiredEls)) {
+    if (!el) {
+      alert(`Falta el elemento del DOM: ${name}`);
+      return;
+    }
+  }
+
+  /* =========================
+     Estado
+  ========================= */
+  let personal = [];
+  let selectedId = null;
+  let mode = "add";
+
+  let isLoading = false;
+  let isSaving = false;
+  let isDeleting = false;
+
+  /* =========================
+     Username / Password visual auto
+  ========================= */
+  function actualizarCredencialesVisuales() {
+    if (mode !== "add") return;
+
+    // Solo auto-rellenar username si el campo está vacío (el usuario no ha escrito nada manual)
+    if (fUsername && !fUsername.dataset.editadoManual) {
+      const usernameSugerido = generarUsernameVisual(
+        fNombre?.value || "",
+        fApellido?.value || ""
+      );
+      fUsername.value = usernameSugerido;
+    }
+
+    if (fPassword && !fPassword.dataset.editadoManual) {
+      fPassword.value = generarPasswordVisual();
+    }
+  }
+
+  fRol?.addEventListener("change", actualizarCredencialesVisuales);
+  fNombre?.addEventListener("input", actualizarCredencialesVisuales);
+  fApellido?.addEventListener("input", actualizarCredencialesVisuales);
+
+  // Marcar como editado manual para no sobreescribir
+  fUsername?.addEventListener("input", () => {
+    if (mode === "add") fUsername.dataset.editadoManual = "1";
+  });
+  fPassword?.addEventListener("input", () => {
+    if (mode === "add") fPassword.dataset.editadoManual = "1";
+  });
+
+  /* =========================
+     Nav / Logout
+  ========================= */
+  btnBack?.addEventListener("click", () => {
+    window.location.href = "menu_inicial.html";
+  });
+
+  btnLogout?.addEventListener("click", () => {
+    clearSession();
+    window.location.href = "login.html";
+  });
+
+  /* =========================
+     Init catálogos UI
+  ========================= */
+  function initCatalogs() {
+    fillSelect(filterRol, ROLES_UI, true);
+    fillSelect(filterPuesto, PUESTOS, true);
+
+    fillSelect(fRol, ROLES_UI, false);
+    fillSelect(fPuesto, PUESTOS, false);
+  }
+
+  /* =========================
+     Cargar desde backend
+  ========================= */
+  async function loadFromApi() {
+    if (isLoading) return;
+    isLoading = true;
+    updateButtons();
+
+    try {
+      const [cut, cet, cell] = await Promise.all([
+        api("/catalog/personal?rol=CUT"),
+        api("/catalog/personal?rol=CET"),
+        api("/catalog/personal?rol=CELL"),
+      ]);
+
+      const cutItems = Array.isArray(cut?.items) ? cut.items : [];
+      const cetItems = Array.isArray(cet?.items) ? cet.items : [];
+      const cellItems = Array.isArray(cell?.items) ? cell.items : [];
+
+      const all = [...cutItems, ...cetItems, ...cellItems];
+
+      const byId = new Map();
+      all.forEach((p) => {
+        if (p && p.id_personal != null) {
+          byId.set(p.id_personal, p);
+        }
       });
 
-      tbody.appendChild(tr);
+      const unique = [...byId.values()];
+
+      personal = unique.map((p) => {
+        const rolApi = (p?.rol || "").toString().trim().toUpperCase();
+        const safeRolApi = VALID_API_ROLES.includes(rolApi) ? rolApi : "CELL";
+
+        return {
+          id_personal: p?.id_personal ?? null,
+          apodo: p?.apodo ?? "",
+          nombre: p?.nombre ?? "",
+          apellido: p?.apellido ?? "",
+          rol_api: safeRolApi,
+          rol_ui: apiRolToUi(safeRolApi),
+          puesto: p?.puesto ?? "",
+          username: p?.username ?? "",
+          activo: p?.activo !== false,
+          ultimo_acceso: p?.ultimo_acceso ?? "",
+        };
+      });
+    } finally {
+      isLoading = false;
+      updateButtons();
+    }
+  }
+
+  /* =========================
+     Filtros
+  ========================= */
+  function getFiltered() {
+    const q = normalize(searchInput?.value);
+    const rol = filterRol?.value || "";
+    const puesto = filterPuesto?.value || "";
+    const act = filterActivo?.value || "";
+
+    return personal.filter((p) => {
+      if (rol && normalize(p.rol_ui) !== normalize(rol)) return false;
+      if (puesto && normalize(p.puesto) !== normalize(puesto)) return false;
+      if (act !== "" && String(!!p.activo) !== act) return false;
+
+      if (!q) return true;
+
+      return (
+        normalize(p.apodo).includes(q) ||
+        normalize(p.nombre).includes(q) ||
+        normalize(p.apellido).includes(q) ||
+        normalize(p.rol_ui).includes(q) ||
+        normalize(p.puesto).includes(q) ||
+        normalize(p.username).includes(q)
+      );
     });
   }
 
-  updateButtons();
-  resultHint.textContent = `${list.length} resultado(s)`;
-}
+  function updateButtons() {
+    const has = !!selectedId;
 
-/* =========================
-   Modal
-========================= */
-function openModal(newMode) {
-  mode = newMode;
-  modal.classList.remove("hidden");
-  modal.setAttribute("aria-hidden", "false");
+    if (btnEdit) btnEdit.disabled = !has || isLoading || isSaving || isDeleting;
+    if (btnDelete) btnDelete.disabled = !has || isLoading || isSaving || isDeleting;
+    if (btnAdd) btnAdd.disabled = isLoading || isSaving || isDeleting;
+  }
 
-  if (mode === "add") {
-    modalTitle.textContent = "Agregar personal";
-    form.reset();
+  function renderTable() {
+    if (!tbody) return;
 
-    fActivo.value = "true";
-    if (fLastAccess) fLastAccess.value = "";
+    const list = getFiltered();
 
-    fRol.selectedIndex = 0;
-    fPuesto.selectedIndex = 0;
+    if (selectedId && !list.some((p) => p.id_personal === selectedId)) {
+      selectedId = null;
+    }
 
-    fRol.disabled = false;
-    fUsername.disabled = true;
-    fPassword.disabled = true;
-    fUsername.value = "";
-    fPassword.value = "";
-  } else {
+    tbody.innerHTML = "";
+
+    if (!list.length) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td colspan="9" style="color: rgba(11,18,32,.65); padding: 16px;">
+        No hay registros con los filtros actuales.
+      </td>`;
+      tbody.appendChild(tr);
+    } else {
+      list.forEach((p) => {
+        const tr = document.createElement("tr");
+        if (p.id_personal === selectedId) tr.classList.add("selected");
+
+        tr.innerHTML = `
+          <td>${escapeHtml(p.apodo)}</td>
+          <td>${escapeHtml(p.nombre)}</td>
+          <td>${escapeHtml(p.apellido)}</td>
+          <td>${escapeHtml(p.rol_ui)}</td>
+          <td>${escapeHtml(p.puesto)}</td>
+          <td>${escapeHtml(p.username)}</td>
+          <td style="color: rgba(11,18,32,.45);">—</td>
+          <td>${p.activo ? `<span class="badge ok">Sí</span>` : `<span class="badge no">No</span>`}</td>
+          <td>${escapeHtml(p.ultimo_acceso || "Sin acceso")}</td>
+        `;
+
+        if (p.id_personal != null) {
+          tr.addEventListener("click", () => {
+            selectedId = p.id_personal;
+            updateButtons();
+            renderTable();
+          });
+        } else {
+          tr.style.opacity = "0.6";
+          tr.style.pointerEvents = "none";
+        }
+
+        tbody.appendChild(tr);
+      });
+    }
+
+    updateButtons();
+    if (resultHint) resultHint.textContent = `${list.length} resultado(s)`;
+  }
+
+  /* =========================
+     Modal
+  ========================= */
+  function openModal(newMode) {
+    if (newMode !== "add" && newMode !== "edit") {
+      alert("Modo de formulario inválido.");
+      return;
+    }
+
+    mode = newMode;
+    modal.classList.remove("hidden");
+    modal.setAttribute("aria-hidden", "false");
+
+    if (mode === "add") {
+      modalTitle.textContent = "Agregar personal";
+      form.reset();
+
+      fRol.selectedIndex = 0;
+      fPuesto.selectedIndex = 0;
+      fRol.disabled = false;
+
+      setFieldVisible(fApodo, true);
+      setFieldVisible(fRol, true);
+      setFieldVisible(fNombre, true);
+      setFieldVisible(fApellido, true);
+      setFieldVisible(fPuesto, true);
+
+      if (fUsername) {
+        fUsername.value = "";
+        fUsername.disabled = false;
+        delete fUsername.dataset.editadoManual;
+        setFieldVisible(fUsername, true);
+      }
+
+      if (fPassword) {
+        fPassword.value = "";
+        fPassword.disabled = false;
+        fPassword.placeholder = "";
+        delete fPassword.dataset.editadoManual;
+        setFieldVisible(fPassword, true);
+      }
+
+      if (fActivo) {
+        fActivo.value = "true";
+        setFieldVisible(fActivo, false);
+      }
+
+      if (fLastAccess) {
+        fLastAccess.value = "";
+        fLastAccess.disabled = true;
+        setFieldVisible(fLastAccess, false);
+      }
+
+      actualizarCredencialesVisuales();
+      fApodo.focus();
+      return;
+    }
+
+    if (!selectedId) {
+      alert("No hay personal seleccionado.");
+      closeModal();
+      return;
+    }
+
     modalTitle.textContent = "Modificar personal";
-    const p = personal.find(x => x.id_personal === selectedId);
-    if (!p) return;
+
+    const p = personal.find((x) => x.id_personal === selectedId);
+    if (!p) {
+      alert("No se encontró el registro seleccionado.");
+      closeModal();
+      return;
+    }
 
     fApodo.value = p.apodo ?? "";
     fRol.value = p.rol_ui ?? "";
     fNombre.value = p.nombre ?? "";
     fApellido.value = p.apellido ?? "";
     fPuesto.value = p.puesto ?? "";
-    fUsername.value = p.username ?? "";
-    fPassword.value = "";
-    fActivo.value = String(!!p.activo);
-    if (fLastAccess) fLastAccess.value = p.ultimo_acceso ?? "";
 
-    fRol.disabled = true;
-    fUsername.disabled = true;
-    fPassword.disabled = true;
-  }
-}
+    setFieldVisible(fApodo, true);
+    setFieldVisible(fRol, true);
+    setFieldVisible(fNombre, true);
+    setFieldVisible(fApellido, true);
+    setFieldVisible(fPuesto, true);
 
-function closeModal() {
-  modal.classList.add("hidden");
-  modal.setAttribute("aria-hidden", "true");
-}
-
-btnCloseModal?.addEventListener("click", closeModal);
-btnCancel?.addEventListener("click", closeModal);
-
-modal?.addEventListener("click", (e) => {
-  if (e.target?.dataset?.close === "true") closeModal();
-});
-
-/* =========================
-   Acciones
-========================= */
-btnAdd?.addEventListener("click", () => openModal("add"));
-btnEdit?.addEventListener("click", () => selectedId && openModal("edit"));
-
-btnDelete?.addEventListener("click", async () => {
-  if (!selectedId) return;
-
-  const p = personal.find(x => x.id_personal === selectedId);
-  const name = p ? `${p.nombre} ${p.apellido}` : "este registro";
-
-  if (!confirm(`¿BORRAR definitivamente a ${name}?\n(Si tiene asignaciones, no te dejará.)`)) return;
-
-  try {
-    await api(`/catalog/personal/${selectedId}?hard=1`, { method: "DELETE" });
-    await loadFromApi();
-    selectedId = null;
-    renderTable();
-  } catch (e) {
-    alert(e.message);
-  }
-});
-
-btnSearch?.addEventListener("click", renderTable);
-
-searchInput?.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    e.preventDefault();
-    renderTable();
-  }
-});
-
-btnClear?.addEventListener("click", () => {
-  searchInput.value = "";
-  filterRol.value = "";
-  filterPuesto.value = "";
-  filterActivo.value = "";
-  selectedId = null;
-  renderTable();
-});
-
-filterRol?.addEventListener("change", renderTable);
-filterPuesto?.addEventListener("change", renderTable);
-filterActivo?.addEventListener("change", renderTable);
-
-/* =========================
-   Guardar
-========================= */
-form?.addEventListener("submit", async (e) => {
-  e.preventDefault();
-
-  try {
-    if (mode === "add") {
-      const body = {
-        rol: uiRolToApi(fRol.value),
-        apodo: fApodo.value.trim(),
-        nombre: fNombre.value.trim(),
-        apellido: fApellido.value.trim(),
-        puesto: fPuesto.value.trim(),
-      };
-
-      if (!body.apodo || !body.rol || !body.nombre || !body.apellido || !body.puesto) {
-        alert("Completa los campos obligatorios (incluye Rol, Apodo y Puesto).");
-        return;
-      }
-
-      if (!ROLES_UI.includes(fRol.value)) {
-        alert("Rol inválido.");
-        return;
-      }
-
-      if (!PUESTOS.includes(body.puesto)) {
-        alert("Puesto inválido.");
-        return;
-      }
-
-      const r = await api("/catalog/personal", { method: "POST", body });
-
-      if (r?.tempPassword) {
-        alert(`Personal creado.\nUsername: ${r.item.username}\nPassword temporal: ${r.tempPassword}`);
-      } else {
-        alert("Personal creado.");
-      }
-
-    } else {
-      const body = {
-        apodo: fApodo.value.trim(),
-        nombre: fNombre.value.trim(),
-        apellido: fApellido.value.trim(),
-        puesto: fPuesto.value.trim(),
-        activo: (fActivo.value === "true"),
-      };
-
-      if (!body.apodo || !body.nombre || !body.apellido || !body.puesto) {
-        alert("Completa los campos obligatorios.");
-        return;
-      }
-
-      if (!PUESTOS.includes(body.puesto)) {
-        alert("Puesto inválido.");
-        return;
-      }
-
-      await api(`/catalog/personal/${selectedId}`, { method: "PUT", body });
-      alert("Personal actualizado.");
+    if (fUsername) {
+      fUsername.value = p.username ?? "";
+      fUsername.disabled = false;
+      setFieldVisible(fUsername, true);
     }
 
-    closeModal();
-    await loadFromApi();
-    renderTable();
+    if (fPassword) {
+      fPassword.value = "";
+      fPassword.disabled = false;
+      fPassword.placeholder = "Dejar vacío para no cambiar";
+      setFieldVisible(fPassword, true);
+    }
 
-  } catch (e) {
-    alert(e.message);
-  }
-});
+    if (fActivo) {
+      fActivo.value = String(!!p.activo);
+      setFieldVisible(fActivo, true);
+    }
 
-/* =========================
-   Init
-========================= */
-(async function init() {
-  initCatalogs();
-  try {
-    await loadFromApi();
-    renderTable();
-  } catch (e) {
-    alert(`No se pudo cargar personal: ${e.message}\nRevisa API_BASE y token.`);
+    if (fLastAccess) {
+      fLastAccess.value = p.ultimo_acceso ?? "";
+      fLastAccess.disabled = true;
+      setFieldVisible(fLastAccess, false);
+    }
+
+    fRol.disabled = true;
+    fApodo.focus();
   }
+
+  function closeModal() {
+    modal.classList.add("hidden");
+    modal.setAttribute("aria-hidden", "true");
+  }
+
+  btnCloseModal?.addEventListener("click", closeModal);
+  btnCancel?.addEventListener("click", closeModal);
+
+  modal?.addEventListener("click", (e) => {
+    if (e.target?.dataset?.close === "true") closeModal();
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && modal && !modal.classList.contains("hidden")) {
+      closeModal();
+    }
+  });
+
+  /* =========================
+     Acciones
+  ========================= */
+  btnAdd?.addEventListener("click", () => openModal("add"));
+
+  btnEdit?.addEventListener("click", () => {
+    if (!selectedId) {
+      alert("Selecciona un registro para modificar.");
+      return;
+    }
+    openModal("edit");
+  });
+
+  btnDelete?.addEventListener("click", async () => {
+    if (isDeleting) return;
+
+    if (!selectedId) {
+      alert("Selecciona un registro para eliminar.");
+      return;
+    }
+
+    const p = personal.find((x) => x.id_personal === selectedId);
+    if (!p) {
+      alert("No se encontró el registro seleccionado.");
+      selectedId = null;
+      renderTable();
+      return;
+    }
+
+    const name = `${p.nombre || ""} ${p.apellido || ""}`.trim() || "este registro";
+
+    if (!confirm(`¿BORRAR definitivamente a ${name}?\n(Si tiene asignaciones, no te dejará.)`)) {
+      return;
+    }
+
+    isDeleting = true;
+    updateButtons();
+
+    try {
+      await api(`/catalog/personal/${selectedId}?hard=1`, { method: "DELETE" });
+      await loadFromApi();
+      selectedId = null;
+      renderTable();
+      alert("Registro eliminado.");
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      isDeleting = false;
+      updateButtons();
+    }
+  });
+
+  btnSearch?.addEventListener("click", renderTable);
+
+  searchInput?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      renderTable();
+    }
+  });
+
+  btnClear?.addEventListener("click", () => {
+    searchInput.value = "";
+    filterRol.value = "";
+    filterPuesto.value = "";
+    filterActivo.value = "";
+    selectedId = null;
+    renderTable();
+  });
+
+  filterRol?.addEventListener("change", renderTable);
+  filterPuesto?.addEventListener("change", renderTable);
+  filterActivo?.addEventListener("change", renderTable);
+
+  /* =========================
+     Guardar
+  ========================= */
+  form?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    if (isSaving) return;
+    isSaving = true;
+    updateButtons();
+
+    try {
+      const apodo = (fApodo.value || "").trim();
+      const nombre = (fNombre.value || "").trim();
+      const apellido = (fApellido.value || "").trim();
+      const puesto = (fPuesto.value || "").trim();
+      const username = (fUsername?.value || "").trim();
+      const password = (fPassword?.value || "");
+
+      const errApodo = validarApodo(apodo);
+      const errNombre = validarNombreCampo(nombre, "Nombre", { min: 2, max: 80 });
+      const errApellido = validarNombreCampo(apellido, "Apellido", { min: 2, max: 80 });
+      const errPuesto = validarPuesto(puesto);
+      const errUsername = validarUsername(username);
+      // password requerida en add, opcional en edit
+      const errPassword = validarPassword(password, mode === "add");
+
+      if (errApodo) { alert(errApodo); fApodo.focus(); return; }
+      if (errNombre) { alert(errNombre); fNombre.focus(); return; }
+      if (errApellido) { alert(errApellido); fApellido.focus(); return; }
+      if (errPuesto) { alert(errPuesto); fPuesto.focus(); return; }
+      if (errUsername) { alert(errUsername); fUsername?.focus(); return; }
+      if (errPassword) { alert(errPassword); fPassword?.focus(); return; }
+
+      if (mode === "add") {
+        const rolUi = (fRol.value || "").trim();
+        const rol = uiRolToApi(rolUi);
+
+        if (!rolUi) {
+          alert("Rol es obligatorio.");
+          fRol.focus();
+          return;
+        }
+
+        if (!ROLES_UI.includes(rolUi) || !rol) {
+          alert("Rol inválido.");
+          fRol.focus();
+          return;
+        }
+
+        const body = {
+          rol,
+          apodo,
+          nombre,
+          apellido,
+          puesto,
+          username,
+          password,
+        };
+
+        const r = await api("/catalog/personal", { method: "POST", body });
+
+        const usernameReal = r?.item?.username || "(sin username)";
+        alert(`Personal creado.\nUsername: ${usernameReal}`);
+      } else if (mode === "edit") {
+        if (!selectedId) {
+          alert("No hay personal seleccionado.");
+          return;
+        }
+
+        if (!isValidBooleanString(fActivo.value)) {
+          alert("Estado activo inválido.");
+          fActivo.focus();
+          return;
+        }
+
+        const exists = personal.some((x) => x.id_personal === selectedId);
+        if (!exists) {
+          alert("El registro seleccionado ya no existe.");
+          selectedId = null;
+          renderTable();
+          closeModal();
+          return;
+        }
+
+        const body = {
+          apodo,
+          nombre,
+          apellido,
+          puesto,
+          activo: fActivo.value === "true",
+          username,
+          // solo mandar password si el usuario escribió algo
+          ...(password ? { password } : {}),
+        };
+
+        await api(`/catalog/personal/${selectedId}`, { method: "PUT", body });
+        alert("Personal actualizado.");
+      } else {
+        alert("Modo de formulario inválido.");
+        return;
+      }
+
+      closeModal();
+      await loadFromApi();
+
+      if (mode === "add") {
+        selectedId = null;
+      } else {
+        const stillExists = personal.some((x) => x.id_personal === selectedId);
+        if (!stillExists) selectedId = null;
+      }
+
+      renderTable();
+    } catch (e2) {
+      alert(e2.message || "Ocurrió un error al guardar.");
+    } finally {
+      isSaving = false;
+      updateButtons();
+    }
+  });
+
+  /* =========================
+     Init
+  ========================= */
+  (async function init() {
+    initCatalogs();
+
+    try {
+      await loadFromApi();
+      renderTable();
+    } catch (e) {
+      alert(`No se pudo cargar personal: ${e.message}\nRevisa API_BASE y token.`);
+    }
+  })();
 })();
