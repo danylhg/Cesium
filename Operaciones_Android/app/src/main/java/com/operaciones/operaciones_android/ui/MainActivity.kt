@@ -235,13 +235,24 @@ class MainActivity : AppCompatActivity(),
                         )
                     )
 
-                    // De momento solo reaplica la vista inicial de la operación
-                    cesiumWebController.applyOperationView()
+                    val jsonString = data.toString()
+                    val safeJson = JSONObject.quote(jsonString)
+
+                    webView.evaluateJavascript(
+                        "window.loadDashboardData($safeJson);",
+                        null
+                    )
                 }
             },
             onError = { message ->
                 runOnUiThread {
-                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
+                    addMessage(
+                        ChatMessage(
+                            user = "Sistema",
+                            text = message,
+                            type = MessageType.SYSTEM
+                        )
+                    )
                 }
             }
         )
