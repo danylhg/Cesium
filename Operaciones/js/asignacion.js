@@ -3,8 +3,120 @@
 // ===============================
 // Sesión / token
 // ===============================
-if (localStorage.getItem("session") !== "ok") {
-  window.location.href = "login.html";
+const ALLOWED_ROLES = ["ADMIN", "CUT"];
+const LOGIN_URL = "login.html";
+
+function redirectToLogin(reason = "Tu sesión ya no es válida.") {
+  try {
+    localStorage.removeItem("session");
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+    localStorage.removeItem("usuario");
+    localStorage.removeItem("personal");
+  } catch {}
+
+  alert(reason);
+  window.location.href = LOGIN_URL;
+}
+
+function getSessionFlag() {
+  return localStorage.getItem("session");
+}
+
+function getToken() {
+  return localStorage.getItem("token") || "";
+}
+
+function decodeJwtPayload(token) {
+  try {
+    const parts = String(token || "").split(".");
+    if (parts.length < 2) return null;
+
+    const base64 = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
+
+    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+    const json = atob(padded);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+function getStoredUser() {
+  const candidates = ["usuario", "user", "personal"];
+
+  for (const key of candidates) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {}
+  }
+
+  return null;
+}
+
+function getUserRole() {
+  const user = getStoredUser();
+  const token = getToken();
+  const payload = decodeJwtPayload(token);
+
+  return String(
+    user?.rol ||
+    user?.role ||
+    payload?.rol ||
+    ""
+  ).toUpperCase().trim();
+}
+
+function getUserTable() {
+  const user = getStoredUser();
+  const token = getToken();
+  const payload = decodeJwtPayload(token);
+
+  return String(
+    user?.tabla ||
+    payload?.tabla ||
+    ""
+  ).toLowerCase().trim();
+}
+
+function validateAccessOrRedirect() {
+  const sessionOk = getSessionFlag() === "ok";
+  const token = getToken();
+  const role = getUserRole();
+  const tabla = getUserTable();
+
+  if (!sessionOk) {
+    redirectToLogin("Tu sesión no está activa.");
+    return false;
+  }
+
+  if (!token) {
+    redirectToLogin("No se encontró el token de acceso.");
+    return false;
+  }
+
+  if (!role) {
+    console.warn("No se pudo detectar el rol desde localStorage ni desde JWT.");
+    redirectToLogin("No se pudo validar tu rol de acceso.");
+    return false;
+  }
+
+  if (!ALLOWED_ROLES.includes(role)) {
+    alert(`No tienes permisos para entrar a este módulo. Rol detectado: ${role}${tabla ? ` (${tabla})` : ""}`);
+    window.location.href = LOGIN_URL;
+    return false;
+  }
+
+  return true;
+}
+
+if (!validateAccessOrRedirect()) {
+  throw new Error("Acceso no autorizado al módulo de asignación.");
 }
 
 const API_BASE =
@@ -12,34 +124,49 @@ const API_BASE =
   localStorage.getItem("API_BASE") ||
   `http://${window.location.hostname}:3001`;
 
-function getToken() {
-  return localStorage.getItem("token") || "";
-}
-
 async function api(path, { method = "GET", body } = {}) {
   const token = getToken();
+
   if (!token) {
-    localStorage.removeItem("session");
-    window.location.href = "login.html";
+    redirectToLogin("Tu sesión expiró. Vuelve a iniciar sesión.");
     return;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    throw new Error("Error de red. No se pudo conectar con el servidor.");
+  }
 
   let data = null;
   try {
     data = await res.json();
   } catch {}
 
+  if (res.status === 401) {
+    redirectToLogin(data?.mensaje || "Tu sesión expiró. Inicia sesión otra vez.");
+    return;
+  }
+
+  if (res.status === 403) {
+    throw new Error(data?.mensaje || "No tienes permisos para realizar esta acción.");
+  }
+
   if (!res.ok) {
-    const msg = data?.mensaje || `HTTP ${res.status} ${res.statusText}`;
+    const msg =
+      data?.mensaje ||
+      data?.error ||
+      `HTTP ${res.status} ${res.statusText}`;
+
     throw new Error(msg);
   }
 
@@ -83,29 +210,54 @@ const vehiculosLeftEl = document.getElementById("vehiculosLeft");
 const dashboardWrap = document.getElementById("dashboardWrap");
 const btnDashboardGo = document.getElementById("btnDashboardGo");
 
+function validateCriticalDOM() {
+  const required = [
+    ["panel", panel],
+    ["rightTitle", rightTitle],
+    ["rightHint", rightHint],
+    ["btnAccion", btnAccion],
+    ["btnBack", btnBack],
+    ["btnVolver", btnVolver],
+    ["lblOperacion", lblOperacion],
+    ["opNombre", opNombreEl],
+    ["opDesc", opDescEl],
+    ["opInicio", opInicioEl],
+    ["opFin", opFinEl],
+    ["opPrioridad", opPrioridadEl],
+    ["leftCardTitle", leftCardTitleEl],
+    ["opInfoForm", opInfoFormEl],
+    ["vehiculosLeft", vehiculosLeftEl]
+  ];
+
+  const missing = required
+    .filter(([, el]) => !el)
+    .map(([name]) => name);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Faltan elementos críticos del DOM en asignación: ${missing.join(", ")}`
+    );
+  }
+}
+
+validateCriticalDOM();
+
 // ===============================
-// Storage borrador local
+// Storage borrador local (DESACTIVADO)
 // ===============================
 const STORAGE_WIZARD_DRAFT = "asignacion_wizard_draft";
 const STORAGE_OPERACION_ACTUAL = "operacion_actual";
 
 function readObjectStorage(key, fallback = {}) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const data = JSON.parse(raw);
-    return data && typeof data === "object" ? data : fallback;
-  } catch {
-    return fallback;
-  }
+  return fallback;
 }
 
 function writeStorage(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
+  // desactivado
 }
 
 function removeStorage(key) {
-  localStorage.removeItem(key);
+  // desactivado
 }
 
 function normalizeText(value) {
@@ -310,7 +462,7 @@ function resetEquipoFlow() {
 }
 
 // ===============================
-// Persistencia local del borrador
+// Persistencia local del borrador (DESACTIVADA)
 // ===============================
 function collectOperacionActual() {
   return {
@@ -324,118 +476,33 @@ function collectOperacionActual() {
 }
 
 function saveOperacionActualLocal() {
-  const data = collectOperacionActual();
-  writeStorage(STORAGE_OPERACION_ACTUAL, data);
-
   if (lblOperacion) {
-    lblOperacion.textContent = data.nombre || "—";
+    lblOperacion.textContent = normalizeText(opNombreEl?.value) || "—";
   }
 }
 
 function loadOperacionActualIntoForm() {
-  const stored = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
-  const qsName = normalizeText(lblOperacion?.textContent);
-
-  const nombre = normalizeText(stored.nombre) || (qsName && qsName !== "—" ? qsName : "");
-
-  if (opNombreEl) opNombreEl.value = nombre;
-  if (opDescEl) opDescEl.value = normalizeText(stored.descripcion);
-  if (opInicioEl) opInicioEl.value = normalizeText(stored.fecha_inicio);
-  if (opFinEl) opFinEl.value = normalizeText(stored.fecha_fin);
-  if (opPrioridadEl) opPrioridadEl.value = normalizeText(stored.prioridad || "MEDIA");
-
-  if (lblOperacion) lblOperacion.textContent = nombre || "—";
+  if (lblOperacion) {
+    const qsName = normalizeText(lblOperacion?.textContent);
+    lblOperacion.textContent = qsName || "—";
+  }
 }
 
 function buildDraftPayload() {
-  return {
-    opId: state.opId,
-    categoria: state.categoria,
-    pasoPersonal: state.pasoPersonal,
-
-    cutSeleccionadoId: state.cutSeleccionadoId,
-    cetSeleccionadosIds: [...state.cetSeleccionadosIds],
-    cetActivoIndex: state.cetActivoIndex,
-    asignacionCelulas: { ...state.asignacionCelulas },
-
-    flotillaByCet: { ...state.flotillaByCet },
-    searchByCet: { ...state.searchByCet },
-    gruposByCet: JSON.parse(JSON.stringify(state.gruposByCet || {})),
-
-    asignacionVehiculos: { ...state.asignacionVehiculos },
-    cetActivoIndexVeh: state.cetActivoIndexVeh,
-    selectedVehicleId: state.selectedVehicleId,
-    selectedPersonIds: [...state.selectedPersonIds],
-
-    equipoCategoria: state.equipoCategoria,
-    equipoDestino: state.equipoDestino,
-    equipoSelectedItems: [...state.equipoSelectedItems],
-    equipoSelectedResource: state.equipoSelectedResource ? { ...state.equipoSelectedResource } : null,
-    asignacionEquipos: JSON.parse(JSON.stringify(state.asignacionEquipos || { tactico: {}, comunicacion: {} })),
-
-    operacion: collectOperacionActual(),
-    updated_at: new Date().toISOString()
-  };
+  return null;
 }
 
 function saveDraftLocal() {
-  writeStorage(STORAGE_WIZARD_DRAFT, buildDraftPayload());
-  saveOperacionActualLocal();
+  // desactivado
 }
 
 function restoreDraftLocal() {
-  const draft = readObjectStorage(STORAGE_WIZARD_DRAFT, null);
-  if (!draft || typeof draft !== "object") return false;
-
-  state.opId = isPositiveInt(draft.opId) ? Number(draft.opId) : null;
-  state.categoria = draft.categoria || null;
-  state.pasoPersonal = draft.pasoPersonal || "home";
-
-  state.cutSeleccionadoId = isPositiveInt(draft.cutSeleccionadoId) ? Number(draft.cutSeleccionadoId) : null;
-  state.cetSeleccionadosIds = Array.isArray(draft.cetSeleccionadosIds)
-    ? draft.cetSeleccionadosIds.map(Number).filter(isPositiveInt)
-    : [];
-  state.cetActivoIndex = Number(draft.cetActivoIndex || 0);
-
-  state.asignacionCelulas = draft.asignacionCelulas || {};
-  Object.keys(state.asignacionCelulas).forEach(k => {
-    state.asignacionCelulas[k] = (state.asignacionCelulas[k] || []).map(Number).filter(isPositiveInt);
-  });
-
-  state.flotillaByCet = draft.flotillaByCet || {};
-  state.searchByCet = draft.searchByCet || {};
-  state.gruposByCet = draft.gruposByCet || {};
-
-  Object.keys(state.gruposByCet).forEach(cetId => ensureCetState(Number(cetId)));
-
-  state.asignacionVehiculos = draft.asignacionVehiculos || {};
-  Object.keys(state.asignacionVehiculos).forEach(k => {
-    state.asignacionVehiculos[k] = Number(state.asignacionVehiculos[k]);
-  });
-
-  state.cetActivoIndexVeh = Number(draft.cetActivoIndexVeh || 0);
-  state.selectedVehicleId = isPositiveInt(draft.selectedVehicleId) ? Number(draft.selectedVehicleId) : null;
-  state.selectedPersonIds = Array.isArray(draft.selectedPersonIds)
-    ? draft.selectedPersonIds.map(Number).filter(isPositiveInt)
-    : [];
-
-  state.equipoCategoria = draft.equipoCategoria || null;
-  state.equipoDestino = draft.equipoDestino || null;
-  state.equipoSelectedItems = Array.isArray(draft.equipoSelectedItems)
-    ? draft.equipoSelectedItems.map(Number).filter(isPositiveInt)
-    : [];
-  state.equipoSelectedResource = draft.equipoSelectedResource || null;
-  state.asignacionEquipos = draft.asignacionEquipos || { tactico: {}, comunicacion: {} };
-
-  if (draft.operacion && typeof draft.operacion === "object") {
-    writeStorage(STORAGE_OPERACION_ACTUAL, draft.operacion);
-  }
-
-  return true;
+  return false;
 }
 
 function clearDraftLocal() {
-  removeStorage(STORAGE_WIZARD_DRAFT);
+  localStorage.removeItem(STORAGE_WIZARD_DRAFT);
+  localStorage.removeItem(STORAGE_OPERACION_ACTUAL);
 }
 
 // ===============================
@@ -2327,12 +2394,15 @@ btnDashboardGo?.addEventListener("click", () => {
 
 [opNombreEl, opDescEl, opInicioEl, opFinEl, opPrioridadEl].forEach((el) => {
   el?.addEventListener("input", () => {
-    saveOperacionActualLocal();
-    saveDraftLocal();
+    if (lblOperacion && opNombreEl) {
+      lblOperacion.textContent = opNombreEl.value.trim() || "—";
+    }
   });
+
   el?.addEventListener("change", () => {
-    saveOperacionActualLocal();
-    saveDraftLocal();
+    if (lblOperacion && opNombreEl) {
+      lblOperacion.textContent = opNombreEl.value.trim() || "—";
+    }
   });
 });
 
@@ -2341,14 +2411,18 @@ btnDashboardGo?.addEventListener("click", () => {
 // ===============================
 (async function init() {
   try {
+    localStorage.removeItem(STORAGE_WIZARD_DRAFT);
+    localStorage.removeItem(STORAGE_OPERACION_ACTUAL);
+
     await loadCatalogs();
 
-    loadOperacionActualIntoForm();
-    restoreDraftLocal();
+    if (lblOperacion) {
+      const qs = new URLSearchParams(window.location.search);
+      const opCodigo = qs.get("op");
+      lblOperacion.textContent = opCodigo || "—";
+    }
 
-    if (state.opId) showDashboardButton();
-    else hideDashboardButton();
-
+    hideDashboardButton();
     renderHome();
   } catch (e) {
     alert(`Error inicializando: ${e.message}\n\n¿Hay token en localStorage.token? ¿API en ${API_BASE}?`);
