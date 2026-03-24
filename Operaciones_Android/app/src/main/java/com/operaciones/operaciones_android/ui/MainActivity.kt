@@ -225,8 +225,19 @@ class MainActivity : AppCompatActivity(),
         operationMapRepository.fetchMapaData(
             operationId = currentOperation.id,
             token = token,
-            onSuccess = {
-                // Este endpoint queda solo para mapa/webview.
+            onSuccess = { data ->
+                runOnUiThread {
+                    addMessage(
+                        ChatMessage(
+                            user = "Sistema",
+                            text = "Mapa cargado correctamente.",
+                            type = MessageType.SYSTEM
+                        )
+                    )
+
+                    // De momento solo reaplica la vista inicial de la operación
+                    cesiumWebController.applyOperationView()
+                }
             },
             onError = { message ->
                 runOnUiThread {
