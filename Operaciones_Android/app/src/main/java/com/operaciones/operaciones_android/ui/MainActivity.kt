@@ -235,13 +235,7 @@ class MainActivity : AppCompatActivity(),
                         )
                     )
 
-                    val jsonString = data.toString()
-                    val safeJson = JSONObject.quote(jsonString)
-
-                    webView.evaluateJavascript(
-                        "window.loadDashboardData($safeJson);",
-                        null
-                    )
+                    cesiumWebController.applyOperationView()
                 }
             },
             onError = { message ->
