@@ -756,20 +756,20 @@ CREATE INDEX IF NOT EXISTS idx_uso_eq_op_personal    ON uso_equipo_operacion(id_
 -- -------------------------
 -- VEHÍCULOS
 -- -------------------------
-INSERT INTO vehiculo (
-  imagen_veh,
-  codigo_interno,
-  tipo,
-  alias,
-  estado,
-  capacidad
-)
+INSERT INTO vehiculo
+  (imagen_veh, codigo_interno, tipo, alias, estado, capacidad)
 VALUES
-('./uploads/vehiculo/Alacran.jpeg',      'VH-001', 'TÁCTICO',    'Alacran', '4x4',        'DISPONIBLE', 6),
-('./uploads/vehiculo/Ford F-150.jpeg',   'VH-003', 'PICKUP',     'Ford',    'F-150',      'DISPONIBLE', 5),
-('./uploads/vehiculo/Panther.jpeg',      'VH-004', 'BLINDADO',   'Panther', 'Blindado',   'DISPONIBLE', 8),
-('./uploads/vehiculo/Scualo.jpeg',       'VH-005', 'INTERCEPTOR','Scualo',  'Interceptor','DISPONIBLE', 4)
-ON CONFLICT (codigo_interno) DO NOTHING;
+  ('./uploads/vehiculo/Alacran.jpeg',    'VH-001', 'TACTICO',     'Alacran 4x4',        'DISPONIBLE', 6),
+  ('./uploads/vehiculo/Ford F-150.jpeg', 'VH-003', 'PICKUP',      'Ford F-150',         'DISPONIBLE', 5),
+  ('./uploads/vehiculo/Panther.jpeg',    'VH-004', 'BLINDADO',    'Panther Blindado',   'DISPONIBLE', 8),
+  ('./uploads/vehiculo/Scualo.jpeg',     'VH-005', 'INTERCEPTOR', 'Scualo Interceptor', 'DISPONIBLE', 4)
+ON CONFLICT (codigo_interno)
+DO UPDATE SET
+  imagen_veh = EXCLUDED.imagen_veh,
+  tipo       = EXCLUDED.tipo,
+  alias      = EXCLUDED.alias,
+  estado     = EXCLUDED.estado,
+  capacidad  = EXCLUDED.capacidad;
 
 
 -- -------------------------
@@ -1236,8 +1236,11 @@ CREATE TABLE IF NOT EXISTS ruta_operacion (
   )
 );
 
-CREATE INDEX IF NOT EXISTS idx_ruta_operacion
+CREATE INDEX IF NOT EXISTS idx_ruta_operacion_id_operacion
   ON ruta_operacion(id_operacion);
+
+CREATE INDEX IF NOT EXISTS idx_ruta_operacion_fecha
+  ON ruta_operacion(id_operacion, fecha_creacion DESC);
 -- =========================================================
 -- 13) MARCAS DE EDIFICIOS / ESTRUCTURAS
 --    Puntos de referencia fijos del terreno, distintos a POIs.
@@ -1304,7 +1307,7 @@ CREATE TABLE IF NOT EXISTS tracking_personal (
   altitud         NUMERIC(7,2),            -- metros snm, nullable
   precision_m     NUMERIC(6,2),            -- precisión del dispositivo GPS
 
-  timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "timestamp"       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT chk_tp_latitud  CHECK (latitud  BETWEEN -90  AND  90),
   CONSTRAINT chk_tp_longitud CHECK (longitud BETWEEN -180 AND 180)
@@ -1312,11 +1315,11 @@ CREATE TABLE IF NOT EXISTS tracking_personal (
 
 -- Índice principal: consultas de historial y última posición
 CREATE INDEX IF NOT EXISTS idx_tracking_personal_op_per_ts
-  ON tracking_personal(id_operacion, id_personal, timestamp DESC);
+  ON tracking_personal(id_operacion, id_personal, "timestamp" DESC);
 
 -- Índice para purgas por tiempo
 CREATE INDEX IF NOT EXISTS idx_tracking_personal_ts
-  ON tracking_personal(timestamp DESC);
+  ON tracking_personal("timestamp" DESC);
 -- =========================================================
 -- 15) TRACKING DE VEHÍCULOS
 -- =========================================================
@@ -1334,7 +1337,7 @@ CREATE TABLE IF NOT EXISTS tracking_vehiculo (
   rumbo_grados    NUMERIC(5,2),            -- 0–360°, dirección de movimiento
   precision_m     NUMERIC(6,2),
 
-  timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "timestamp"     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT chk_tv_latitud  CHECK (latitud  BETWEEN -90  AND  90),
   CONSTRAINT chk_tv_longitud CHECK (longitud BETWEEN -180 AND 180),
@@ -1344,10 +1347,10 @@ CREATE TABLE IF NOT EXISTS tracking_vehiculo (
 );
 
 CREATE INDEX IF NOT EXISTS idx_tracking_vehiculo_op_veh_ts
-  ON tracking_vehiculo(id_operacion, id_vehiculo, timestamp DESC);
+  ON tracking_vehiculo(id_operacion, id_vehiculo, "timestamp" DESC);
 
 CREATE INDEX IF NOT EXISTS idx_tracking_vehiculo_ts
-  ON tracking_vehiculo(timestamp DESC);
+  ON tracking_vehiculo("timestamp" DESC);
 -- =========================================================
 -- 16) NOVEDADES / BATTLE STAFF TOOLS / BATTLE STAFF TOOLS
 --    Bitácora de mando durante la ejecución.
@@ -1395,10 +1398,10 @@ SELECT DISTINCT ON (tp.id_operacion, tp.id_personal)
   tp.longitud,
   tp.altitud,
   tp.precision_m,
-  tp.timestamp AS ultima_actualizacion
+  tp."timestamp" AS ultima_actualizacion
 FROM tracking_personal tp
 JOIN personal p ON p.id_personal = tp.id_personal
-ORDER BY tp.id_operacion, tp.id_personal, tp.timestamp DESC;
+ORDER BY tp.id_operacion, tp.id_personal, tp."timestamp" DESC;
 
 -- Última posición conocida de cada vehículo en operación
 CREATE OR REPLACE VIEW v_ultima_posicion_vehiculo AS
@@ -1413,10 +1416,10 @@ SELECT DISTINCT ON (tv.id_operacion, tv.id_vehiculo)
   tv.velocidad_kmh,
   tv.rumbo_grados,
   tv.precision_m,
-  tv.timestamp AS ultima_actualizacion
+  tv."timestamp" AS ultima_actualizacion
 FROM tracking_vehiculo tv
 JOIN vehiculo v ON v.id_vehiculo = tv.id_vehiculo
-ORDER BY tv.id_operacion, tv.id_vehiculo, tv.timestamp DESC;
+ORDER BY tv.id_operacion, tv.id_vehiculo, tv."timestamp" DESC;
 
 -- Capas geoespaciales de una operación (POIs + Áreas + Rutas + Edificios)
 -- Útil para cargar todo el mapa de una operación en una sola consulta
@@ -2533,40 +2536,52 @@ JOIN participante_chat pc ON pc.id_chat = co.id_chat
 LEFT JOIN usuario u ON u.id_usuario = pc.id_usuario
 LEFT JOIN personal p ON p.id_personal = pc.id_personal;
 
-DROP VIEW IF EXISTS v_ultima_posicion_vehiculo;
-
-CREATE OR REPLACE VIEW v_ultima_posicion_vehiculo AS
-SELECT DISTINCT ON (tv.id_operacion, tv.id_vehiculo)
-  tv.id_operacion,
-  tv.id_vehiculo,
-  v.codigo_interno,
-  v.tipo,
-  tv.latitud,
-  tv.longitud,
-  tv.altitud,
-  tv.velocidad_kmh,
-  tv.rumbo_grados,
-  tv.precision_m,
-  tv.timestamp AS ultima_actualizacion
-FROM tracking_vehiculo tv
-JOIN vehiculo v ON v.id_vehiculo = tv.id_vehiculo
-ORDER BY tv.id_operacion, tv.id_vehiculo, tv.timestamp DESC;
-
 -- =========================================================
--- VEHICULOS BASE
+-- 27) RUTA DE NAVEGACIÓN
+--    Ruta calculada (origin → destination) para vehículos/personal.
+--    Diferente a ruta_operacion (que es un trazo GeoJSON dibujado).
+--    Esta almacena una ruta computada con waypoints, distancia y duración.
 -- =========================================================
+CREATE TABLE IF NOT EXISTS ruta_navegacion (
+  id_ruta SERIAL PRIMARY KEY,
 
-INSERT INTO vehiculo
-  (imagen_veh, codigo_interno, tipo, alias, estado, capacidad)
-VALUES
-  ('./uploads/vehiculo/Alacran.jpeg', 'VH-001', 'TACTICO', 'Alacran 4x4', 'DISPONIBLE', 6),
-  ('./uploads/vehiculo/Ford F-150.jpeg', 'VH-003', 'PICKUP', 'Ford F-150', 'DISPONIBLE', 5),
-  ('./uploads/vehiculo/Panther.jpeg', 'VH-004', 'BLINDADO', 'Panther Blindado', 'DISPONIBLE', 8),
-  ('./uploads/vehiculo/Scualo.jpeg', 'VH-005', 'INTERCEPTOR', 'Scualo Interceptor', 'DISPONIBLE', 4)
-ON CONFLICT (codigo_interno)
-DO UPDATE SET
-  imagen_veh = EXCLUDED.imagen_veh,
-  tipo       = EXCLUDED.tipo,
-  alias      = EXCLUDED.alias,
-  estado     = EXCLUDED.estado,
-  capacidad  = EXCLUDED.capacidad;
+  id_operacion INTEGER NOT NULL
+    REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+
+  geojson JSONB NOT NULL, -- LineString con la ruta calculada
+
+  origen_lat  DOUBLE PRECISION NOT NULL,
+  origen_lon  DOUBLE PRECISION NOT NULL,
+
+  destino_lat DOUBLE PRECISION NOT NULL,
+  destino_lon DOUBLE PRECISION NOT NULL,
+
+  distancia_m DOUBLE PRECISION,
+  duracion_s  DOUBLE PRECISION,
+
+  -- Quién creó la ruta: USUARIO o PERSONAL (solo uno)
+  created_by_tipo VARCHAR(10)
+    CHECK (created_by_tipo IN ('USUARIO','PERSONAL')),
+
+  id_usuario  INTEGER REFERENCES usuario(id_usuario)  ON DELETE SET NULL,
+  id_personal INTEGER REFERENCES personal(id_personal) ON DELETE SET NULL,
+  activo boolean NOT NULL DEFAULT true,
+  fecha_eliminacion timestamp NULL,
+  eliminado_por_tipo varchar(20) NULL,
+  id_usuario_elim integer NULL,
+  id_personal_elim integer NULL,
+  fecha_creacion TIMESTAMPTZ DEFAULT NOW(),
+
+  CONSTRAINT chk_creador_ruta_nav
+    CHECK (
+      (created_by_tipo = 'USUARIO'  AND id_usuario  IS NOT NULL AND id_personal IS NULL)
+      OR
+      (created_by_tipo = 'PERSONAL' AND id_personal IS NOT NULL AND id_usuario  IS NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_ruta_navegacion_op
+  ON ruta_navegacion(id_operacion);
+
+CREATE INDEX IF NOT EXISTS idx_ruta_navegacion_fecha
+  ON ruta_navegacion(fecha_creacion DESC);

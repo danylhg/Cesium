@@ -21,16 +21,28 @@ const io = new Server(server, {
 io.on("connection", (socket) => {
   console.log("🟢 Cliente conectado:", socket.id);
 
-  socket.on("join_operacion", (id_operacion) => {
-    socket.join(`op_${id_operacion}`);
-    console.log(`Socket ${socket.id} unido a operación ${id_operacion}`);
+  socket.on("join_operacion", (payload) => {
+    let idOperacion = null;
+
+    if (typeof payload === "number" || typeof payload === "string") {
+      idOperacion = Number(payload);
+    } else {
+      idOperacion = Number(payload?.id_operacion);
+    }
+
+    if (!Number.isFinite(idOperacion) || idOperacion <= 0) {
+      console.warn("join_operacion inválido:", payload);
+      return;
+    }
+
+    socket.join(`op_${idOperacion}`);
+    console.log(`Socket ${socket.id} unido a operación ${idOperacion}`);
   });
 
   socket.on("disconnect", () => {
     console.log("🔴 Cliente desconectado:", socket.id);
   });
 });
-
 
 console.log("SERVER.JS CARGADO - build:", Date.now());
 
@@ -2204,10 +2216,13 @@ app.delete("/ops/:id/zona", requireAuth, async (req, res) => {
 // MAPA COMPLETO — todas las capas de una operación
 // ===============================
 
-// GET /ops/:id/mapa — POIs + areas + rutas + edificios en una sola llamada
+// GET /ops/:id/mapa — POIs + áreas + rutas + edificios en una sola llamada
 app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  }
 
   try {
     const [
@@ -2237,7 +2252,7 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       ),
 
       pool.query(
-        `SELECT * 
+        `SELECT *
          FROM v_capas_mapa_operacion
          WHERE id_operacion = $1`,
         [id_operacion]
@@ -2291,7 +2306,7 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             vo.estado_asignacion,
             tv.latitud,
             tv.longitud,
-            tv.timestamp AS ultima_actualizacion
+            tv.ultima_actualizacion
          FROM vehiculo_operacion vo
          JOIN vehiculo v
            ON v.id_vehiculo = vo.id_vehiculo
@@ -2320,7 +2335,7 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
     ]);
 
     if (!operacionRes.rows[0]) {
-      return res.status(404).json({ ok: false, mensaje: "Operacion no existe" });
+      return res.status(404).json({ ok: false, mensaje: "Operación no existe" });
     }
 
     return res.json({
@@ -2337,6 +2352,77 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /ops/:id/rutas/navegacion/:id_ruta
+app.delete("/ops/:id/rutas/navegacion/:id_ruta", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_ruta = Number(req.params.id_ruta);
+
+  if (!Number.isInteger(id_operacion) || id_operacion <= 0) {
+    return res.status(400).json({ ok: false, mensaje: "id_operacion inválido" });
+  }
+
+  if (!Number.isInteger(id_ruta) || id_ruta <= 0) {
+    return res.status(400).json({ ok: false, mensaje: "id_ruta inválido" });
+  }
+
+  try {
+    let eliminado_por_tipo = null;
+    let id_usuario_elim = null;
+    let id_personal_elim = null;
+
+    if (req.user?.tabla === "usuario" || req.user?.tipo === "USUARIO" || req.user?.rol === "ADMIN") {
+      eliminado_por_tipo = "USUARIO";
+      id_usuario_elim = Number(req.user.sub) || null;
+    } else {
+      eliminado_por_tipo = "PERSONAL";
+      id_personal_elim = Number(req.user.sub) || null;
+    }
+
+    const updRes = await pool.query(
+      `UPDATE ruta_navegacion
+       SET
+         activo = false,
+         fecha_eliminacion = NOW(),
+         eliminado_por_tipo = $3,
+         id_usuario_elim = $4,
+         id_personal_elim = $5
+       WHERE id_ruta = $1
+         AND id_operacion = $2
+         AND activo = true
+       RETURNING id_ruta, id_operacion`,
+      [
+        id_ruta,
+        id_operacion,
+        eliminado_por_tipo,
+        id_usuario_elim,
+        id_personal_elim
+      ]
+    );
+
+    const rutaOcultada = updRes.rows[0];
+
+    if (!rutaOcultada) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "Ruta no encontrada o ya estaba inactiva"
+      });
+    }
+
+    io.to(`op_${id_operacion}`).emit("ruta_navegacion_eliminada", {
+      id_ruta: rutaOcultada.id_ruta,
+      id_operacion: rutaOcultada.id_operacion
+    });
+
+    return res.json({
+      ok: true,
+      mensaje: "Ruta ocultada correctamente",
+      id_ruta: rutaOcultada.id_ruta,
+      id_operacion: rutaOcultada.id_operacion
+    });
+  } catch (err) {
+    return sendDbError(res, err, "Error ocultando ruta de navegación");
+  }
+});
 
 // ===============================
 // PERSONAL ASIGNADO A OPERACIÓN (para paneles de la app móvil)
@@ -2844,6 +2930,169 @@ app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
   }
 });
 
+// ================================
+// Rutas de navegación (origen → destino calculado)
+// Tabla: ruta_navegacion
+// ================================
+
+// POST /ops/:id/rutas/navegacion
+// POST /ops/:id/rutas/navegacion
+app.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
+  console.log("=== ENTRÓ A /ops/:id/rutas/navegacion ===");
+  console.log("originalUrl:", req.originalUrl);
+  console.log("params:", req.params);
+  console.log("body:", req.body);
+
+  const id_operacion = Number(req.params.id);
+  console.log("id_operacion parseado:", id_operacion, "tipo:", typeof id_operacion);
+
+  if (!Number.isInteger(id_operacion) || id_operacion <= 0) {
+    return res.status(400).json({ ok: false, mensaje: "id_operacion inválido" });
+  }
+
+  const {
+    geojson,
+    origen_lat,
+    origen_lon,
+    destino_lat,
+    destino_lon,
+    distancia_m,
+    duracion_s
+  } = req.body || {};
+
+  // Validaciones básicas
+  if (!geojson || typeof geojson !== "object") {
+    return res.status(400).json({ ok: false, mensaje: "geojson es requerido" });
+  }
+
+  if (geojson.type !== "LineString" || !Array.isArray(geojson.coordinates) || geojson.coordinates.length < 2) {
+    return res.status(400).json({ ok: false, mensaje: "geojson debe ser un LineString válido" });
+  }
+
+  const nums = [origen_lat, origen_lon, destino_lat, destino_lon];
+  if (nums.some(v => typeof v !== "number" || !Number.isFinite(v))) {
+    return res.status(400).json({ ok: false, mensaje: "origen/destino inválidos" });
+  }
+
+  if (origen_lat < -90 || origen_lat > 90 || destino_lat < -90 || destino_lat > 90) {
+    return res.status(400).json({ ok: false, mensaje: "latitud fuera de rango" });
+  }
+
+  if (origen_lon < -180 || origen_lon > 180 || destino_lon < -180 || destino_lon > 180) {
+    return res.status(400).json({ ok: false, mensaje: "longitud fuera de rango" });
+  }
+
+  if (distancia_m != null && (!Number.isFinite(distancia_m) || distancia_m < 0)) {
+    return res.status(400).json({ ok: false, mensaje: "distancia_m inválida" });
+  }
+
+  if (duracion_s != null && (!Number.isFinite(duracion_s) || duracion_s < 0)) {
+    return res.status(400).json({ ok: false, mensaje: "duracion_s inválida" });
+  }
+
+  try {
+    // validar operación
+    const opRes = await pool.query(
+      `SELECT id_operacion, estado
+       FROM operacion
+       WHERE id_operacion = $1
+       LIMIT 1`,
+      [id_operacion]
+    );
+
+    const operacion = opRes.rows[0];
+    if (!operacion) {
+      return res.status(404).json({ ok: false, mensaje: "Operación no existe" });
+    }
+
+    if (["CERRADA", "CANCELADA"].includes(operacion.estado)) {
+      return res.status(409).json({ ok: false, mensaje: `No se pueden registrar rutas en una operación ${operacion.estado}` });
+    }
+
+    // detectar creador desde req.user
+    let tipo_creador = null;
+    let id_usuario = null;
+    let id_personal = null;
+
+    if (req.user?.tabla === "usuario" || req.user?.tipo === "USUARIO" || req.user?.rol === "ADMIN") {
+      tipo_creador = "USUARIO";
+      id_usuario = Number(req.user.sub) || null;
+    } else {
+      tipo_creador = "PERSONAL";
+      id_personal = Number(req.user.sub) || null;
+    }
+
+    if (tipo_creador === "USUARIO" && !id_usuario) {
+      return res.status(401).json({ ok: false, mensaje: "No se pudo identificar el usuario creador" });
+    }
+
+    if (tipo_creador === "PERSONAL" && !id_personal) {
+      return res.status(401).json({ ok: false, mensaje: "No se pudo identificar el personal creador" });
+    }
+
+    const insertRes = await pool.query(
+      `INSERT INTO ruta_navegacion (
+         id_operacion,
+         geojson,
+         origen_lat,
+         origen_lon,
+         destino_lat,
+         destino_lon,
+         distancia_m,
+         duracion_s,
+         created_by_tipo,
+         id_usuario,
+         id_personal
+       )
+       VALUES ($1,$2::jsonb,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       RETURNING
+         id_ruta,
+         id_operacion,
+         geojson,
+         origen_lat,
+         origen_lon,
+         destino_lat,
+         destino_lon,
+         distancia_m,
+         duracion_s,
+         created_by_tipo,
+         id_usuario,
+         id_personal,
+         fecha_creacion`,
+      [
+        id_operacion,
+        JSON.stringify(geojson),
+        origen_lat,
+        origen_lon,
+        destino_lat,
+        destino_lon,
+        distancia_m ?? null,
+        duracion_s ?? null,
+        tipo_creador,
+        id_usuario,
+        id_personal
+      ]
+    );
+
+    const ruta = insertRes.rows[0];
+
+    // Emitir a todos los clientes conectados a la operación
+    io.to(`op_${id_operacion}`).emit("ruta_navegacion_creada", {
+      ruta
+    });
+
+    console.log("📡 ruta_navegacion_creada emitido a", `op_${id_operacion}`, ruta);
+
+    return res.status(201).json({
+      ok: true,
+      mensaje: "Ruta de navegación creada correctamente",
+      ruta
+    });
+  } catch (err) {
+    return sendDbError(res, err, "Error creando ruta de navegación");
+  }
+});
+
 // ===============================
 // Manejadores globales de error
 // ===============================
@@ -2885,5 +3134,7 @@ app.use((req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.56.1:${PORT}`);
+  console.log(`API + WS en http://192.168.202.103:${PORT}`);
+  // http://192.168.202.103 SEDAM
+  // http://192.168.100.12:3001 MI CASA WE
 });

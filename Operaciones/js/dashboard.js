@@ -1,7 +1,7 @@
 // =================== TOKEN CESIUM ION ===================
 // Reemplaza este valor con tu token real de Cesium ion.
 // Si no usas Cesium ion, puedes dejarlo así, pero verás warnings 401 en consola.
-Cesium.Ion.defaultAccessToken = "TU_TOKEN_DE_CESIUM_ION";
+Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM";
 
 // =================== HELPERS OPERACION ACTIVA ===================
 function getActiveOperationId() {
@@ -70,6 +70,9 @@ let personalEntities = [];
 let vehiculoEntities = [];
 let equipoEntities = [];
 let zonaEntity = null;
+
+let socket = null;
+let rutasNavegacionEntities = new Map();
 
 const OSRM_BASE = "https://router.project-osrm.org";
 
@@ -914,6 +917,61 @@ function zoomToRoute(geojsonLineString) {
   viewer.camera.flyTo({ destination: rect });
 }
 
+function drawRutaNavegacion(ruta) {
+  if (!viewer || !ruta?.geojson || ruta.geojson.type !== "LineString") return;
+
+  const entityId = `ruta_nav_${ruta.id_ruta}`;
+  if (rutasNavegacionEntities.has(entityId)) return;
+
+  const coords = Array.isArray(ruta.geojson.coordinates)
+    ? ruta.geojson.coordinates
+    : [];
+
+  if (coords.length < 2) return;
+
+  const positions = coords.map(([lon, lat]) =>
+    Cesium.Cartesian3.fromDegrees(lon, lat)
+  );
+
+  const labelText =
+    ruta.id_personal != null
+      ? `Ruta personal ${ruta.id_personal}`
+      : ruta.id_usuario != null
+        ? `Ruta usuario ${ruta.id_usuario}`
+        : `Ruta ${ruta.id_ruta}`;
+
+  const entity = viewer.entities.add({
+    id: entityId,
+    polyline: {
+      positions,
+      width: 5,
+      material: Cesium.Color.ORANGE.withAlpha(0.9),
+      clampToGround: true
+    },
+    properties: {
+      id_ruta: ruta.id_ruta,
+      id_operacion: ruta.id_operacion,
+      id_usuario: ruta.id_usuario,
+      id_personal: ruta.id_personal,
+      distancia_m: ruta.distancia_m,
+      duracion_s: ruta.duracion_s,
+      fecha_creacion: ruta.fecha_creacion
+    },
+    label: {
+      text: labelText,
+      font: "13px sans-serif",
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      show: false
+    }
+  });
+
+  rutasNavegacionEntities.set(entityId, entity);
+}
+
 // =================== ENTIDADES OPERACIONALES ===================
 function clearOperationalEntities() {
   if (!viewer) return;
@@ -1088,6 +1146,38 @@ function renderOperationalDataOnMap() {
   renderEquiposOnMap();
 }
 
+function setupRealtimeSocket() {
+  const opId = getActiveOperationId();
+
+  if (typeof io === "undefined") {
+    console.warn("socket.io no está cargado en la página");
+    return;
+  }
+
+  socket = io(API_BASE, {
+    transports: ["websocket", "polling"]
+  });
+
+  socket.on("connect", () => {
+    console.log("Socket conectado:", socket.id);
+
+    socket.emit("join_operacion", {
+      id_operacion: opId
+    });
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Socket desconectado");
+  });
+
+  socket.on("ruta_navegacion_creada", (data) => {
+    console.log("Evento ruta_navegacion_creada:", data);
+
+    if (!data?.ruta) return;
+    drawRutaNavegacion(data.ruta);
+  });
+}
+
 // =================== CARGA DASHBOARD ===================
 async function loadDashboardFromBackend() {
   const data = await fetchDashboardDataFromBackend();
@@ -1162,6 +1252,7 @@ function loadCurrentOperationOnMap() {
 window.addEventListener("load", async () => {
   initCesium();
   setTacticalUI();
+  setupRealtimeSocket();
 
   try {
     await loadDashboardFromBackend();

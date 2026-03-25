@@ -82,7 +82,111 @@ class CesiumWebController(
                 (function() {
                     if (typeof updateMyPosition === 'function') {
                         updateMyPosition($latitude, $longitude);
+                        return 'OK';
                     }
+                    return 'ERROR:updateMyPosition no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun enablePickStart() {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof enablePickStart === 'function') {
+                        enablePickStart();
+                        return 'OK';
+                    }
+                    return 'ERROR:enablePickStart no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun enablePickEnd() {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof enablePickEnd === 'function') {
+                        enablePickEnd();
+                        return 'OK';
+                    }
+                    return 'ERROR:enablePickEnd no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun calculateRoute() {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof calculateRoute === 'function') {
+                        calculateRoute();
+                        return 'OK';
+                    }
+                    return 'ERROR:calculateRoute no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun setRouteStart(latitude: Double, longitude: Double) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof setRouteStart === 'function') {
+                        setRouteStart($latitude, $longitude);
+                        return 'OK';
+                    }
+                    return 'ERROR:setRouteStart no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun setRouteEnd(latitude: Double, longitude: Double) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof setRouteEnd === 'function') {
+                        setRouteEnd($latitude, $longitude);
+                        return 'OK';
+                    }
+                    return 'ERROR:setRouteEnd no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun clearRoute() {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof clearRoute === 'function') {
+                        clearRoute();
+                        return 'OK';
+                    }
+                    return 'ERROR:clearRoute no existe';
                 })();
                 """.trimIndent(),
                 null
@@ -91,6 +195,8 @@ class CesiumWebController(
     }
 
     fun evaluate(js: String) {
-        webView.evaluateJavascript(js, null)
+        webView.post {
+            webView.evaluateJavascript(js, null)
+        }
     }
 }

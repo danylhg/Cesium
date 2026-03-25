@@ -2,6 +2,7 @@ package com.operaciones.operaciones_android.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.util.Log
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -34,7 +35,15 @@ import com.operaciones.operaciones_android.ui.panel.ChatPanelRefs
 import com.operaciones.operaciones_android.ui.panel.MainPanelRenderer
 import com.operaciones.operaciones_android.webview.CesiumWebController
 import com.operaciones.operaciones_android.webview.MainJsBridge
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
+import java.io.IOException
 
 class MainActivity : AppCompatActivity(),
     MainPanelRenderer.Host,
@@ -59,6 +68,8 @@ class MainActivity : AppCompatActivity(),
     private var chatLoaded = false
 
     private val operationMapRepository = OperationMapRepository()
+    private val httpClient = OkHttpClient()
+
     private lateinit var panelRenderer: MainPanelRenderer
     private lateinit var cesiumWebController: CesiumWebController
     private lateinit var locationHelper: LocationHelper
@@ -482,6 +493,55 @@ class MainActivity : AppCompatActivity(),
     fun getCurrentUserRoleForBridge(): String = currentUser.rol.name
 
     fun getCurrentOperationNameForBridge(): String = currentOperation.nombre
+
+    fun onRouteCreatedFromBridge(payloadJson: String) {
+        Log.d("RUTA_ANDROID", "Ruta recibida desde bridge: $payloadJson")
+        sendRouteToBackend(payloadJson)
+    }
+
+    private fun sendRouteToBackend(payloadJson: String) {
+        val operationId = currentOperation.id
+        Log.d("RUTA_ANDROID", "operationId actual: $operationId")
+        if (operationId <= 0) {
+            Log.e("RUTA_ANDROID", "No hay operación activa válida para enviar ruta")
+            return
+        }
+
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) {
+            Log.e("RUTA_ANDROID", "No hay token para enviar ruta")
+            return
+        }
+
+        val requestBody = payloadJson.toRequestBody(
+            "application/json; charset=utf-8".toMediaType()
+        )
+
+        val url = "http://192.168.202.103:3001/ops/$operationId/rutas/navegacion"
+        Log.d("RUTA_ANDROID", "URL ruta: $url")
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Content-Type", "application/json")
+            .post(requestBody)
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("RUTA_ANDROID", "Error enviando ruta al backend", e)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string().orEmpty()
+                Log.d("RUTA_ANDROID", "Respuesta backend ruta: ${response.code} - $body")
+
+                if (!response.isSuccessful) {
+                    Log.e("RUTA_ANDROID", "Backend rechazó la ruta: $body")
+                }
+            }
+        })
+    }
 
     private fun setupBackPress() {
         onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {

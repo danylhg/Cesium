@@ -23,73 +23,77 @@ class MapActionController(
         lon: Double
     ) {
         val coord = "%.5f, %.5f".format(lat, lon)
+        val author = currentUser.nombreCompleto
 
-        val options = buildList {
-            add("📍  Punto de interés")
-            add("🔴  Área de interés")
-            if (currentUser.puedeAsignarEstructuras) add("🏗️  Estructura táctica")
-            add("🚨  Aviso de posición")
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+
+        actions += "🟢 Usar como origen de ruta" to {
+            cesiumWebController.setRouteStart(lat, lon)
+        }
+
+        actions += "🟡 Usar como destino de ruta" to {
+            cesiumWebController.setRouteEnd(lat, lon)
+        }
+
+        actions += "🧹 Limpiar ruta" to {
+            cesiumWebController.clearRoute()
+        }
+
+        actions += "📍 Punto de interés" to {
+            cesiumWebController.evaluate(
+                "if (typeof addPointOfInterest === 'function') addPointOfInterest($lat, $lon, 'PDI', '$author');"
+            )
+            host.addMessage(
+                ChatMessage(
+                    user = author,
+                    text = "📍 PDI agregado → $coord",
+                    type = MessageType.NORMAL
+                )
+            )
+        }
+
+        actions += "🔴 Área de interés" to {
+            cesiumWebController.evaluate(
+                "if (typeof addAreaOfInterest === 'function') addAreaOfInterest($lat, $lon, '$author');"
+            )
+            host.addMessage(
+                ChatMessage(
+                    user = author,
+                    text = "🔴 Área marcada → $coord",
+                    type = MessageType.NORMAL
+                )
+            )
+        }
+
+        if (currentUser.puedeAsignarEstructuras) {
+            actions += "🏗️ Estructura táctica" to {
+                cesiumWebController.evaluate(
+                    "if (typeof addTacticalStructure === 'function') addTacticalStructure($lat, $lon, '$author');"
+                )
+                host.addMessage(
+                    ChatMessage(
+                        user = author,
+                        text = "🏗️ Estructura → $coord",
+                        type = MessageType.NORMAL
+                    )
+                )
+            }
+        }
+
+        actions += "🚨 Aviso de posición" to {
+            host.addMessage(
+                ChatMessage(
+                    user = "⚠️ $author",
+                    text = "Aviso de posición → $coord",
+                    type = MessageType.ALERT
+                )
+            )
         }
 
         AlertDialog.Builder(host as android.content.Context)
             .setTitle("Agregar en $coord")
-            .setItems(options.toTypedArray()) { _, i ->
-                val author = currentUser.nombreCompleto
-
-                when {
-                    i == 0 -> {
-                        cesiumWebController.evaluate(
-                            "if (typeof addPointOfInterest === 'function') addPointOfInterest($lat, $lon, 'PDI', '$author');"
-                        )
-                        host.addMessage(
-                            ChatMessage(
-                                user = author,
-                                text = "📍 PDI agregado → $coord",
-                                type = MessageType.NORMAL
-                            )
-                        )
-                    }
-
-                    i == 1 -> {
-                        cesiumWebController.evaluate(
-                            "if (typeof addAreaOfInterest === 'function') addAreaOfInterest($lat, $lon, '$author');"
-                        )
-                        host.addMessage(
-                            ChatMessage(
-                                user = author,
-                                text = "🔴 Área marcada → $coord",
-                                type = MessageType.NORMAL
-                            )
-                        )
-                    }
-
-                    i == 2 && currentUser.puedeAsignarEstructuras -> {
-                        cesiumWebController.evaluate(
-                            "if (typeof addTacticalStructure === 'function') addTacticalStructure($lat, $lon, '$author');"
-                        )
-                        host.addMessage(
-                            ChatMessage(
-                                user = author,
-                                text = "🏗️ Estructura → $coord",
-                                type = MessageType.NORMAL
-                            )
-                        )
-                    }
-
-                    else -> {
-                        host.addMessage(
-                            ChatMessage(
-                                user = "⚠️ $author",
-                                text = "Aviso de posición → $coord",
-                                type = MessageType.ALERT
-                            )
-                        )
-                    }
-                }
-
-                if (!host.isChatPanelActive()) {
-                    host.openChatPanel()
-                }
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
+                actions[which].second.invoke()
             }
             .setNegativeButton("Cancelar", null)
             .show()
