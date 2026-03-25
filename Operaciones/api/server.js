@@ -2208,20 +2208,132 @@ app.delete("/ops/:id/zona", requireAuth, async (req, res) => {
 app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
   try {
-    const [capas, personal, vehiculos] = await Promise.all([
-      pool.query(`SELECT * FROM v_capas_mapa_operacion WHERE id_operacion=$1`, [id_operacion]),
-      pool.query(`SELECT * FROM v_ultima_posicion_personal WHERE id_operacion=$1`, [id_operacion]),
-      pool.query(`SELECT * FROM v_ultima_posicion_vehiculo WHERE id_operacion=$1`, [id_operacion]),
+    const [
+      operacionRes,
+      zonaRes,
+      capasRes,
+      personalRes,
+      vehiculosRes,
+      equiposRes
+    ] = await Promise.all([
+      pool.query(
+        `SELECT id_operacion, codigo, nombre, descripcion, prioridad, estado,
+                fecha_inicio, fecha_fin, fecha_creacion, creada_por
+         FROM operacion
+         WHERE id_operacion = $1
+         LIMIT 1`,
+        [id_operacion]
+      ),
+
+      pool.query(
+        `SELECT id_zona, id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color
+         FROM zona_operacion
+         WHERE id_operacion = $1
+         ORDER BY id_zona ASC
+         LIMIT 1`,
+        [id_operacion]
+      ),
+
+      pool.query(
+        `SELECT * 
+         FROM v_capas_mapa_operacion
+         WHERE id_operacion = $1`,
+        [id_operacion]
+      ),
+
+      pool.query(
+        `SELECT DISTINCT ON (p.id_personal)
+            p.id_personal,
+            p.apodo,
+            p.nombre,
+            p.apellido,
+            p.rol,
+            p.puesto,
+            a.rol_en_operacion,
+            a.estado_asignacion,
+            go.id_grupo_operacion,
+            go.nombre AS grupo_nombre,
+            go.apodo AS grupo_apodo,
+            gp_padre.nombre AS grupo_padre_nombre,
+            gp_padre.apodo AS grupo_padre_apodo,
+            t.latitud,
+            t.longitud,
+            t.ultima_actualizacion
+         FROM asignacion_operacion_personal a
+         JOIN personal p
+           ON p.id_personal = a.id_personal
+         LEFT JOIN grupo_personal gper
+           ON gper.id_personal = p.id_personal
+         LEFT JOIN grupo_operacion go
+           ON go.id_grupo_operacion = gper.id_grupo_operacion
+          AND go.id_operacion = a.id_operacion
+         LEFT JOIN grupo_operacion gp_padre
+           ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+         LEFT JOIN v_ultima_posicion_personal t
+           ON t.id_personal = a.id_personal
+          AND t.id_operacion = a.id_operacion
+         WHERE a.id_operacion = $1
+           AND a.estado_asignacion NOT IN ('LIBERADO')
+         ORDER BY p.id_personal,
+                  CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
+                  go.id_grupo_operacion`,
+        [id_operacion]
+      ),
+
+      pool.query(
+        `SELECT
+            v.id_vehiculo,
+            v.codigo_interno,
+            v.tipo,
+            v.alias,
+            vo.estado_asignacion,
+            tv.latitud,
+            tv.longitud,
+            tv.timestamp AS ultima_actualizacion
+         FROM vehiculo_operacion vo
+         JOIN vehiculo v
+           ON v.id_vehiculo = vo.id_vehiculo
+         LEFT JOIN v_ultima_posicion_vehiculo tv
+           ON tv.id_vehiculo = vo.id_vehiculo
+          AND tv.id_operacion = vo.id_operacion
+         WHERE vo.id_operacion = $1`,
+        [id_operacion]
+      ),
+
+      pool.query(
+        `SELECT
+            e.id_equipo,
+            e.numero_serie,
+            e.nombre,
+            e.categoria,
+            oe.cantidad,
+            oe.uso_en_operacion,
+            oe.estado_asignacion
+         FROM operacion_equipo oe
+         JOIN equipo e
+           ON e.id_equipo = oe.id_equipo
+         WHERE oe.id_operacion = $1`,
+        [id_operacion]
+      )
     ]);
-    res.json({
+
+    if (!operacionRes.rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Operacion no existe" });
+    }
+
+    return res.json({
       ok: true,
-      capas: capas.rows,
-      personal: personal.rows,
-      vehiculos: vehiculos.rows,
+      operacion: operacionRes.rows[0],
+      zona_operacion: zonaRes.rows[0] || null,
+      capas: capasRes.rows,
+      personal: personalRes.rows,
+      vehiculos: vehiculosRes.rows,
+      equipos: equiposRes.rows
     });
   } catch (err) {
-    sendDbError(res, err, "Error obteniendo mapa");
+    return sendDbError(res, err, "Error obteniendo mapa");
   }
 });
 
@@ -2773,5 +2885,5 @@ app.use((req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.202.103:${PORT}`);
+  console.log(`API + WS en http://192.168.56.1:${PORT}`);
 });

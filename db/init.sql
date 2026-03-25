@@ -2533,7 +2533,24 @@ JOIN participante_chat pc ON pc.id_chat = co.id_chat
 LEFT JOIN usuario u ON u.id_usuario = pc.id_usuario
 LEFT JOIN personal p ON p.id_personal = pc.id_personal;
 
+DROP VIEW IF EXISTS v_ultima_posicion_vehiculo;
 
+CREATE OR REPLACE VIEW v_ultima_posicion_vehiculo AS
+SELECT DISTINCT ON (tv.id_operacion, tv.id_vehiculo)
+  tv.id_operacion,
+  tv.id_vehiculo,
+  v.codigo_interno,
+  v.tipo,
+  tv.latitud,
+  tv.longitud,
+  tv.altitud,
+  tv.velocidad_kmh,
+  tv.rumbo_grados,
+  tv.precision_m,
+  tv.timestamp AS ultima_actualizacion
+FROM tracking_vehiculo tv
+JOIN vehiculo v ON v.id_vehiculo = tv.id_vehiculo
+ORDER BY tv.id_operacion, tv.id_vehiculo, tv.timestamp DESC;
 
 -- =========================================================
 -- VEHICULOS BASE
