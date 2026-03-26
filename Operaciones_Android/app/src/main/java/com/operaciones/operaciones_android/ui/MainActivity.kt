@@ -91,6 +91,7 @@ class MainActivity : AppCompatActivity(),
     private var opLat = 0.0
     private var opLon = 0.0
     private var opZoom = 8000
+    private var lastRouteId: Int = -1
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -120,17 +121,35 @@ class MainActivity : AppCompatActivity(),
         )
 
         if (currentOperation.id > 0) {
-            chatSocketManager = ChatSocketManager(currentOperation.id) { item ->
-                runOnUiThread {
-                    val incoming = parseChatMessage(item)
-                    val alreadyExists = incoming.id != null &&
-                            messages.any { it.id == incoming.id }
+            chatSocketManager = ChatSocketManager(
+                operationId = currentOperation.id,
+                onNewMessage = { item ->
+                    runOnUiThread {
+                        val incoming = parseChatMessage(item)
+                        val alreadyExists = incoming.id != null &&
+                                messages.any { it.id == incoming.id }
 
-                    if (!alreadyExists) {
-                        addMessage(incoming)
+                        if (!alreadyExists) {
+                            addMessage(incoming)
+                        }
+                    }
+                },
+                onNavigationRouteEvt = { event, data ->
+                    runOnUiThread {
+                        if (event == "creada") {
+                            val rutaJson = data.optJSONObject("ruta")?.toString()
+                            if (rutaJson != null) {
+                                cesiumWebController.evaluate("if(typeof drawRemoteRoute === 'function') drawRemoteRoute($rutaJson)")
+                            }
+                        } else if (event == "eliminada") {
+                            val idRuta = data.optInt("id_ruta", -1)
+                            if (idRuta != -1) {
+                                cesiumWebController.evaluate("if(typeof removeRemoteRoute === 'function') removeRemoteRoute($idRuta)")
+                            }
+                        }
                     }
                 }
-            }
+            )
         }
 
         setContentView(R.layout.activity_main)
@@ -247,6 +266,13 @@ class MainActivity : AppCompatActivity(),
                     )
 
                     cesiumWebController.applyOperationView()
+                    
+                    data.rutasNavegacion?.let { jsonString ->
+                        // Pequeño delay adicional para asegurar que Cesium y las funciones JS ya están listas
+                        findViewById<WebView>(R.id.cesiumWebView)?.postDelayed({
+                            cesiumWebController.evaluate("if(typeof loadRemoteRoutes === 'function') loadRemoteRoutes($jsonString)")
+                        }, 2600)
+                    }
                 }
             },
             onError = { message ->
@@ -536,9 +562,46 @@ class MainActivity : AppCompatActivity(),
                 val body = response.body?.string().orEmpty()
                 Log.d("RUTA_ANDROID", "Respuesta backend ruta: ${response.code} - $body")
 
-                if (!response.isSuccessful) {
+                if (response.isSuccessful) {
+                    try {
+                        val json = JSONObject(body)
+                        if (json.optBoolean("ok")) {
+                            val rutaObj = json.optJSONObject("ruta")
+                            if (rutaObj != null) {
+                                lastRouteId = rutaObj.optInt("id_ruta", -1)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("RUTA_ANDROID", "Error parseando respuesta json de ruta", e)
+                    }
+                } else {
                     Log.e("RUTA_ANDROID", "Backend rechazó la ruta: $body")
                 }
+            }
+        })
+    }
+
+    fun sendClearRouteToBackend() {
+        if (lastRouteId <= 0) return
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        val url = "http://192.168.202.103:3001/ops/$operationId/rutas/navegacion/$lastRouteId"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .delete()
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("RUTA_ANDROID", "Error limpiando ruta en backend", e)
+            }
+            override fun onResponse(call: Call, response: Response) {
+                Log.d("RUTA_ANDROID", "Ruta limpiada: ${response.code}")
+                lastRouteId = -1
             }
         })
     }

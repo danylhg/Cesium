@@ -7,7 +7,8 @@ import org.json.JSONObject
 
 class ChatSocketManager(
     private val operationId: Int,
-    private val onNewMessage: (JSONObject) -> Unit
+    private val onNewMessage: (JSONObject) -> Unit,
+    private val onNavigationRouteEvt: ((event: String, data: JSONObject) -> Unit)? = null
 ) {
 
     private var socket: Socket? = null
@@ -24,6 +25,16 @@ class ChatSocketManager(
         socket?.on("chat_message") { args ->
             val item = args.firstOrNull() as? JSONObject ?: return@on
             onNewMessage(item)
+        }
+
+        socket?.on("ruta_navegacion_creada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onNavigationRouteEvt?.invoke("creada", data)
+        }
+
+        socket?.on("ruta_navegacion_eliminada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onNavigationRouteEvt?.invoke("eliminada", data)
         }
 
         socket?.connect()

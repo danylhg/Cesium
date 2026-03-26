@@ -1,7 +1,7 @@
 // =================== TOKEN CESIUM ION ===================
 // Reemplaza este valor con tu token real de Cesium ion.
 // Si no usas Cesium ion, puedes dejarlo así, pero verás warnings 401 en consola.
-Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM";
+Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 // =================== HELPERS OPERACION ACTIVA ===================
 function getActiveOperationId() {
@@ -61,6 +61,7 @@ let pickMode = null;
 let startPoint = null;
 let endPoint = null;
 let lastRoute = null;
+let myRouteId = null; 
 
 let startEntity = null;
 let endEntity = null;
@@ -74,7 +75,7 @@ let zonaEntity = null;
 let socket = null;
 let rutasNavegacionEntities = new Map();
 
-const OSRM_BASE = "https://router.project-osrm.org";
+const OSRM_BASE = "http://192.168.202.103:5000";
 
 // Providers
 const providers = {
@@ -783,6 +784,47 @@ document.getElementById("calcRoute").onclick = async () => {
     const min = route.duration / 60;
 
     setRouteInfo(`Ruta lista. Distancia: ${km.toFixed(2)} km · Tiempo: ${min.toFixed(1)} min`);
+
+    // Sincronizar ruta nueva a los demás clientes con Sockets y Guardarla en DB
+    const idOp = getActiveOperationId();
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    };
+    
+    // Si ya teníamos una ruta trazada, la borramos antes de subir la nueva
+    if (myRouteId) {
+       await fetch(`${API_BASE}/ops/${idOp}/rutas/navegacion/${myRouteId}`, {
+           method: "DELETE",
+           headers
+       }).catch(e => console.error("Error borrando ruta anterior", e));
+       myRouteId = null;
+    }
+
+    const bodyData = {
+      geojson: route.geometry,
+      origen_lat: startPoint.lat,
+      origen_lon: startPoint.lng,
+      destino_lat: endPoint.lat,
+      destino_lon: endPoint.lng,
+      distancia_m: route.distance,
+      duracion_s: route.duration
+    };
+
+    const res = await fetch(`${API_BASE}/ops/${idOp}/rutas/navegacion`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(bodyData)
+    });
+
+    const data = await res.json();
+    if (data.ok) {
+        myRouteId = data.id_ruta;
+        console.log("Ruta de navegación guardada/sincronizada ID:", myRouteId);
+    } else {
+        console.error("Error sincronizando ruta:", data.mensaje);
+    }
+
   } catch (err) {
     setRouteInfo(`Error OSRM: ${err.message}`);
   }
@@ -836,7 +878,7 @@ document.getElementById("saveOp").onclick = () => {
   msg.textContent = "Operación guardada correctamente.";
 };
 
-document.getElementById("clearOps").onclick = () => {
+document.getElementById("clearOps").onclick = async () => {
   localStorage.removeItem(OPERACION_ACTUAL_KEY);
 
   document.getElementById("opTitle").value = "";
@@ -856,6 +898,19 @@ document.getElementById("clearOps").onclick = () => {
   routeEntity = null;
   startEntity = null;
   endEntity = null;
+  
+  if (myRouteId) {
+    try {
+      const idOp = getActiveOperationId();
+      await fetch(`${API_BASE}/ops/${idOp}/rutas/navegacion/${myRouteId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      myRouteId = null;
+    } catch (e) {
+      console.error("Error al borrar ruta del mapa global", e);
+    }
+  }
 
   renderInfoPanel();
 };
@@ -920,6 +975,12 @@ function zoomToRoute(geojsonLineString) {
 function drawRutaNavegacion(ruta) {
   if (!viewer || !ruta?.geojson || ruta.geojson.type !== "LineString") return;
 
+  const rol = (ruta.rol_creador || "").toUpperCase();
+  let materialColor = Cesium.Color.PURPLE;
+  if (rol === "ADMIN" || rol === "CUT") materialColor = Cesium.Color.RED;
+  else if (rol === "CET") materialColor = Cesium.Color.ORANGE;
+  else if (rol === "CELL") materialColor = Cesium.Color.DODGERBLUE;
+
   const entityId = `ruta_nav_${ruta.id_ruta}`;
   if (rutasNavegacionEntities.has(entityId)) return;
 
@@ -945,7 +1006,7 @@ function drawRutaNavegacion(ruta) {
     polyline: {
       positions,
       width: 5,
-      material: Cesium.Color.ORANGE.withAlpha(0.9),
+      material: materialColor.withAlpha(0.9),
       clampToGround: true
     },
     properties: {
@@ -1138,12 +1199,21 @@ function renderEquiposOnMap() {
   });
 }
 
+function renderRutasNavegacionOnMap() {
+  if (!viewer || !dashboardData || !dashboardData.rutas_navegacion) return;
+  
+  dashboardData.rutas_navegacion.forEach((ruta) => {
+    drawRutaNavegacion(ruta);
+  });
+}
+
 function renderOperationalDataOnMap() {
   clearOperationalEntities();
   renderZonaOnMap();
   renderPersonalOnMap();
   renderVehiculosOnMap();
   renderEquiposOnMap();
+  renderRutasNavegacionOnMap();
 }
 
 function setupRealtimeSocket() {
@@ -1175,6 +1245,18 @@ function setupRealtimeSocket() {
 
     if (!data?.ruta) return;
     drawRutaNavegacion(data.ruta);
+  });
+
+  socket.on("ruta_navegacion_eliminada", (data) => {
+    console.log("Evento ruta_navegacion_eliminada:", data);
+    if (!viewer || !data || !data.id_ruta) return;
+    
+    const entityId = `ruta_nav_${data.id_ruta}`;
+    const entity = viewer.entities.getById(entityId);
+    if (entity) {
+      viewer.entities.remove(entity);
+    }
+    rutasNavegacionEntities.delete(entityId);
   });
 }
 

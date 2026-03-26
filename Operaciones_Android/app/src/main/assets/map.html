@@ -34,8 +34,10 @@
   let startEntity = null;
   let endEntity = null;
   let routeEntity = null;
+  
+  let remoteRoutes = new Map();
 
-  const OSRM_BASE = "https://router.project-osrm.org";
+  const OSRM_BASE = "http://192.168.202.103:5000";
 
   function notifyAndroid(message) {
     try {
@@ -93,7 +95,7 @@
 
   try {
   // =================== TOKEN CESIUM ION ===================
-    Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJkYmEzNjE0Mi02YWFjLTQ5MzAtOWU5NC05ZTlhMDM5NWM1OTAiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzMwODI0NjZ9.GlFF2hcl0ahrvw6VMTq1L5D0Cx5IRkgX__ZnBYQRuFM";
+    Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
     viewer = new Cesium.Viewer('cesiumContainer', {
       baseLayer: new Cesium.ImageryLayer(
         new Cesium.OpenStreetMapImageryProvider({
@@ -457,6 +459,61 @@
       endPoint,
       lastRoute
     };
+  };
+
+  // =========================
+  // Rutas Remotas (Sincronización)
+  // =========================
+  window.loadRemoteRoutes = function(routesArray) {
+     if (!Array.isArray(routesArray)) return;
+     routesArray.forEach(ruta => {
+        if (!remoteRoutes.has(ruta.id_ruta)) {
+           drawRemoteRoute(ruta);
+        }
+     });
+  };
+
+  window.drawRemoteRoute = function(rutaObj) {
+     if (!rutaObj || !rutaObj.geojson) return;
+     
+     const geojson = typeof rutaObj.geojson === 'string' ? JSON.parse(rutaObj.geojson) : rutaObj.geojson;
+     const id = rutaObj.id_ruta;
+     const rol = (rutaObj.rol_creador || "").toUpperCase();
+     
+     // Color logic: ADMIN/CUT = rojo, CET = naranja, CELL = azul, resto = violeta
+     let colorCesium = Cesium.Color.PURPLE;
+     if (rol === "ADMIN" || rol === "CUT") colorCesium = Cesium.Color.RED;
+     else if (rol === "CET") colorCesium = Cesium.Color.ORANGE;
+     else if (rol === "CELL") colorCesium = Cesium.Color.DODGERBLUE;
+     
+     let coords = [];
+     if (geojson.coordinates && geojson.coordinates.length > 0) {
+        coords = geojson.coordinates.map(c => Cesium.Cartesian3.fromDegrees(c[0], c[1]));
+     }
+     
+     if (coords.length > 0) {
+        const lineEntity = viewer.entities.add({
+           id: "remote_route_" + id,
+           polyline: {
+              positions: coords,
+              width: 5,
+              material: new Cesium.PolylineGlowMaterialProperty({
+                 glowPower: 0.1,
+                 color: colorCesium
+              }),
+              clampToGround: true
+           }
+        });
+        remoteRoutes.set(id, lineEntity);
+     }
+  };
+
+  window.removeRemoteRoute = function(id_ruta) {
+     const lineEntity = remoteRoutes.get(id_ruta);
+     if (lineEntity) {
+        viewer.entities.remove(lineEntity);
+        remoteRoutes.delete(id_ruta);
+     }
   };
 
   // TODO después:

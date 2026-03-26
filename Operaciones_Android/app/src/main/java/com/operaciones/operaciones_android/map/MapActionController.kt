@@ -37,6 +37,7 @@ class MapActionController(
 
         actions += "🧹 Limpiar ruta" to {
             cesiumWebController.clearRoute()
+            (host as? com.operaciones.operaciones_android.ui.MainActivity)?.sendClearRouteToBackend()
         }
 
         actions += "📍 Punto de interés" to {

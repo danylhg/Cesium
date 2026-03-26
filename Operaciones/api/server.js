@@ -215,7 +215,7 @@ app.post("/auth/login", async (req, res) => {
       ok: true,
       token,
       usuario: {
-        id_usuario:  tabla === "usuario"  ? row.id : null,
+        id_usuario: tabla === "usuario" ? row.id : null,
         id_personal: tabla === "personal" ? row.id : null,
         username: row.username,
         rol: row.rol,
@@ -725,9 +725,9 @@ app.get("/ops/personal/:id_personal", requireAuth, async (req, res) => {
         zona: zona ? {
           centroide_lat: zona.centroide_lat,
           centroide_lon: zona.centroide_lon,
-          zoom_inicial:  zona.zoom_inicial,
-          color:         zona.color,
-          geometria:     zona.geometria,
+          zoom_inicial: zona.zoom_inicial,
+          color: zona.color,
+          geometria: zona.geometria,
         } : null,
       },
     });
@@ -1470,12 +1470,12 @@ app.put("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
     const vals = [];
     let i = 1;
 
-    if (codigo_interno !== null)          { sets.push(`codigo_interno = $${i++}`); vals.push(codigo_interno); }
-    if (req.body?.tipo !== undefined)     { sets.push(`tipo = $${i++}`); vals.push(tipo); }
-    if (req.body?.alias !== undefined)    { sets.push(`alias = $${i++}`); vals.push(alias); }
-    if (req.body?.imagen_veh !== undefined){ sets.push(`imagen_veh = $${i++}`); vals.push(imagen_veh); }
-    if (req.body?.capacidad !== undefined){ sets.push(`capacidad = $${i++}`); vals.push(capacidad); }
-    if (estado !== null)                  { sets.push(`estado = $${i++}`); vals.push(estado); }
+    if (codigo_interno !== null) { sets.push(`codigo_interno = $${i++}`); vals.push(codigo_interno); }
+    if (req.body?.tipo !== undefined) { sets.push(`tipo = $${i++}`); vals.push(tipo); }
+    if (req.body?.alias !== undefined) { sets.push(`alias = $${i++}`); vals.push(alias); }
+    if (req.body?.imagen_veh !== undefined) { sets.push(`imagen_veh = $${i++}`); vals.push(imagen_veh); }
+    if (req.body?.capacidad !== undefined) { sets.push(`capacidad = $${i++}`); vals.push(capacidad); }
+    if (estado !== null) { sets.push(`estado = $${i++}`); vals.push(estado); }
 
     if (sets.length === 0) {
       return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
@@ -1545,14 +1545,14 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
     if (!opRows[0]) { await client.query("ROLLBACK"); return res.status(404).json({ ok: false, mensaje: "Operacion no existe" }); }
 
     const { estado: estadoActual, nombre: nombreOp, codigo: codigoOp } = opRows[0];
-    const transiciones = { PLANIFICADA: ["ACTIVA","CANCELADA"], ACTIVA: ["CERRADA","CANCELADA"], CERRADA: [], CANCELADA: [] };
+    const transiciones = { PLANIFICADA: ["ACTIVA", "CANCELADA"], ACTIVA: ["CERRADA", "CANCELADA"], CERRADA: [], CANCELADA: [] };
     if (!transiciones[estadoActual]?.includes(nuevoEstado)) {
       await client.query("ROLLBACK");
       return res.status(409).json({ ok: false, mensaje: `No se puede pasar de ${estadoActual} a ${nuevoEstado}` });
     }
 
     let q = `UPDATE operacion SET estado = $1`;
-    if (nuevoEstado === "ACTIVA")  q += `, fecha_inicio = NOW()`;
+    if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
     if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
     await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
 
@@ -1560,8 +1560,8 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
 
     // Distingue si quien activa/cierra la op es ADMIN/CUT (tabla usuario) o CET/CELL (tabla personal)
     async function getOrCreateParticipante(id_chat, id_actor, esPersonal) {
-      const col  = esPersonal ? "id_personal" : "id_usuario";
-      const tipo = esPersonal ? "PERSONAL"    : "USUARIO";
+      const col = esPersonal ? "id_personal" : "id_usuario";
+      const tipo = esPersonal ? "PERSONAL" : "USUARIO";
       const { rows } = await client.query(
         `INSERT INTO participante_chat (id_chat, tipo, ${col}) VALUES ($1,$2,$3)
          ON CONFLICT (id_chat, ${col}) DO NOTHING RETURNING id_participante`,
@@ -1575,7 +1575,7 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       return ex[0]?.id_participante;
     }
     const esPersonal = req.user.tabla === "personal";
-    const id_actor   = Number(req.user.sub);
+    const id_actor = Number(req.user.sub);
 
     if (nuevoEstado === "ACTIVA") {
       const { rows: cr } = await client.query(
@@ -1642,11 +1642,11 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
   const contenido = (req.body?.contenido || "").toString().trim();
   const tipo_mensaje = (req.body?.tipo_mensaje || "NORMAL").toString().toUpperCase();
   if (!contenido) return res.status(400).json({ ok: false, mensaje: "Falta contenido" });
-  if (!["NORMAL","URGENTE","SISTEMA"].includes(tipo_mensaje))
+  if (!["NORMAL", "URGENTE", "SISTEMA"].includes(tipo_mensaje))
     return res.status(400).json({ ok: false, mensaje: "tipo_mensaje invalido" });
 
   const esPersonal = req.user.tabla === "personal";
-  const id_actor   = Number(req.user.sub);
+  const id_actor = Number(req.user.sub);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1658,8 +1658,8 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
     const id_chat = cr[0].id_chat;
 
     // Obtener o crear participante — distingue PERSONAL vs USUARIO
-    const col  = esPersonal ? "id_personal" : "id_usuario";
-    const tipo = esPersonal ? "PERSONAL"    : "USUARIO";
+    const col = esPersonal ? "id_personal" : "id_usuario";
+    const tipo = esPersonal ? "PERSONAL" : "USUARIO";
     const { rows: pr } = await client.query(
       `INSERT INTO participante_chat (id_chat, tipo, ${col}) VALUES ($1,$2,$3)
        ON CONFLICT (id_chat, ${col}) DO NOTHING RETURNING id_participante`,
@@ -1724,7 +1724,7 @@ app.post("/ops/:id/avisos", requireAuth, async (req, res) => {
   if (!isInt(Number(id_personal_emisor))) return res.status(400).json({ ok: false, mensaje: "Falta id_personal_emisor" });
   if (!contenido?.toString().trim()) return res.status(400).json({ ok: false, mensaje: "Falta contenido" });
 
-  const tiposValidos = ["NOVEDAD","CONTACTO","EMERGENCIA","INFORMATIVO"];
+  const tiposValidos = ["NOVEDAD", "CONTACTO", "EMERGENCIA", "INFORMATIVO"];
   const tipo = (tipo_aviso || "INFORMATIVO").toString().toUpperCase();
   if (!tiposValidos.includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_aviso invalido" });
 
@@ -1735,8 +1735,8 @@ app.post("/ops/:id/avisos", requireAuth, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING *`,
       [id_operacion, Number(id_personal_emisor), tipo, contenido.toString().trim(),
-       tipo_receptor || null, id_personal_receptor ? Number(id_personal_receptor) : null,
-       id_usuario_receptor ? Number(id_usuario_receptor) : null]
+        tipo_receptor || null, id_personal_receptor ? Number(id_personal_receptor) : null,
+        id_usuario_receptor ? Number(id_usuario_receptor) : null]
     );
     res.json({ ok: true, aviso: rows[0] });
   } catch (err) {
@@ -1750,7 +1750,7 @@ app.patch("/ops/:id/avisos/:id_aviso", requireAuth, async (req, res) => {
   if (!isInt(id_aviso)) return res.status(400).json({ ok: false, mensaje: "id_aviso invalido" });
 
   const estado = (req.body?.estado || "ATENDIDO").toString().toUpperCase();
-  if (!["RECIBIDO","ATENDIDO"].includes(estado)) return res.status(400).json({ ok: false, mensaje: "estado invalido" });
+  if (!["RECIBIDO", "ATENDIDO"].includes(estado)) return res.status(400).json({ ok: false, mensaje: "estado invalido" });
 
   try {
     const { rows } = await pool.query(
@@ -1793,15 +1793,15 @@ app.post("/ops/:id/pois", requireAuth, async (req, res) => {
   if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
 
   const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
-  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+  if (!["USUARIO", "PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
 
   try {
     const { rows } = await pool.query(
       `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, id_operacion)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
-       nombre.toString().trim(), tipo_poi.toString().trim(), Number(latitud), Number(longitud),
-       descripcion?.toString().trim() || null, id_operacion]
+        nombre.toString().trim(), tipo_poi.toString().trim(), Number(latitud), Number(longitud),
+        descripcion?.toString().trim() || null, id_operacion]
     );
     res.json({ ok: true, poi: rows[0] });
   } catch (err) {
@@ -1852,15 +1852,15 @@ app.post("/ops/:id/areas", requireAuth, async (req, res) => {
   if (!geometria) return res.status(400).json({ ok: false, mensaje: "Falta geometria (GeoJSON Polygon)" });
 
   const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
-  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+  if (!["USUARIO", "PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
 
   try {
     const { rows } = await pool.query(
       `INSERT INTO area_interes (id_operacion, tipo_creador, id_usuario, id_personal, nombre, descripcion, geometria, color)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [id_operacion, tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
-       nombre.toString().trim(), descripcion?.toString().trim() || null,
-       JSON.stringify(geometria), color || "#FF4500"]
+        nombre.toString().trim(), descripcion?.toString().trim() || null,
+        JSON.stringify(geometria), color || "#FF4500"]
     );
     res.json({ ok: true, area: rows[0] });
   } catch (err) {
@@ -1911,15 +1911,15 @@ app.post("/ops/:id/rutas", requireAuth, async (req, res) => {
   if (!geometria) return res.status(400).json({ ok: false, mensaje: "Falta geometria (GeoJSON LineString)" });
 
   const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
-  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+  if (!["USUARIO", "PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
 
   try {
     const { rows } = await pool.query(
       `INSERT INTO ruta_operacion (id_operacion, tipo_creador, id_usuario, id_personal, nombre, descripcion, geometria, color)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [id_operacion, tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
-       nombre.toString().trim(), descripcion?.toString().trim() || null,
-       JSON.stringify(geometria), color || "#1E90FF"]
+        nombre.toString().trim(), descripcion?.toString().trim() || null,
+        JSON.stringify(geometria), color || "#1E90FF"]
     );
     res.json({ ok: true, ruta: rows[0] });
   } catch (err) {
@@ -1933,7 +1933,7 @@ app.patch("/ops/:id/rutas/:id_ruta/estado", requireAuth, async (req, res) => {
   if (!isInt(id_ruta)) return res.status(400).json({ ok: false, mensaje: "id_ruta invalido" });
 
   const estado = (req.body?.estado || "").toString().toUpperCase();
-  if (!["PLANIFICADA","ACTIVA","COMPLETADA","CANCELADA"].includes(estado))
+  if (!["PLANIFICADA", "ACTIVA", "COMPLETADA", "CANCELADA"].includes(estado))
     return res.status(400).json({ ok: false, mensaje: "estado invalido" });
 
   try {
@@ -1976,7 +1976,7 @@ app.post("/ops/:id/edificios", requireAuth, async (req, res) => {
   if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
 
   const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
-  if (!["USUARIO","PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+  if (!["USUARIO", "PERSONAL"].includes(tipo)) return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
 
   // Validar que CEL no pueda crear estructuras
   if (req.user.rol === "CELL")
@@ -1987,7 +1987,7 @@ app.post("/ops/:id/edificios", requireAuth, async (req, res) => {
       `INSERT INTO marca_edificio (id_operacion, tipo_creador, id_usuario, id_personal, nombre, tipo_estructura, latitud, longitud)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [id_operacion, tipo, id_usuario ? Number(id_usuario) : null, id_personal ? Number(id_personal) : null,
-       nombre.toString().trim(), tipo_estructura.toString().trim(), Number(latitud), Number(longitud)]
+        nombre.toString().trim(), tipo_estructura.toString().trim(), Number(latitud), Number(longitud)]
     );
     res.json({ ok: true, edificio: rows[0] });
   } catch (err) {
@@ -2027,7 +2027,7 @@ app.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
       `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
        VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_tracking, timestamp`,
       [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
-       altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
+        altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
     );
     res.json({ ok: true, tracking: rows[0] });
   } catch (err) {
@@ -2051,7 +2051,7 @@ app.get("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
 // GET /ops/:id/tracking/personal/:id_personal/historial — historial de posiciones
 app.get("/ops/:id/tracking/personal/:id_personal/historial", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  const id_personal  = Number(req.params.id_personal);
+  const id_personal = Number(req.params.id_personal);
   if (!isInt(id_operacion) || !isInt(id_personal))
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
@@ -2086,10 +2086,10 @@ app.post("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
       `INSERT INTO tracking_vehiculo (id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_tracking, timestamp`,
       [id_operacion, Number(id_vehiculo), Number(latitud), Number(longitud),
-       altitud != null ? Number(altitud) : null,
-       velocidad_kmh != null ? Number(velocidad_kmh) : null,
-       rumbo_grados != null ? Number(rumbo_grados) : null,
-       precision_m != null ? Number(precision_m) : null]
+        altitud != null ? Number(altitud) : null,
+        velocidad_kmh != null ? Number(velocidad_kmh) : null,
+        rumbo_grados != null ? Number(rumbo_grados) : null,
+        precision_m != null ? Number(precision_m) : null]
     );
     res.json({ ok: true, tracking: rows[0] });
   } catch (err) {
@@ -2113,7 +2113,7 @@ app.get("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
 // GET /ops/:id/tracking/vehiculos/:id_vehiculo/historial — historial de posiciones
 app.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
-  const id_vehiculo  = Number(req.params.id_vehiculo);
+  const id_vehiculo = Number(req.params.id_vehiculo);
   if (!isInt(id_operacion) || !isInt(id_vehiculo))
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
@@ -2186,7 +2186,7 @@ app.post("/ops/:id/zona", requireAuth, async (req, res) => {
          fecha_creacion = NOW()
        RETURNING *`,
       [id_operacion, nombre || "Zona principal", JSON.stringify(geometria),
-       centroide.lat, centroide.lon, zoom, color || "#3b82f6", req.user.sub]
+        centroide.lat, centroide.lon, zoom, color || "#3b82f6", req.user.sub]
     );
     res.json({ ok: true, zona: rows[0] });
   } catch (err) {
@@ -2231,7 +2231,8 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       capasRes,
       personalRes,
       vehiculosRes,
-      equiposRes
+      equiposRes,
+      rutasNavegacionRes
     ] = await Promise.all([
       pool.query(
         `SELECT id_operacion, codigo, nombre, descripcion, prioridad, estado,
@@ -2331,6 +2332,19 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
            ON e.id_equipo = oe.id_equipo
          WHERE oe.id_operacion = $1`,
         [id_operacion]
+      ),
+
+      pool.query(
+        `SELECT
+            rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
+            rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
+            rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.fecha_creacion,
+            COALESCE(u.rol::text, p.rol::text) AS rol_creador
+         FROM ruta_navegacion rn
+         LEFT JOIN usuario u ON rn.created_by_tipo = 'USUARIO' AND rn.id_usuario = u.id_usuario
+         LEFT JOIN personal p ON rn.created_by_tipo = 'PERSONAL' AND rn.id_personal = p.id_personal
+         WHERE rn.id_operacion = $1 AND rn.activo = true`,
+        [id_operacion]
       )
     ]);
 
@@ -2345,7 +2359,8 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       capas: capasRes.rows,
       personal: personalRes.rows,
       vehiculos: vehiculosRes.rows,
-      equipos: equiposRes.rows
+      equipos: equiposRes.rows,
+      rutas_navegacion: rutasNavegacionRes.rows
     });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo mapa");
@@ -2784,16 +2799,16 @@ app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
   try {
     const {
       fecha_inicio = null,
-      fecha_fin    = null,
+      fecha_fin = null,
       personal_ids = [],
       vehiculo_ids = [],
-      equipo_ids   = [],
+      equipo_ids = [],
     } = req.body ?? {};
 
     // Al menos un array debe tener elementos
     const pIds = (Array.isArray(personal_ids) ? personal_ids : []).map(Number).filter(isInt);
     const vIds = (Array.isArray(vehiculo_ids) ? vehiculo_ids : []).map(Number).filter(isInt);
-    const eIds = (Array.isArray(equipo_ids)   ? equipo_ids   : []).map(Number).filter(isInt);
+    const eIds = (Array.isArray(equipo_ids) ? equipo_ids : []).map(Number).filter(isInt);
 
     if (!pIds.length && !vIds.length && !eIds.length) {
       return res.status(400).json({ ok: false, mensaje: "Debes enviar al menos un id en personal_ids, vehiculo_ids o equipo_ids." });
@@ -2805,7 +2820,7 @@ app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
     function overlapCondition(aliasIni, aliasFin) {
       if (!fecha_inicio && !fecha_fin) return "TRUE"; // sin fechas = verificar contra cualquier op activa
       const parts = [];
-      if (fecha_fin)   parts.push(`(${aliasIni} IS NULL OR ${aliasIni} <= $FIN)`);
+      if (fecha_fin) parts.push(`(${aliasIni} IS NULL OR ${aliasIni} <= $FIN)`);
       if (fecha_inicio) parts.push(`(${aliasFin} IS NULL OR ${aliasFin} >= $INI)`);
       return parts.length ? parts.join(" AND ") : "TRUE";
     }
@@ -2817,7 +2832,7 @@ app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
       const params = [pIds];
       let cond = "TRUE";
       if (fecha_inicio || fecha_fin) {
-        if (fecha_fin)    { params.push(fecha_fin);    cond  = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
+        if (fecha_fin) { params.push(fecha_fin); cond = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
         if (fecha_inicio) { params.push(fecha_inicio); cond += ` AND (o.fecha_fin IS NULL OR o.fecha_fin >= $${params.length})`; }
       }
 
@@ -2851,7 +2866,7 @@ app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
       const params = [vIds];
       let cond = "TRUE";
       if (fecha_inicio || fecha_fin) {
-        if (fecha_fin)    { params.push(fecha_fin);    cond  = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
+        if (fecha_fin) { params.push(fecha_fin); cond = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
         if (fecha_inicio) { params.push(fecha_inicio); cond += ` AND (o.fecha_fin IS NULL OR o.fecha_fin >= $${params.length})`; }
       }
 
@@ -2885,7 +2900,7 @@ app.post("/validate/disponibilidad", requireAuth, async (req, res) => {
       const params = [eIds];
       let cond = "TRUE";
       if (fecha_inicio || fecha_fin) {
-        if (fecha_fin)    { params.push(fecha_fin);    cond  = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
+        if (fecha_fin) { params.push(fecha_fin); cond = `(o.fecha_inicio IS NULL OR o.fecha_inicio <= $${params.length})`; }
         if (fecha_inicio) { params.push(fecha_inicio); cond += ` AND (o.fecha_fin IS NULL OR o.fecha_fin >= $${params.length})`; }
       }
 
@@ -3075,6 +3090,7 @@ app.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
     );
 
     const ruta = insertRes.rows[0];
+    ruta.rol_creador = req.user?.rol || "ADMIN"; // Usamos el rol del token
 
     // Emitir a todos los clientes conectados a la operación
     io.to(`op_${id_operacion}`).emit("ruta_navegacion_creada", {

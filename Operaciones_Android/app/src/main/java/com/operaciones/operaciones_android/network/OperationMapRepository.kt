@@ -128,11 +128,14 @@ class OperationMapRepository(
                         }
                     }
 
+                    val rutasNav = json.optJSONArray("rutas_navegacion")?.toString()
+
                     onSuccess(
                         OperationMapData(
                             personal = personal,
                             vehiculos = vehiculos,
-                            equipos = equipos
+                            equipos = equipos,
+                            rutasNavegacion = rutasNav
                         )
                     )
 
