@@ -1,433 +1,227 @@
 <!DOCTYPE html>
 <html>
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body, #cesiumContainer {
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body,
+    #cesiumContainer {
       width: 100%;
       height: 100%;
       background: #0a0f1e;
       overflow: hidden;
     }
-    .cesium-widget-credits { display: none !important; }
+
+    .cesium-widget-credits {
+      display: none !important;
+    }
   </style>
 </head>
+
 <body>
-<div id="cesiumContainer"></div>
+  <div id="cesiumContainer"></div>
 
-<script>
-  let viewer = null;
-  let userMarker = null;
+  <script>
+    let viewer = null;
+    let userMarker = null;
 
-  // =========================
-  // Estado de rutas
-  // =========================
-  let pickMode = null; // "start" | "end" | null
-  let startPoint = null;
-  let endPoint = null;
-  let lastRoute = null;
+    // =========================
+    // Estado de rutas
+    // =========================
+    let pickMode = null; // "start" | "end" | null
+    let startPoint = null;
+    let endPoint = null;
+    let lastRoute = null;
 
-  let startEntity = null;
-  let endEntity = null;
-  let routeEntity = null;
-  
-  let remoteRoutes = new Map();
+    let startEntity = null;
+    let endEntity = null;
+    let routeEntity = null;
 
-  const OSRM_BASE = "http://192.168.202.103:5000";
+    let remoteRoutes = new Map();
 
-  function notifyAndroid(message) {
-    try {
-      if (window.Android && typeof Android.sendTrafficAlert === "function") {
-        Android.sendTrafficAlert(String(message));
+    const OSRM_BASE = "https://router.project-osrm.org";
+
+    function notifyAndroid(message) {
+      try {
+        if (window.Android && typeof Android.sendTrafficAlert === "function") {
+          Android.sendTrafficAlert(String(message));
+        }
+      } catch (e) {
+        console.error("Error notificando a Android: " + e.message);
       }
-    } catch (e) {
-      console.error("Error notificando a Android: " + e.message);
     }
-  }
 
-  function notifyMapTap(lat, lon) {
-    try {
-      if (window.Android && typeof Android.onMapTapped === "function") {
-        Android.onMapTapped(lat, lon);
+    function notifyMapTap(lat, lon) {
+      try {
+        if (window.Android && typeof Android.onMapTapped === "function") {
+          Android.onMapTapped(lat, lon);
+        }
+      } catch (e) {
+        console.error("Error notificando tap a Android: " + e.message);
       }
-    } catch (e) {
-      console.error("Error notificando tap a Android: " + e.message);
     }
-  }
 
-  function notifyRouteCreated(route) {
-    try {
-      if (!route || !route.geometry || !Array.isArray(route.geometry.coordinates)) {
-        console.error("Ruta inválida para enviar a Android");
-        return;
+    function notifyRouteCreated(route) {
+      try {
+        if (!route || !route.geometry || !Array.isArray(route.geometry.coordinates)) {
+          console.error("Ruta inválida para enviar a Android");
+          return;
+        }
+
+        if (!startPoint || !endPoint) {
+          console.error("No hay origen/destino para enviar ruta a Android");
+          return;
+        }
+
+        const payload = {
+          geojson: route.geometry,
+          origen_lat: startPoint.lat,
+          origen_lon: startPoint.lon,
+          destino_lat: endPoint.lat,
+          destino_lon: endPoint.lon,
+          distancia_m: Number(route.distance) || 0,
+          duracion_s: Number(route.duration) || 0
+        };
+
+        console.log("Enviando ruta a Android:", payload);
+
+        if (window.Android && typeof Android.onRouteCreated === "function") {
+          Android.onRouteCreated(JSON.stringify(payload));
+        } else {
+          console.warn("Android.onRouteCreated no está disponible");
+        }
+      } catch (e) {
+        console.error("Error notificando ruta a Android: " + e.message);
       }
-
-      if (!startPoint || !endPoint) {
-        console.error("No hay origen/destino para enviar ruta a Android");
-        return;
-      }
-
-      const payload = {
-        geojson: route.geometry,
-        origen_lat: startPoint.lat,
-        origen_lon: startPoint.lon,
-        destino_lat: endPoint.lat,
-        destino_lon: endPoint.lon,
-        distancia_m: Number(route.distance) || 0,
-        duracion_s: Number(route.duration) || 0
-      };
-
-      console.log("Enviando ruta a Android:", payload);
-
-      if (window.Android && typeof Android.onRouteCreated === "function") {
-        Android.onRouteCreated(JSON.stringify(payload));
-      } else {
-        console.warn("Android.onRouteCreated no está disponible");
-      }
-    } catch (e) {
-      console.error("Error notificando ruta a Android: " + e.message);
     }
-  }
 
-  try {
-  // =================== TOKEN CESIUM ION ===================
-    Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
-    viewer = new Cesium.Viewer('cesiumContainer', {
-      baseLayer: new Cesium.ImageryLayer(
-        new Cesium.OpenStreetMapImageryProvider({
-          url: 'https://tile.openstreetmap.org/'
-        })
-      ),
-      terrainProvider: new Cesium.EllipsoidTerrainProvider(),
-      timeline: false,
-      animation: false,
-      baseLayerPicker: false,
-      geocoder: false,
-      homeButton: false,
-      sceneModePicker: false,
-      navigationHelpButton: false,
-      fullscreenButton: false,
-      infoBox: false,
-      selectionIndicator: false
-    });
+    try {
+      // =================== TOKEN CESIUM ION ===================
+      Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
+      viewer = new Cesium.Viewer('cesiumContainer', {
+        baseLayer: new Cesium.ImageryLayer(
+          new Cesium.OpenStreetMapImageryProvider({
+            url: 'https://tile.openstreetmap.org/'
+          })
+        ),
+        terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+        timeline: false,
+        animation: false,
+        baseLayerPicker: false,
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        fullscreenButton: false,
+        infoBox: false,
+        selectionIndicator: false
+      });
 
-    // Vista limpia más tipo 2D táctico
-    viewer.scene.skyBox.show = false;
-    viewer.scene.skyAtmosphere.show = false;
-    viewer.scene.sun.show = false;
-    viewer.scene.moon.show = false;
+      // Vista limpia más tipo 2D táctico
+      viewer.scene.skyBox.show = false;
+      viewer.scene.skyAtmosphere.show = false;
+      viewer.scene.sun.show = false;
+      viewer.scene.moon.show = false;
 
-    // Handler de clicks
-    const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-    handler.setInputAction((movement) => {
+      // Handler de clicks
+      const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      handler.setInputAction((movement) => {
+        try {
+          if (!viewer) return;
+
+          const cartesian = viewer.camera.pickEllipsoid(
+            movement.position,
+            viewer.scene.globe.ellipsoid
+          );
+
+          if (!cartesian) return;
+
+          const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+          const lat = Cesium.Math.toDegrees(cartographic.latitude);
+          const lon = Cesium.Math.toDegrees(cartographic.longitude);
+
+          if (pickMode === "start") {
+            setStartPoint(lat, lon);
+            pickMode = null;
+            notifyAndroid("Origen seleccionado");
+            return;
+          }
+
+          if (pickMode === "end") {
+            setEndPoint(lat, lon);
+            pickMode = null;
+            notifyAndroid("Destino seleccionado");
+            return;
+          }
+
+          // Click normal, se mantiene tu flujo actual
+          notifyMapTap(lat, lon);
+        } catch (e) {
+          console.error("Error en click del mapa: " + e.message);
+          notifyAndroid("Error en el click del mapa: " + e.message);
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      if (window.Android && typeof Android.sendTrafficAlert === 'function') {
+        Android.sendTrafficAlert("Mapa listo");
+      }
+
+      console.log("Cesium OK");
+    } catch (e) {
+      console.error("Error iniciando Cesium: " + e.message);
+      document.body.innerHTML =
+        '<div style="color:#ef4444;padding:20px;font-family:monospace;background:#0a0f1e">Error: ' + e.message + '</div>';
+    }
+
+    // =========================
+    // Funciones actuales
+    // =========================
+    window.setOperationView = function (lat, lon, zoomMeters) {
       try {
         if (!viewer) return;
-
-        const cartesian = viewer.camera.pickEllipsoid(
-          movement.position,
-          viewer.scene.globe.ellipsoid
-        );
-
-        if (!cartesian) return;
-
-        const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
-        const lat = Cesium.Math.toDegrees(cartographic.latitude);
-        const lon = Cesium.Math.toDegrees(cartographic.longitude);
-
-        if (pickMode === "start") {
-          setStartPoint(lat, lon);
-          pickMode = null;
-          notifyAndroid("Origen seleccionado");
-          return;
-        }
-
-        if (pickMode === "end") {
-          setEndPoint(lat, lon);
-          pickMode = null;
-          notifyAndroid("Destino seleccionado");
-          return;
-        }
-
-        // Click normal, se mantiene tu flujo actual
-        notifyMapTap(lat, lon);
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lon, lat, zoomMeters || 15000),
+          duration: 2.5
+        });
       } catch (e) {
-        console.error("Error en click del mapa: " + e.message);
-        notifyAndroid("Error en el click del mapa: " + e.message);
+        console.error("Error en setOperationView: " + e.message);
       }
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    };
 
-    if (window.Android && typeof Android.sendTrafficAlert === 'function') {
-      Android.sendTrafficAlert("Mapa listo");
-    }
+    window.updateMyPosition = function (lat, lon) {
+      try {
+        if (!viewer) return;
+        if (userMarker) viewer.entities.remove(userMarker);
 
-    console.log("Cesium OK");
-  } catch (e) {
-    console.error("Error iniciando Cesium: " + e.message);
-    document.body.innerHTML =
-      '<div style="color:#ef4444;padding:20px;font-family:monospace;background:#0a0f1e">Error: ' + e.message + '</div>';
-  }
-
-  // =========================
-  // Funciones actuales
-  // =========================
-  window.setOperationView = function(lat, lon, zoomMeters) {
-    try {
-      if (!viewer) return;
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(lon, lat, zoomMeters || 15000),
-        duration: 2.5
-      });
-    } catch (e) {
-      console.error("Error en setOperationView: " + e.message);
-    }
-  };
-
-  window.updateMyPosition = function(lat, lon) {
-    try {
-      if (!viewer) return;
-      if (userMarker) viewer.entities.remove(userMarker);
-
-      userMarker = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lon, lat),
-        point: {
-          pixelSize: 12,
-          color: Cesium.Color.LIME,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2
-        }
-      });
-    } catch (e) {
-      console.error("Error en updateMyPosition: " + e.message);
-    }
-  };
-
-  // =========================
-  // Rutas - selección
-  // =========================
-  function setStartPoint(lat, lon) {
-    startPoint = { lat, lon };
-    lastRoute = null;
-
-    if (routeEntity) {
-      viewer.entities.remove(routeEntity);
-      routeEntity = null;
-    }
-
-    if (startEntity) {
-      viewer.entities.remove(startEntity);
-    }
-
-    startEntity = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lon, lat),
-      point: {
-        pixelSize: 12,
-        color: Cesium.Color.LIME,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2
-      },
-      label: {
-        text: "ORIGEN",
-        font: "14px sans-serif",
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -24)
+        userMarker = viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(lon, lat),
+          point: {
+            pixelSize: 12,
+            color: Cesium.Color.LIME,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2
+          }
+        });
+      } catch (e) {
+        console.error("Error en updateMyPosition: " + e.message);
       }
-    });
-  }
+    };
 
-  function setEndPoint(lat, lon) {
-    endPoint = { lat, lon };
-    lastRoute = null;
-
-    if (routeEntity) {
-      viewer.entities.remove(routeEntity);
-      routeEntity = null;
-    }
-
-    if (endEntity) {
-      viewer.entities.remove(endEntity);
-    }
-
-    endEntity = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lon, lat),
-      point: {
-        pixelSize: 12,
-        color: Cesium.Color.YELLOW,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2
-      },
-      label: {
-        text: "DESTINO",
-        font: "14px sans-serif",
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -24)
-      }
-    });
-  }
-
-  window.setRouteStart = function(lat, lon) {
-    try {
-      setStartPoint(lat, lon);
-
-      if (startPoint && endPoint) {
-        calculateRouteSilently();
-      }
-    } catch (e) {
-      console.error("Error en setRouteStart: " + e.message);
-    }
-  };
-
-  window.setRouteEnd = function(lat, lon) {
-    try {
-      setEndPoint(lat, lon);
-
-      if (startPoint && endPoint) {
-        calculateRouteSilently();
-      }
-    } catch (e) {
-      console.error("Error en setRouteEnd: " + e.message);
-    }
-  };
-
-  window.enablePickStart = function() {
-    pickMode = "start";
-    notifyAndroid("Modo origen activo");
-  };
-
-  window.enablePickEnd = function() {
-    pickMode = "end";
-    notifyAndroid("Modo destino activo");
-  };
-
-   // =========================
-  // Rutas - OSRM
-  // =========================
-  async function getOsrmRoute(start, end) {
-    const url =
-      `${OSRM_BASE}/route/v1/driving/` +
-      `${start.lon},${start.lat};${end.lon},${end.lat}` +
-      `?overview=full&geometries=geojson`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 900000);
-
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal
-      });
-
-      if (!response.ok) {
-        throw new Error("No se pudo obtener ruta");
-      }
-
-      const data = await response.json();
-
-      if (!data.routes || !data.routes.length) {
-        throw new Error("No hay ruta disponible");
-      }
-
-      return data.routes[0];
-    } catch (err) {
-      if (err.name === "AbortError") {
-        throw new Error("La consulta de ruta tardó demasiado");
-      }
-      throw err;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-  }
-  
-  function drawRouteOnCesium(geojsonLineString) {
-    if (!viewer || !geojsonLineString || !Array.isArray(geojsonLineString.coordinates)) {
-      return;
-    }
-
-    const positions = geojsonLineString.coordinates.map(([lon, lat]) =>
-      Cesium.Cartesian3.fromDegrees(lon, lat)
-    );
-
-    if (routeEntity) {
-      viewer.entities.remove(routeEntity);
-    }
-
-    routeEntity = viewer.entities.add({
-      polyline: {
-        positions,
-        width: 5,
-        material: Cesium.Color.CYAN.withAlpha(0.9),
-        clampToGround: true
-      }
-    });
-  }
-
-  async function calculateRouteSilently() {
-    try {
-      if (!startPoint || !endPoint) return;
-
-      console.log("1. Entró a calculateRouteSilently", Date.now());
-      console.log("startPoint:", startPoint);
-      console.log("endPoint:", endPoint);
-
-      const route = await getOsrmRoute(startPoint, endPoint);
-
-      console.log("2. OSRM respondió", Date.now(), route);
-
-      if (!route || !route.geometry || route.geometry.type !== "LineString") {
-        throw new Error("La ruta regresó vacía o sin geometry válida");
-      }
-
-      lastRoute = route;
-
-      drawRouteOnCesium(route.geometry);
-      notifyRouteCreated(route);
-
-      console.log("3. Ruta dibujada y enviada al backend", Date.now());
-    } catch (e) {
-      console.error("Error calculando ruta:", e);
-    }
-  }
-
-  window.calculateRoute = async function() {
-    try {
-      if (!startPoint || !endPoint) {
-        notifyAndroid("Selecciona origen y destino primero");
-        return;
-      }
-
-      notifyAndroid("Calculando ruta...");
-
-      const route = await getOsrmRoute(startPoint, endPoint);
-      lastRoute = route;
-
-      drawRouteOnCesium(route.geometry);
-
-
-      const km = route.distance / 1000;
-      const min = route.duration / 60;
-
-      notifyAndroid(
-        `Ruta lista. Distancia: ${km.toFixed(2)} km · Tiempo: ${min.toFixed(1)} min`
-      );
-    } catch (e) {
-      console.error("Error calculando ruta: " + e.message);
-      notifyAndroid("Error calculando ruta: " + e.message);
-    }
-  };
-
-  window.clearRoute = function() {
-    try {
-      pickMode = null;
-      startPoint = null;
-      endPoint = null;
+    // =========================
+    // Rutas - selección
+    // =========================
+    function setStartPoint(lat, lon) {
+      startPoint = { lat, lon };
       lastRoute = null;
 
       if (routeEntity) {
@@ -437,88 +231,307 @@
 
       if (startEntity) {
         viewer.entities.remove(startEntity);
-        startEntity = null;
+      }
+
+      startEntity = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        point: {
+          pixelSize: 12,
+          color: Cesium.Color.LIME,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2
+        },
+        label: {
+          text: "ORIGEN",
+          font: "14px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -24)
+        }
+      });
+    }
+
+    function setEndPoint(lat, lon) {
+      endPoint = { lat, lon };
+      lastRoute = null;
+
+      if (routeEntity) {
+        viewer.entities.remove(routeEntity);
+        routeEntity = null;
       }
 
       if (endEntity) {
         viewer.entities.remove(endEntity);
-        endEntity = null;
       }
-    } catch (e) {
-      console.error("Error limpiando ruta: " + e.message);
-      notifyAndroid("Error limpiando ruta: " + e.message);
-    }
-  };
 
-  // =========================
-  // Helpers opcionales
-  // =========================
-  window.getRouteState = function() {
-    return {
-      startPoint,
-      endPoint,
-      lastRoute
-    };
-  };
-
-  // =========================
-  // Rutas Remotas (Sincronización)
-  // =========================
-  window.loadRemoteRoutes = function(routesArray) {
-     if (!Array.isArray(routesArray)) return;
-     routesArray.forEach(ruta => {
-        if (!remoteRoutes.has(ruta.id_ruta)) {
-           drawRemoteRoute(ruta);
+      endEntity = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        point: {
+          pixelSize: 12,
+          color: Cesium.Color.YELLOW,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2
+        },
+        label: {
+          text: "DESTINO",
+          font: "14px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -24)
         }
-     });
-  };
+      });
+    }
 
-  window.drawRemoteRoute = function(rutaObj) {
-     if (!rutaObj || !rutaObj.geojson) return;
-     
-     const geojson = typeof rutaObj.geojson === 'string' ? JSON.parse(rutaObj.geojson) : rutaObj.geojson;
-     const id = rutaObj.id_ruta;
-     const rol = (rutaObj.rol_creador || "").toUpperCase();
-     
-     // Color logic: ADMIN/CUT = rojo, CET = naranja, CELL = azul, resto = violeta
-     let colorCesium = Cesium.Color.PURPLE;
-     if (rol === "ADMIN" || rol === "CUT") colorCesium = Cesium.Color.RED;
-     else if (rol === "CET") colorCesium = Cesium.Color.ORANGE;
-     else if (rol === "CELL") colorCesium = Cesium.Color.DODGERBLUE;
-     
-     let coords = [];
-     if (geojson.coordinates && geojson.coordinates.length > 0) {
+    window.setRouteStart = function (lat, lon) {
+      try {
+        setStartPoint(lat, lon);
+
+        if (startPoint && endPoint) {
+          calculateRouteSilently();
+        }
+      } catch (e) {
+        console.error("Error en setRouteStart: " + e.message);
+      }
+    };
+
+    window.setRouteEnd = function (lat, lon) {
+      try {
+        setEndPoint(lat, lon);
+
+        if (startPoint && endPoint) {
+          calculateRouteSilently();
+        }
+      } catch (e) {
+        console.error("Error en setRouteEnd: " + e.message);
+      }
+    };
+
+    window.enablePickStart = function () {
+      pickMode = "start";
+      notifyAndroid("Modo origen activo");
+    };
+
+    window.enablePickEnd = function () {
+      pickMode = "end";
+      notifyAndroid("Modo destino activo");
+    };
+
+    // =========================
+    // Rutas - OSRM
+    // =========================
+    async function getOsrmRoute(start, end) {
+      const url =
+        `${OSRM_BASE}/route/v1/driving/` +
+        `${start.lon},${start.lat};${end.lon},${end.lat}` +
+        `?overview=full&geometries=geojson`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 900000);
+
+      try {
+        const response = await fetch(url, {
+          signal: controller.signal
+        });
+
+        if (!response.ok) {
+          throw new Error("No se pudo obtener ruta");
+        }
+
+        const data = await response.json();
+
+        if (!data.routes || !data.routes.length) {
+          throw new Error("No hay ruta disponible");
+        }
+
+        return data.routes[0];
+      } catch (err) {
+        if (err.name === "AbortError") {
+          throw new Error("La consulta de ruta tardó demasiado");
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    function drawRouteOnCesium(geojsonLineString) {
+      if (!viewer || !geojsonLineString || !Array.isArray(geojsonLineString.coordinates)) {
+        return;
+      }
+
+      const positions = geojsonLineString.coordinates.map(([lon, lat]) =>
+        Cesium.Cartesian3.fromDegrees(lon, lat)
+      );
+
+      if (routeEntity) {
+        viewer.entities.remove(routeEntity);
+      }
+
+      routeEntity = viewer.entities.add({
+        polyline: {
+          positions,
+          width: 5,
+          material: Cesium.Color.CYAN.withAlpha(0.9),
+          clampToGround: true
+        }
+      });
+    }
+
+    async function calculateRouteSilently() {
+      try {
+        if (!startPoint || !endPoint) return;
+
+        console.log("1. Entró a calculateRouteSilently", Date.now());
+        console.log("startPoint:", startPoint);
+        console.log("endPoint:", endPoint);
+
+        const route = await getOsrmRoute(startPoint, endPoint);
+
+        console.log("2. OSRM respondió", Date.now(), route);
+
+        if (!route || !route.geometry || route.geometry.type !== "LineString") {
+          throw new Error("La ruta regresó vacía o sin geometry válida");
+        }
+
+        lastRoute = route;
+
+        drawRouteOnCesium(route.geometry);
+        notifyRouteCreated(route);
+
+        console.log("3. Ruta dibujada y enviada al backend", Date.now());
+      } catch (e) {
+        console.error("Error calculando ruta:", e);
+      }
+    }
+
+    window.calculateRoute = async function () {
+      try {
+        if (!startPoint || !endPoint) {
+          notifyAndroid("Selecciona origen y destino primero");
+          return;
+        }
+
+        notifyAndroid("Calculando ruta...");
+
+        const route = await getOsrmRoute(startPoint, endPoint);
+        lastRoute = route;
+
+        drawRouteOnCesium(route.geometry);
+
+
+        const km = route.distance / 1000;
+        const min = route.duration / 60;
+
+        notifyAndroid(
+          `Ruta lista. Distancia: ${km.toFixed(2)} km · Tiempo: ${min.toFixed(1)} min`
+        );
+      } catch (e) {
+        console.error("Error calculando ruta: " + e.message);
+        notifyAndroid("Error calculando ruta: " + e.message);
+      }
+    };
+
+    window.clearRoute = function () {
+      try {
+        pickMode = null;
+        startPoint = null;
+        endPoint = null;
+        lastRoute = null;
+
+        if (routeEntity) {
+          viewer.entities.remove(routeEntity);
+          routeEntity = null;
+        }
+
+        if (startEntity) {
+          viewer.entities.remove(startEntity);
+          startEntity = null;
+        }
+
+        if (endEntity) {
+          viewer.entities.remove(endEntity);
+          endEntity = null;
+        }
+      } catch (e) {
+        console.error("Error limpiando ruta: " + e.message);
+        notifyAndroid("Error limpiando ruta: " + e.message);
+      }
+    };
+
+    // =========================
+    // Helpers opcionales
+    // =========================
+    window.getRouteState = function () {
+      return {
+        startPoint,
+        endPoint,
+        lastRoute
+      };
+    };
+
+    // =========================
+    // Rutas Remotas (Sincronización)
+    // =========================
+    window.loadRemoteRoutes = function (routesArray) {
+      if (!Array.isArray(routesArray)) return;
+      routesArray.forEach(ruta => {
+        if (!remoteRoutes.has(ruta.id_ruta)) {
+          drawRemoteRoute(ruta);
+        }
+      });
+    };
+
+    window.drawRemoteRoute = function (rutaObj) {
+      if (!rutaObj || !rutaObj.geojson) return;
+
+      const geojson = typeof rutaObj.geojson === 'string' ? JSON.parse(rutaObj.geojson) : rutaObj.geojson;
+      const id = rutaObj.id_ruta;
+      const rol = (rutaObj.rol_creador || "").toUpperCase();
+
+      // Color logic: ADMIN/CUT = rojo, CET = naranja, CELL = azul, resto = violeta
+      let colorCesium = Cesium.Color.PURPLE;
+      if (rol === "ADMIN" || rol === "CUT") colorCesium = Cesium.Color.RED;
+      else if (rol === "CET") colorCesium = Cesium.Color.ORANGE;
+      else if (rol === "CELL") colorCesium = Cesium.Color.DODGERBLUE;
+
+      let coords = [];
+      if (geojson.coordinates && geojson.coordinates.length > 0) {
         coords = geojson.coordinates.map(c => Cesium.Cartesian3.fromDegrees(c[0], c[1]));
-     }
-     
-     if (coords.length > 0) {
+      }
+
+      if (coords.length > 0) {
         const lineEntity = viewer.entities.add({
-           id: "remote_route_" + id,
-           polyline: {
-              positions: coords,
-              width: 5,
-              material: new Cesium.PolylineGlowMaterialProperty({
-                 glowPower: 0.1,
-                 color: colorCesium
-              }),
-              clampToGround: true
-           }
+          id: "remote_route_" + id,
+          polyline: {
+            positions: coords,
+            width: 5,
+            material: new Cesium.PolylineGlowMaterialProperty({
+              glowPower: 0.1,
+              color: colorCesium
+            }),
+            clampToGround: true
+          }
         });
         remoteRoutes.set(id, lineEntity);
-     }
-  };
+      }
+    };
 
-  window.removeRemoteRoute = function(id_ruta) {
-     const lineEntity = remoteRoutes.get(id_ruta);
-     if (lineEntity) {
+    window.removeRemoteRoute = function (id_ruta) {
+      const lineEntity = remoteRoutes.get(id_ruta);
+      if (lineEntity) {
         viewer.entities.remove(lineEntity);
         remoteRoutes.delete(id_ruta);
-     }
-  };
+      }
+    };
 
-  // TODO después:
-  // window.renderOperationalData = function(dataJson) { ... }
-  // window.addPointOfInterest = function(lat, lon, label, color) { ... }
-</script>
+    // TODO después:
+    // window.renderOperationalData = function(dataJson) { ... }
+    // window.addPointOfInterest = function(lat, lon, label, color) { ... }
+  </script>
 </body>
+
 </html>
