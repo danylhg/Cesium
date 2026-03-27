@@ -1,6 +1,7 @@
 package com.operaciones.operaciones_android.ui
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.webkit.WebView
@@ -12,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
+import com.operaciones.operaciones_android.emergency.EmergencyMonitorService
 import com.operaciones.operaciones_android.location.LocationHelper
 import com.operaciones.operaciones_android.map.MapActionController
 import com.operaciones.operaciones_android.model.ChatMessage
@@ -205,12 +207,40 @@ class MainActivity : AppCompatActivity(),
             fetchPersonalPanelData()
             fetchVehiculosPanelData()
             fetchEquiposPanelData()
+            startEmergencyService()
         }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         chatSocketManager?.disconnect()
+        stopEmergencyService()
+    }
+
+    // ── EmergencyMonitorService ──────────────────────────────────────────────
+
+    private fun buildEmergencyServiceIntent(): Intent =
+        Intent(this, EmergencyMonitorService::class.java).apply {
+            putExtra(EmergencyMonitorService.EXTRA_OPERATION_ID, currentOperation.id)
+            putExtra(EmergencyMonitorService.EXTRA_TOKEN, AuthManager.getToken(this@MainActivity))
+            putExtra(EmergencyMonitorService.EXTRA_UNIT_CODE, currentOperation.codigo)
+            putExtra(EmergencyMonitorService.EXTRA_USER_NAME, currentUser.nombreCompleto)
+        }
+
+    private fun startEmergencyService() {
+        if (currentOperation.id <= 0) return
+        val intent = buildEmergencyServiceIntent()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+        Log.d("EMERGENCY", "EmergencyMonitorService iniciado para op=${currentOperation.id}")
+    }
+
+    private fun stopEmergencyService() {
+        stopService(Intent(this, EmergencyMonitorService::class.java))
+        Log.d("EMERGENCY", "EmergencyMonitorService detenido")
     }
 
     override fun addMessage(msg: ChatMessage) {
