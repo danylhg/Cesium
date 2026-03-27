@@ -3,12 +3,27 @@
 // ===============================
 const sessionOk = localStorage.getItem("session") === "ok";
 const tokenGuard = localStorage.getItem("token");
+const usernameGuard =
+  localStorage.getItem("username") ||
+  localStorage.getItem("userName") ||
+  localStorage.getItem("usuario") ||
+  "Invitado";
+
+const userNameEl = document.getElementById("userName");
 
 if (!sessionOk || !tokenGuard) {
   localStorage.removeItem("session");
   localStorage.removeItem("token");
+  localStorage.removeItem("username");
+  localStorage.removeItem("userName");
+  localStorage.removeItem("usuario");
   localStorage.removeItem("active_operation_id");
   window.location.href = "login.html";
+}
+
+// mostrar usuario que inició sesión
+if (userNameEl) {
+  userNameEl.textContent = usernameGuard;
 }
 
 // ===============================
@@ -63,7 +78,6 @@ function toggleOpsPanelExclusive() {
 
   const estabaOculto = opsList.classList.contains("hidden");
 
-  // siempre cerrar el otro panel
   hideControlPanel();
 
   if (estabaOculto) {
@@ -78,7 +92,6 @@ function toggleControlPanelExclusive() {
 
   const estabaOculto = submenuControl.classList.contains("hidden");
 
-  // siempre cerrar el otro panel
   hideOpsPanel();
 
   if (estabaOculto) {
@@ -91,6 +104,9 @@ function toggleControlPanelExclusive() {
 function limpiarSesionYRedirigir(msg) {
   localStorage.removeItem("session");
   localStorage.removeItem("token");
+  localStorage.removeItem("username");
+  localStorage.removeItem("userName");
+  localStorage.removeItem("usuario");
   localStorage.removeItem("active_operation_id");
 
   if (msg) {
@@ -168,6 +184,9 @@ if (btnLogout) {
   btnLogout.addEventListener("click", () => {
     localStorage.removeItem("session");
     localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("usuario");
     localStorage.removeItem("active_operation_id");
     window.location.href = "login.html";
   });
@@ -193,13 +212,11 @@ if (btnSelect) {
 
     const panelEstabaAbierto = !opsList.classList.contains("hidden");
 
-    // si ya estaba abierto, solo cerrarlo
     if (panelEstabaAbierto) {
       hideOpsPanel();
       return;
     }
 
-    // abrir este y cerrar el otro
     hideControlPanel();
     showOpsPanel();
 
@@ -231,7 +248,6 @@ if (btnSelect) {
           tag.textContent = estado;
           li.appendChild(tag);
 
-          // operación inválida
           if (!idOperacion) {
             tag.textContent = "inválida";
             li.style.opacity = "0.6";

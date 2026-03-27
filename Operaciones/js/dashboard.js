@@ -1,6 +1,4 @@
 // =================== TOKEN CESIUM ION ===================
-// Reemplaza este valor con tu token real de Cesium ion.
-// Si no usas Cesium ion, puedes dejarlo así, pero verás warnings 401 en consola.
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 // =================== HELPERS OPERACION ACTIVA ===================
@@ -42,6 +40,66 @@ document.getElementById("logout").onclick = () => {
   window.location.href = "login.html";
 };
 
+function parseJwtPayload(tokenValue) {
+  try {
+    const base64 = tokenValue.split(".")[1];
+    if (!base64) return null;
+
+    const normalized = base64.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+const authPayload = parseJwtPayload(token);
+
+function getCurrentActor() {
+  const sub = Number(authPayload?.sub);
+  const tabla = String(authPayload?.tabla || "").toLowerCase();
+
+  return {
+    id: Number.isFinite(sub) ? sub : null,
+    tabla
+  };
+}
+
+function rutaPerteneceAlUsuarioActual(ruta) {
+  const actor = getCurrentActor();
+  if (!ruta || !actor.id || !actor.tabla) return false;
+
+  if (actor.tabla === "usuario") {
+    return Number(ruta.id_usuario) === actor.id;
+  }
+
+  if (actor.tabla === "personal") {
+    return Number(ruta.id_personal) === actor.id;
+  }
+
+  return false;
+}
+
+function getRutasNavegacionData() {
+  return Array.isArray(dashboardData?.rutas_navegacion)
+    ? dashboardData.rutas_navegacion
+    : [];
+}
+
+function getRutaActualDelUsuario() {
+  const rutas = getRutasNavegacionData();
+
+  const propias = rutas
+    .filter(rutaPerteneceAlUsuarioActual)
+    .sort((a, b) => {
+      const fa = new Date(a?.fecha_creacion || 0).getTime();
+      const fb = new Date(b?.fecha_creacion || 0).getTime();
+      return fb - fa;
+    });
+
+  return propias[0] || null;
+}
+
 // =================== STORAGE ===================
 const OPS_KEY = "ops";
 const HISTORY_KEY = "ops_history";
@@ -61,7 +119,9 @@ let pickMode = null;
 let startPoint = null;
 let endPoint = null;
 let lastRoute = null;
-let myRouteId = null; 
+let myRouteId = null;
+let currentVisibleRouteId = null;
+let rutasNavegacionEntities = new Map();
 
 let startEntity = null;
 let endEntity = null;
@@ -73,9 +133,8 @@ let equipoEntities = [];
 let zonaEntity = null;
 
 let socket = null;
-let rutasNavegacionEntities = new Map();
 
-const OSRM_BASE = "http://192.168.202.103:5000";
+const OSRM_BASE = "https://router.project-osrm.org";
 
 // Providers
 const providers = {
@@ -97,6 +156,12 @@ let tacticalEntities = [];
 let placingMode = false;
 let toolMode = "none";
 
+let selectedTacticalEntity = null;
+let currentMilIconSrc = "";
+let currentMilIconTitle = "";
+let pendingShapePoints = [];
+let pendingShapeMarkers = [];
+
 const toolSelect = document.getElementById("toolSelect");
 const milPreset = document.getElementById("milPreset");
 const symLabel = document.getElementById("symLabel");
@@ -104,6 +169,36 @@ const placeBtn = document.getElementById("placeBtn");
 const cancelPlace = document.getElementById("cancelPlace");
 const clearTactical = document.getElementById("clearTactical");
 const tbHint = document.getElementById("tbHint");
+
+const finishShape = document.getElementById("finishShape");
+const deleteSelectedBtn = document.getElementById("deleteSelectedBtn");
+const clearSelectionBtn = document.getElementById("clearSelectionBtn");
+const selectionInfo = document.getElementById("selectionInfo");
+
+const colorSelect = document.getElementById("colorSelect");
+const opacityRange = document.getElementById("opacityRange");
+const widthRange = document.getElementById("widthRange");
+const radiusInput = document.getElementById("radiusInput");
+
+const iconPallet = document.getElementById("iconPallet");
+const iconSettings = document.getElementById("iconSettings");
+const iconScale = document.getElementById("iconScale");
+
+// =================== CHAT UI ===================
+const chatPanel = document.getElementById("chatPanel");
+const toggleChatPanel = document.getElementById("toggleChatPanel");
+const chatMessages = document.getElementById("chatMessages");
+const chatInput = document.getElementById("chatInput");
+const sendChatBtn = document.getElementById("sendChatBtn");
+const chatTabCet = document.getElementById("chatTabCet");
+const chatTabCells = document.getElementById("chatTabCells");
+const quickMsgBtns = document.querySelectorAll(".quickMsgBtn");
+const recordVoiceBtn = document.getElementById("recordVoiceBtn");
+const stopVoiceBtn = document.getElementById("stopVoiceBtn");
+const voiceStatus = document.getElementById("voiceStatus");
+
+let currentChatChannel = "CET";
+let chatMessagesState = [];
 
 // =================== PANELES ===================
 const infoPanel = document.getElementById("infoPanel");
@@ -118,10 +213,12 @@ function closeAllPanels() {
   infoPanel.classList.remove("open");
   routePanel.classList.remove("open");
   tacticalPanel.classList.remove("open");
+  if (chatPanel) chatPanel.classList.remove("open");
 
   toggleInfoPanel.classList.remove("active");
   toggleRoutePanel.classList.remove("active");
   toggleTacticalPanel.classList.remove("active");
+  if (toggleChatPanel) toggleChatPanel.classList.remove("active");
 }
 
 function togglePanel(panel, button) {
@@ -137,6 +234,9 @@ function togglePanel(panel, button) {
 toggleInfoPanel.addEventListener("click", () => togglePanel(infoPanel, toggleInfoPanel));
 toggleRoutePanel.addEventListener("click", () => togglePanel(routePanel, toggleRoutePanel));
 toggleTacticalPanel.addEventListener("click", () => togglePanel(tacticalPanel, toggleTacticalPanel));
+if (toggleChatPanel && chatPanel) {
+  toggleChatPanel.addEventListener("click", () => togglePanel(chatPanel, toggleChatPanel));
+}
 
 // =================== UTIL ===================
 function escapeHtml(s) {
@@ -221,6 +321,88 @@ function getLatLonFromItem(item) {
   return { lat, lon };
 }
 
+function getCesiumColor(name = "red", alpha = 1) {
+  const map = {
+    red: Cesium.Color.RED,
+    blue: Cesium.Color.BLUE,
+    black: Cesium.Color.BLACK,
+    yellow: Cesium.Color.YELLOW,
+    green: Cesium.Color.LIME,
+    orange: Cesium.Color.ORANGE,
+    white: Cesium.Color.WHITE
+  };
+  const base = map[String(name).toLowerCase()] || Cesium.Color.RED;
+  return base.withAlpha(Number(alpha) || 1);
+}
+
+function getStyleValues() {
+  return {
+    colorName: colorSelect?.value || "red",
+    color: getCesiumColor(colorSelect?.value || "red", Number(opacityRange?.value || 0.35)),
+    alpha: Number(opacityRange?.value || 0.35),
+    width: Number(widthRange?.value || 3),
+    radius: Number(radiusInput?.value || 5000),
+    iconScale: Number(iconScale?.value || 0.2)
+  };
+}
+
+function clearPendingShapeMarkers() {
+  if (!viewer) return;
+  pendingShapeMarkers.forEach((ent) => viewer.entities.remove(ent));
+  pendingShapeMarkers = [];
+}
+
+function resetDrawingState(keepTool = true) {
+  placingMode = false;
+  pendingShapePoints = [];
+  clearPendingShapeMarkers();
+
+  if (!keepTool) {
+    toolMode = "none";
+    if (toolSelect) toolSelect.value = "none";
+  }
+
+  setTacticalUI();
+}
+
+function addPendingShapeMarker(lat, lng) {
+  if (!viewer) return;
+
+  const ent = viewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(lng, lat),
+    point: {
+      pixelSize: 8,
+      color: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    }
+  });
+
+  pendingShapeMarkers.push(ent);
+}
+
+function setSelectedEntity(entity) {
+  selectedTacticalEntity = entity || null;
+
+  if (!selectionInfo) return;
+
+  if (!selectedTacticalEntity) {
+    selectionInfo.textContent = "No hay elemento seleccionado.";
+    return;
+  }
+
+  const label =
+    selectedTacticalEntity?.properties?.labelText?.getValue?.() ||
+    selectedTacticalEntity?.label?.text?.getValue?.() ||
+    selectedTacticalEntity?.label?.text ||
+    selectedTacticalEntity?.name ||
+    selectedTacticalEntity?.id ||
+    "Elemento táctico";
+
+  selectionInfo.textContent = `Seleccionado: ${label}`;
+}
+
 // =================== BACKEND ===================
 async function fetchDashboardDataFromBackend() {
   const opId = getActiveOperationId();
@@ -268,22 +450,35 @@ async function fetchDashboardDataFromBackend() {
     zonaRes,
     personalRes,
     vehiculosRes,
-    equiposRes
+    equiposRes,
+    mapaRes
   ] = await Promise.all([
     getJson(`${API_BASE}/ops/${opId}`),
     getJson(`${API_BASE}/ops/${opId}/zona`, true),
     getJson(`${API_BASE}/ops/${opId}/personal`, true),
     getJson(`${API_BASE}/ops/${opId}/vehiculos-asignados`, true),
-    getJson(`${API_BASE}/ops/${opId}/equipos-asignados`, true)
+    getJson(`${API_BASE}/ops/${opId}/equipos-asignados`, true),
+    getJson(`${API_BASE}/ops/${opId}/mapa`, true)
   ]);
+
+  const rutasActivas = Array.isArray(mapaRes?.rutas_navegacion)
+    ? mapaRes.rutas_navegacion
+    : [];
 
   dashboardData = {
     ok: true,
-    operacion: operacionRes || {},
-    zona_operacion: zonaRes?.zona || null,
-    personal: Array.isArray(personalRes?.items) ? personalRes.items : [],
-    vehiculos: Array.isArray(vehiculosRes?.items) ? vehiculosRes.items : [],
-    equipos: Array.isArray(equiposRes?.items) ? equiposRes.items : []
+    operacion: operacionRes || mapaRes?.operacion || {},
+    zona_operacion: zonaRes?.zona || mapaRes?.zona_operacion || null,
+    personal: Array.isArray(personalRes?.items)
+      ? personalRes.items
+      : (Array.isArray(mapaRes?.personal) ? mapaRes.personal : []),
+    vehiculos: Array.isArray(vehiculosRes?.items)
+      ? vehiculosRes.items
+      : (Array.isArray(mapaRes?.vehiculos) ? mapaRes.vehiculos : []),
+    equipos: Array.isArray(equiposRes?.items)
+      ? equiposRes.items
+      : (Array.isArray(mapaRes?.equipos) ? mapaRes.equipos : []),
+    rutas_navegacion: rutasActivas
   };
 
   return dashboardData;
@@ -359,256 +554,506 @@ function renderInfoPanel() {
     <div class="infoBlock">
       <h3>Zona de operación</h3>
       <p><strong>Centroide lat:</strong> ${escapeHtml(
-        centroideLat != null ? String(centroideLat) : "No definido"
-      )}</p>
+    centroideLat != null ? String(centroideLat) : "No definido"
+  )}</p>
       <p><strong>Centroide lon:</strong> ${escapeHtml(
-        centroideLon != null ? String(centroideLon) : "No definido"
-      )}</p>
+    centroideLon != null ? String(centroideLon) : "No definido"
+  )}</p>
       <p><strong>Zoom inicial:</strong> ${escapeHtml(
-        zoomInicial != null ? String(zoomInicial) : "No definido"
-      )}</p>
+    zoomInicial != null ? String(zoomInicial) : "No definido"
+  )}</p>
     </div>
 
     <div class="infoBlock">
       <h3>Personal asignado</h3>
-      ${
-        personal.length
-          ? personal.map(p => {
-              const nombre = firstString(
-                `${p.nombre || ""} ${p.apellido || ""}`.trim(),
-                p.apodo,
-                p.nombre_completo,
-                p.name,
-                "Sin nombre"
-              );
+      ${personal.length
+      ? personal.map(p => {
+        const nombre = firstString(
+          `${p.nombre || ""} ${p.apellido || ""}`.trim(),
+          p.apodo,
+          p.nombre_completo,
+          p.name,
+          "Sin nombre"
+        );
 
-              const cargo = firstString(
-                p.rol,
-                p.puesto,
-                p.cargo,
-                "Sin cargo"
-              );
+        const cargo = firstString(
+          p.rol,
+          p.puesto,
+          p.cargo,
+          "Sin cargo"
+        );
 
-              const grupo = firstString(
-                p.grupo_apodo,
-                p.grupo_nombre,
-                p.grupo_padre_apodo && p.grupo_apodo
-                  ? `${p.grupo_padre_apodo} / ${p.grupo_apodo}`
-                  : "",
-                p.grupo_padre_nombre && p.grupo_nombre
-                  ? `${p.grupo_padre_nombre} / ${p.grupo_nombre}`
-                  : "",
-                p.grupo_padre_apodo,
-                p.grupo_padre_nombre,
-                "Sin grupo"
-              );
+        const grupo = firstString(
+          p.grupo_apodo,
+          p.grupo_nombre,
+          p.grupo_padre_apodo && p.grupo_apodo
+            ? `${p.grupo_padre_apodo} / ${p.grupo_apodo}`
+            : "",
+          p.grupo_padre_nombre && p.grupo_nombre
+            ? `${p.grupo_padre_nombre} / ${p.grupo_nombre}`
+            : "",
+          p.grupo_padre_apodo,
+          p.grupo_padre_nombre,
+          "Sin grupo"
+        );
 
-              return `
-                <div class="miniCard">
-                  <p><strong>Nombre:</strong> ${escapeHtml(nombre)}</p>
-                  <p><strong>Cargo:</strong> ${escapeHtml(cargo)}</p>
-                  <p><strong>Grupo:</strong> ${escapeHtml(grupo)}</p>
-                </div>
-              `;
-            }).join("")
-          : `<p>Sin personal asignado.</p>`
-      }
+        return `
+            <div class="miniCard">
+              <p><strong>Nombre:</strong> ${escapeHtml(nombre)}</p>
+              <p><strong>Cargo:</strong> ${escapeHtml(cargo)}</p>
+              <p><strong>Grupo:</strong> ${escapeHtml(grupo)}</p>
+            </div>
+          `;
+      }).join("")
+      : `<p>Sin personal asignado.</p>`
+    }
     </div>
 
     <div class="infoBlock">
       <h3>Vehículos asignados</h3>
-      ${
-        vehiculos.length
-          ? vehiculos.map(v => {
-              const unidad = firstString(
-                v.codigo_interno,
-                v.unidad,
-                v.nombre,
-                "Sin unidad"
-              );
+      ${vehiculos.length
+      ? vehiculos.map(v => {
+        const unidad = firstString(
+          v.codigo_interno,
+          v.unidad,
+          v.nombre,
+          "Sin unidad"
+        );
 
-              const tipo = firstString(
-                v.tipo,
-                "Sin tipo"
-              );
+        const tipo = firstString(
+          v.tipo,
+          "Sin tipo"
+        );
 
-              const placas = firstString(
-                v.placas,
-                "Sin placas"
-              );
+        const placas = firstString(
+          v.placas,
+          "Sin placas"
+        );
 
-              const asignado = firstString(
-                v.grupo_apodo,
-                v.grupo_nombre,
-                v.grupo_padre_apodo && v.grupo_apodo
-                  ? `${v.grupo_padre_apodo} / ${v.grupo_apodo}`
-                  : "",
-                v.grupo_padre_nombre && v.grupo_nombre
-                  ? `${v.grupo_padre_nombre} / ${v.grupo_nombre}`
-                  : "",
-                v.grupo_padre_apodo,
-                v.grupo_padre_nombre,
-                v.uso_en_operacion,
-                "Sin asignación"
-              );
+        const asignado = firstString(
+          v.grupo_apodo,
+          v.grupo_nombre,
+          v.grupo_padre_apodo && v.grupo_apodo
+            ? `${v.grupo_padre_apodo} / ${v.grupo_apodo}`
+            : "",
+          v.grupo_padre_nombre && v.grupo_nombre
+            ? `${v.grupo_padre_nombre} / ${v.grupo_nombre}`
+            : "",
+          v.grupo_padre_apodo,
+          v.grupo_padre_nombre,
+          v.uso_en_operacion,
+          "Sin asignación"
+        );
 
-              return `
-                <div class="miniCard">
-                  <p><strong>Unidad:</strong> ${escapeHtml(unidad)}</p>
-                  <p><strong>Tipo:</strong> ${escapeHtml(tipo)}</p>
-                  <p><strong>Placas:</strong> ${escapeHtml(placas)}</p>
-                  <p><strong>Asignación:</strong> ${escapeHtml(asignado)}</p>
-                </div>
-              `;
-            }).join("")
-          : `<p>Sin vehículos asignados.</p>`
-      }
+        return `
+            <div class="miniCard">
+              <p><strong>Unidad:</strong> ${escapeHtml(unidad)}</p>
+              <p><strong>Tipo:</strong> ${escapeHtml(tipo)}</p>
+              <p><strong>Placas:</strong> ${escapeHtml(placas)}</p>
+              <p><strong>Asignación:</strong> ${escapeHtml(asignado)}</p>
+            </div>
+          `;
+      }).join("")
+      : `<p>Sin vehículos asignados.</p>`
+    }
     </div>
 
     <div class="infoBlock">
       <h3>Equipos asignados</h3>
-      ${
-        equipos.length
-          ? equipos.map(e => {
-              const nombre = firstString(e.nombre, e.descripcion, "Sin nombre");
-              const codigo = firstString(
-                e.numero_serie,
-                e.codigo,
-                e.codigoInterno,
-                "Sin código"
-              );
-              const categoria = firstString(e.categoria, "Sin categoría");
-              const asignadoA = firstString(
-                e.personal_apodo,
-                e.personal_asignado,
-                e.vehiculo_alias,
-                e.vehiculo_asignado,
-                e.uso_en_operacion,
-                "Sin asignación"
-              );
+      ${equipos.length
+      ? equipos.map(e => {
+        const nombre = firstString(e.nombre, e.descripcion, "Sin nombre");
+        const codigo = firstString(
+          e.numero_serie,
+          e.codigo,
+          e.codigoInterno,
+          "Sin código"
+        );
+        const categoria = firstString(e.categoria, "Sin categoría");
+        const asignadoA = firstString(
+          e.personal_apodo,
+          e.personal_asignado,
+          e.vehiculo_alias,
+          e.vehiculo_asignado,
+          e.uso_en_operacion,
+          "Sin asignación"
+        );
 
-              return `
-                <div class="miniCard">
-                  <p><strong>Nombre:</strong> ${escapeHtml(nombre)}</p>
-                  <p><strong>Código:</strong> ${escapeHtml(codigo)}</p>
-                  <p><strong>Categoría:</strong> ${escapeHtml(categoria)}</p>
-                  <p><strong>Asignado a:</strong> ${escapeHtml(asignadoA)}</p>
-                </div>
-              `;
-            }).join("")
-          : `<p>Sin equipos asignados.</p>`
-      }
+        return `
+            <div class="miniCard">
+              <p><strong>Nombre:</strong> ${escapeHtml(nombre)}</p>
+              <p><strong>Código:</strong> ${escapeHtml(codigo)}</p>
+              <p><strong>Categoría:</strong> ${escapeHtml(categoria)}</p>
+              <p><strong>Asignado a:</strong> ${escapeHtml(asignadoA)}</p>
+            </div>
+          `;
+      }).join("")
+      : `<p>Sin equipos asignados.</p>`
+    }
     </div>
   `;
 }
 
 // =================== TACTICAL UI ===================
 function setTacticalUI() {
-  const isMil = toolMode === "mil";
-  const isBldg = toolMode === "bldg";
+  const isMilLegacy = toolMode === "mil";
+  const isBldgLegacy = toolMode === "bldg";
+  const isPoi = toolMode === "poi";
+  const isCircle = toolMode === "circle";
+  const isPolygon = toolMode === "polygon";
+  const isPolyline = toolMode === "polyline";
+  const isPerimeter = toolMode === "perimeter";
+  const isLabel = toolMode === "label";
+  const isMil = isMilLegacy;
 
-  milPreset.disabled = !isMil;
-  symLabel.disabled = !(isMil || isBldg);
-  placeBtn.disabled = (toolMode === "none") || (isMil && !milPreset.value);
+  if (milPreset) {
+    milPreset.disabled = !isMil;
+  }
 
-  if (toolMode === "none") tbHint.textContent = "Selecciona una herramienta para comenzar.";
-  if (toolMode === "mil") tbHint.textContent = "Elige un símbolo y presiona 'Colocar'. Luego haz click en el mapa.";
-  if (toolMode === "bldg") tbHint.textContent = "Escribe etiqueta y presiona 'Colocar'. Luego haz click en el mapa.";
+  if (symLabel) {
+    symLabel.disabled = !(isMil || isBldgLegacy || isPoi || isLabel);
+  }
+
+  if (placeBtn) {
+    placeBtn.disabled =
+      toolMode === "none" ||
+      (isMil && !milPreset?.value && !currentMilIconSrc);
+  }
+
+  if (iconPallet) {
+    iconPallet.style.display = isMil ? "grid" : "none";
+  }
+
+  if (iconSettings) {
+    iconSettings.style.display = isMil ? "block" : "none";
+  }
+
+  if (tbHint) {
+    if (toolMode === "none") tbHint.textContent = "Selecciona una herramienta para comenzar.";
+    if (toolMode === "mil") tbHint.textContent = "Selecciona un símbolo MIL, presiona 'Colocar / iniciar' y luego haz click en el mapa.";
+    if (toolMode === "bldg") tbHint.textContent = "Escribe etiqueta y presiona 'Colocar'. Luego haz click en el mapa.";
+    if (toolMode === "poi") tbHint.textContent = "Pon el nombre del punto y presiona 'Colocar / iniciar'. Luego haz click en el mapa.";
+    if (toolMode === "circle") tbHint.textContent = "Presiona 'Colocar / iniciar' y luego haz click en el mapa para poner el centro.";
+    if (toolMode === "polygon") tbHint.textContent = "Presiona 'Colocar / iniciar'. Haz varios clics en el mapa y al final 'Terminar figura'.";
+    if (toolMode === "polyline") tbHint.textContent = "Presiona 'Colocar / iniciar'. Haz varios clics y después 'Terminar figura'.";
+    if (toolMode === "perimeter") tbHint.textContent = "Presiona 'Colocar / iniciar'. Haz varios clics y después 'Terminar figura'.";
+    if (toolMode === "label") tbHint.textContent = "Escribe un texto, presiona 'Colocar / iniciar' y luego haz click en el mapa.";
+  }
 }
 
-toolSelect.addEventListener("change", (e) => {
-  toolMode = e.target.value;
-  placingMode = false;
-  setTacticalUI();
+if (toolSelect) {
+  toolSelect.addEventListener("change", (e) => {
+    toolMode = e.target.value;
+    placingMode = false;
+    pendingShapePoints = [];
+    clearPendingShapeMarkers();
+    setTacticalUI();
+  });
+}
+
+if (milPreset) {
+  milPreset.addEventListener("change", setTacticalUI);
+}
+
+document.querySelectorAll(".iconItem").forEach((item) => {
+  item.addEventListener("click", () => {
+    document.querySelectorAll(".iconItem").forEach((i) => i.classList.remove("selected"));
+    item.classList.add("selected");
+    currentMilIconSrc = item.dataset.src || "";
+    currentMilIconTitle = item.dataset.title || "Símbolo MIL";
+    setTacticalUI();
+  });
 });
 
-milPreset.addEventListener("change", setTacticalUI);
-
-placeBtn.addEventListener("click", () => {
-  if (toolMode === "mil" && !milPreset.value) return;
+placeBtn?.addEventListener("click", () => {
+  if (toolMode === "mil" && !milPreset?.value && !currentMilIconSrc) return;
   placingMode = true;
-  tbHint.textContent = "Modo colocar activo. Haz click en el mapa para colocar.";
+  pendingShapePoints = [];
+  clearPendingShapeMarkers();
+  tbHint.textContent = "Modo colocar activo. Haz click en el mapa.";
 });
 
-cancelPlace.addEventListener("click", () => {
-  placingMode = false;
-  tbHint.textContent = "Cancelado. Selecciona 'Colocar' cuando quieras poner otro.";
+cancelPlace?.addEventListener("click", () => {
+  resetDrawingState(true);
+  tbHint.textContent = "Cancelado. Selecciona 'Colocar / iniciar' cuando quieras poner otro.";
 });
 
-clearTactical.addEventListener("click", () => {
+clearTactical?.addEventListener("click", () => {
   if (!viewer) return;
   tacticalEntities.forEach(ent => viewer.entities.remove(ent));
   tacticalEntities = [];
-  tbHint.textContent = "Símbolos limpiados.";
+  setSelectedEntity(null);
+  resetDrawingState(true);
+  tbHint.textContent = "Elementos tácticos limpiados.";
 });
 
-function handleTacticalPlacement(lat, lng) {
-  if (!placingMode || toolMode === "none") return false;
+finishShape?.addEventListener("click", () => {
+  if (!viewer || !placingMode) return;
 
-  if (toolMode === "mil") {
-    const sidc = milPreset.value;
-    const label = (symLabel.value || "").trim();
+  if (toolMode === "polygon" || toolMode === "perimeter") {
+    if (pendingShapePoints.length < 3) {
+      tbHint.textContent = "Necesitas al menos 3 puntos.";
+      return;
+    }
 
-    const sym = new ms.Symbol(sidc, { size: 40 });
-    const svg = sym.asSVG();
-    const dataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    const style = getStyleValues();
+    const hierarchy = pendingShapePoints.map((p) =>
+      Cesium.Cartesian3.fromDegrees(p.lng, p.lat)
+    );
 
-    const ent = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lng, lat),
-      billboard: {
-        image: dataUrl,
-        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        scale: 1
-      },
-      label: label ? {
-        text: label,
-        font: "14px sans-serif",
-        pixelOffset: new Cesium.Cartesian2(0, -50),
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-      } : undefined
-    });
+    let entity;
 
-    tacticalEntities.push(ent);
-    placingMode = false;
-    tbHint.textContent = "Símbolo colocado.";
-    setTacticalUI();
-    return true;
+    if (toolMode === "polygon") {
+      entity = viewer.entities.add({
+        polygon: {
+          hierarchy,
+          material: style.color,
+          outline: true,
+          outlineColor: getCesiumColor(style.colorName, 1),
+          outlineWidth: style.width,
+          perPositionHeight: false
+        },
+        properties: {
+          tactical: true,
+          type: "polygon",
+          labelText: symLabel?.value?.trim() || "Polígono"
+        }
+      });
+    } else {
+      entity = viewer.entities.add({
+        polyline: {
+          positions: [
+            ...hierarchy,
+            hierarchy[0]
+          ],
+          width: style.width,
+          material: new Cesium.PolylineDashMaterialProperty({
+            color: getCesiumColor(style.colorName, 1),
+            dashLength: 16
+          }),
+          clampToGround: true
+        },
+        properties: {
+          tactical: true,
+          type: "perimeter",
+          labelText: symLabel?.value?.trim() || "Perímetro"
+        }
+      });
+    }
+
+    tacticalEntities.push(entity);
+    setSelectedEntity(entity);
+    resetDrawingState(true);
+    tbHint.textContent = "Figura terminada.";
+    return;
   }
 
-  if (toolMode === "bldg") {
-    const label = (symLabel.value || "Edificio").trim();
+  if (toolMode === "polyline") {
+    if (pendingShapePoints.length < 2) {
+      tbHint.textContent = "Necesitas al menos 2 puntos.";
+      return;
+    }
 
-    const ent = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lng, lat),
-      point: {
-        pixelSize: 10,
-        color: Cesium.Color.ORANGE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    const style = getStyleValues();
+    const positions = pendingShapePoints.map((p) =>
+      Cesium.Cartesian3.fromDegrees(p.lng, p.lat)
+    );
+
+    const entity = viewer.entities.add({
+      polyline: {
+        positions,
+        width: style.width,
+        material: getCesiumColor(style.colorName, style.alpha),
+        clampToGround: true
       },
-      label: {
-        text: label,
-        font: "14px sans-serif",
-        pixelOffset: new Cesium.Cartesian2(0, -20),
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      properties: {
+        tactical: true,
+        type: "polyline",
+        labelText: symLabel?.value?.trim() || "Línea táctica"
       }
     });
 
-    tacticalEntities.push(ent);
-    placingMode = false;
-    tbHint.textContent = "Marcador colocado.";
-    setTacticalUI();
-    return true;
+    tacticalEntities.push(entity);
+    setSelectedEntity(entity);
+    resetDrawingState(true);
+    tbHint.textContent = "Línea táctica terminada.";
+  }
+});
+
+deleteSelectedBtn?.addEventListener("click", () => {
+  if (!viewer || !selectedTacticalEntity) return;
+
+  viewer.entities.remove(selectedTacticalEntity);
+  tacticalEntities = tacticalEntities.filter((e) => e !== selectedTacticalEntity);
+  setSelectedEntity(null);
+});
+
+clearSelectionBtn?.addEventListener("click", () => {
+  setSelectedEntity(null);
+});
+
+function handleTacticalPlacement(lat, lng) {
+  if (!viewer) return false;
+
+  if (placingMode && toolMode !== "none") {
+    const style = getStyleValues();
+
+    if (toolMode === "mil") {
+      const label = (symLabel.value || currentMilIconTitle || "Símbolo MIL").trim();
+
+      let imageToUse = "";
+      if (currentMilIconSrc) {
+        imageToUse = currentMilIconSrc;
+      } else if (milPreset?.value) {
+        const sym = new ms.Symbol(milPreset.value, { size: 40 });
+        const svg = sym.asSVG();
+        imageToUse = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+      }
+
+      const ent = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lng, lat),
+        billboard: {
+          image: imageToUse,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          scale: style.iconScale || 0.2
+        },
+        label: label ? {
+          text: label,
+          font: "14px sans-serif",
+          pixelOffset: new Cesium.Cartesian2(0, -50),
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        } : undefined,
+        properties: {
+          tactical: true,
+          type: "mil",
+          labelText: label
+        }
+      });
+
+      tacticalEntities.push(ent);
+      setSelectedEntity(ent);
+      placingMode = false;
+      tbHint.textContent = "Símbolo colocado.";
+      setTacticalUI();
+      return true;
+    }
+
+    if (toolMode === "bldg" || toolMode === "poi") {
+      const label = (symLabel.value || (toolMode === "poi" ? "Punto de interés" : "Edificio")).trim();
+
+      const ent = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lng, lat),
+        point: {
+          pixelSize: 10,
+          color: getCesiumColor(style.colorName, 1),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        label: {
+          text: label,
+          font: "14px sans-serif",
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        properties: {
+          tactical: true,
+          type: toolMode,
+          labelText: label
+        }
+      });
+
+      tacticalEntities.push(ent);
+      setSelectedEntity(ent);
+      placingMode = false;
+      tbHint.textContent = "Punto colocado.";
+      setTacticalUI();
+      return true;
+    }
+
+    if (toolMode === "label") {
+      const text = (symLabel.value || "Etiqueta").trim();
+
+      const ent = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lng, lat),
+        label: {
+          text,
+          font: "16px sans-serif",
+          fillColor: getCesiumColor(style.colorName, 1),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 4,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        properties: {
+          tactical: true,
+          type: "label",
+          labelText: text
+        }
+      });
+
+      tacticalEntities.push(ent);
+      setSelectedEntity(ent);
+      placingMode = false;
+      tbHint.textContent = "Etiqueta colocada.";
+      setTacticalUI();
+      return true;
+    }
+
+    if (toolMode === "circle") {
+      const radius = style.radius || 5000;
+      const label = (symLabel.value || "Cobertura").trim();
+
+      const ent = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lng, lat),
+        ellipse: {
+          semiMajorAxis: radius,
+          semiMinorAxis: radius,
+          material: style.color,
+          outline: true,
+          outlineColor: getCesiumColor(style.colorName, 1),
+          outlineWidth: style.width,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        label: {
+          text: label,
+          font: "14px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -20)
+        },
+        properties: {
+          tactical: true,
+          type: "circle",
+          labelText: label
+        }
+      });
+
+      tacticalEntities.push(ent);
+      setSelectedEntity(ent);
+      placingMode = false;
+      tbHint.textContent = "Círculo colocado.";
+      setTacticalUI();
+      return true;
+    }
+
+    if (toolMode === "polygon" || toolMode === "polyline" || toolMode === "perimeter") {
+      pendingShapePoints.push({ lat, lng });
+      addPendingShapeMarker(lat, lng);
+      tbHint.textContent = `Punto agregado (${pendingShapePoints.length}). Presiona "Terminar figura" al finalizar.`;
+      return true;
+    }
   }
 
   return false;
@@ -645,7 +1090,15 @@ function initCesium() {
   });
 
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
   handler.setInputAction((movement) => {
+    const pickedObject = viewer.scene.pick(movement.position);
+    if (pickedObject?.id && tacticalEntities.includes(pickedObject.id)) {
+      setSelectedEntity(pickedObject.id);
+    } else {
+      setSelectedEntity(null);
+    }
+
     const cartesian = viewer.camera.pickEllipsoid(
       movement.position,
       viewer.scene.globe.ellipsoid
@@ -716,7 +1169,14 @@ function initCesium() {
       });
 
       pickMode = null;
-      setRouteInfo("Destino seleccionado. Ya puedes calcular ruta.");
+
+      const calcBtn = document.getElementById("calcRoute");
+      if (calcBtn && calcBtn.style.display === "none") {
+        calcBtn.click();
+        setRouteInfo("Destino seleccionado. Calculando ruta...");
+      } else {
+        setRouteInfo("Destino seleccionado. Ya puedes calcular ruta.");
+      }
       return;
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -745,7 +1205,7 @@ document.getElementById("setEnd").onclick = () => {
   toggleRoutePanel.classList.add("active");
 };
 
-document.getElementById("clearRoute").onclick = () => {
+document.getElementById("clearRoute").onclick = async () => {
   lastRoute = null;
   startPoint = null;
   endPoint = null;
@@ -762,7 +1222,60 @@ document.getElementById("clearRoute").onclick = () => {
   document.getElementById("opLat").value = "";
   document.getElementById("opLng").value = "";
 
-  setRouteInfo("Ruta y puntos limpiados.");
+  const idOp = getActiveOperationId();
+
+  // 1) si esta misma sesión web creó una ruta, esa tiene prioridad
+  let routeIdToDelete = myRouteId;
+
+  // 2) si no, busca la última ruta activa del usuario actual en backendData
+  if (!routeIdToDelete) {
+    const rutaPropia = getRutaActualDelUsuario();
+    routeIdToDelete = rutaPropia?.id_ruta || null;
+  }
+
+  if (!routeIdToDelete) {
+    setRouteInfo("No hay una ruta tuya activa para limpiar.");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${idOp}/rutas/navegacion/${routeIdToDelete}`, {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`
+      }
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      console.error("No se pudo ocultar la ruta:", data?.mensaje || res.status);
+      setRouteInfo(data?.mensaje || "No se pudo limpiar tu ruta.");
+      return;
+    }
+
+    // quita visualmente esa ruta si está dibujada
+    const entityId = `ruta_nav_${routeIdToDelete}`;
+    const entity = viewer.entities.getById(entityId);
+    if (entity) viewer.entities.remove(entity);
+    rutasNavegacionEntities.delete(entityId);
+
+    // sáquela también del estado local
+    if (Array.isArray(dashboardData?.rutas_navegacion)) {
+      dashboardData.rutas_navegacion = dashboardData.rutas_navegacion.filter(
+        (r) => Number(r.id_ruta) !== Number(routeIdToDelete)
+      );
+    }
+
+    if (myRouteId === routeIdToDelete) {
+      myRouteId = null;
+    }
+
+    setRouteInfo("Tu ruta fue limpiada.");
+  } catch (e) {
+    console.error("Error al borrar ruta del mapa global", e);
+    setRouteInfo("Error al limpiar tu ruta.");
+  }
 };
 
 document.getElementById("calcRoute").onclick = async () => {
@@ -778,27 +1291,24 @@ document.getElementById("calcRoute").onclick = async () => {
     lastRoute = route;
 
     drawRouteOnCesium(route.geometry);
-    zoomToRoute(route.geometry);
 
     const km = route.distance / 1000;
     const min = route.duration / 60;
 
     setRouteInfo(`Ruta lista. Distancia: ${km.toFixed(2)} km · Tiempo: ${min.toFixed(1)} min`);
 
-    // Sincronizar ruta nueva a los demás clientes con Sockets y Guardarla en DB
     const idOp = getActiveOperationId();
     const headers = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`
     };
-    
-    // Si ya teníamos una ruta trazada, la borramos antes de subir la nueva
+
     if (myRouteId) {
-       await fetch(`${API_BASE}/ops/${idOp}/rutas/navegacion/${myRouteId}`, {
-           method: "DELETE",
-           headers
-       }).catch(e => console.error("Error borrando ruta anterior", e));
-       myRouteId = null;
+      await fetch(`${API_BASE}/ops/${idOp}/rutas/navegacion/${myRouteId}`, {
+        method: "DELETE",
+        headers
+      }).catch(e => console.error("Error borrando ruta anterior", e));
+      myRouteId = null;
     }
 
     const bodyData = {
@@ -819,10 +1329,10 @@ document.getElementById("calcRoute").onclick = async () => {
 
     const data = await res.json();
     if (data.ok) {
-        myRouteId = data.id_ruta;
-        console.log("Ruta de navegación guardada/sincronizada ID:", myRouteId);
+      myRouteId = data.id_ruta;
+      console.log("Ruta de navegación guardada/sincronizada ID:", myRouteId);
     } else {
-        console.error("Error sincronizando ruta:", data.mensaje);
+      console.error("Error sincronizando ruta:", data.mensaje);
     }
 
   } catch (err) {
@@ -831,25 +1341,25 @@ document.getElementById("calcRoute").onclick = async () => {
 };
 
 // =================== GUARDAR OPERACION ===================
-document.getElementById("saveOp").onclick = () => {
+document.getElementById("saveOp")?.addEventListener("click", () => {
   const msg = document.getElementById("opsMsg");
-  msg.textContent = "";
+  if (msg) msg.textContent = "";
 
-  const title = document.getElementById("opTitle").value.trim();
-  const description = document.getElementById("opDesc").value.trim();
+  const title = document.getElementById("opTitle")?.value?.trim() || "";
+  const description = document.getElementById("opDesc")?.value?.trim() || "";
 
   if (!startPoint || !endPoint) {
-    msg.textContent = "Primero selecciona origen y destino.";
+    if (msg) msg.textContent = "Primero selecciona origen y destino.";
     return;
   }
 
   if (!lastRoute) {
-    msg.textContent = "Primero calcula la ruta.";
+    if (msg) msg.textContent = "Primero calcula la ruta.";
     return;
   }
 
   if (!title) {
-    msg.textContent = "Pon un título para guardar la operación.";
+    if (msg) msg.textContent = "Pon un título para guardar la operación.";
     return;
   }
 
@@ -871,21 +1381,21 @@ document.getElementById("saveOp").onclick = () => {
 
   localStorage.setItem(OPERACION_ACTUAL_KEY, JSON.stringify(op));
 
-  document.getElementById("opTitle").value = "";
-  document.getElementById("opDesc").value = "";
+  if (document.getElementById("opTitle")) document.getElementById("opTitle").value = "";
+  if (document.getElementById("opDesc")) document.getElementById("opDesc").value = "";
 
   renderInfoPanel();
-  msg.textContent = "Operación guardada correctamente.";
-};
+  if (msg) msg.textContent = "Operación guardada correctamente.";
+});
 
-document.getElementById("clearOps").onclick = async () => {
+document.getElementById("clearOps")?.addEventListener("click", async () => {
   localStorage.removeItem(OPERACION_ACTUAL_KEY);
 
-  document.getElementById("opTitle").value = "";
-  document.getElementById("opDesc").value = "";
-  document.getElementById("opLat").value = "";
-  document.getElementById("opLng").value = "";
-  document.getElementById("opsMsg").textContent = "Operación actual eliminada.";
+  if (document.getElementById("opTitle")) document.getElementById("opTitle").value = "";
+  if (document.getElementById("opDesc")) document.getElementById("opDesc").value = "";
+  if (document.getElementById("opLat")) document.getElementById("opLat").value = "";
+  if (document.getElementById("opLng")) document.getElementById("opLng").value = "";
+  if (document.getElementById("opsMsg")) document.getElementById("opsMsg").textContent = "Operación actual eliminada.";
 
   lastRoute = null;
   startPoint = null;
@@ -898,7 +1408,7 @@ document.getElementById("clearOps").onclick = async () => {
   routeEntity = null;
   startEntity = null;
   endEntity = null;
-  
+
   if (myRouteId) {
     try {
       const idOp = getActiveOperationId();
@@ -913,12 +1423,12 @@ document.getElementById("clearOps").onclick = async () => {
   }
 
   renderInfoPanel();
-};
+});
 
 // =================== HISTORIAL ===================
-document.getElementById("goHistory").onclick = () => {
+document.getElementById("goHistory")?.addEventListener("click", () => {
   window.location.href = "historial.html";
-};
+});
 
 // =================== OSRM ===================
 async function getOsrmRoute(start, end) {
@@ -982,7 +1492,11 @@ function drawRutaNavegacion(ruta) {
   else if (rol === "CELL") materialColor = Cesium.Color.DODGERBLUE;
 
   const entityId = `ruta_nav_${ruta.id_ruta}`;
-  if (rutasNavegacionEntities.has(entityId)) return;
+
+  const existente = viewer.entities.getById(entityId);
+  if (existente) {
+    viewer.entities.remove(existente);
+  }
 
   const coords = Array.isArray(ruta.geojson.coordinates)
     ? ruta.geojson.coordinates
@@ -1031,6 +1545,7 @@ function drawRutaNavegacion(ruta) {
   });
 
   rutasNavegacionEntities.set(entityId, entity);
+
 }
 
 // =================== ENTIDADES OPERACIONALES ===================
@@ -1201,7 +1716,7 @@ function renderEquiposOnMap() {
 
 function renderRutasNavegacionOnMap() {
   if (!viewer || !dashboardData || !dashboardData.rutas_navegacion) return;
-  
+
   dashboardData.rutas_navegacion.forEach((ruta) => {
     drawRutaNavegacion(ruta);
   });
@@ -1240,23 +1755,55 @@ function setupRealtimeSocket() {
     console.log("Socket desconectado");
   });
 
+  socket.on("chat_message", (data) => {
+    console.log("Evento chat_message:", data);
+
+    const item = data?.item || data?.mensaje || data;
+    if (!item) return;
+
+    mergeIncomingChatMessage(item);
+    renderChatMessages();
+  });
+
   socket.on("ruta_navegacion_creada", (data) => {
     console.log("Evento ruta_navegacion_creada:", data);
 
     if (!data?.ruta) return;
+
+    if (!Array.isArray(dashboardData?.rutas_navegacion)) {
+      if (!dashboardData) dashboardData = {};
+      dashboardData.rutas_navegacion = [];
+    }
+
+    dashboardData.rutas_navegacion = dashboardData.rutas_navegacion.filter(
+      (r) => Number(r.id_ruta) !== Number(data.ruta.id_ruta)
+    );
+    dashboardData.rutas_navegacion.unshift(data.ruta);
+
     drawRutaNavegacion(data.ruta);
   });
 
   socket.on("ruta_navegacion_eliminada", (data) => {
     console.log("Evento ruta_navegacion_eliminada:", data);
     if (!viewer || !data || !data.id_ruta) return;
-    
+
     const entityId = `ruta_nav_${data.id_ruta}`;
     const entity = viewer.entities.getById(entityId);
     if (entity) {
       viewer.entities.remove(entity);
     }
+
     rutasNavegacionEntities.delete(entityId);
+
+    if (Array.isArray(dashboardData?.rutas_navegacion)) {
+      dashboardData.rutas_navegacion = dashboardData.rutas_navegacion.filter(
+        (r) => Number(r.id_ruta) !== Number(data.id_ruta)
+      );
+    }
+
+    if (myRouteId === data.id_ruta) {
+      myRouteId = null;
+    }
   });
 }
 
@@ -1284,8 +1831,12 @@ function loadCurrentOperationOnMap() {
     endPoint = op.end;
     lastRoute = op.route || null;
 
-    document.getElementById("opTitle").value = op.title || "";
-    document.getElementById("opDesc").value = op.description || "";
+    if (document.getElementById("opTitle")) {
+      document.getElementById("opTitle").value = op.title || "";
+    }
+    if (document.getElementById("opDesc")) {
+      document.getElementById("opDesc").value = op.description || "";
+    }
     document.getElementById("opLat").value = `${op.start.lat.toFixed(5)}, ${op.start.lng.toFixed(5)}`;
     document.getElementById("opLng").value = `${op.end.lat.toFixed(5)}, ${op.end.lng.toFixed(5)}`;
 
@@ -1322,7 +1873,6 @@ function loadCurrentOperationOnMap() {
 
     if (op.route?.geometry) {
       drawRouteOnCesium(op.route.geometry);
-      zoomToRoute(op.route.geometry);
       setRouteInfo(`Mostrando operación local: ${op.title}`);
     } else {
       setRouteInfo("Operación local cargada. Falta ruta calculada.");
@@ -1330,11 +1880,238 @@ function loadCurrentOperationOnMap() {
   }
 }
 
+function normalizeChatMessage(item) {
+  if (!item) return null;
+
+  return {
+    id_mensaje: item.id_mensaje ?? null,
+    id_chat: item.id_chat ?? null,
+    contenido: String(item.contenido || "").trim(),
+    tipo_mensaje: String(item.tipo_mensaje || "NORMAL").toUpperCase(),
+    fecha_envio: item.fecha_envio || new Date().toISOString(),
+    tipo_participante: item.tipo_participante || null,
+    id_usuario: item.id_usuario ?? null,
+    id_personal: item.id_personal ?? null,
+    autor_nombre: item.autor_nombre || "Sin nombre"
+  };
+}
+
+function isOwnChatMessage(item) {
+  if (!item) return false;
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    const sub = Number(payload?.sub);
+    const tabla = String(payload?.tabla || "").toLowerCase();
+
+    if (!Number.isFinite(sub)) return false;
+
+    if (tabla === "usuario") {
+      return Number(item.id_usuario) === sub;
+    }
+
+    if (tabla === "personal") {
+      return Number(item.id_personal) === sub;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+function formatChatTime(value) {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function mergeIncomingChatMessage(item) {
+  const normalized = normalizeChatMessage(item);
+  if (!normalized) return;
+
+  const idx = chatMessagesState.findIndex(
+    (m) => Number(m.id_mensaje) === Number(normalized.id_mensaje)
+  );
+
+  if (idx >= 0) {
+    chatMessagesState[idx] = normalized;
+  } else {
+    chatMessagesState.push(normalized);
+  }
+
+  chatMessagesState.sort((a, b) => {
+    const fa = new Date(a.fecha_envio || 0).getTime();
+    const fb = new Date(b.fecha_envio || 0).getTime();
+    return fa - fb;
+  });
+}
+
+async function loadChatHistoryFromBackend() {
+  const opId = getActiveOperationId();
+
+  const res = await fetch(`${API_BASE}/ops/${opId}/chat/messages`, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    }
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem("session");
+    localStorage.removeItem("token");
+    localStorage.removeItem("active_operation_id");
+    throw new Error(data?.mensaje || "Tu sesión expiró. Inicia sesión nuevamente.");
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.mensaje || `Error ${res.status} cargando chat`);
+  }
+
+  chatMessagesState = Array.isArray(data?.items)
+    ? data.items.map(normalizeChatMessage).filter(Boolean)
+    : [];
+
+  renderChatMessages();
+}
+
+// =================== CHAT FRONTEND ===================
+function renderChatMessages() {
+  if (!chatMessages) return;
+
+  const items = chatMessagesState;
+
+  if (!items.length) {
+    chatMessages.innerHTML = `<div class="chatEmpty">No hay mensajes en este canal.</div>`;
+    return;
+  }
+
+  chatMessages.innerHTML = items.map((m) => {
+    const self = isOwnChatMessage(m);
+    const tipo = String(m.tipo_mensaje || "NORMAL").toUpperCase();
+
+    return `
+      <div class="chatMsg ${self ? "self" : ""}">
+        <div class="chatMsgMeta">
+          <strong>${escapeHtml(m.autor_nombre || "Sin nombre")}</strong>
+          <span>${escapeHtml(formatChatTime(m.fecha_envio))}</span>
+        </div>
+        <div class="chatMsgBody">
+          ${tipo !== "NORMAL" ? `<span class="chatTypeTag">${escapeHtml(tipo)}</span> ` : ""}
+          ${escapeHtml(m.contenido || "")}
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function setChatChannel(channel) {
+  currentChatChannel = channel;
+
+  if (chatTabCet) chatTabCet.classList.toggle("active", channel === "CET");
+  if (chatTabCells) chatTabCells.classList.toggle("active", channel === "CELLS");
+
+  // por ahora ambas tabs muestran el mismo chat real de la operación
+  renderChatMessages();
+}
+
+async function sendChatMessageToBackend(contenido, tipoMensaje = "NORMAL") {
+  const opId = getActiveOperationId();
+
+  const res = await fetch(`${API_BASE}/ops/${opId}/chat/messages`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      contenido,
+      tipo_mensaje: tipoMensaje
+    })
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (res.status === 401 || res.status === 403) {
+    localStorage.removeItem("session");
+    localStorage.removeItem("token");
+    localStorage.removeItem("active_operation_id");
+    throw new Error(data?.mensaje || "Tu sesión expiró. Inicia sesión nuevamente.");
+  }
+
+  if (!res.ok) {
+    throw new Error(data?.mensaje || `Error ${res.status} enviando mensaje`);
+  }
+
+  // el backend ya emite chat_message, pero por si tarda el socket,
+  // metemos el mensaje retornado también
+  if (data?.item) {
+    mergeIncomingChatMessage(data.item);
+    renderChatMessages();
+  }
+
+  return data;
+}
+
+chatTabCet?.addEventListener("click", () => setChatChannel("CET"));
+chatTabCells?.addEventListener("click", () => setChatChannel("CELLS"));
+
+quickMsgBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const msg = btn.dataset.msg || "";
+    if (chatInput) chatInput.value = msg;
+  });
+});
+
+sendChatBtn?.addEventListener("click", async () => {
+  const text = chatInput?.value || "";
+  const clean = text.trim();
+  if (!clean) return;
+
+  sendChatBtn.disabled = true;
+
+  try {
+    await sendChatMessageToBackend(clean, "NORMAL");
+    chatInput.value = "";
+  } catch (err) {
+    console.error("Error enviando mensaje:", err);
+    alert(err?.message || "No se pudo enviar el mensaje.");
+  } finally {
+    sendChatBtn.disabled = false;
+  }
+});
+
+chatInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendChatBtn?.click();
+  }
+});
+
+recordVoiceBtn?.addEventListener("click", () => {
+  if (voiceStatus) voiceStatus.textContent = "Grabación simulada en frontend...";
+  if (recordVoiceBtn) recordVoiceBtn.disabled = true;
+  if (stopVoiceBtn) stopVoiceBtn.disabled = false;
+});
+
+stopVoiceBtn?.addEventListener("click", () => {
+  if (voiceStatus) voiceStatus.textContent = "Micrófono inactivo.";
+  if (recordVoiceBtn) recordVoiceBtn.disabled = false;
+  if (stopVoiceBtn) stopVoiceBtn.disabled = true;
+});
+
 // =================== INIT GENERAL ===================
 window.addEventListener("load", async () => {
   initCesium();
   setTacticalUI();
   setupRealtimeSocket();
+  setChatChannel("CET");
 
   try {
     await loadDashboardFromBackend();
@@ -1355,6 +2132,20 @@ window.addEventListener("load", async () => {
     }
 
     setRouteInfo(err?.message || "No se pudo cargar el dashboard.");
+  }
+
+  try {
+    await loadChatHistoryFromBackend();
+  } catch (err) {
+    console.error("Error cargando chat:", err);
+
+    if (chatMessages) {
+      chatMessages.innerHTML = `
+        <div class="chatEmpty">
+          No se pudo cargar el chat: ${escapeHtml(err?.message || "error desconocido")}
+        </div>
+      `;
+    }
   }
 
   infoPanel.classList.add("open");

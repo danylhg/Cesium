@@ -1,19 +1,21 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Menú inicial</title>
   <link rel="stylesheet" href="css/menu_inicial.css" />
 </head>
+
 <body>
 
   <!-- Topbar -->
   <header class="topbar">
     <div class="brand">
-      <div class="logo"></div>
+      <img src="img/logo_sedam.jpeg" alt="Logo" class="logo" />
       <div class="brandText">
-        <div class="brandName">Centro de Operaciones</div>
+        <div class="brandName">Usuario: <span id="userName">Invitado</span></div>
         <div class="brandSub">Panel administrativo</div>
       </div>
     </div>
@@ -46,6 +48,11 @@
           <button id="btnCreate" class="btn primary">
             <span class="btnIcon">＋</span>
             Crear operación
+          </button>
+
+          <button id="btnEmergency" class="btn danger">
+            <span class="btnIcon">!</span>
+            Operación de emergencia
           </button>
 
           <button id="btnSelect" class="btn soft">
@@ -81,4 +88,5 @@
 
   <script src="js/menu_inicial.js"></script>
 </body>
+
 </html>

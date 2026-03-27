@@ -1,36 +1,48 @@
 <!doctype html>
 <html lang="es">
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Login</title>
+  <title>Login - Sistema de Operaciones</title>
   <link rel="stylesheet" href="css/login.css" />
 </head>
+
 <body>
-  <div class="bg"></div>
 
-  <div class="card">
-    <div class="icon">
-      <div class="shield">🛡️</div>
-    </div>
-
-    <h1>Sistema de Operaciones</h1>
-    <p class="sub">Ingresa tus credenciales para continuar</p>
-
-    <label>Usuario</label>
-    <input id="username" placeholder="Ingresa tu usuario" />
-
-    <label>Contraseña</label>
-    <input id="password" type="password" placeholder="Ingresa tu contraseña" />
-
-    <button id="btnLogin">Iniciar Sesión</button>
-    <p id="msg" class="msg"></p>
-
-    <p class="hint">
-      Demo: usuario <b>admin</b> · contraseña <b>1234</b>
-    </p>
+  <!-- Fondo -->
+  <div class="bgOrbs" aria-hidden="true">
+    <span class="orb orb1"></span>
+    <span class="orb orb2"></span>
+    <span class="orb orb3"></span>
   </div>
+
+  <!-- Card de login -->
+  <main class="wrap">
+    <div class="card">
+      <div class="icon">
+        <img src="img/logo_sedam.jpeg" alt="Logo SEDAM" class="logoSedam" />
+      </div>
+
+      <h1>Sistema de Operaciones</h1>
+      <p class="sub">Ingresa tus credenciales para continuar</p>
+
+      <label>Usuario</label>
+      <input id="username" placeholder="Ingresa tu usuario" />
+
+      <label>Contraseña</label>
+      <input id="password" type="password" placeholder="Ingresa tu contraseña" />
+
+      <button id="btnLogin">Iniciar Sesión</button>
+      <p id="msg" class="msg"></p>
+
+      <p class="hint">
+        Demo: usuario <b>admin</b> · contraseña <b>1234</b>
+      </p>
+    </div>
+  </main>
 
   <script src="js/login.js"></script>
 </body>
+
 </html>
