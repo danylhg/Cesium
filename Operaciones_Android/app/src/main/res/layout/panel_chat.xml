@@ -25,14 +25,31 @@
         android:layout_weight="1"
         android:clipToPadding="false"/>
 
+    <!-- Predetermined messages (Quick replies) -->
+    <HorizontalScrollView
+        android:id="@+id/quickRepliesScroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none"
+        android:overScrollMode="never"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="4dp">
+        <LinearLayout
+            android:id="@+id/quickRepliesContainer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingVertical="4dp"/>
+    </HorizontalScrollView>
+
     <!-- Input row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="6dp"
-        >
+        android:layout_marginTop="4dp">
 
         <!-- Campo de texto -->
         <EditText

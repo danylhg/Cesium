@@ -66,6 +66,34 @@ class MainPanelRenderer(
             msgInput.text.clear()
         }
 
+        // --- Quick Replies (Mensajes predeterminados) ---
+        val quickRepliesContainer = view.findViewById<LinearLayout>(R.id.quickRepliesContainer)
+        val suggestions = listOf(
+            "Recibido",
+            "En camino",
+            "Apoyo necesario",
+            "Situación controlada",
+            "Zona despejada",
+            "Solicito extracción"
+        )
+
+        suggestions.forEach { text ->
+            val chip = host.getLayoutInflater().inflate(R.layout.item_quick_reply, quickRepliesContainer, false)
+            val replyText = chip.findViewById<TextView>(R.id.replyText)
+            replyText.text = text
+
+            // Estilo especial para mensajes críticos si se desea
+            if (text == "Apoyo necesario") {
+                replyText.setTextColor(Color.parseColor("#ef4444")) // Rojo para urgencia
+            }
+
+            chip.setOnClickListener {
+                host.sendChatMessage(text, alert = (text == "Apoyo necesario"))
+                msgInput.text.clear()
+            }
+            quickRepliesContainer.addView(chip)
+        }
+
         return ChatPanelRefs(
             recyclerView = chatRecycler,
             adapter = chatAdapter,

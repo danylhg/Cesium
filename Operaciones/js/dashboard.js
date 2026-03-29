@@ -1,15 +1,16 @@
 // =================== TOKEN CESIUM ION ===================
-Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
+const CESIUM_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 // =================== HELPERS OPERACION ACTIVA ===================
 function getActiveOperationId() {
-  const id = localStorage.getItem("active_operation_id");
+  const idValue = localStorage.getItem("active_operation_id");
 
-  if (!id) {
-    throw new Error("No hay operación seleccionada.");
+  // Validar si el valor es realmente útil (no 'null', 'undefined' o vacío)
+  if (!idValue || idValue === "null" || idValue === "undefined") {
+    throw new Error("No hay operación activa en la sesión.");
   }
 
-  const num = Number(id);
+  const num = Number(idValue);
   if (!Number.isFinite(num) || num <= 0) {
     throw new Error("El id de operación activa no es válido.");
   }
@@ -1555,6 +1556,11 @@ function finishPlanningAreaByPoints() {
 
 // =================== INIT MAPA ===================
 function initCesium() {
+  // Aplicar token justo antes de inicializar, asegurando que Cesium esté cargado
+  if (typeof Cesium !== "undefined") {
+    Cesium.Ion.defaultAccessToken = CESIUM_ACCESS_TOKEN;
+  }
+
   viewer = new Cesium.Viewer("map", {
     timeline: false,
     animation: false,
@@ -2767,28 +2773,75 @@ cancelOpMapBtn?.addEventListener("click", async () => {
   }
 });
 
+// =================== LOADING SCREEN LOGIC ===================
+function addLoadingLog(message, status = "..") {
+  const logBox = document.getElementById("loadingLogBox");
+  if (!logBox) return;
+
+  const entry = document.createElement("div");
+  entry.className = "logEntry";
+  entry.innerHTML = `<span class="logStatus">[${status}]</span> ${message}`;
+  logBox.prepend(entry); // Newest at top, but container is column-reverse
+}
+
+function updateLoadingProgress(percent) {
+  const fill = document.getElementById("loadingBarFill");
+  const text = document.getElementById("loadingPercentage");
+  if (fill) fill.style.width = `${percent}%`;
+  if (text) text.textContent = `${Math.round(percent)}%`;
+}
+
+function finishLoading() {
+  const overlay = document.getElementById("loadingOverlay");
+  if (overlay) {
+    overlay.classList.add("hidden");
+    setTimeout(() => overlay.remove(), 1000);
+  }
+}
+
 // =================== INIT GENERAL ===================
-window.addEventListener("load", async () => {
+document.addEventListener("DOMContentLoaded", async () => {
   if (!validateDashboardAccess()) return;
 
-  initCesium();
-  setTacticalUI();
-  ensureMapActionButtonsVisible();
-
   try {
-    await loadDashboardFromBackend();
+    updateLoadingProgress(10);
+    addLoadingLog("Autenticando sesión táctica...", "OK");
 
+    // Inicializar Cesium (pesado)
+    updateLoadingProgress(25);
+    addLoadingLog("Inicializando motor de mapas Cesium JS...");
+    initCesium();
+    addLoadingLog("Motor de mapas listo", "OK");
+
+    updateLoadingProgress(40);
+    addLoadingLog("Configurando herramientas de campo...", "OK");
+    setTacticalUI();
+    ensureMapActionButtonsVisible();
+
+    // Carga de datos
+    updateLoadingProgress(60);
+    addLoadingLog("Sincronizando activos de la operación...");
+    await loadDashboardFromBackend();
+    addLoadingLog("Activos sincronizados", "OK");
+
+    updateLoadingProgress(80);
+    addLoadingLog("Aplicando estado operacional...");
     applyOperationStateUI();
     applyChatPermissions();
 
     // SOCKET SOLO EN ACTIVA
     if (isOperacionActiva()) {
+      addLoadingLog("Conectando a red de datos en tiempo real...");
       setupRealtimeSocket();
+      addLoadingLog("Enlace de datos activo", "OK");
     }
 
     // CHAT EN ACTIVA Y TERMINADA
     if (isOperacionActiva() || isOperacionTerminada()) {
+      updateLoadingProgress(90);
+      addLoadingLog("Recuperando historial de comunicaciones...");
       await loadChatHistoryFromBackend();
+      addLoadingLog("Canales de voz y texto listos", "OK");
     } else {
       if (chatMessages) {
         chatMessages.innerHTML = `
@@ -2799,13 +2852,27 @@ window.addEventListener("load", async () => {
       }
     }
 
-  } catch (err) {
-    console.error("Error cargando dashboard:", err);
-    setRouteInfo(err?.message || "No se pudo cargar el dashboard.");
-  }
+    updateLoadingProgress(100);
+    addLoadingLog("SISTEMA LISTO Y OPERATIVO", "OK");
 
-  infoPanel.classList.add("open");
-  toggleInfoPanel.classList.add("active");
+    // Pequeña espera para que se vea el 100%
+    setTimeout(() => {
+      finishLoading();
+      infoPanel.classList.add("open");
+      toggleInfoPanel.classList.add("active");
+    }, 500);
+
+  } catch (err) {
+    console.error("Error durante el arranque:", err);
+    addLoadingLog(`ERROR CRÍTICO: ${err.message}`, "FAIL");
+    updateLoadingProgress(100);
+
+    // Permitir entrar aunque falle algo, para no bloquear
+    setTimeout(() => {
+      finishLoading();
+      setRouteInfo(err?.message || "Error en la carga parcial del sistema.");
+    }, 2000);
+  }
 });
 
 // =================== CERRAR PANELES AL DAR CLICK FUERA ===================

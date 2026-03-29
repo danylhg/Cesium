@@ -18,7 +18,7 @@
     #cesiumContainer {
       width: 100%;
       height: 100%;
-      background: #0a0f1e;
+      background: #ffffff;
       overflow: hidden;
     }
 
@@ -110,8 +110,10 @@
       Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
       viewer = new Cesium.Viewer('cesiumContainer', {
         baseLayer: new Cesium.ImageryLayer(
-          new Cesium.OpenStreetMapImageryProvider({
-            url: 'https://tile.openstreetmap.org/'
+          new Cesium.UrlTemplateImageryProvider({
+            url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+            subdomains: 'abcd',
+            credit: '© OpenStreetMap contributors, © CARTO'
           })
         ),
         terrainProvider: new Cesium.EllipsoidTerrainProvider(),
