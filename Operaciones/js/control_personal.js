@@ -21,14 +21,7 @@
     window.location.href = "login.html";
   }
 
-  const sessionOk = localStorage.getItem("session") === "ok";
-  const initialToken = localStorage.getItem("token");
   const currentRole = (localStorage.getItem("rol") || "").toUpperCase();
-
-  if (!sessionOk || !initialToken) {
-    redirectToLogin();
-    return;
-  }
 
   const ALLOWED_WEB_ROLES = ["ADMIN", "CUT"];
   if (!ALLOWED_WEB_ROLES.includes(currentRole)) {

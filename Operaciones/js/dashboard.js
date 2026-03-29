@@ -17,12 +17,7 @@ function getActiveOperationId() {
   return num;
 }
 
-// =================== SESION ===================
-const session = localStorage.getItem("session");
-if (session !== "ok") {
-  window.location.href = "login.html";
-}
-
+// =================== SESION (Ya validada en dashboard_auth.js) ===================
 const API_BASE =
   localStorage.getItem("API_BASE") ||
   `http://${window.location.hostname}:3001`;
@@ -37,7 +32,7 @@ document.getElementById("logout").onclick = () => {
   localStorage.removeItem("username");
   localStorage.removeItem("token");
   localStorage.removeItem("active_operation_id");
-  window.location.href = "login.html";
+  window.location.href = "menu_inicial.html";
 };
 
 function parseJwtPayload(tokenValue) {
@@ -134,6 +129,10 @@ let zonaEntity = null;
 
 let socket = null;
 
+const saveOpMapBtn = document.getElementById("saveOpMapBtn");
+const cancelOpMapBtn = document.getElementById("cancelOpMapBtn");
+const mapActionButtons = document.getElementById("mapActionButtons");
+
 const OSRM_BASE = "https://router.project-osrm.org";
 
 // Providers
@@ -156,11 +155,37 @@ let tacticalEntities = [];
 let placingMode = false;
 let toolMode = "none";
 
-let selectedTacticalEntity = null;
+let selectedEntity = null;
+let draggingEntity = null;
+let isDragging = false;
+
 let currentMilIconSrc = "";
 let currentMilIconTitle = "";
+
 let pendingShapePoints = [];
 let pendingShapeMarkers = [];
+
+let tacticalPreviewLine = null;
+let tacticalPreviewFill = null;
+
+// Área de planeación
+let areaMode = false;
+let areaDrawing = false;
+let areaPoints = [];
+let areaVertexEntities = [];
+let areaPreviewLine = null;
+let planningAreaFill = null;
+let planningAreaBorder = null;
+let planningAreaLabel = null;
+
+// Popup flotante
+const markAreaBtn = document.getElementById("markAreaBtn");
+const clearAreaBtn = document.getElementById("clearAreaBtn");
+const areaInfo = document.getElementById("areaInfo");
+
+const entityPopup = document.getElementById("entityPopup");
+const entityPopupName = document.getElementById("entityPopupName");
+const entityPopupDelete = document.getElementById("entityPopupDelete");
 
 const toolSelect = document.getElementById("toolSelect");
 const milPreset = document.getElementById("milPreset");
@@ -346,6 +371,88 @@ function getStyleValues() {
   };
 }
 
+function getLineWidth() {
+  return Number(widthRange?.value || 3);
+}
+
+function getOpacity() {
+  return Number(opacityRange?.value || 0.35);
+}
+
+function getRadius() {
+  return Number(radiusInput?.value || 5000);
+}
+
+function getCurrentLabel() {
+  return (symLabel?.value || "").trim();
+}
+
+function getCurrentColorName() {
+  return colorSelect?.value || "red";
+}
+
+function toCartesianArray(points) {
+  return points.map((p) => Cesium.Cartesian3.fromDegrees(p.lng, p.lat));
+}
+
+function cartesianToLatLng(cartesian) {
+  const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
+  return {
+    lat: Cesium.Math.toDegrees(cartographic.latitude),
+    lng: Cesium.Math.toDegrees(cartographic.longitude)
+  };
+}
+
+function getMapClickPosition(screenPosition) {
+  const scene = viewer.scene;
+
+  let cartesian = null;
+
+  if (scene.pickPositionSupported) {
+    cartesian = scene.pickPosition(screenPosition);
+  }
+
+  if (!cartesian) {
+    cartesian = viewer.camera.pickEllipsoid(screenPosition, scene.globe.ellipsoid);
+  }
+
+  return cartesian;
+}
+
+function isDraggableEntity(entity) {
+  if (!entity) return false;
+
+  const draggable =
+    entity.properties?.draggable?.getValue?.() ??
+    entity.properties?.draggable;
+
+  return Boolean(draggable && entity.position);
+}
+
+function updateSelectionInfo() {
+  if (!selectionInfo) return;
+
+  if (!selectedEntity) {
+    selectionInfo.textContent = "No hay elemento seleccionado.";
+    return;
+  }
+
+  const name = selectedEntity.name || "Elemento táctico";
+  const type =
+    selectedEntity.properties?.tacticalType?.getValue?.() ||
+    selectedEntity.properties?.type?.getValue?.() ||
+    selectedEntity.properties?.tacticalType ||
+    selectedEntity.properties?.type ||
+    "Sin tipo";
+
+  selectionInfo.textContent = `Seleccionado: ${name} · Tipo: ${type}`;
+}
+
+function addTacticalEntity(entity) {
+  tacticalEntities.push(entity);
+  return entity;
+}
+
 function clearPendingShapeMarkers() {
   if (!viewer) return;
   pendingShapeMarkers.forEach((ent) => viewer.entities.remove(ent));
@@ -356,6 +463,11 @@ function resetDrawingState(keepTool = true) {
   placingMode = false;
   pendingShapePoints = [];
   clearPendingShapeMarkers();
+
+  if (tacticalPreviewLine && viewer) viewer.entities.remove(tacticalPreviewLine);
+  if (tacticalPreviewFill && viewer) viewer.entities.remove(tacticalPreviewFill);
+  tacticalPreviewLine = null;
+  tacticalPreviewFill = null;
 
   if (!keepTool) {
     toolMode = "none";
@@ -383,24 +495,32 @@ function addPendingShapeMarker(lat, lng) {
 }
 
 function setSelectedEntity(entity) {
-  selectedTacticalEntity = entity || null;
+  selectedEntity = entity || null;
 
   if (!selectionInfo) return;
 
-  if (!selectedTacticalEntity) {
+  if (!selectedEntity) {
     selectionInfo.textContent = "No hay elemento seleccionado.";
+    if (entityPopup) entityPopup.style.display = "none";
     return;
   }
 
   const label =
-    selectedTacticalEntity?.properties?.labelText?.getValue?.() ||
-    selectedTacticalEntity?.label?.text?.getValue?.() ||
-    selectedTacticalEntity?.label?.text ||
-    selectedTacticalEntity?.name ||
-    selectedTacticalEntity?.id ||
+    selectedEntity?.properties?.labelText?.getValue?.() ||
+    selectedEntity?.label?.text?.getValue?.() ||
+    selectedEntity?.label?.text ||
+    selectedEntity?.name ||
+    selectedEntity?.id ||
     "Elemento táctico";
 
-  selectionInfo.textContent = `Seleccionado: ${label}`;
+  const type =
+    selectedEntity?.properties?.tacticalType?.getValue?.() ||
+    selectedEntity?.properties?.type?.getValue?.() ||
+    selectedEntity?.properties?.tacticalType ||
+    selectedEntity?.properties?.type ||
+    "Sin tipo";
+
+  selectionInfo.textContent = `Seleccionado: ${label} · Tipo: ${type}`;
 }
 
 // =================== BACKEND ===================
@@ -503,6 +623,84 @@ function getVehiculosData() {
 
 function getEquiposData() {
   return Array.isArray(dashboardData?.equipos) ? dashboardData.equipos : [];
+}
+
+// =================== ESTADO OPERACION ===================
+function getEstadoOperacionActual() {
+  const op = getOperacionData();
+  const raw = firstString(op.estado, op.status, "");
+  return raw.toUpperCase();
+}
+
+function isOperacionActiva() {
+  return getEstadoOperacionActual() === "ACTIVA";
+}
+
+function isOperacionTerminada() {
+  const s = getEstadoOperacionActual();
+  return s === "TERMINADA" || s === "FINALIZADA";
+}
+
+function isOperacionPlanificada() {
+  const s = getEstadoOperacionActual();
+  return s === "PLANIFICADA" || s === "PLANEADA" || s === "";
+}
+
+function validateDashboardAccess() {
+  try {
+    getActiveOperationId();
+    return true;
+  } catch {
+    window.location.href = "login.html";
+    return false;
+  }
+}
+
+function applyOperationStateUI() {
+  const estado = getEstadoOperacionActual();
+
+  const chatBtn = document.getElementById("toggleChatPanel");
+  const chatPanelEl = document.getElementById("chatPanel");
+  const mapActionButtonsEl = document.getElementById("mapActionButtons");
+
+  // reset base
+  if (chatBtn) chatBtn.style.display = "none";
+  if (chatPanelEl) chatPanelEl.classList.remove("open");
+  if (mapActionButtonsEl) mapActionButtonsEl.style.display = "none";
+
+  // ================= PLANIFICADA =================
+  if (estado === "PLANIFICADA" || estado === "PLANEADA" || estado === "") {
+    if (mapActionButtonsEl) mapActionButtonsEl.style.display = "flex";
+  }
+
+  // ================= ACTIVA =================
+  if (estado === "ACTIVA") {
+    if (chatBtn) chatBtn.style.display = "flex";
+  }
+
+  // ================= TERMINADA =================
+  if (estado === "TERMINADA" || estado === "FINALIZADA") {
+    if (chatBtn) chatBtn.style.display = "flex";
+  }
+}
+
+function applyChatPermissions() {
+  if (!chatInput || !sendChatBtn) return;
+
+  if (isOperacionTerminada()) {
+    chatInput.disabled = true;
+    sendChatBtn.disabled = true;
+  }
+
+  if (isOperacionActiva()) {
+    chatInput.disabled = false;
+    sendChatBtn.disabled = false;
+  }
+
+  if (isOperacionPlanificada()) {
+    chatInput.disabled = true;
+    sendChatBtn.disabled = true;
+  }
 }
 
 // =================== PANEL INFORMACION ===================
@@ -705,14 +903,10 @@ function setTacticalUI() {
   const isPerimeter = toolMode === "perimeter";
   const isLabel = toolMode === "label";
   const isMil = isMilLegacy;
+  const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(toolMode);
 
-  if (milPreset) {
-    milPreset.disabled = !isMil;
-  }
-
-  if (symLabel) {
-    symLabel.disabled = !(isMil || isBldgLegacy || isPoi || isLabel);
-  }
+  if (milPreset) milPreset.disabled = !isMil;
+  if (symLabel) symLabel.disabled = !(isMil || isBldgLegacy || isPoi || isLabel || isCircle || isPolygon || isPolyline || isPerimeter);
 
   if (placeBtn) {
     placeBtn.disabled =
@@ -720,17 +914,16 @@ function setTacticalUI() {
       (isMil && !milPreset?.value && !currentMilIconSrc);
   }
 
-  if (iconPallet) {
-    iconPallet.style.display = isMil ? "grid" : "none";
+  if (finishShape) {
+    finishShape.disabled = !isMultiPoint && !areaDrawing;
   }
 
-  if (iconSettings) {
-    iconSettings.style.display = isMil ? "block" : "none";
-  }
+  if (iconPallet) iconPallet.style.display = isMil ? "grid" : "none";
+  if (iconSettings) iconSettings.style.display = isMil ? "block" : "none";
 
   if (tbHint) {
-    if (toolMode === "none") tbHint.textContent = "Selecciona una herramienta para comenzar.";
-    if (toolMode === "mil") tbHint.textContent = "Selecciona un símbolo MIL, presiona 'Colocar / iniciar' y luego haz click en el mapa.";
+    if (toolMode === "none" && !areaDrawing) tbHint.textContent = "Selecciona una herramienta para comenzar.";
+    if (toolMode === "mil") tbHint.textContent = "Selecciona un símbolo MIL y luego colócalo en el mapa.";
     if (toolMode === "bldg") tbHint.textContent = "Escribe etiqueta y presiona 'Colocar'. Luego haz click en el mapa.";
     if (toolMode === "poi") tbHint.textContent = "Pon el nombre del punto y presiona 'Colocar / iniciar'. Luego haz click en el mapa.";
     if (toolMode === "circle") tbHint.textContent = "Presiona 'Colocar / iniciar' y luego haz click en el mapa para poner el centro.";
@@ -738,6 +931,7 @@ function setTacticalUI() {
     if (toolMode === "polyline") tbHint.textContent = "Presiona 'Colocar / iniciar'. Haz varios clics y después 'Terminar figura'.";
     if (toolMode === "perimeter") tbHint.textContent = "Presiona 'Colocar / iniciar'. Haz varios clics y después 'Terminar figura'.";
     if (toolMode === "label") tbHint.textContent = "Escribe un texto, presiona 'Colocar / iniciar' y luego haz click en el mapa.";
+    if (areaDrawing) tbHint.textContent = "Marcando área de planeación. Haz clics y luego 'Terminar figura'.";
   }
 }
 
@@ -787,7 +981,26 @@ clearTactical?.addEventListener("click", () => {
   tbHint.textContent = "Elementos tácticos limpiados.";
 });
 
+markAreaBtn?.addEventListener("click", () => {
+  if (areaDrawing) {
+    clearPlanningArea();
+    if (areaInfo) areaInfo.textContent = "Marcado de área cancelado.";
+    return;
+  }
+
+  pickMode = null;
+  placingMode = false;
+  startAreaDrawing();
+});
+
+clearAreaBtn?.addEventListener("click", clearPlanningArea);
+
 finishShape?.addEventListener("click", () => {
+  if (areaDrawing) {
+    finishPlanningAreaByPoints();
+    return;
+  }
+
   if (!viewer || !placingMode) return;
 
   if (toolMode === "polygon" || toolMode === "perimeter") {
@@ -815,8 +1028,10 @@ finishShape?.addEventListener("click", () => {
         },
         properties: {
           tactical: true,
+          tacticalType: "polygon",
           type: "polygon",
-          labelText: symLabel?.value?.trim() || "Polígono"
+          labelText: symLabel?.value?.trim() || "Polígono",
+          draggable: false
         }
       });
     } else {
@@ -835,13 +1050,15 @@ finishShape?.addEventListener("click", () => {
         },
         properties: {
           tactical: true,
+          tacticalType: "perimeter",
           type: "perimeter",
-          labelText: symLabel?.value?.trim() || "Perímetro"
+          labelText: symLabel?.value?.trim() || "Perímetro",
+          draggable: false
         }
       });
     }
 
-    tacticalEntities.push(entity);
+    addTacticalEntity(entity);
     setSelectedEntity(entity);
     resetDrawingState(true);
     tbHint.textContent = "Figura terminada.";
@@ -868,12 +1085,14 @@ finishShape?.addEventListener("click", () => {
       },
       properties: {
         tactical: true,
+        tacticalType: "polyline",
         type: "polyline",
-        labelText: symLabel?.value?.trim() || "Línea táctica"
+        labelText: symLabel?.value?.trim() || "Línea táctica",
+        draggable: false
       }
     });
 
-    tacticalEntities.push(entity);
+    addTacticalEntity(entity);
     setSelectedEntity(entity);
     resetDrawingState(true);
     tbHint.textContent = "Línea táctica terminada.";
@@ -881,16 +1100,75 @@ finishShape?.addEventListener("click", () => {
 });
 
 deleteSelectedBtn?.addEventListener("click", () => {
-  if (!viewer || !selectedTacticalEntity) return;
+  if (!viewer || !selectedEntity) return;
 
-  viewer.entities.remove(selectedTacticalEntity);
-  tacticalEntities = tacticalEntities.filter((e) => e !== selectedTacticalEntity);
+  if (
+    selectedEntity === planningAreaFill ||
+    selectedEntity === planningAreaBorder ||
+    selectedEntity === planningAreaLabel
+  ) {
+    clearPlanningArea();
+  } else {
+    viewer.entities.remove(selectedEntity);
+    tacticalEntities = tacticalEntities.filter((e) => e !== selectedEntity);
+  }
+
   setSelectedEntity(null);
+  if (entityPopup) entityPopup.style.display = "none";
+});
+
+entityPopupDelete?.addEventListener("click", (e) => {
+  e.stopPropagation();
+  deleteSelectedBtn?.click();
 });
 
 clearSelectionBtn?.addEventListener("click", () => {
   setSelectedEntity(null);
+  if (entityPopup) entityPopup.style.display = "none";
 });
+
+function updateTacticalPreview(currentLat, currentLng) {
+  if (!viewer || pendingShapePoints.length === 0 || !placingMode) return;
+
+  const validModes = ["polygon", "polyline", "perimeter"];
+  if (!validModes.includes(toolMode)) return;
+
+  const previewPoints = [...pendingShapePoints, { lat: currentLat, lng: currentLng }];
+
+  if (toolMode === "polygon" || toolMode === "perimeter") {
+    previewPoints.push(pendingShapePoints[0]);
+  }
+
+  if (tacticalPreviewLine) viewer.entities.remove(tacticalPreviewLine);
+  if (tacticalPreviewFill) viewer.entities.remove(tacticalPreviewFill);
+
+  const dashColor = toolMode === "perimeter" ? Cesium.Color.RED : Cesium.Color.YELLOW;
+
+  tacticalPreviewLine = viewer.entities.add({
+    polyline: {
+      positions: toCartesianArray(previewPoints),
+      width: 2,
+      material: new Cesium.PolylineDashMaterialProperty({
+        color: dashColor,
+        dashLength: 12
+      }),
+      clampToGround: true
+    }
+  });
+
+  if (toolMode === "polygon" && pendingShapePoints.length >= 2) {
+    const polyPoints = [...pendingShapePoints, { lat: currentLat, lng: currentLng }];
+    tacticalPreviewFill = viewer.entities.add({
+      polygon: {
+        hierarchy: toCartesianArray(polyPoints),
+        material: Cesium.Color.WHITE.withAlpha(0.15),
+        perPositionHeight: false
+      }
+    });
+  } else {
+    tacticalPreviewFill = null;
+  }
+}
 
 function handleTacticalPlacement(lat, lng) {
   if (!viewer) return false;
@@ -930,12 +1208,14 @@ function handleTacticalPlacement(lat, lng) {
         } : undefined,
         properties: {
           tactical: true,
+          tacticalType: "mil",
           type: "mil",
-          labelText: label
+          labelText: label,
+          draggable: true
         }
       });
 
-      tacticalEntities.push(ent);
+      addTacticalEntity(ent);
       setSelectedEntity(ent);
       placingMode = false;
       tbHint.textContent = "Símbolo colocado.";
@@ -967,12 +1247,14 @@ function handleTacticalPlacement(lat, lng) {
         },
         properties: {
           tactical: true,
+          tacticalType: toolMode,
           type: toolMode,
-          labelText: label
+          labelText: label,
+          draggable: true
         }
       });
 
-      tacticalEntities.push(ent);
+      addTacticalEntity(ent);
       setSelectedEntity(ent);
       placingMode = false;
       tbHint.textContent = "Punto colocado.";
@@ -996,12 +1278,14 @@ function handleTacticalPlacement(lat, lng) {
         },
         properties: {
           tactical: true,
+          tacticalType: "label",
           type: "label",
-          labelText: text
+          labelText: text,
+          draggable: true
         }
       });
 
-      tacticalEntities.push(ent);
+      addTacticalEntity(ent);
       setSelectedEntity(ent);
       placingMode = false;
       tbHint.textContent = "Etiqueta colocada.";
@@ -1035,12 +1319,14 @@ function handleTacticalPlacement(lat, lng) {
         },
         properties: {
           tactical: true,
+          tacticalType: "circle",
           type: "circle",
-          labelText: label
+          labelText: label,
+          draggable: true
         }
       });
 
-      tacticalEntities.push(ent);
+      addTacticalEntity(ent);
       setSelectedEntity(ent);
       placingMode = false;
       tbHint.textContent = "Círculo colocado.";
@@ -1059,18 +1345,234 @@ function handleTacticalPlacement(lat, lng) {
   return false;
 }
 
+class OpenStreetMapNominatimGeocoder {
+  constructor() {
+    this._credit = undefined;
+  }
+
+  get credit() {
+    return this._credit;
+  }
+
+  async geocode(input) {
+    const query = String(input || "").trim();
+    if (!query) return [];
+
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=5`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json"
+        }
+      });
+
+      if (!response.ok) return [];
+
+      const results = await response.json();
+
+      return results.map((item) => {
+        const south = parseFloat(item.boundingbox[0]);
+        const north = parseFloat(item.boundingbox[1]);
+        const west = parseFloat(item.boundingbox[2]);
+        const east = parseFloat(item.boundingbox[3]);
+
+        return {
+          displayName: item.display_name,
+          destination: Cesium.Rectangle.fromDegrees(west, south, east, north)
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+}
+
+function clearAreaVertices() {
+  if (!viewer) return;
+  areaVertexEntities.forEach((ent) => viewer.entities.remove(ent));
+  areaVertexEntities = [];
+}
+
+function addAreaVertex(lat, lng, index) {
+  if (!viewer) return;
+
+  const ent = viewer.entities.add({
+    position: Cesium.Cartesian3.fromDegrees(lng, lat),
+    point: {
+      pixelSize: 10,
+      color: Cesium.Color.YELLOW,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    },
+    label: {
+      text: `${index + 1}`,
+      font: "12px sans-serif",
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    }
+  });
+
+  areaVertexEntities.push(ent);
+}
+
+function clearPlanningArea() {
+  if (!viewer) return;
+
+  if (planningAreaFill) viewer.entities.remove(planningAreaFill);
+  if (planningAreaBorder) viewer.entities.remove(planningAreaBorder);
+  if (planningAreaLabel) viewer.entities.remove(planningAreaLabel);
+  if (areaPreviewLine) viewer.entities.remove(areaPreviewLine);
+
+  planningAreaFill = null;
+  planningAreaBorder = null;
+  planningAreaLabel = null;
+  areaPreviewLine = null;
+
+  areaMode = false;
+  areaDrawing = false;
+  areaPoints = [];
+
+  clearAreaVertices();
+
+  if (markAreaBtn) markAreaBtn.textContent = "Marcar área";
+  if (areaInfo) areaInfo.textContent = "Área de planeación eliminada.";
+  setTacticalUI();
+}
+
+function startAreaDrawing() {
+  clearPlanningArea();
+  areaMode = true;
+  areaDrawing = true;
+  areaPoints = [];
+  if (markAreaBtn) markAreaBtn.textContent = "Marcando...";
+  if (areaInfo) {
+    areaInfo.textContent =
+      "Haz clic para colocar puntos del área. Usa 'Terminar figura' para cerrar el perímetro.";
+  }
+  setTacticalUI();
+}
+
+function updateAreaPreview(currentLat, currentLng) {
+  if (!viewer || areaPoints.length === 0) return;
+
+  const previewPoints = [...areaPoints, { lat: currentLat, lng: currentLng }];
+  const positions = toCartesianArray(previewPoints);
+
+  if (areaPreviewLine) {
+    viewer.entities.remove(areaPreviewLine);
+  }
+
+  areaPreviewLine = viewer.entities.add({
+    polyline: {
+      positions,
+      width: 2,
+      material: new Cesium.PolylineDashMaterialProperty({
+        color: Cesium.Color.YELLOW,
+        dashLength: 12
+      }),
+      clampToGround: true
+    }
+  });
+}
+
+function finishPlanningAreaByPoints() {
+  if (areaPoints.length < 3) {
+    if (areaInfo) areaInfo.textContent = "Debes marcar al menos 3 puntos para formar el área.";
+    return;
+  }
+
+  if (areaPreviewLine) {
+    viewer.entities.remove(areaPreviewLine);
+    areaPreviewLine = null;
+  }
+
+  const polygonPoints = [...areaPoints];
+  const closedPoints = [...areaPoints, areaPoints[0]];
+
+  planningAreaFill = viewer.entities.add({
+    name: "Área de planeación",
+    polygon: {
+      hierarchy: toCartesianArray(polygonPoints),
+      material: Cesium.Color.WHITE.withAlpha(0.05),
+      outline: false,
+      perPositionHeight: false
+    },
+    properties: {
+      tacticalType: "planning-area",
+      draggable: false
+    }
+  });
+
+  planningAreaBorder = viewer.entities.add({
+    name: "Perímetro del área",
+    polyline: {
+      positions: toCartesianArray(closedPoints),
+      width: 3,
+      material: new Cesium.PolylineDashMaterialProperty({
+        color: Cesium.Color.BLACK.withAlpha(0.95),
+        dashLength: 14
+      }),
+      clampToGround: true
+    },
+    properties: {
+      tacticalType: "planning-area-border",
+      draggable: false
+    }
+  });
+
+  const center = areaPoints[0];
+
+  planningAreaLabel = viewer.entities.add({
+    name: "Área de planeación",
+    position: Cesium.Cartesian3.fromDegrees(center.lng, center.lat),
+    label: {
+      text: "Área de planeación",
+      font: "14px sans-serif",
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 4,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    },
+    properties: {
+      tacticalType: "planning-area-label",
+      draggable: false
+    }
+  });
+
+  areaMode = false;
+  areaDrawing = false;
+  if (markAreaBtn) markAreaBtn.textContent = "Marcar área";
+  if (areaInfo) areaInfo.textContent = "Área delimitada correctamente por puntos.";
+  setTacticalUI();
+}
+
 // =================== INIT MAPA ===================
 function initCesium() {
   viewer = new Cesium.Viewer("map", {
     timeline: false,
     animation: false,
-    geocoder: true,
+    geocoder: [new OpenStreetMapNominatimGeocoder()],
     baseLayerPicker: false,
     sceneModePicker: false,
     navigationHelpButton: true,
     homeButton: true,
-    fullscreenButton: false
+    fullscreenButton: false,
+    selectionIndicator: false,
+    infoBox: false
   });
+
+  if (viewer.geocoder?.viewModel) {
+    viewer.geocoder.viewModel.destinationFound = function (_viewModel, destination) {
+      viewer.camera.flyTo({ destination });
+    };
+  }
 
   setBaseLayer("osm");
 
@@ -1084,30 +1586,61 @@ function initCesium() {
 
   document.getElementById("modeSelect").addEventListener("change", (e) => {
     const v = e.target.value;
-    if (v === "3d") viewer.scene.mode = Cesium.SceneMode.SCENE3D;
-    if (v === "2d") viewer.scene.mode = Cesium.SceneMode.SCENE2D;
-    if (v === "columbus") viewer.scene.mode = Cesium.SceneMode.COLUMBUS_VIEW;
+    if (v === "3d") viewer.scene.morphTo3D(1.0);
+    if (v === "2d") viewer.scene.morphTo2D(1.0);
+    if (v === "columbus") viewer.scene.morphToColumbusView(1.0);
   });
 
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
   handler.setInputAction((movement) => {
     const pickedObject = viewer.scene.pick(movement.position);
-    if (pickedObject?.id && tacticalEntities.includes(pickedObject.id)) {
+
+    if (pickedObject?.id) {
       setSelectedEntity(pickedObject.id);
+
+      const tacticalType =
+        pickedObject.id.properties?.tacticalType?.getValue?.() ||
+        pickedObject.id.properties?.type?.getValue?.() ||
+        pickedObject.id.properties?.tacticalType ||
+        pickedObject.id.properties?.type;
+
+      const isTactical = Boolean(tacticalType);
+
+      if (entityPopup && isTactical) {
+        const name = pickedObject.id.name || tacticalType || "Elemento táctico";
+        if (entityPopupName) entityPopupName.textContent = name;
+
+        const rect = viewer.canvas.getBoundingClientRect();
+        const x = movement.position.x + rect.left + 15;
+        const y = movement.position.y + rect.top - 20;
+
+        entityPopup.style.left = `${Math.min(x, window.innerWidth - 220)}px`;
+        entityPopup.style.top = `${Math.max(y - 70, rect.top + 10)}px`;
+        entityPopup.style.display = "block";
+      } else if (entityPopup) {
+        entityPopup.style.display = "none";
+      }
     } else {
       setSelectedEntity(null);
+      if (entityPopup) entityPopup.style.display = "none";
     }
 
-    const cartesian = viewer.camera.pickEllipsoid(
-      movement.position,
-      viewer.scene.globe.ellipsoid
-    );
+    const cartesian = getMapClickPosition(movement.position);
     if (!cartesian) return;
 
-    const cartographic = Cesium.Cartographic.fromCartesian(cartesian);
-    const lat = Cesium.Math.toDegrees(cartographic.latitude);
-    const lng = Cesium.Math.toDegrees(cartographic.longitude);
+    const pos = cartesianToLatLng(cartesian);
+    const lat = pos.lat;
+    const lng = pos.lng;
+
+    if (areaDrawing) {
+      areaPoints.push({ lat, lng });
+      addAreaVertex(lat, lng, areaPoints.length - 1);
+      if (areaInfo) {
+        areaInfo.textContent = `Punto ${areaPoints.length} agregado. Sigue marcando o presiona "Terminar figura".`;
+      }
+      return;
+    }
 
     if (handleTacticalPlacement(lat, lng)) return;
 
@@ -1180,6 +1713,52 @@ function initCesium() {
       return;
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+  handler.setInputAction((click) => {
+    const picked = viewer.scene.pick(click.position);
+    if (!picked || !picked.id) return;
+
+    if (isDraggableEntity(picked.id)) {
+      draggingEntity = picked.id;
+      selectedEntity = picked.id;
+      isDragging = true;
+      updateSelectionInfo();
+      viewer.scene.screenSpaceCameraController.enableRotate = false;
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+
+  handler.setInputAction((movement) => {
+    if (!isDragging && areaDrawing) {
+      const cartesian = getMapClickPosition(movement.endPosition);
+      if (cartesian) {
+        const pos = cartesianToLatLng(cartesian);
+        updateAreaPreview(pos.lat, pos.lng);
+      }
+    }
+
+    if (!isDragging && placingMode && ["polygon", "polyline", "perimeter"].includes(toolMode)) {
+      const cartesian = getMapClickPosition(movement.endPosition);
+      if (cartesian) {
+        const pos = cartesianToLatLng(cartesian);
+        updateTacticalPreview(pos.lat, pos.lng);
+      }
+    }
+
+    if (!isDragging || !draggingEntity) return;
+
+    const cartesian = getMapClickPosition(movement.endPosition);
+    if (!cartesian) return;
+
+    draggingEntity.position = cartesian;
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+  handler.setInputAction(() => {
+    isDragging = false;
+    draggingEntity = null;
+    viewer.scene.screenSpaceCameraController.enableRotate = true;
+  }, Cesium.ScreenSpaceEventType.LEFT_UP);
+
+
 }
 
 function setBaseLayer(key) {
@@ -1814,6 +2393,22 @@ async function loadDashboardFromBackend() {
   renderInfoPanel();
   renderOperationalDataOnMap();
 
+  // ── Centrar la cámara en la zona de operación ──────────────────────────────
+  if (viewer) {
+    const zona = getZonaData();
+    const lat = firstNumber(zona.centroide_lat, zona.lat, zona.latitude);
+    const lng = firstNumber(zona.centroide_lon, zona.lon, zona.lng, zona.longitude);
+    const altitud = firstNumber(zona.zoom_inicial, zona.zoom, 25000);
+
+    if (lat != null && lng != null) {
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lng, lat, altitud),
+        duration: 1.5
+      });
+    }
+  }
+  // ──────────────────────────────────────────────────────────────────────────
+
   const op = getOperacionData();
   const nombre = firstString(op.nombre, op.titulo, op.title, "Operación");
   setRouteInfo(`Dashboard cargado: ${nombre}`);
@@ -2070,6 +2665,11 @@ quickMsgBtns.forEach((btn) => {
 });
 
 sendChatBtn?.addEventListener("click", async () => {
+  if (!isOperacionActiva()) {
+    alert("El chat está en modo solo lectura.");
+    return;
+  }
+
   const text = chatInput?.value || "";
   const clean = text.trim();
   if (!clean) return;
@@ -2106,46 +2706,102 @@ stopVoiceBtn?.addEventListener("click", () => {
   if (stopVoiceBtn) stopVoiceBtn.disabled = true;
 });
 
+function ensureMapActionButtonsVisible() {
+  if (!mapActionButtons) return;
+  mapActionButtons.style.display = "flex";
+}
+
+saveOpMapBtn?.addEventListener("click", () => {
+  const op = {
+    id: crypto.randomUUID(),
+    title: document.getElementById("opTitle")?.value?.trim() || "Operación táctica",
+    description: document.getElementById("opDesc")?.value?.trim() || "Operación creada desde mapa",
+    start: startPoint || null,
+    end: endPoint || null,
+    route: lastRoute || null,
+    created_at: new Date().toISOString()
+  };
+
+  localStorage.setItem(OPERACION_ACTUAL_KEY, JSON.stringify(op));
+  alert(`¡Operación "${op.title}" guardada correctamente!`);
+});
+
+cancelOpMapBtn?.addEventListener("click", async () => {
+  if (!confirm("¿Deseas cancelar esta operación? Se marcará como CANCELADA en el sistema y no podrá reactivarse.")) return;
+
+  cancelOpMapBtn.disabled = true;
+  cancelOpMapBtn.textContent = "Cancelando...";
+
+  try {
+    const idOp = getActiveOperationId();
+
+    const res = await fetch(`${API_BASE}/ops/${idOp}/estado`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ estado: "CANCELADA" })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data?.mensaje || `Error al cancelar la operación (${res.status})`);
+      cancelOpMapBtn.disabled = false;
+      cancelOpMapBtn.textContent = "Cancelar operación";
+      return;
+    }
+
+    // Limpiar estado local
+    localStorage.removeItem(OPERACION_ACTUAL_KEY);
+    localStorage.removeItem("active_operation_id");
+
+    window.location.href = "menu_inicial.html";
+
+  } catch (err) {
+    console.error("Error cancelando operación:", err);
+    alert(err?.message || "No se pudo cancelar la operación.");
+    cancelOpMapBtn.disabled = false;
+    cancelOpMapBtn.textContent = "Cancelar operación";
+  }
+});
+
 // =================== INIT GENERAL ===================
 window.addEventListener("load", async () => {
+  if (!validateDashboardAccess()) return;
+
   initCesium();
   setTacticalUI();
-  setupRealtimeSocket();
-  setChatChannel("CET");
+  ensureMapActionButtonsVisible();
 
   try {
     await loadDashboardFromBackend();
+
+    applyOperationStateUI();
+    applyChatPermissions();
+
+    // SOCKET SOLO EN ACTIVA
+    if (isOperacionActiva()) {
+      setupRealtimeSocket();
+    }
+
+    // CHAT EN ACTIVA Y TERMINADA
+    if (isOperacionActiva() || isOperacionTerminada()) {
+      await loadChatHistoryFromBackend();
+    } else {
+      if (chatMessages) {
+        chatMessages.innerHTML = `
+          <div class="chatEmpty">
+            El chat solo está disponible cuando la operación está ACTIVA o TERMINADA.
+          </div>
+        `;
+      }
+    }
+
   } catch (err) {
     console.error("Error cargando dashboard:", err);
-
-    renderInfoPanel();
-    loadCurrentOperationOnMap();
-
-    const container = document.getElementById("infoPanelContent");
-    if (container) {
-      container.innerHTML = `
-        <div class="infoBlock">
-          <h3>Error</h3>
-          <p>${escapeHtml(err?.message || "No se pudo cargar el dashboard desde la base de datos.")}</p>
-        </div>
-      `;
-    }
-
     setRouteInfo(err?.message || "No se pudo cargar el dashboard.");
-  }
-
-  try {
-    await loadChatHistoryFromBackend();
-  } catch (err) {
-    console.error("Error cargando chat:", err);
-
-    if (chatMessages) {
-      chatMessages.innerHTML = `
-        <div class="chatEmpty">
-          No se pudo cargar el chat: ${escapeHtml(err?.message || "error desconocido")}
-        </div>
-      `;
-    }
   }
 
   infoPanel.classList.add("open");
@@ -2156,8 +2812,11 @@ window.addEventListener("load", async () => {
 document.addEventListener("click", (e) => {
   const clickedInsidePanel = e.target.closest(".glassPanel");
   const clickedToolButton = e.target.closest(".toolFab");
+  const clickedCesium = e.target.closest(".cesium-viewer");
+  const clickedPopup = e.target.closest("#entityPopup");
+  const clickedActionBtn = e.target.closest(".actionBtn");
 
-  if (!clickedInsidePanel && !clickedToolButton) {
+  if (!clickedInsidePanel && !clickedToolButton && !clickedCesium && !clickedPopup && !clickedActionBtn) {
     closeAllPanels();
   }
 });

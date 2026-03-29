@@ -84,40 +84,8 @@ function getUserTable() {
   ).toLowerCase().trim();
 }
 
-function validateAccessOrRedirect() {
-  const sessionOk = getSessionFlag() === "ok";
-  const token = getToken();
-  const role = getUserRole();
-  const tabla = getUserTable();
-
-  if (!sessionOk) {
-    redirectToLogin("Tu sesión no está activa.");
-    return false;
-  }
-
-  if (!token) {
-    redirectToLogin("No se encontró el token de acceso.");
-    return false;
-  }
-
-  if (!role) {
-    console.warn("No se pudo detectar el rol desde localStorage ni desde JWT.");
-    redirectToLogin("No se pudo validar tu rol de acceso.");
-    return false;
-  }
-
-  if (!ALLOWED_ROLES.includes(role)) {
-    alert(`No tienes permisos para entrar a este módulo. Rol detectado: ${role}${tabla ? ` (${tabla})` : ""}`);
-    window.location.href = LOGIN_URL;
-    return false;
-  }
-
-  return true;
-}
-
-if (!validateAccessOrRedirect()) {
-  throw new Error("Acceso no autorizado al módulo de asignación.");
-}
+// auth_check.js en el head ya validó el token básico.
+// Aquí dejamos las utilerías para usar el token en el API.
 
 const API_BASE =
   window.API_BASE ||
@@ -183,6 +151,100 @@ function fullName(p) {
   return `${n}${a ? " " + a : ""}`.trim();
 }
 
+function getUserDisplayName() {
+  const user = getStoredUser();
+  const payload = decodeJwtPayload(getToken()) || {};
+
+  const nombre =
+    user?.nombre ||
+    payload?.nombre ||
+    payload?.name ||
+    "";
+
+  const apellido =
+    user?.apellido ||
+    payload?.apellido ||
+    payload?.last_name ||
+    "";
+
+  const username =
+    user?.username ||
+    user?.usuario ||
+    payload?.username ||
+    payload?.usuario ||
+    localStorage.getItem("username") ||
+    "";
+
+  const rol = getUserRole();
+
+  const nombreCompleto = `${String(nombre).trim()} ${String(apellido).trim()}`.trim();
+
+  if (nombreCompleto) return rol ? `${rol}: ${nombreCompleto}` : nombreCompleto;
+  if (username) return rol ? `${rol}: ${username}` : username;
+  return rol || "Usuario";
+}
+
+function setUsuarioHeader() {
+  if (!lblUsuario) return;
+  lblUsuario.textContent = getUserDisplayName();
+}
+
+function getTodayLocalDateString() {
+  const d = new Date();
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function normalizeHoraInput(value) {
+  let v = String(value || "").replace(/\D/g, "");
+  if (v.length > 4) v = v.slice(0, 4);
+  if (v.length > 2) v = `${v.slice(0, 2)}:${v.slice(2)}`;
+  return v;
+}
+
+function sanitizeHoraFinal(value) {
+  const v = String(value || "").trim();
+  if (!/^\d{2}:\d{2}$/.test(v)) return "";
+
+  let [h, m] = v.split(":").map(Number);
+  h = Math.min(23, Math.max(0, h || 0));
+  m = Math.min(59, Math.max(0, m || 0));
+
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+function validateDateTime() {
+  if (!opInicioEl || !opHoraInicioEl || !opInicioEl.value) return true;
+
+  const today = new Date();
+  const todayStr = getTodayLocalDateString();
+
+  if (opInicioEl.value < todayStr) {
+    opInicioEl.value = todayStr;
+    alert("No puedes planificar una operación en una fecha pasada.");
+    return false;
+  }
+
+  if (opInicioEl.value === todayStr && opHoraInicioEl.value) {
+    const [hStr, mStr] = opHoraInicioEl.value.split(":");
+    if (hStr !== undefined && mStr !== undefined) {
+      const selectedMins = (parseInt(hStr, 10) * 60) + parseInt(mStr, 10);
+      const currentMins = (today.getHours() * 60) + today.getMinutes();
+
+      if (selectedMins < currentMins) {
+        opHoraInicioEl.value =
+          `${String(today.getHours()).padStart(2, "0")}:${String(today.getMinutes()).padStart(2, "0")}`;
+        alert("La hora de inicio no puede ser menor a la hora actual.");
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+
 // ===============================
 // DOM principal
 // ===============================
@@ -193,13 +255,15 @@ const btnAccion = document.getElementById("btnAccion");
 const btnBack = document.getElementById("btnBack");
 const btnVolver = document.getElementById("btnVolver");
 const lblOperacion = document.getElementById("lblOperacion");
+const lblUsuario = document.getElementById("lblUsuario");
 
 // form izquierda
 const opNombreEl = document.getElementById("opNombre");
 const opDescEl = document.getElementById("opDesc");
 const opInicioEl = document.getElementById("opInicio");
-const opFinEl = document.getElementById("opFin");
+const opHoraInicioEl = document.getElementById("opHoraInicio");
 const opPrioridadEl = document.getElementById("opPrioridad");
+const btnHoy = document.getElementById("btnHoy");
 
 // panel izquierdo
 const leftCardTitleEl = document.getElementById("leftCardTitle");
@@ -219,11 +283,13 @@ function validateCriticalDOM() {
     ["btnBack", btnBack],
     ["btnVolver", btnVolver],
     ["lblOperacion", lblOperacion],
+    ["lblUsuario", lblUsuario],
     ["opNombre", opNombreEl],
     ["opDesc", opDescEl],
     ["opInicio", opInicioEl],
-    ["opFin", opFinEl],
+    ["opHoraInicio", opHoraInicioEl],
     ["opPrioridad", opPrioridadEl],
+    ["btnHoy", btnHoy],
     ["leftCardTitle", leftCardTitleEl],
     ["opInfoForm", opInfoFormEl],
     ["vehiculosLeft", vehiculosLeftEl]
@@ -469,7 +535,7 @@ function collectOperacionActual() {
     nombre: normalizeText(opNombreEl?.value),
     descripcion: normalizeText(opDescEl?.value),
     fecha_inicio: normalizeText(opInicioEl?.value),
-    fecha_fin: normalizeText(opFinEl?.value),
+    hora_inicio: normalizeText(opHoraInicioEl?.value),
     prioridad: normalizeText(opPrioridadEl?.value),
     updated_at: new Date().toISOString()
   };
@@ -479,6 +545,7 @@ function saveOperacionActualLocal() {
   if (lblOperacion) {
     lblOperacion.textContent = normalizeText(opNombreEl?.value) || "—";
   }
+  setUsuarioHeader();
 }
 
 function loadOperacionActualIntoForm() {
@@ -550,15 +617,28 @@ async function crearOperacionYPersonal() {
   const descripcion = opDescEl?.value.trim() || "";
   const prioridad = opPrioridadEl?.value || "MEDIA";
   const fecha_inicio = opInicioEl?.value || null;
-  const fecha_fin = opFinEl?.value || null;
+  const hora_inicio = opHoraInicioEl?.value || null;
 
   if (!nombre) throw new Error("Completa el nombre de la operación antes de continuar.");
   if (!state.cutSeleccionadoId) throw new Error("Falta seleccionar CUT.");
   if (state.cetSeleccionadosIds.length === 0) throw new Error("Falta seleccionar al menos un CET.");
 
+  validateDateTime();
+
+  let datetime_inicio = fecha_inicio;
+  if (fecha_inicio && hora_inicio) {
+    // Integra la hora a la fecha en formato estándar ISO-like: YYYY-MM-DDTHH:mm:00
+    datetime_inicio = `${fecha_inicio}T${hora_inicio}:00`;
+  }
+
   const opRes = await api("/ops", {
     method: "POST",
-    body: { nombre, descripcion, prioridad, fecha_inicio, fecha_fin },
+    body: { 
+      nombre, 
+      descripcion, 
+      prioridad, 
+      fecha_inicio: datetime_inicio
+    },
   });
 
   state.opId = opRes.id_operacion;
@@ -2392,19 +2472,54 @@ btnDashboardGo?.addEventListener("click", () => {
   window.location.href = "dashboard.html";
 });
 
-[opNombreEl, opDescEl, opInicioEl, opFinEl, opPrioridadEl].forEach((el) => {
-  el?.addEventListener("input", () => {
-    if (lblOperacion && opNombreEl) {
-      lblOperacion.textContent = opNombreEl.value.trim() || "—";
-    }
+if (btnHoy && opInicioEl) {
+  btnHoy.addEventListener("click", () => {
+    opInicioEl.value = getTodayLocalDateString();
+    validateDateTime();
+    saveOperacionActualLocal();
+  });
+}
+
+if (opHoraInicioEl) {
+  opHoraInicioEl.addEventListener("input", (e) => {
+    e.target.value = normalizeHoraInput(e.target.value);
+    saveOperacionActualLocal();
   });
 
-  el?.addEventListener("change", () => {
-    if (lblOperacion && opNombreEl) {
-      lblOperacion.textContent = opNombreEl.value.trim() || "—";
-    }
+  opHoraInicioEl.addEventListener("blur", (e) => {
+    e.target.value = sanitizeHoraFinal(e.target.value);
+    validateDateTime();
+    saveOperacionActualLocal();
   });
-});
+}
+
+[opNombreEl, opDescEl, opInicioEl, opHoraInicioEl, opPrioridadEl]
+  .filter(Boolean)
+  .forEach((el) => {
+    el.addEventListener("input", () => {
+      if (el === opInicioEl || el === opHoraInicioEl) {
+        validateDateTime();
+      }
+
+      if (lblOperacion && opNombreEl) {
+        lblOperacion.textContent = opNombreEl.value.trim() || "—";
+      }
+
+      saveOperacionActualLocal();
+    });
+
+    el.addEventListener("change", () => {
+      if (el === opInicioEl || el === opHoraInicioEl) {
+        validateDateTime();
+      }
+
+      if (lblOperacion && opNombreEl) {
+        lblOperacion.textContent = opNombreEl.value.trim() || "—";
+      }
+
+      saveOperacionActualLocal();
+    });
+  });
 
 // ===============================
 // Init
@@ -2414,6 +2529,8 @@ btnDashboardGo?.addEventListener("click", () => {
     localStorage.removeItem(STORAGE_WIZARD_DRAFT);
     localStorage.removeItem(STORAGE_OPERACION_ACTUAL);
 
+    setUsuarioHeader();
+
     await loadCatalogs();
 
     if (lblOperacion) {
@@ -2421,6 +2538,9 @@ btnDashboardGo?.addEventListener("click", () => {
       const opCodigo = qs.get("op");
       lblOperacion.textContent = opCodigo || "—";
     }
+
+    loadOperacionActualIntoForm();
+    saveOperacionActualLocal();
 
     hideDashboardButton();
     renderHome();

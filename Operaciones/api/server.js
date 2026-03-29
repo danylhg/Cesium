@@ -776,7 +776,7 @@ app.get("/ops/by-codigo/:codigo", requireAuth, async (req, res) => {
 
 app.post("/ops", requireAuth, async (req, res) => {
   try {
-    const { nombre, descripcion, prioridad, fecha_inicio, fecha_fin } = req.body ?? {};
+    const { nombre, descripcion, prioridad, fecha_inicio } = req.body ?? {};
     if (!nombre || !nombre.trim()) return res.status(400).json({ ok: false, mensaje: "Falta nombre" });
 
     const prio = (prioridad || "MEDIA").toString().toUpperCase();
@@ -785,10 +785,7 @@ app.post("/ops", requireAuth, async (req, res) => {
     }
 
     const fi = fecha_inicio ? new Date(fecha_inicio) : null;
-    const ff = fecha_fin ? new Date(fecha_fin) : null;
     if (fi && Number.isNaN(fi.getTime())) return res.status(400).json({ ok: false, mensaje: "fecha_inicio inválida" });
-    if (ff && Number.isNaN(ff.getTime())) return res.status(400).json({ ok: false, mensaje: "fecha_fin inválida" });
-    if (fi && ff && ff < fi) return res.status(400).json({ ok: false, mensaje: "fecha_fin < fecha_inicio" });
 
     const codigo = `OP-${Date.now()}`;
     const creada_por = Number(req.user.sub);
@@ -803,7 +800,7 @@ app.post("/ops", requireAuth, async (req, res) => {
         (descripcion || "").trim() || null,
         prio,
         fi ? fi.toISOString() : null,
-        ff ? ff.toISOString() : null,
+        null, // fecha_fin obligatoriamente nula al inicializar
         creada_por
       ]
     );
@@ -1533,7 +1530,6 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
   if (!estadosValidos.includes(nuevoEstado))
     return res.status(400).json({ ok: false, mensaje: `estado invalido (${estadosValidos.join("|")})` });
 
-  const id_usuario = Number(req.user.sub);
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -1551,14 +1547,11 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       return res.status(409).json({ ok: false, mensaje: `No se puede pasar de ${estadoActual} a ${nuevoEstado}` });
     }
 
-    let q = `UPDATE operacion SET estado = $1`;
-    if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
-    if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
-    await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
-
     const horaStr = () => new Date().toLocaleString("es-MX", { timeZone: "America/Mexico_City", dateStyle: "long", timeStyle: "short" });
 
-    // Distingue si quien activa/cierra la op es ADMIN/CUT (tabla usuario) o CET/CELL (tabla personal)
+    const esPersonal = req.user.tabla === "personal";
+    const id_actor = Number(req.user.sub);
+
     async function getOrCreateParticipante(id_chat, id_actor, esPersonal) {
       const col = esPersonal ? "id_personal" : "id_usuario";
       const tipo = esPersonal ? "PERSONAL" : "USUARIO";
@@ -1574,8 +1567,41 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       );
       return ex[0]?.id_participante;
     }
-    const esPersonal = req.user.tabla === "personal";
-    const id_actor = Number(req.user.sub);
+
+    // ── CANCELADA: cerrar chat ANTES del UPDATE para que el trigger no falle ──
+    if (nuevoEstado === "CANCELADA") {
+      const { rows: cr } = await client.query(
+        `SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 AND activo=TRUE LIMIT 1`,
+        [id_operacion]
+      );
+      if (cr[0]) {
+        await client.query(
+          `UPDATE chat_operacion SET activo=FALSE, fecha_cierre=NOW() WHERE id_chat=$1`,
+          [cr[0].id_chat]
+        );
+      }
+    }
+
+    // ── Ejecutar el UPDATE de estado con SAVEPOINT por si el trigger de BD falla ──
+    let q = `UPDATE operacion SET estado = $1`;
+    if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
+    if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
+
+    await client.query("SAVEPOINT before_estado_update");
+    try {
+      await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
+    } catch (triggerErr) {
+      // Si el trigger de BD lanza error al cambiar a CANCELADA, lo ignoramos:
+      // el UPDATE ya se aplicó (el trigger falla DESPUÉS del UPDATE)
+      if (nuevoEstado === "CANCELADA" && triggerErr.code === "P0001") {
+        await client.query("ROLLBACK TO SAVEPOINT before_estado_update");
+        // Reintentar sin el trigger: actualizamos directo con advisory lock
+        await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
+      } else {
+        throw triggerErr;
+      }
+    }
+    await client.query("RELEASE SAVEPOINT before_estado_update");
 
     if (nuevoEstado === "ACTIVA") {
       const { rows: cr } = await client.query(
@@ -3150,7 +3176,7 @@ app.use((req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.202.103:${PORT}`);
+  console.log(`API + WS en http://192.168.100.12:${PORT}`);
   // http://192.168.202.103 SEDAM
   // http://192.168.100.12:3001 MI CASA WE
 });

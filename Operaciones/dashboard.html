@@ -5,14 +5,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Panorama táctico</title>
+  <script src="js/dashboard_auth.js"></script>
 
   <link rel="stylesheet" href="css/dashboard.css" />
 
-  <!-- Cesium oficial -->
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
 
-  <!-- MILSTD 2525C -->
   <script src="https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.min.js"></script>
 </head>
 
@@ -20,8 +19,10 @@
 
   <header class="topbar">
     <div class="topbarLeft">
-      <span class="brandDot"></span>
-      <strong>Panorama táctico</strong>
+      <span class="brandDot" id="brandDot"></span>
+      <strong id="topbarTitle">Panorama táctico</strong>
+      <span id="opStatusBadge"
+        style="display:none; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:800; background:#00ffa6; color:#001b1b; letter-spacing:.5px;">ACTIVA</span>
       <span id="who" class="who">(admin)</span>
     </div>
 
@@ -39,6 +40,20 @@
 
   <main class="mapStage">
     <div id="map" class="mapBox"></div>
+
+    <!-- Popup flotante para eliminar elemento seleccionado -->
+    <div id="entityPopup"
+      style="display:none; position:absolute; z-index:9999; background:rgba(10,20,40,0.95); border:1px solid #00ffa6; border-radius:10px; padding:8px 14px; box-shadow:0 4px 20px rgba(0,255,166,0.2); pointer-events:all; min-width:170px;">
+      <div id="entityPopupName" style="font-size:12px; color:#a0c4ff; margin-bottom:6px; font-weight:600;"></div>
+      <button id="entityPopupDelete"
+        style="width:100%; padding:5px 10px; background:rgba(239,68,68,0.85); border:1px solid #ef4444; border-radius:7px; color:#fff; font-weight:700; font-size:13px; cursor:pointer;">🗑️
+        Eliminar</button>
+    </div>
+
+    <div id="mapActionButtons" class="mapActionButtons">
+      <button id="saveOpMapBtn" class="actionBtn saveBtn">Guardar operación</button>
+      <button id="cancelOpMapBtn" class="actionBtn cancelBtn">Cancelar operación</button>
+    </div>
 
     <div class="compassRose" aria-hidden="true">
       <div class="compassCore"></div>
@@ -60,8 +75,6 @@
     <div class="groupTitle">Vista del mapa</div>
     <select id="layerSelect">
       <option value="osm">Normal (OSM)</option>
-      <option value="toner">Toner</option>
-      <option value="watercolor">Watercolor</option>
     </select>
 
     <select id="modeSelect">
@@ -70,11 +83,11 @@
       <option value="columbus">Columbus</option>
     </select>
 
-    <div class="groupTitle">Ruta</div>
-
-    <!-- se conservan aunque en el nuevo ya no se usen, por compatibilidad con JS viejo -->
-    <input id="opTitle" class="opsInput" placeholder="Título de la operación" style="display:none;" />
-    <input id="opDesc" class="opsInput" placeholder="Descripción" style="display:none;" />
+    <div class="groupTitle">Ruta por Vehículo</div>
+    <select id="routeVehicleSelect"
+      style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
+      <option value="global">Ruta General (Todos los vehículos)</option>
+    </select>
 
     <div class="latlngRow">
       <input id="opLat" class="latlngBox" placeholder="Origen LAT-LNG" readonly />
@@ -88,16 +101,11 @@
     <div class="btnGrid">
       <button id="setStart" class="btnBeige">Elegir origen</button>
       <button id="setEnd" class="btnBeige">Elegir destino</button>
-      <button id="calcRoute" class="btnBeige" style="display:none;">Calcular ruta</button>
       <button id="clearRoute" class="btnBeige historyBtn">Limpiar ruta</button>
     </div>
 
-    <!-- ocultos para no romper dashboard.js viejo si todavía los busca -->
     <div style="display:none;">
-      <button id="saveOp" class="btnBeige">Guardar operación</button>
-      <button id="clearOps" class="btnBeige">Borrar operación actual</button>
-      <button id="goHistory" class="btnBeige historyBtn">Historial de operaciones</button>
-
+      <button id="calcRoute" class="btnBeige">Calcular ruta</button>
       <div class="groupTitle">Área de planeación</div>
       <div class="btnGrid">
         <button id="markAreaBtn" class="btnBeige">Marcar área</button>
@@ -107,8 +115,6 @@
         Presiona “Marcar área” y haz dos clics en el mapa para delimitar un rectángulo punteado.
       </div>
     </div>
-
-    <p id="opsMsg" class="msg"></p>
   </aside>
 
   <aside id="tacticalPanel" class="glassPanel tacticalWide">
@@ -126,49 +132,38 @@
       <option value="label">Etiqueta</option>
     </select>
 
-    <!-- se conserva oculto por compatibilidad con código viejo -->
-    <select id="milPreset" disabled style="display:none;">
-      <option value="">Elegir símbolo...</option>
-      <option value="SFGPUCI----K---">Infantería (Friendly)</option>
-      <option value="SHGPUCI----K---">Infantería (Hostile)</option>
-      <option value="SFGPUAR----K---">Artillería (Friendly)</option>
-      <option value="SHGPUAR----K---">Artillería (Hostile)</option>
-      <option value="SFGPUH-----K---">Hospital (Friendly)</option>
-      <option value="SFGPUS-----K---">Logística (Friendly)</option>
-    </select>
-
-    <div class="groupTitle">Símbolos MIL</div>
+    <div class="groupTitle" id="milSymbolTitle" style="display:none;">Símbolos MIL</div>
 
     <div class="iconPallet" id="iconPallet" style="display:none;">
       <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png"
         data-title="Unidad Blindada">
-        <img src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png" alt="Unidad Blindada">
+        <img src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png">
         <span>Unidad Blindada</span>
       </div>
       <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png"
         data-title="Punto de Control">
-        <img src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png" alt="Punto de Control">
+        <img src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png">
         <span>Punto de Control</span>
       </div>
       <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png"
         data-title="Artillería de Campo">
-        <img src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png" alt="Artillería de Campo">
+        <img src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png">
         <span>Artillería de Campo</span>
       </div>
       <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Infantry_MGRS-Mapper.png"
         data-title="Infantería">
-        <img src="img/simbolos_militares/Infantry_MGRS-Mapper.png" alt="Infantería">
+        <img src="img/simbolos_militares/Infantry_MGRS-Mapper.png">
         <span>Infantería</span>
       </div>
       <div class="iconItem" draggable="true"
         data-src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png"
         data-title="Infantería Mecanizada">
-        <img src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png" alt="Infantería Mecanizada">
+        <img src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png">
         <span>Infantería Mecanizada</span>
       </div>
       <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png"
         data-title="Punto de Referencia">
-        <img src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png" alt="Punto de Referencia">
+        <img src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png">
         <span>Punto de Referencia</span>
       </div>
     </div>
@@ -240,27 +235,14 @@
       <button id="chatTabCells" class="chatTab">Células</button>
     </div>
 
-    <div class="groupTitle">Mensajes rápidos</div>
-    <div class="quickMsgGrid">
-      <button class="quickMsgBtn" data-msg="Solicito apoyo inmediato en mi posición.">Apoyo inmediato</button>
-      <button class="quickMsgBtn" data-msg="Avancen al punto asignado.">Avanzar</button>
-      <button class="quickMsgBtn" data-msg="Mantener posición y esperar instrucciones.">Mantener posición</button>
-      <button class="quickMsgBtn" data-msg="Ruta bloqueada, solicitar alternativa.">Ruta bloqueada</button>
-      <button class="quickMsgBtn" data-msg="Unidad en riesgo, requiero respaldo.">Unidad en riesgo</button>
-      <button class="quickMsgBtn" data-msg="Objetivo localizado, continuar protocolo.">Objetivo localizado</button>
-    </div>
+
 
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
       <textarea id="chatInput" placeholder="Escribe un mensaje táctico..."></textarea>
 
-      <div class="voiceRow">
-        <button id="recordVoiceBtn" class="chatActionBtn voiceBtn">Grabar nota de voz</button>
-        <button id="stopVoiceBtn" class="chatActionBtn stopBtn" disabled>Detener grabación</button>
-      </div>
 
-      <div id="voiceStatus" class="voiceStatus">Micrófono inactivo.</div>
 
       <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
     </div>

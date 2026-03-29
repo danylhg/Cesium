@@ -1,8 +1,6 @@
 // ===============================
 // Validación de sesión
 // ===============================
-const sessionOk = localStorage.getItem("session") === "ok";
-const tokenGuard = localStorage.getItem("token");
 const usernameGuard =
   localStorage.getItem("username") ||
   localStorage.getItem("userName") ||
@@ -10,16 +8,6 @@ const usernameGuard =
   "Invitado";
 
 const userNameEl = document.getElementById("userName");
-
-if (!sessionOk || !tokenGuard) {
-  localStorage.removeItem("session");
-  localStorage.removeItem("token");
-  localStorage.removeItem("username");
-  localStorage.removeItem("userName");
-  localStorage.removeItem("usuario");
-  localStorage.removeItem("active_operation_id");
-  window.location.href = "login.html";
-}
 
 // mostrar usuario que inició sesión
 if (userNameEl) {

@@ -1808,6 +1808,12 @@ BEGIN
   END IF;
 
   IF v_estado IN ('CERRADA', 'CANCELADA') THEN
+    -- Permitir mensajes de SISTEMA incluso en operaciones cerradas/canceladas
+    -- (esto permite que el trigger de log del sistema funcione)
+    IF TG_TABLE_NAME = 'mensaje_chat' AND NEW.tipo_mensaje = 'SISTEMA' THEN
+      RETURN NEW;
+    END IF;
+
     RAISE EXCEPTION
       'La operación % está en estado %, no se permiten modificaciones en %',
       v_id_operacion, v_estado, TG_TABLE_NAME;
@@ -1843,12 +1849,12 @@ CREATE OR REPLACE FUNCTION fn_rangos_conflictivos(
 )
 RETURNS BOOLEAN AS $$
 BEGIN
-  IF p_ini1 IS NULL OR p_fin1 IS NULL OR p_ini2 IS NULL OR p_fin2 IS NULL THEN
-    RAISE EXCEPTION 'Las operaciones deben tener fecha_inicio y fecha_fin para validar disponibilidad.';
+  IF p_ini1 IS NULL OR p_ini2 IS NULL THEN
+    RETURN FALSE;
   END IF;
 
-  RETURN (p_ini1 - p_buffer) <= (p_fin2 + p_buffer)
-     AND (p_ini2 - p_buffer) <= (p_fin1 + p_buffer);
+  RETURN (p_ini1 - p_buffer) <= (COALESCE(p_fin2, 'infinity'::timestamptz) + p_buffer)
+     AND (p_ini2 - p_buffer) <= (COALESCE(p_fin1, 'infinity'::timestamptz) + p_buffer);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1867,8 +1873,8 @@ BEGIN
   FROM operacion
   WHERE id_operacion = NEW.id_operacion;
 
-  IF v_ini IS NULL OR v_fin IS NULL THEN
-    RAISE EXCEPTION 'La operación % debe tener fecha_inicio y fecha_fin antes de asignar personal.', NEW.id_operacion;
+  IF v_ini IS NULL THEN
+    RETURN NEW;
   END IF;
 
   FOR r IN
@@ -1906,8 +1912,8 @@ BEGIN
   FROM operacion
   WHERE id_operacion = NEW.id_operacion;
 
-  IF v_ini IS NULL OR v_fin IS NULL THEN
-    RAISE EXCEPTION 'La operación % debe tener fecha_inicio y fecha_fin antes de asignar vehículos.', NEW.id_operacion;
+  IF v_ini IS NULL THEN
+    RETURN NEW;
   END IF;
 
   FOR r IN
@@ -1945,8 +1951,8 @@ BEGIN
   FROM operacion
   WHERE id_operacion = NEW.id_operacion;
 
-  IF v_ini IS NULL OR v_fin IS NULL THEN
-    RAISE EXCEPTION 'La operación % debe tener fecha_inicio y fecha_fin antes de reservar equipo.', NEW.id_operacion;
+  IF v_ini IS NULL THEN
+    RETURN NEW;
   END IF;
 
   FOR r IN

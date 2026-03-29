@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Asignación</title>
+  <script src="js/auth_check.js"></script>
   <link rel="stylesheet" href="css/asignacion.css" />
 </head>
 
@@ -11,7 +13,7 @@
 
   <header class="topbar">
     <div class="topLeft">
-      <span class="pill">Asignados para operación</span>
+      <span class="pill" id="lblUsuario">Asignados para operación</span>
       <span class="opName">Operación: <strong id="lblOperacion">—</strong></span>
     </div>
 
@@ -33,11 +35,17 @@
               <label class="lbl">Descripción</label>
               <textarea class="inp area" id="opDesc" placeholder="Descripción de la operación"></textarea>
 
-              <label class="lbl">Fecha de inicio de operación</label>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+                <label class="lbl" style="margin-bottom:0;">Fecha de inicio de operación</label>
+                <button type="button" class="btnGhost" id="btnHoy"
+                  style="padding: 2px 8px; font-size: 11px; height: auto;">
+                  Hoy
+                </button>
+              </div>
               <input class="inp" type="date" id="opInicio" />
 
-              <label class="lbl">Fecha de fin de operación</label>
-              <input class="inp" type="date" id="opFin" />
+              <label class="lbl">Hora de inicio de operación</label>
+              <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5" />
 
               <label class="lbl">Prioridad</label>
               <select class="inp" id="opPrioridad">
@@ -80,12 +88,8 @@
       Dashboard →
     </button>
   </div>
-  
+
   <script src="js/asignacion.js"></script>
 </body>
+
 </html>
-
-
-
-
-
