@@ -1,0 +1,36 @@
+DIAGNOSTICO DE DATOS - OPERACION 5
+
+### GRUPOS Y SUS INTEGRANTES
+G: a | P: 3 - Hernández | Rol: CET
+G: a | P: 4 - López | Rol: CET
+G: a | P: 6 - Martínez | Rol: CELL
+G: a | P: 8 - Cruz | Rol: CELL
+G: a | P: 16 - Castillo | Rol: CELL
+G: a | P: 23 - López 2 | Rol: CELL
+G: g | P: 4 - López | Rol: CET
+G: g | P: 11 - Morales | Rol: CELL
+G: g | P: 15 - Mendoza | Rol: CELL
+G: q | P: 3 - Hernández | Rol: CET
+G: q | P: 9 - Gómez | Rol: CELL
+G: q | P: 10 - Flores | Rol: CELL
+
+### TODOS LOS ASIGNADOS A OP 5
+P: 2 - Torres | RolOp: CUT | RolBase: CUT
+P: 3 - Hernández | RolOp: CET | RolBase: CET
+P: 4 - López | RolOp: CET | RolBase: CET
+P: 6 - Martínez | RolOp: CELL | RolBase: CELL
+P: 8 - Cruz | RolOp: CELL | RolBase: CELL
+P: 9 - Gómez | RolOp: CELL | RolBase: CELL
+P: 10 - Flores | RolOp: CELL | RolBase: CELL
+P: 11 - Morales | RolOp: CELL | RolBase: CELL
+P: 15 - Mendoza | RolOp: CELL | RolBase: CELL
+P: 16 - Castillo | RolOp: CELL | RolBase: CELL
+P: 23 - López 2 | RolOp: CELL | RolBase: CELL
+
+### VEHICULOS Y GRUPOS DIRECTOS
+V: VH-004 | G: —
+V: VH-005 | G: —
+
+### EQUIPOS ASIGNADOS
+ID: 4 | E: Harris Falcon (HFC-001) | P: — | V: VH-005
+ID: 3 | E: Dron VANT 01 (DRN-001) | P: Castillo | V: —

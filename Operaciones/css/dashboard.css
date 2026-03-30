@@ -16,6 +16,82 @@ body{
   color:#e6edf3;
 }
 
+/* =================== LOADING OVERLAY =================== */
+#loadingOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: radial-gradient(circle at center, #0a141e 0%, #050a0f 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.6s ease, visibility 0.6s;
+}
+
+.loadingContainer {
+  width: 320px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.loadingBrand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.loadingTitle {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #00ffa6;
+  text-shadow: 0 0 20px rgba(0, 255, 166, 0.4);
+}
+
+.loadingLogBox {
+  min-height: 44px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 11px;
+  color: #a0c4ff;
+  text-align: left;
+  background: rgba(0, 0, 0, 0.4);
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 255, 170, 0.1);
+}
+
+.logEntry { margin-bottom: 4px; }
+.logStatus { color: #00ffa6; font-weight: bold; margin-right: 6px; }
+
+.loadingBarContainer {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+#loadingBarFill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #00ffa6, #00c3ff);
+  box-shadow: 0 0 10px rgba(0, 255, 166, 0.6);
+  transition: width 0.3s ease;
+}
+
+.loadingPercentage {
+  font-size: 14px;
+  font-weight: 700;
+  color: #00ffa6;
+  opacity: 0.8;
+}
+
+
 .topbar{
   position:fixed;
   top:14px;
@@ -87,9 +163,10 @@ body{
 
 .floatingTools{
   position:fixed;
-  top:92px;
+  top:118px;
   left:12px;
   z-index:1150;
+
   display:flex;
   flex-direction:column;
   gap:12px;
@@ -126,8 +203,9 @@ body{
 
 .glassPanel{
   position:fixed;
-  top:92px;
+  top:118px;
   left:78px;
+
   width:360px;
   max-width:calc(100vw - 100px);
   max-height:calc(100vh - 110px);
@@ -710,124 +788,8 @@ body{
     right:18px;
     bottom:18px;
   }
-}/* =================== LOADING SCREEN =================== */
-#loadingOverlay {
-  position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  background: #02060a;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: opacity 0.8s ease, visibility 0.8s;
 }
 
-#loadingOverlay.hidden {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
 
-.loadingContainer {
-  width: 90%;
-  max-width: 480px;
-  text-align: center;
-  padding: 40px;
-  background: rgba(10, 20, 30, 0.4);
-  border: 1px solid rgba(0, 255, 166, 0.15);
-  border-radius: 24px;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-}
 
-.loadingBrand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 15px;
-  margin-bottom: 30px;
-}
 
-.loadingBrand .brandDot {
-  width: 18px;
-  height: 18px;
-  animation: pulseBrand 1.5s infinite;
-}
-
-@keyframes pulseBrand {
-  0% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(0, 255, 166, 0.7); }
-  70% { transform: scale(1.1); opacity: 0.8; box-shadow: 0 0 0 15px rgba(0, 255, 166, 0); }
-  100% { transform: scale(1); opacity: 1; box-shadow: 0 0 0 0 rgba(0, 255, 166, 0); }
-}
-
-.loadingTitle {
-  font-size: 24px;
-  font-weight: 900;
-  letter-spacing: 2px;
-  color: #00ffa6;
-  text-transform: uppercase;
-  margin: 0;
-}
-
-.loadingLogBox {
-  height: 80px;
-  margin: 25px 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column-reverse; /* Newest logs at bottom */
-  text-align: left;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
-  color: #a0c4ff;
-  opacity: 0.8;
-  mask-image: linear-gradient(to bottom, transparent, black 40%);
-}
-
-.logEntry {
-  margin: 4px 0;
-  animation: slideInLog 0.3s ease-out forwards;
-}
-
-@keyframes slideInLog {
-  from { transform: translateY(10px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
-}
-
-.logStatus {
-  color: #00ffa6;
-  margin-right: 8px;
-  font-weight: bold;
-}
-
-.loadingBarContainer {
-  width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 10px;
-  overflow: hidden;
-  position: relative;
-  margin-top: 10px;
-}
-
-#loadingBarFill {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #00ffa6, #00c3ff);
-  box-shadow: 0 0 15px rgba(0, 255, 166, 0.5);
-  transition: width 0.4s cubic-bezier(0.1, 0.7, 1.0, 0.1);
-}
-
-.loadingPercentage {
-  font-size: 12px;
-  font-weight: 800;
-  color: #00ffa6;
-  margin-top: 10px;
-  text-align: right;
-  letter-spacing: 1px;
-}

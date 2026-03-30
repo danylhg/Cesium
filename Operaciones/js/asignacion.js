@@ -145,10 +145,28 @@ function isPositiveInt(v) {
   return Number.isInteger(Number(v)) && Number(v) > 0;
 }
 
+function formatPuesto(str) {
+  if (!str) return "";
+  const low = str.toLowerCase().trim();
+  if (low.includes("teniente")) return "Tte.";
+  if (low.includes("capit")) return "Cap.";
+  if (low.includes("sargento")) return "Sgto.";
+  if (low.includes("cabo") || low === "cb") return "Cb.";
+  if (low.includes("soldado")) return "Sold.";
+  if (low.includes("general")) return "Gral.";
+  if (low.includes("coronel")) return "Cnel.";
+  if (low.includes("comandante")) return "Cmdt.";
+  if (low.includes("mayor")) return "Myr.";
+  return str;
+}
+
+
 function fullName(p) {
+  const pto = formatPuesto(p?.puesto);
   const n = (p?.nombre || "").trim();
   const a = (p?.apellido || "").trim();
-  return `${n}${a ? " " + a : ""}`.trim();
+  const base = `${n}${a ? " " + a : ""}`.trim();
+  return pto ? `${pto} ${base}` : base;
 }
 
 function getUserDisplayName() {
@@ -396,6 +414,8 @@ const state = {
   equipoDestino: null, // personal | vehiculo
   equipoSelectedItems: [], // [id_equipo]
   equipoSelectedResource: null, // { tipo, id_personal? id_vehiculo? label }
+  equipoSelectedCet: null,
+  equipoSelectedGrupo: null,
   asignacionEquipos: {
     tactico: {},
     comunicacion: {}
@@ -409,6 +429,21 @@ function capFirst(str) {
   if (!str) return str;
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
+
+function getResourceLabel(res) {
+  if (!res) return "—";
+  if (res.label) return res.label;
+  if (res.tipo === "personal") {
+    const p = getPersonalById(res.id_personal);
+    return p?.label || `Personal ${res.id_personal}`;
+  }
+  if (res.tipo === "vehiculo") {
+    const v = state.vehiclesList.find(x => Number(x.id_vehiculo) === Number(res.id_vehiculo));
+    return v?.label || `Vehículo ${res.id_vehiculo}`;
+  }
+  return "—";
+}
+
 
 function setHeader(title, hint) {
   rightTitle.textContent = capFirst(title);
@@ -609,10 +644,6 @@ async function loadCatalogs() {
 // Guardado backend
 // ===============================
 async function crearOperacionYPersonal() {
-  if (state.opId) {
-    return { nombre: opNombreEl?.value.trim() || "", codigo: null, yaExistia: true };
-  }
-
   const nombre = opNombreEl?.value.trim() || "";
   const descripcion = opDescEl?.value.trim() || "";
   const prioridad = opPrioridadEl?.value || "MEDIA";
@@ -627,22 +658,34 @@ async function crearOperacionYPersonal() {
 
   let datetime_inicio = fecha_inicio;
   if (fecha_inicio && hora_inicio) {
-    // Integra la hora a la fecha en formato estándar ISO-like: YYYY-MM-DDTHH:mm:00
     datetime_inicio = `${fecha_inicio}T${hora_inicio}:00`;
   }
 
-  const opRes = await api("/ops", {
-    method: "POST",
-    body: { 
-      nombre, 
-      descripcion, 
-      prioridad, 
-      fecha_inicio: datetime_inicio
-    },
-  });
+  const opBody = { 
+    nombre, 
+    descripcion, 
+    prioridad, 
+    fecha_inicio: datetime_inicio
+  };
 
-  state.opId = opRes.id_operacion;
-  if (lblOperacion) lblOperacion.textContent = nombre;
+  let yaExistia = false;
+  let opRes;
+
+  if (state.opId) {
+    yaExistia = true;
+    await api(`/ops/${state.opId}`, {
+      method: "PUT",
+      body: opBody
+    });
+    if (lblOperacion) lblOperacion.textContent = nombre;
+  } else {
+    opRes = await api("/ops", {
+      method: "POST",
+      body: opBody
+    });
+    state.opId = opRes.id_operacion;
+    if (lblOperacion) lblOperacion.textContent = nombre;
+  }
 
   const uniquePersonalIds = new Set();
   uniquePersonalIds.add(Number(state.cutSeleccionadoId));
@@ -678,9 +721,34 @@ async function crearOperacionYPersonal() {
     body: { items: mandoItems },
   });
 
+  // NUEVO: Guardar Grupos creados en el Wizard
+  const gruposPayload = [];
+  state.cetSeleccionadosIds.forEach(cetId => {
+    const info = state.gruposByCet[cetId];
+    if (info && info.names && info.names.length > 0) {
+      info.names.forEach(gName => {
+        gruposPayload.push({
+          nombre: gName,
+          id_cet: Number(cetId),
+          flotilla: state.flotillaByCet[cetId] || "",
+          integrantes: (info.map[gName] || []).map(Number),
+          vehiculos: (info.vehMap && info.vehMap[gName] || []).map(Number)
+        });
+      });
+    }
+  });
+
+  if (gruposPayload.length > 0) {
+    await api(`/ops/${state.opId}/grupos`, {
+      method: "POST",
+      body: { grupos: gruposPayload }
+    });
+  }
+
   saveDraftLocal();
-  return { nombre, codigo: opRes.codigo, yaExistia: false };
+  return { nombre, codigo: opRes?.codigo || null, yaExistia };
 }
+
 
 async function saveVehiculos() {
   if (!state.opId) throw new Error("No hay operación activa.");
@@ -745,7 +813,11 @@ async function saveEquipos() {
 // Home
 // ===============================
 function renderHome() {
-  hideDashboardButton();
+  // Solo ocultar el botón de Dashboard si la operación NO tiene id (es nueva)
+  const esExistente = !!(state.opId);
+  if (!esExistente) {
+    hideDashboardButton();
+  }
   showOperacionInfo();
   clearPanel();
   state.categoria = null;
@@ -850,8 +922,8 @@ function renderCUT() {
           state.flotillaByCet = {};
           state.searchByCet = {};
           state.asignacionEquipos = { tactico: {}, comunicacion: {} };
-          state.opId = null;
           resetEquipoFlow();
+
           saveDraftLocal();
           renderCUT();
         });
@@ -948,8 +1020,8 @@ function renderCET() {
             state.cetSeleccionadosIds.push(Number(p.id_personal));
             ensureCetState(Number(p.id_personal));
           }
-          state.opId = null;
           saveDraftLocal();
+
           renderCET();
         });
 
@@ -1160,44 +1232,82 @@ function renderCelulas() {
     const term = (state.searchByCet[cetId] || "").toLowerCase().trim();
     rowsWrap.innerHTML = "";
 
+    const grupoActivo = info?.active || null;
+
     state.cellList
       .filter(p => !term || p.label.toLowerCase().includes(term))
       .forEach(p => {
         const cellId = Number(p.id_personal);
-        const enEste = asignadas.includes(cellId);
+        
+        // 1. ¿Está asignado a OTRO CET?
         const bloqueada = yaUsadas.has(cellId);
+
+        // 2. ¿Está asignado a ESTE CET?
+        const enEsteCet = asignadas.includes(cellId);
+
+        // 3. ¿En qué grupo de este CET está?
+        let grupoPertenece = null;
+        if (enEsteCet) {
+          grupoPertenece = Object.keys(info.map || {}).find(g => 
+            (info.map[g] || []).map(Number).includes(cellId)
+          );
+        }
+
+        // 4. Visualmente: ¿está "Seleccionado" para el grupo ACTIVO?
+        const visualmenteSeleccionado = !!(grupoActivo && grupoPertenece === grupoActivo);
+
+        // 5. Determinar Status y Propiedades
+        let status = "Disponible";
+        if (bloqueada) {
+          status = "Asignado (Otro CET)";
+        } else if (enEsteCet) {
+          status = grupoPertenece ? `En ${grupoPertenece}` : "En este CET";
+        }
 
         const row = celulaRow({
           name: p.label,
-          selected: enEste,
+          selected: visualmenteSeleccionado,
           disabled: bloqueada,
-          status: bloqueada ? "Asignado" : (enEste ? "En este CET" : "Disponible"),
+          status: status,
           onToggle: () => {
             if (bloqueada) return;
-            const grupoActivo = info?.active || null;
-
-            if (grupoActivo) {
+            
+            if (!grupoActivo) {
+              // Si no hay grupo activo, lógica simple de toggle en el CET
+              if (enEsteCet) {
+                state.asignacionCelulas[cetId] = asignadas.filter(x => Number(x) !== cellId);
+              } else {
+                state.asignacionCelulas[cetId] = [...asignadas, cellId];
+              }
+            } else {
+              // Lógica con Grupo Activo (EXCLUSIVIDAD)
               if (!info.map[grupoActivo]) info.map[grupoActivo] = [];
 
-              if (enEste) {
+              if (visualmenteSeleccionado) {
+                // Deseleccionar del grupo activo y borrar del CET
+                info.map[grupoActivo] = info.map[grupoActivo].filter(x => Number(x) !== cellId);
                 state.asignacionCelulas[cetId] = asignadas.filter(x => Number(x) !== cellId);
+              } else {
+                // Seleccionar para el grupo activo
+                
+                // a) Quitar de cualquier OTRO grupo en este mismo CET si existía
                 Object.keys(info.map).forEach(g => {
                   info.map[g] = (info.map[g] || []).filter(x => Number(x) !== cellId);
                 });
-              } else {
-                state.asignacionCelulas[cetId] = [...asignadas, cellId];
-                if (!info.map[grupoActivo].includes(cellId)) info.map[grupoActivo].push(cellId);
-              }
-            } else {
-              if (enEste) {
-                state.asignacionCelulas[cetId] = asignadas.filter(x => Number(x) !== cellId);
-              } else {
-                state.asignacionCelulas[cetId] = [...asignadas, cellId];
+
+                // b) Agregar al grupo activo
+                info.map[grupoActivo].push(cellId);
+
+                // c) Asegurar que esté en la lista del CET
+                if (!enEsteCet) {
+                  state.asignacionCelulas[cetId] = [...asignadas, cellId];
+                }
               }
             }
 
-            state.opId = null;
+
             saveDraftLocal();
+
             renderCelulas();
           }
         });
@@ -1563,19 +1673,6 @@ function renderVehiculos() {
     return label;
   }
 
-  const cetLocked = !!state.asignacionVehiculos[cetId];
-  cellulasList.appendChild(mkCheckRow({
-    labelText: cetLocked
-      ? `CET: ${cetObj?.label || cetId} (Asignado)`
-      : `CET: ${cetObj?.label || cetId}`,
-    disabled: cetLocked,
-    checked: (state.selectedPersonIds || []).includes(Number(cetId)),
-    onChange: checked => {
-      toggleSelectedId(cetId, checked);
-      renderVehiculos();
-    }
-  }));
-
   if (cellsToShow.length > 0) {
     const visibleIds = [Number(cetId), ...cellsToShow.map(Number)];
     const unlockedVisible = visibleIds.filter(id => !state.asignacionVehiculos[id]);
@@ -1598,9 +1695,25 @@ function renderVehiculos() {
       }
     });
 
+    rowAll.style.borderBottom = "2px solid #d7e3ff";
+    rowAll.style.marginBottom = "15px";
+    rowAll.style.paddingBottom = "15px";
     rowAll.querySelector("input").indeterminate = (!allSel && someSel);
     cellulasList.appendChild(rowAll);
   }
+
+  const cetLocked = !!state.asignacionVehiculos[cetId];
+  cellulasList.appendChild(mkCheckRow({
+    labelText: cetLocked
+      ? `CET: ${cetObj?.label || cetId} (Asignado)`
+      : `CET: ${cetObj?.label || cetId}`,
+    disabled: cetLocked,
+    checked: (state.selectedPersonIds || []).includes(Number(cetId)),
+    onChange: checked => {
+      toggleSelectedId(cetId, checked);
+      renderVehiculos();
+    }
+  }));
 
   cellsToShow.forEach(cellId => {
     const p = getPersonalById(cellId);
@@ -1615,6 +1728,7 @@ function renderVehiculos() {
       }
     }));
   });
+
 
   vehiculosLeftEl.appendChild(cellulasList);
 
@@ -1767,69 +1881,24 @@ function renderVehiculos() {
 // Equipo home
 // ===============================
 function renderEquipoHome() {
-  clearPanel();
-  showBack(true);
-  showVehiculosLeftPanel("Asignación de equipos");
-
   state.categoria = "equipo";
-  state.equipoDestino = null;
+  
+  if (!state.equipoCategoria) state.equipoCategoria = "comunicacion";
+  if (!state.equipoDestino) state.equipoDestino = "personal";
+  
   state.equipoSelectedItems = [];
   state.equipoSelectedResource = null;
 
-  setHeader("Asignación de Equipos", "");
-  setAccion("Siguiente", true);
+  if (state.equipoDestino === "personal") {
+    if (!state.equipoSelectedCet && state.cetSeleccionadosIds.length > 0) {
+      state.equipoSelectedCet = state.cetSeleccionadosIds[0];
+    }
+  }
 
-  vehiculosLeftEl.innerHTML = "";
-
-  const leftGrid = document.createElement("div");
-  leftGrid.className = "optGrid";
-
-  const btnPersonal = mkOpt("Asignar a personal");
-  const btnVehiculo = mkOpt("Asignar a vehículo");
-
-  btnPersonal.addEventListener("click", () => {
-    state.equipoDestino = "personal";
-    saveDraftLocal();
-    renderEquipoAsignacion();
-  });
-
-  btnVehiculo.addEventListener("click", () => {
-    state.equipoDestino = "vehiculo";
-    saveDraftLocal();
-    renderEquipoAsignacion();
-  });
-
-  leftGrid.appendChild(btnPersonal);
-  leftGrid.appendChild(btnVehiculo);
-  vehiculosLeftEl.appendChild(leftGrid);
-
-  const rightGrid = document.createElement("div");
-  rightGrid.className = "optGrid";
-
-  const btnTactico = mkOpt("Equipo táctico");
-  const btnCom = mkOpt("Equipo de comunicación");
-
-  btnTactico.addEventListener("click", () => {
-    state.equipoCategoria = "tactico";
-    saveDraftLocal();
-    renderEquipoHome();
-  });
-
-  btnCom.addEventListener("click", () => {
-    state.equipoCategoria = "comunicacion";
-    saveDraftLocal();
-    renderEquipoHome();
-  });
-
-  if (state.equipoCategoria === "tactico") btnTactico.classList.add("active");
-  if (state.equipoCategoria === "comunicacion") btnCom.classList.add("active");
-
-  rightGrid.appendChild(btnTactico);
-  rightGrid.appendChild(btnCom);
-  panel.appendChild(rightGrid);
-
-  btnAccion.onclick = () => {};
+  saveDraftLocal();
+  renderEquipoAsignacion();
 }
+
 
 // ===============================
 // Equipo asignación
@@ -1839,11 +1908,8 @@ function renderEquipoAsignacion() {
   showBack(true);
   showVehiculosLeftPanel("Asignación de equipos");
 
-  setHeader(
-    state.equipoCategoria === "tactico" ? "Equipo táctico" : "Equipo de comunicación",
-    ""
-  );
-  setAccion("Guardar equipos", false);
+  setHeader("Selecciona equipo", "");
+  setAccion("Finalizar", false);
 
   vehiculosLeftEl.innerHTML = "";
 
@@ -1868,6 +1934,8 @@ function renderEquipoAsignacion() {
     state.equipoDestino = "vehiculo";
     state.equipoSelectedResource = null;
     state.equipoSelectedItems = [];
+    state.equipoSelectedCet = null;
+    state.equipoSelectedGrupo = null;
     saveDraftLocal();
     renderEquipoAsignacion();
   });
@@ -1877,10 +1945,39 @@ function renderEquipoAsignacion() {
   vehiculosLeftEl.appendChild(leftHeader);
 
   if (state.equipoDestino === "personal") {
+    if (!state.equipoSelectedCet && state.cetSeleccionadosIds.length > 0) {
+      state.equipoSelectedCet = state.cetSeleccionadosIds[0];
+    }
     renderEquipoLeftPersonal();
   } else {
     renderEquipoLeftVehiculo();
   }
+
+  const rightHeaderBox = document.createElement("div");
+  rightHeaderBox.className = "chipRow";
+  rightHeaderBox.style.marginBottom = "10px";
+
+  const chipCom = document.createElement("button");
+  chipCom.className = "chip" + (state.equipoCategoria === "comunicacion" ? " active" : "");
+  chipCom.textContent = "Comunicación";
+  chipCom.addEventListener("click", () => {
+    state.equipoCategoria = "comunicacion";
+    saveDraftLocal();
+    renderEquipoAsignacion();
+  });
+
+  const chipTac = document.createElement("button");
+  chipTac.className = "chip" + (state.equipoCategoria === "tactico" ? " active" : "");
+  chipTac.textContent = "Táctico";
+  chipTac.addEventListener("click", () => {
+    state.equipoCategoria = "tactico";
+    saveDraftLocal();
+    renderEquipoAsignacion();
+  });
+
+  rightHeaderBox.appendChild(chipCom);
+  rightHeaderBox.appendChild(chipTac);
+  panel.appendChild(rightHeaderBox);
 
   const listBox = document.createElement("div");
   listBox.className = "listBox";
@@ -1889,6 +1986,7 @@ function renderEquipoAsignacion() {
   equipTitle.className = "lbl";
   equipTitle.style.marginBottom = "10px";
   equipTitle.textContent = "Selecciona equipo";
+
 
   const eqWrap = document.createElement("div");
   eqWrap.style.display = "flex";
@@ -1987,12 +2085,16 @@ function renderEquipoAsignacion() {
     const store = getEquipoAssignmentsBucket();
 
     state.equipoSelectedItems.forEach(id_equipo => {
-      store[Number(id_equipo)] = { ...state.equipoSelectedResource };
+      store[Number(id_equipo)] = { 
+        ...state.equipoSelectedResource,
+        fecha_asignacion: new Date().toISOString()
+      };
     });
 
     state.equipoSelectedItems = [];
     saveDraftLocal();
     renderEquipoAsignacion();
+
   });
 
   listBox.appendChild(equipTitle);
@@ -2026,45 +2128,9 @@ function renderEquipoAsignacion() {
 function renderEquipoLeftPersonal() {
   const box = document.createElement("div");
   box.className = "listBox";
+  box.style.gap = "12px";
 
-  if (state.cutSeleccionadoId) {
-    const cut = getPersonalById(state.cutSeleccionadoId);
-    if (cut) {
-      const cutTitle = document.createElement("div");
-      cutTitle.className = "lbl";
-      cutTitle.style.marginBottom = "8px";
-      cutTitle.textContent = "CUT";
-      box.appendChild(cutTitle);
-
-      const cutRow = document.createElement("div");
-      cutRow.className = "item" + (
-        state.equipoSelectedResource?.tipo === "personal" &&
-        Number(state.equipoSelectedResource?.id_personal) === Number(cut.id_personal)
-          ? " selected"
-          : ""
-      );
-      cutRow.style.cursor = "pointer";
-
-      const left = document.createElement("div");
-      left.className = "itemName";
-      left.textContent = cut.label;
-
-      cutRow.appendChild(left);
-      cutRow.addEventListener("click", () => {
-        state.equipoSelectedResource = {
-          tipo: "personal",
-          id_personal: Number(cut.id_personal),
-          label: cut.label
-        };
-        saveDraftLocal();
-        renderEquipoAsignacion();
-      });
-
-      box.appendChild(cutRow);
-    }
-  }
-
-  if (!state.cetSeleccionadosIds.length) {
+  if (!state.cetSeleccionadosIds.length && !state.cutSeleccionadoId) {
     const empty = document.createElement("div");
     empty.className = "item";
     empty.textContent = "No hay personal disponible.";
@@ -2073,166 +2139,165 @@ function renderEquipoLeftPersonal() {
     return;
   }
 
-  state.cetSeleccionadosIds.forEach(cet => {
-    const cetObj = getPersonalById(cet);
-    const flotilla = state.flotillaByCet[cet] || "—";
-    const ginfo = state.gruposByCet[cet] || { names: [], map: {} };
-    const hasGroups = (ginfo.names || []).length > 0;
+  // Chips para CETs
+  const cetRow = document.createElement("div");
+  cetRow.className = "chipRow";
+  cetRow.style.marginBottom = "0";
 
-    const bloque = document.createElement("div");
-    bloque.style.display = "flex";
-    bloque.style.flexDirection = "column";
-    bloque.style.gap = "10px";
-    bloque.style.marginBottom = "16px";
-    bloque.style.paddingBottom = "12px";
-    bloque.style.borderBottom = "1px solid #d7e3ff";
+  if (state.cutSeleccionadoId) {
+    const p = getPersonalById(state.cutSeleccionadoId);
+    if (p) {
+      const chip = document.createElement("button");
+      chip.className = "chip" + (state.equipoSelectedCet === "CUT" ? " active" : "");
+      chip.textContent = "CUT";
+      chip.addEventListener("click", () => {
+        state.equipoSelectedCet = "CUT";
+        state.equipoSelectedResource = null;
+        state.equipoSelectedGrupo = null;
+        saveDraftLocal();
+        renderEquipoAsignacion();
+      });
+      cetRow.appendChild(chip);
+    }
+  }
 
-    const cetChipRow = document.createElement("div");
-    cetChipRow.className = "chipRow";
-    cetChipRow.style.marginBottom = "0";
-    cetChipRow.style.paddingBottom = "0";
-    cetChipRow.style.borderBottom = "none";
-
-    const cetChip = document.createElement("div");
-    cetChip.className = "chip active";
-    cetChip.textContent = `CET: ${cetObj?.label || cet}`;
-    cetChipRow.appendChild(cetChip);
-    bloque.appendChild(cetChipRow);
-
-    const cetRow = document.createElement("div");
-    cetRow.className = "item" + (
-      state.equipoSelectedResource?.tipo === "personal" &&
-      Number(state.equipoSelectedResource?.id_personal) === Number(cet)
-        ? " selected"
-        : ""
-    );
-    cetRow.style.cursor = "pointer";
-
-    const cetLeft = document.createElement("div");
-    cetLeft.className = "itemName";
-    cetLeft.textContent = `Asignar al CET: ${cetObj?.label || cet}`;
-
-    cetRow.appendChild(cetLeft);
-    cetRow.addEventListener("click", () => {
-      state.equipoSelectedResource = {
-        tipo: "personal",
-        id_personal: Number(cet),
-        label: cetObj?.label || `CET ${cet}`
-      };
+  state.cetSeleccionadosIds.forEach((id) => {
+    const p = getPersonalById(id);
+    const chip = document.createElement("button");
+    chip.className = "chip" + (state.equipoSelectedCet === Number(id) ? " active" : "");
+    chip.textContent = `CET: ${p?.label || id}`;
+    chip.addEventListener("click", () => {
+      state.equipoSelectedCet = Number(id);
+      state.equipoSelectedResource = null;
+      const ginfo = state.gruposByCet[id] || { names: [], map: {} };
+      state.equipoSelectedGrupo = (ginfo.names && ginfo.names.length > 0) ? ginfo.names[0] : null;
       saveDraftLocal();
       renderEquipoAsignacion();
     });
-    bloque.appendChild(cetRow);
+    cetRow.appendChild(chip);
+  });
+
+  box.appendChild(cetRow);
+
+  if (state.equipoSelectedCet === "CUT") {
+    const cut = getPersonalById(state.cutSeleccionadoId);
+    const row = document.createElement("div");
+    row.className = "item" + (
+      state.equipoSelectedResource?.tipo === "personal" &&
+      Number(state.equipoSelectedResource?.id_personal) === Number(cut.id_personal)
+        ? " selected"
+        : ""
+    );
+    row.style.cursor = "pointer";
+    row.textContent = cut.label;
+    row.addEventListener("click", () => {
+      state.equipoSelectedResource = { tipo: "personal", id_personal: Number(cut.id_personal), label: cut.label };
+      saveDraftLocal();
+      renderEquipoAsignacion();
+    });
+    box.appendChild(row);
+  } else if (state.equipoSelectedCet) {
+    const cetId = state.equipoSelectedCet;
+    const cetObj = getPersonalById(cetId);
+    const flotilla = state.flotillaByCet[cetId] || "—";
+    const ginfo = state.gruposByCet[cetId] || { names: [], map: {} };
+    const hasGroups = (ginfo.names || []).length > 0;
+
+    const rowCet = document.createElement("div");
+    rowCet.className = "item" + (
+      state.equipoSelectedResource?.tipo === "personal" &&
+      Number(state.equipoSelectedResource?.id_personal) === Number(cetId)
+        ? " selected"
+        : ""
+    );
+    rowCet.style.cursor = "pointer";
+    rowCet.textContent = `Asignar al CET: ${cetObj?.label || cetId}`;
+    rowCet.addEventListener("click", () => {
+      state.equipoSelectedResource = { tipo: "personal", id_personal: Number(cetId), label: cetObj?.label || `CET ${cetId}` };
+      saveDraftLocal();
+      renderEquipoAsignacion();
+    });
+    box.appendChild(rowCet);
 
     const flotillaLbl = document.createElement("div");
     flotillaLbl.className = "lbl";
     flotillaLbl.textContent = "Nombre de la flotilla";
-    bloque.appendChild(flotillaLbl);
+    box.appendChild(flotillaLbl);
 
     const flotillaChip = document.createElement("div");
     flotillaChip.className = "chip";
     flotillaChip.style.width = "max-content";
     flotillaChip.textContent = flotilla;
-    bloque.appendChild(flotillaChip);
+    box.appendChild(flotillaChip);
 
     if (hasGroups) {
       const gruposLbl = document.createElement("div");
       gruposLbl.className = "lbl";
       gruposLbl.textContent = "Grupos";
-      bloque.appendChild(gruposLbl);
+      box.appendChild(gruposLbl);
 
       const gruposRow = document.createElement("div");
       gruposRow.className = "groupsRow";
-
-      ginfo.names.forEach(gName => {
-        const chip = document.createElement("div");
-        chip.className = "chip";
+      ginfo.names.forEach((gName) => {
+        const chip = document.createElement("button");
+        chip.className = "chip" + (state.equipoSelectedGrupo === gName ? " active" : "");
         chip.textContent = gName;
+        chip.addEventListener("click", () => {
+          state.equipoSelectedGrupo = gName;
+          state.equipoSelectedResource = null;
+          saveDraftLocal();
+          renderEquipoAsignacion();
+        });
         gruposRow.appendChild(chip);
       });
+      box.appendChild(gruposRow);
+    }
 
-      bloque.appendChild(gruposRow);
+    const personasWrap = document.createElement("div");
+    personasWrap.style.display = "flex";
+    personasWrap.style.flexDirection = "column";
+    personasWrap.style.gap = "10px";
+    personasWrap.style.maxHeight = "340px";
+    personasWrap.style.overflowY = "auto";
 
-      ginfo.names.forEach(gName => {
-        const personasGrupo = Array.from(ginfo.map[gName] || []);
-        if (!personasGrupo.length) return;
-
-        const grupoTitle = document.createElement("div");
-        grupoTitle.className = "lbl";
-        grupoTitle.textContent = gName;
-        bloque.appendChild(grupoTitle);
-
-        personasGrupo.forEach(idPersona => {
-          const persona = getPersonalById(idPersona);
-          if (!persona) return;
-
-          const row = document.createElement("div");
-          row.className = "item" + (
-            state.equipoSelectedResource?.tipo === "personal" &&
-            Number(state.equipoSelectedResource?.id_personal) === Number(idPersona)
-              ? " selected"
-              : ""
-          );
-          row.style.cursor = "pointer";
-
-          const left = document.createElement("div");
-          left.className = "itemName";
-          left.textContent = persona.label;
-
-          row.appendChild(left);
-          row.addEventListener("click", () => {
-            state.equipoSelectedResource = {
-              tipo: "personal",
-              id_personal: Number(idPersona),
-              label: persona.label
-            };
-            saveDraftLocal();
-            renderEquipoAsignacion();
-          });
-
-          bloque.appendChild(row);
-        });
-      });
+    let personasIds = [];
+    if (hasGroups && state.equipoSelectedGrupo) {
+      personasIds = Array.from(ginfo.map[state.equipoSelectedGrupo] || []);
     } else {
-      const personas = state.asignacionCelulas[cet] || [];
+      personasIds = state.asignacionCelulas[cetId] || [];
+    }
 
-      personas.forEach(idPersona => {
-        const persona = getPersonalById(idPersona);
-        if (!persona) return;
-
+    if (!personasIds.length) {
+      const empty = document.createElement("div");
+      empty.className = "item";
+      empty.textContent = "No hay personas en esta selección.";
+      personasWrap.appendChild(empty);
+    } else {
+      personasIds.forEach((id) => {
+        const p = getPersonalById(id);
+        if (!p) return;
         const row = document.createElement("div");
         row.className = "item" + (
           state.equipoSelectedResource?.tipo === "personal" &&
-          Number(state.equipoSelectedResource?.id_personal) === Number(idPersona)
+          Number(state.equipoSelectedResource?.id_personal) === Number(id)
             ? " selected"
             : ""
         );
         row.style.cursor = "pointer";
-
-        const left = document.createElement("div");
-        left.className = "itemName";
-        left.textContent = persona.label;
-
-        row.appendChild(left);
+        row.textContent = p.label;
         row.addEventListener("click", () => {
-          state.equipoSelectedResource = {
-            tipo: "personal",
-            id_personal: Number(idPersona),
-            label: persona.label
-          };
+          state.equipoSelectedResource = { tipo: "personal", id_personal: Number(id), label: p.label };
           saveDraftLocal();
           renderEquipoAsignacion();
         });
-
-        bloque.appendChild(row);
+        personasWrap.appendChild(row);
       });
     }
-
-    box.appendChild(bloque);
-  });
-
+    box.appendChild(personasWrap);
+  }
   vehiculosLeftEl.appendChild(box);
 }
+
 
 // ===============================
 // Equipo izquierda - vehículo
@@ -2309,14 +2374,11 @@ function renderEquipoLeftVehiculo() {
 
   usados.forEach(v => {
     const resumen = getResumenVehiculoDetallado(v.id_vehiculo);
+    const isSelected = state.equipoSelectedResource?.tipo === "vehiculo" &&
+                       Number(state.equipoSelectedResource?.id_vehiculo) === Number(v.id_vehiculo);
 
     const card = document.createElement("div");
-    card.className = "item" + (
-      state.equipoSelectedResource?.tipo === "vehiculo" &&
-      Number(state.equipoSelectedResource?.id_vehiculo) === Number(v.id_vehiculo)
-        ? " selected"
-        : ""
-    );
+    card.className = "item" + (isSelected ? " selected" : "");
     card.style.display = "flex";
     card.style.alignItems = "flex-start";
     card.style.gap = "12px";
@@ -2337,44 +2399,28 @@ function renderEquipoLeftVehiculo() {
     const content = document.createElement("div");
     content.style.display = "flex";
     content.style.flexDirection = "column";
-    content.style.gap = "6px";
+    content.style.gap = "4px";
     content.style.flex = "1";
 
     const title = document.createElement("div");
     title.className = "itemName";
     title.textContent = v.label;
 
-    const sub = document.createElement("div");
-    sub.style.fontSize = "12px";
-    sub.style.opacity = "0.8";
-    sub.textContent = [
-      v.tipo ? `Tipo: ${v.tipo}` : "",
-      v.estado ? `Estado: ${v.estado}` : ""
-    ].filter(Boolean).join(" | ");
-
-    const info1 = document.createElement("div");
-    info1.textContent = `Flotilla: ${resumen.flotilla}`;
-
-    const info2 = document.createElement("div");
-    info2.textContent = `Grupo: ${resumen.grupo}`;
-
-    const info3 = document.createElement("div");
-    info3.textContent = `Personas: ${resumen.personas}`;
+    const info = document.createElement("div");
+    info.style.fontSize = "12px";
+    info.style.opacity = "0.8";
+    info.innerHTML = `
+      <div style="margin-bottom:2px">Flotilla: ${resumen.flotilla}</div>
+      <div style="margin-bottom:2px">Grupo: ${resumen.grupo}</div>
+      <div>Personas: ${resumen.personas}</div>
+    `;
 
     content.appendChild(title);
-    content.appendChild(sub);
-    content.appendChild(info1);
-    content.appendChild(info2);
-    content.appendChild(info3);
-
+    content.appendChild(info);
     card.appendChild(content);
 
     card.addEventListener("click", () => {
-      state.equipoSelectedResource = {
-        tipo: "vehiculo",
-        id_vehiculo: Number(v.id_vehiculo),
-        label: v.label
-      };
+      state.equipoSelectedResource = { tipo: "vehiculo", id_vehiculo: Number(v.id_vehiculo), label: v.label };
       saveDraftLocal();
       renderEquipoAsignacion();
     });
@@ -2384,6 +2430,7 @@ function renderEquipoLeftVehiculo() {
 
   vehiculosLeftEl.appendChild(box);
 }
+
 
 // ===============================
 // Fila reutilizable
@@ -2497,10 +2544,6 @@ if (opHoraInicioEl) {
   .filter(Boolean)
   .forEach((el) => {
     el.addEventListener("input", () => {
-      if (el === opInicioEl || el === opHoraInicioEl) {
-        validateDateTime();
-      }
-
       if (lblOperacion && opNombreEl) {
         lblOperacion.textContent = opNombreEl.value.trim() || "—";
       }
@@ -2544,7 +2587,16 @@ if (opHoraInicioEl) {
 
     hideDashboardButton();
     renderHome();
+
+    if (btnDashboardGo) {
+      btnDashboardGo.onclick = () => {
+        if (!state.opId) return alert("No hay una operación activa seleccionada.");
+        localStorage.setItem("active_operation_id", state.opId);
+        window.location.href = "dashboard.html?id=" + state.opId;
+      };
+    }
   } catch (e) {
+
     alert(`Error inicializando: ${e.message}\n\n¿Hay token en localStorage.token? ¿API en ${API_BASE}?`);
   }
 })();

@@ -349,10 +349,11 @@ CREATE TABLE IF NOT EXISTS asignacion_operacion_personal (
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
--- Operación <-> Vehículo
+-- Operación <-> Vehículo (con personal asignado)
 CREATE TABLE IF NOT EXISTS vehiculo_operacion (
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   id_vehiculo INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
+  id_personal INT REFERENCES personal(id_personal) ON DELETE SET NULL,
   uso_en_operacion TEXT,
   estado_asignacion estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
   fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -362,11 +363,13 @@ CREATE TABLE IF NOT EXISTS vehiculo_operacion (
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
--- Operación <-> Equipo (inventario “reservado” para la operación)
+-- Operación <-> Equipo (con personal o vehículo asignado)
 CREATE TABLE IF NOT EXISTS operacion_equipo (
   id_operacion_equipo SERIAL PRIMARY KEY,
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   id_equipo INT NOT NULL REFERENCES equipo(id_equipo) ON DELETE RESTRICT,
+  id_personal INT REFERENCES personal(id_personal) ON DELETE SET NULL,
+  id_vehiculo INT REFERENCES vehiculo(id_vehiculo) ON DELETE SET NULL,
   cantidad INT NOT NULL DEFAULT 1,
   uso_en_operacion TEXT,
   estado_asignacion estado_asig_equipo_operacion_enum NOT NULL DEFAULT 'ASIGNADO',

@@ -3,9 +3,15 @@ const CESIUM_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMj
 
 // =================== HELPERS OPERACION ACTIVA ===================
 function getActiveOperationId() {
-  const idValue = localStorage.getItem("active_operation_id");
+  const qs = new URLSearchParams(window.location.search);
+  const urlId = qs.get("id") || qs.get("opId");
 
-  // Validar si el valor es realmente útil (no 'null', 'undefined' o vacío)
+  if (urlId && Number(urlId) > 0) {
+    localStorage.setItem("active_operation_id", urlId);
+    return Number(urlId);
+  }
+
+  const idValue = localStorage.getItem("active_operation_id");
   if (!idValue || idValue === "null" || idValue === "undefined") {
     throw new Error("No hay operación activa en la sesión.");
   }
@@ -17,6 +23,7 @@ function getActiveOperationId() {
 
   return num;
 }
+
 
 // =================== SESION (Ya validada en dashboard_auth.js) ===================
 const API_BASE =
@@ -109,6 +116,49 @@ let historyOps = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
 let dashboardData = null;
 
 // =================== CESIUM + OSRM ===================
+class OpenStreetMapNominatimGeocoder {
+  constructor() {
+    this._credit = undefined;
+  }
+
+  get credit() {
+    return this._credit;
+  }
+
+  async geocode(input) {
+    const query = String(input || "").trim();
+    if (!query) return [];
+
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=5`;
+
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json"
+        }
+      });
+
+      if (!response.ok) return [];
+
+      const results = await response.json();
+
+      return results.map((item) => {
+        const south = parseFloat(item.boundingbox[0]);
+        const north = parseFloat(item.boundingbox[1]);
+        const west = parseFloat(item.boundingbox[2]);
+        const east = parseFloat(item.boundingbox[3]);
+
+        return {
+          displayName: item.display_name,
+          destination: Cesium.Rectangle.fromDegrees(west, south, east, north)
+        };
+      });
+    } catch {
+      return [];
+    }
+  }
+}
+
 let viewer;
 
 let pickMode = null;
@@ -261,7 +311,13 @@ toggleInfoPanel.addEventListener("click", () => togglePanel(infoPanel, toggleInf
 toggleRoutePanel.addEventListener("click", () => togglePanel(routePanel, toggleRoutePanel));
 toggleTacticalPanel.addEventListener("click", () => togglePanel(tacticalPanel, toggleTacticalPanel));
 if (toggleChatPanel && chatPanel) {
-  toggleChatPanel.addEventListener("click", () => togglePanel(chatPanel, toggleChatPanel));
+  toggleChatPanel.addEventListener("click", () => {
+    if (!isOperacionActiva()) {
+      alert("El chat táctico solo está disponible cuando la operación está activa.");
+      return;
+    }
+    togglePanel(chatPanel, toggleChatPanel);
+  });
 }
 
 // =================== UTIL ===================
@@ -659,29 +715,45 @@ function validateDashboardAccess() {
 
 function applyOperationStateUI() {
   const estado = getEstadoOperacionActual();
+  const op = getOperacionData();
 
   const chatBtn = document.getElementById("toggleChatPanel");
   const chatPanelEl = document.getElementById("chatPanel");
   const mapActionButtonsEl = document.getElementById("mapActionButtons");
+  const badge = document.getElementById("opStatusBadge");
+  const title = document.getElementById("topbarTitle");
+  const dot = document.getElementById("brandDot");
 
-  // reset base
-  if (chatBtn) chatBtn.style.display = "none";
-  if (chatPanelEl) chatPanelEl.classList.remove("open");
-  if (mapActionButtonsEl) mapActionButtonsEl.style.display = "none";
+  const active = (estado === "ACTIVA");
 
-  // ================= PLANIFICADA =================
-  if (estado === "PLANIFICADA" || estado === "PLANEADA" || estado === "") {
-    if (mapActionButtonsEl) mapActionButtonsEl.style.display = "flex";
+  // Badge y Título
+  if (badge) badge.style.display = active ? "inline-block" : "none";
+  if (title) title.textContent = active ? (op.nombre || op.title || "Operación") : "Panorama táctico";
+  if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
+
+  // Mostrar/ocultar botones guardar y cancelar
+  if (mapActionButtonsEl) {
+    if (estado === "PLANIFICADA" || estado === "PLANEADA" || estado === "") {
+      mapActionButtonsEl.style.display = "flex";
+    } else {
+      mapActionButtonsEl.style.display = "none";
+    }
   }
 
-  // ================= ACTIVA =================
-  if (estado === "ACTIVA") {
-    if (chatBtn) chatBtn.style.display = "flex";
-  }
-
-  // ================= TERMINADA =================
-  if (estado === "TERMINADA" || estado === "FINALIZADA") {
-    if (chatBtn) chatBtn.style.display = "flex";
+  // Botón Chat
+  if (chatBtn) chatBtn.style.display = active ? "flex" : "none";
+  
+  if (!active) {
+    if (chatPanelEl) chatPanelEl.classList.remove("open");
+    if (chatBtn) chatBtn.classList.remove("active");
+  } else {
+    // Lógica autoinicio de chat si fuera necesaria
+    const chatKey = `chat_opened_${op.id || "op"}`;
+    if (!localStorage.getItem(chatKey)) {
+       localStorage.setItem(chatKey, "true");
+       if (chatPanelEl) chatPanelEl.classList.add("open");
+       if (chatBtn) chatBtn.classList.add("active");
+    }
   }
 }
 
@@ -738,159 +810,224 @@ function renderInfoPanel() {
   const centroideLon = firstNumber(zona.centroide_lon, zona.lon, zona.lng, zona.longitude);
   const zoomInicial = firstNumber(zona.zoom_inicial, zona.zoom, 8000);
 
+  // --- Lógica de personal agrupado ---
+  let personalHtml = "<p>Sin personal asignado.</p>";
+  if (personal.length) {
+    personalHtml = "";
+    // ── DEDUPLICAR filas del backend (1 fila por persona-por-grupo del JOIN) ──
+    // Construimos un mapa: id_personal → { info del personal, grupos: Set<string> }
+    const personMap = new Map();
+    // Mapa: grupo_nombre → Set<id_personal> de miembros (solo CELLs)
+    const groupMembersMap = new Map();
+    // Mapa: grupo_nombre → id_personal del CET responsable
+    const groupCetMap = new Map();
+
+    personal.forEach(row => {
+      const pid = row.id_personal;
+      if (!personMap.has(pid)) {
+        personMap.set(pid, { ...row, grupos: new Set() });
+      }
+      if (row.grupo_nombre) {
+        personMap.get(pid).grupos.add(row.grupo_nombre);
+        
+        const rol = row.rol_en_operacion || row.rol || "";
+        const isCet = ["CET", "Comandante de Equipo de trabajo"].includes(rol);
+        if (isCet) {
+          groupCetMap.set(row.grupo_nombre, pid);
+        } else {
+          if (!groupMembersMap.has(row.grupo_nombre)) groupMembersMap.set(row.grupo_nombre, new Set());
+          groupMembersMap.get(row.grupo_nombre).add(pid);
+        }
+      }
+    });
+
+    // 1) CUTs
+    const processedIds = new Set();
+    const cutEntries = [...personMap.values()].filter(p => ["CUT", "Comandante de Unidad de Trabajo"].includes(p.rol_en_operacion || p.rol));
+    cutEntries.forEach(c => {
+      processedIds.add(c.id_personal);
+      const nombre = firstString(c.apodo, `${c.nombre || ""} ${c.apellido || ""}`.trim(), "Sin nombre");
+      const puesto = c.puesto ? ` (${c.puesto})` : "";
+      const flotilla = c.grupo_flotilla ? `<p style="font-size:11px; color:#94a3b8; margin-top:2px; font-weight:bold;">FLOTILLA ASIGNADA: ${escapeHtml(c.grupo_flotilla)}</p>` : "";
+      personalHtml += `<div class="miniCard" style="border-left: 3px solid #10b981; margin-bottom:12px;">
+        <p style="margin:0;"><strong>CUT:</strong> ${escapeHtml(nombre)}${escapeHtml(puesto)}</p>
+        ${flotilla}
+      </div>`;
+    });
+
+    // 2) CETs — cada CET aparece UNA vez con sus grupos bajo él
+    const cetEntries = [...personMap.values()].filter(p => ["CET", "Comandante de Equipo de trabajo"].includes(p.rol_en_operacion || p.rol));
+    cetEntries.forEach(cet => {
+      if (processedIds.has(cet.id_personal)) return;
+      processedIds.add(cet.id_personal);
+
+      const cetNombre = firstString(cet.apodo, `${cet.nombre || ""} ${cet.apellido || ""}`.trim(), "Sin nombre");
+      const cetFlotilla = cet.grupo_flotilla ? ` (FLOTILLA: ${cet.grupo_flotilla})` : "";
+
+      personalHtml += `<div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:15px; background: rgba(59,130,246,0.05);">
+        <p style="font-weight:bold; color:#60a5fa; font-size:14px; margin-bottom:8px;">CET: ${escapeHtml(cetNombre)}${escapeHtml(cetFlotilla)}</p>`;
+
+      // Solo los grupos donde ESTE CET es el responsable
+      const myGroups = [...cet.grupos].filter(gName => groupCetMap.get(gName) === cet.id_personal);
+
+      myGroups.forEach(gName => {
+        personalHtml += `<div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left: 1px solid rgba(255,255,255,0.1);">
+          <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">- Grupo: ${escapeHtml(gName)}</p>`;
+
+        const memberIds = groupMembersMap.get(gName) || new Set();
+        memberIds.forEach(mid => {
+          processedIds.add(mid);
+          const m = personMap.get(mid);
+          if (!m) return;
+          const mNombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
+          const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
+          personalHtml += `<p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
+        });
+        personalHtml += `</div>`;
+      });
+      personalHtml += `</div>`;
+    });
+
+    // 3) Personal sobrante (sin grupo ni CET que lo cubra)
+    const leftoverByGroup = {};
+    [...personMap.values()].forEach(p => {
+      if (processedIds.has(p.id_personal)) return;
+      const gName = [...p.grupos][0] || "Personal de la operación";
+      if (!leftoverByGroup[gName]) leftoverByGroup[gName] = [];
+      leftoverByGroup[gName].push(p);
+      processedIds.add(p.id_personal);
+    });
+
+    Object.entries(leftoverByGroup).forEach(([gName, members]) => {
+      personalHtml += `<div class="miniCard" style="border-left: 3px solid #64748b; margin-top:10px; background: rgba(255,255,255,0.02);">
+        <p style="margin-bottom:6px; font-weight:bold; font-size:12px; color:#94a3b8; border-bottom:1px dashed rgba(255,255,255,0.05); padding-bottom:4px;">${escapeHtml(gName)}</p>`;
+      members.forEach(m => {
+        const mNombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
+        const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
+        personalHtml += `<p style="font-size:12px; color:#fff; margin:4px 0; padding-left:4px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
+      });
+      personalHtml += `</div>`;
+    });
+  } // end if (personal.length)
+
   container.innerHTML = `
     <div class="infoBlock">
-      <h3>Operación</h3>
-      <p><strong>Nombre:</strong> ${escapeHtml(titulo)}</p>
-      <p><strong>Código:</strong> ${escapeHtml(codigo)}</p>
-      <p><strong>Descripción:</strong> ${escapeHtml(descripcion)}</p>
-      <p><strong>Prioridad:</strong> ${escapeHtml(prioridad)}</p>
-      <p><strong>Estado:</strong> ${escapeHtml(estado)}</p>
-      <p><strong>Fecha inicio:</strong> ${escapeHtml(fechaInicio)}</p>
-      <p><strong>Fecha fin:</strong> ${escapeHtml(fechaFin)}</p>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <h3 style="margin:0; font-size:16px; color:#fff;">Operación</h3>
+        <button id="editOpInfoBtn" style="padding:6px 14px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid #3b82f6; background:rgba(59,130,246,0.1); color:#3b82f6; cursor:pointer;">Editar ✏️</button>
+      </div>
+      <div style="display:grid; gap:6px; font-size:14px;">
+        <p><strong>Nombre:</strong> ${escapeHtml(titulo)}</p>
+        <p><strong>Código:</strong> <span style="color:#3b82f6;">${escapeHtml(codigo)}</span></p>
+        <p><strong>Descripción:</strong> ${escapeHtml(descripcion)}</p>
+        <p><strong>Prioridad:</strong> <span class="badge" style="background:#1e293b; color:#d7e3ff; border:1px solid #334155;">${escapeHtml(prioridad)}</span></p>
+        <p><strong>Estado:</strong> ${escapeHtml(estado)}</p>
+        <p><strong>Vigencia:</strong> ${escapeHtml(fechaInicio)} al ${escapeHtml(fechaFin)}</p>
+      </div>
     </div>
 
     <div class="infoBlock">
-      <h3>Zona de operación</h3>
-      <p><strong>Centroide lat:</strong> ${escapeHtml(
-    centroideLat != null ? String(centroideLat) : "No definido"
-  )}</p>
-      <p><strong>Centroide lon:</strong> ${escapeHtml(
-    centroideLon != null ? String(centroideLon) : "No definido"
-  )}</p>
-      <p><strong>Zoom inicial:</strong> ${escapeHtml(
-    zoomInicial != null ? String(zoomInicial) : "No definido"
-  )}</p>
+      <h3 style="font-size:16px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Zona de operación</h3>
+      <div style="display:grid; gap:4px; font-size:13px; margin-top:8px;">
+        <p><strong>Centroide:</strong> ${escapeHtml(centroideLat != null ? centroideLat.toFixed(6) : "—")}, ${escapeHtml(centroideLon != null ? centroideLon.toFixed(6) : "—")}</p>
+        <p><strong>Zoom:</strong> ${escapeHtml(zoomInicial != null ? String(zoomInicial) : "—")}</p>
+      </div>
     </div>
 
     <div class="infoBlock">
-      <h3>Personal asignado</h3>
-      ${personal.length
-      ? personal.map(p => {
-        const nombre = firstString(
-          `${p.nombre || ""} ${p.apellido || ""}`.trim(),
-          p.apodo,
-          p.nombre_completo,
-          p.name,
-          "Sin nombre"
-        );
-
-        const cargo = firstString(
-          p.rol,
-          p.puesto,
-          p.cargo,
-          "Sin cargo"
-        );
-
-        const grupo = firstString(
-          p.grupo_apodo,
-          p.grupo_nombre,
-          p.grupo_padre_apodo && p.grupo_apodo
-            ? `${p.grupo_padre_apodo} / ${p.grupo_apodo}`
-            : "",
-          p.grupo_padre_nombre && p.grupo_nombre
-            ? `${p.grupo_padre_nombre} / ${p.grupo_nombre}`
-            : "",
-          p.grupo_padre_apodo,
-          p.grupo_padre_nombre,
-          "Sin grupo"
-        );
-
-        return `
-            <div class="miniCard">
-              <p><strong>Nombre:</strong> ${escapeHtml(nombre)}</p>
-              <p><strong>Cargo:</strong> ${escapeHtml(cargo)}</p>
-              <p><strong>Grupo:</strong> ${escapeHtml(grupo)}</p>
-            </div>
-          `;
-      }).join("")
-      : `<p>Sin personal asignado.</p>`
-    }
+      <h3 style="font-size:16px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Personal asignado</h3>
+      <div style="margin-top:10px;">
+        ${personalHtml}
+      </div>
     </div>
 
     <div class="infoBlock">
-      <h3>Vehículos asignados</h3>
-      ${vehiculos.length
-      ? vehiculos.map(v => {
-        const unidad = firstString(
-          v.codigo_interno,
-          v.unidad,
-          v.nombre,
-          "Sin unidad"
-        );
+      <h3 style="font-size:16px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Vehículos asignados</h3>
+      <div style="margin-top:10px;">
+        ${vehiculos.length
+          ? vehiculos.map(v => {
+            const unidad = firstString(v.codigo_interno, v.alias, "Sin unidad");
+            const asignadoA = firstString(v.asignado_a_apodo, (v.asignado_a_nombre ? `${v.asignado_a_nombre} ${v.asignado_a_apellido || ""}`.trim() : ""));
+            
+            let multipleGroups = null;
+            if (v.grupo_apodo || v.grupo_nombre) {
+              multipleGroups = (v.grupo_apodo || v.grupo_nombre).split(',').map(s => s.trim());
+            }
 
-        const tipo = firstString(
-          v.tipo,
-          "Sin tipo"
-        );
+            return `
+                <div class="miniCard" style="margin-bottom:8px;">
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 4px;">
+                    <div>
+                        <p style="font-weight:bold; color:#fff; font-size:14px; margin:0;">${escapeHtml(unidad)}</p>
+                        <p style="font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">${escapeHtml(v.tipo || "Vehículo")}</p>
+                    </div>
+                  </div>
+                  
+                  ${asignadoA ? `
+                    <div style="margin-top:4px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.05);">
+                      <p style="font-size:11px; color:#fff; margin:0;">
+                        <span style="color:#60a5fa; font-weight:600;">Asignado a:</span> ${escapeHtml(asignadoA)}
+                      </p>
+                    </div>
+                  ` : ""}
 
-        const placas = firstString(
-          v.placas,
-          "Sin placas"
-        );
-
-        const asignado = firstString(
-          v.grupo_apodo,
-          v.grupo_nombre,
-          v.grupo_padre_apodo && v.grupo_apodo
-            ? `${v.grupo_padre_apodo} / ${v.grupo_apodo}`
-            : "",
-          v.grupo_padre_nombre && v.grupo_nombre
-            ? `${v.grupo_padre_nombre} / ${v.grupo_nombre}`
-            : "",
-          v.grupo_padre_apodo,
-          v.grupo_padre_nombre,
-          v.uso_en_operacion,
-          "Sin asignación"
-        );
-
-        return `
-            <div class="miniCard">
-              <p><strong>Unidad:</strong> ${escapeHtml(unidad)}</p>
-              <p><strong>Tipo:</strong> ${escapeHtml(tipo)}</p>
-              <p><strong>Placas:</strong> ${escapeHtml(placas)}</p>
-              <p><strong>Asignación:</strong> ${escapeHtml(asignado)}</p>
-            </div>
-          `;
-      }).join("")
-      : `<p>Sin vehículos asignados.</p>`
-    }
+                  ${multipleGroups && multipleGroups.length ? `
+                    <div style="margin-top:4px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.05);">
+                      <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:2px;">Grupos asignados:</p>
+                      ${multipleGroups.map(g => `<p style="font-size:11px; color:#fff; margin:1px 0; padding-left:4px;">• ${escapeHtml(g)}</p>`).join("")}
+                    </div>
+                  ` : ""}
+                </div>
+              `;
+          }).join("")
+          : `<p style="font-size:13px; color:#64748b;">Sin vehículos asignados.</p>`
+        }
+      </div>
     </div>
 
     <div class="infoBlock">
-      <h3>Equipos asignados</h3>
-      ${equipos.length
-      ? equipos.map(e => {
-        const nombre = firstString(e.nombre, e.descripcion, "Sin nombre");
-        const codigo = firstString(
-          e.numero_serie,
-          e.codigo,
-          e.codigoInterno,
-          "Sin código"
-        );
-        const categoria = firstString(e.categoria, "Sin categoría");
-        const asignadoA = firstString(
-          e.personal_apodo,
-          e.personal_asignado,
-          e.vehiculo_alias,
-          e.vehiculo_asignado,
-          e.uso_en_operacion,
-          "Sin asignación"
-        );
+      <h3 style="font-size:16px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Equipos asignados</h3>
+      <div style="margin-top:10px;">
+        ${equipos.length
+          ? equipos.map(e => {
+            const nombre = firstString(e.nombre, "Equipo");
+            const target = e.asignado_a_personal || e.personal_apodo || e.personal_asignado ||
+                           e.asignado_a_vehiculo || e.vehiculo_asignado ||
+                           e.uso_en_operacion || "";
+            const isVehiculo = !!(e.asignado_a_vehiculo || e.vehiculo_asignado);
+            const targetPrefix = e.asignado_a_vehiculo ? "Vehículo: " : "";
 
-        return `
-            <div class="miniCard">
-              <p><strong>Nombre:</strong> ${escapeHtml(nombre)}</p>
-              <p><strong>Código:</strong> ${escapeHtml(codigo)}</p>
-              <p><strong>Categoría:</strong> ${escapeHtml(categoria)}</p>
-              <p><strong>Asignado a:</strong> ${escapeHtml(asignadoA)}</p>
-            </div>
-          `;
-      }).join("")
-      : `<p>Sin equipos asignados.</p>`
-    }
+            return `
+                <div class="miniCard" style="display:flex; justify-content:space-between; align-items:center;">
+                  <div>
+                    <p style="font-weight:bold; color:#fff;">${escapeHtml(nombre)}</p>
+                    <p style="font-size:11px; color:#94a3b8;">S/N: ${escapeHtml(e.numero_serie || "—")}</p>
+                  </div>
+                  ${target ? `
+                    <div style="text-align:right;">
+                      <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
+                        ${target.includes("principal de la operación") ? "Sin asignar" : `asignado a ${isVehiculo ? "vehiculo" : "personal"}: ${escapeHtml(target)}`}
+                      </p>
+                      <p style="font-size:9px; color:#94a3b8; text-transform:lowercase;">${escapeHtml(e.categoria || "")}</p>
+                    </div>` : `
+                    <div style="text-align:right;">
+                      <span style="font-size:10px; color:#64748b;">Sin asignar</span>
+                    </div>`}
+                </div>
+              `;
+          }).join("")
+          : `<p style="font-size:13px; color:#64748b;">Sin equipos asignados.</p>`
+        }
+      </div>
     </div>
   `;
+
+  const editBtn = document.getElementById("editOpInfoBtn");
+  if (editBtn) {
+    editBtn.addEventListener("click", () => {
+      window.location.href = "asignacion.html";
+    });
+  }
 }
 
 // =================== TACTICAL UI ===================
@@ -1344,49 +1481,6 @@ function handleTacticalPlacement(lat, lng) {
   }
 
   return false;
-}
-
-class OpenStreetMapNominatimGeocoder {
-  constructor() {
-    this._credit = undefined;
-  }
-
-  get credit() {
-    return this._credit;
-  }
-
-  async geocode(input) {
-    const query = String(input || "").trim();
-    if (!query) return [];
-
-    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&limit=5`;
-
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "Accept": "application/json"
-        }
-      });
-
-      if (!response.ok) return [];
-
-      const results = await response.json();
-
-      return results.map((item) => {
-        const south = parseFloat(item.boundingbox[0]);
-        const north = parseFloat(item.boundingbox[1]);
-        const west = parseFloat(item.boundingbox[2]);
-        const east = parseFloat(item.boundingbox[3]);
-
-        return {
-          displayName: item.display_name,
-          destination: Cesium.Rectangle.fromDegrees(west, south, east, north)
-        };
-      });
-    } catch {
-      return [];
-    }
-  }
 }
 
 function clearAreaVertices() {
