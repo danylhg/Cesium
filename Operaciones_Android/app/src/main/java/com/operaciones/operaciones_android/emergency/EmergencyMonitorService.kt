@@ -36,7 +36,7 @@ class EmergencyMonitorService : Service(), SensorEventListener {
         private const val CHANNEL_ID       = "sedam_emergency"
         private const val NOTIFICATION_ID  = 1001
 
-        private const val SHAKE_THRESHOLD  = 15f          // m/s² por encima de gravedad
+        private const val SHAKE_THRESHOLD  = 11f          // m/s² por encima de gravedad (más sensible)
         private const val SHAKE_RESET_MS   = 1_500L       // ventana para el segundo shake
         private const val SHAKE_MIN_GAP_MS = 300L         // gap mínimo entre dos eventos
 
@@ -222,11 +222,10 @@ class EmergencyMonitorService : Service(), SensorEventListener {
         else
             "ubicación no disponible"
 
-        val contenido = "🚨 EMERGENCIA: doble agitación detectada. " +
-                "Usuario: $userName. " +
-                "Unidad: $unitCode. " +
-                "Ubicación: $locationStr. " +
-                "Hora: $timestamp"
+        val contenido = "EMERGENCIA:\n" +
+                "USUARIO: $userName\n" +
+                "UBICACION: $locationStr\n" +
+                "HORA: $timestamp"
 
         Log.d(TAG, "Enviando emergencia: $contenido")
 

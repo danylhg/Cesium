@@ -8,6 +8,7 @@ import android.widget.TextView
 
 class PanelNavigationController(
     private val panelContent: FrameLayout,
+    private val btnNavOperation: LinearLayout,
     private val btnNavChat: LinearLayout,
     private val btnNavPersonal: LinearLayout,
     private val btnNavVehiculos: LinearLayout,
@@ -17,6 +18,7 @@ class PanelNavigationController(
 
     enum class Panel {
         NONE,
+        OPERATION,
         CHAT,
         PERSONAL,
         VEHICULOS,
@@ -24,6 +26,7 @@ class PanelNavigationController(
     }
 
     interface Host {
+        fun inflateOperationPanel()
         fun inflateChatPanel()
         fun inflatePersonalPanel()
         fun inflateVehiculoPanel()
@@ -34,6 +37,7 @@ class PanelNavigationController(
         private set
 
     fun setupNavigation() {
+        btnNavOperation.setOnClickListener { togglePanel(Panel.OPERATION) }
         btnNavChat.setOnClickListener { togglePanel(Panel.CHAT) }
         btnNavPersonal.setOnClickListener { togglePanel(Panel.PERSONAL) }
         btnNavVehiculos.setOnClickListener { togglePanel(Panel.VEHICULOS) }
@@ -48,6 +52,7 @@ class PanelNavigationController(
         activePanel = panel
         panelContent.removeAllViews()
 
+        setNavActive(btnNavOperation, panel == Panel.OPERATION)
         setNavActive(btnNavChat, panel == Panel.CHAT)
         setNavActive(btnNavPersonal, panel == Panel.PERSONAL)
         setNavActive(btnNavVehiculos, panel == Panel.VEHICULOS)
@@ -61,6 +66,7 @@ class PanelNavigationController(
         panelContent.visibility = View.VISIBLE
 
         when (panel) {
+            Panel.OPERATION -> host.inflateOperationPanel()
             Panel.CHAT -> host.inflateChatPanel()
             Panel.PERSONAL -> host.inflatePersonalPanel()
             Panel.VEHICULOS -> host.inflateVehiculoPanel()

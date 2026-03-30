@@ -13,6 +13,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.EquipoItem
+import com.operaciones.operaciones_android.model.Operation
+import com.operaciones.operaciones_android.model.OperationStatus
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
 import com.operaciones.operaciones_android.model.VehiculoItem
@@ -26,7 +28,31 @@ class MainPanelRenderer(
         fun getLayoutInflater(): LayoutInflater
         fun addMessage(msg: ChatMessage)
         fun openChatPanel()
-        fun sendChatMessage(text: String, alert: Boolean = false)
+        fun sendChatMessage(text: String, alert: Boolean = false, destinatarioRol: String? = null)
+    }
+
+    fun inflateOperationPanel(
+        panelContent: FrameLayout,
+        operation: Operation
+    ) {
+        val view = host.getLayoutInflater().inflate(R.layout.panel_operation, panelContent, false)
+        panelContent.addView(view)
+
+        view.findViewById<TextView>(R.id.opNombre).text = operation.nombre
+        view.findViewById<TextView>(R.id.opCodigo).text = operation.codigo
+        view.findViewById<TextView>(R.id.opDescripcion).text = operation.descripcion
+        view.findViewById<TextView>(R.id.opPrioridad).text = operation.prioridad
+        view.findViewById<TextView>(R.id.opEstado).text = operation.status.name
+        view.findViewById<TextView>(R.id.opFechaInicio).text = operation.fechaInicio
+
+        // Colores dinámicos para prioridad
+        val priorityColor = when (operation.prioridad.uppercase()) {
+            "ALTA" -> Color.parseColor("#ef4444")
+            "MEDIA" -> Color.parseColor("#f59e0b")
+            "BAJA" -> Color.parseColor("#22c55e")
+            else -> Color.parseColor("#94a3b8")
+        }
+        view.findViewById<TextView>(R.id.opPrioridad).setTextColor(priorityColor)
     }
 
     fun inflateChatPanel(
@@ -52,18 +78,73 @@ class MainPanelRenderer(
             chatRecycler.scrollToPosition(messages.size - 1)
         }
 
+        var selectedChannel = "GLOBAL"
+
         sendBtn.setOnClickListener {
             val t = msgInput.text.toString().trim()
             if (t.isNotEmpty()) {
-                host.sendChatMessage(t, alert = false)
+                host.sendChatMessage(t, alert = false, destinatarioRol = selectedChannel)
                 msgInput.text.clear()
             }
         }
 
         alertBtn.setOnClickListener {
             val t = msgInput.text.toString().trim().ifEmpty { "Aviso de posición" }
-            host.sendChatMessage(t, alert = true)
+            host.sendChatMessage(t, alert = true, destinatarioRol = selectedChannel)
             msgInput.text.clear()
+        }
+
+        // --- Channels (Destinatarios) ---
+        val channelsContainer = view.findViewById<LinearLayout>(R.id.channelsContainer)
+        val channelSelector = view.findViewById<View>(R.id.channelSelector)
+
+        val userRol = currentUser.rol.name.uppercase()
+        val availableChannels = mutableListOf("GLOBAL")
+
+        when (userRol) {
+            "ADMIN", "CUT" -> {
+                availableChannels.add("CET")
+                availableChannels.add("CELL")
+                availableChannels.add("CELL,CET")
+            }
+            "CET" -> {
+                availableChannels.add("CUT")
+            }
+            // CELL solo tiene GLOBAL, así que no añadimos nada más
+        }
+
+        if (availableChannels.size <= 1) {
+            channelSelector.visibility = View.GONE
+        } else {
+            channelSelector.visibility = View.VISIBLE
+            
+            fun updateChannelUI() {
+                for (i in 0 until channelsContainer.childCount) {
+                    val child = channelsContainer.getChildAt(i)
+                    val txt = child.findViewById<TextView>(R.id.replyText)
+                    val channel = availableChannels[i]
+                    if (channel == selectedChannel) {
+                        child.setBackgroundResource(R.drawable.bg_quick_reply_selected) // Deberíamos crear esto o usar color directo
+                        txt.setTextColor(Color.WHITE)
+                    } else {
+                        child.setBackgroundResource(R.drawable.bg_quick_reply)
+                        txt.setTextColor(Color.parseColor("#94a3b8"))
+                    }
+                }
+            }
+
+            availableChannels.forEach { channel ->
+                val chip = host.getLayoutInflater().inflate(R.layout.item_quick_reply, channelsContainer, false)
+                val txt = chip.findViewById<TextView>(R.id.replyText)
+                txt.text = if (channel == "CELL,CET") "CET + CELL" else channel
+                
+                chip.setOnClickListener {
+                    selectedChannel = channel
+                    updateChannelUI()
+                }
+                channelsContainer.addView(chip)
+            }
+            updateChannelUI()
         }
 
         // --- Quick Replies (Mensajes predeterminados) ---
@@ -88,7 +169,7 @@ class MainPanelRenderer(
             }
 
             chip.setOnClickListener {
-                host.sendChatMessage(text, alert = (text == "Apoyo necesario"))
+                host.sendChatMessage(text, alert = (text == "Apoyo necesario"), destinatarioRol = selectedChannel)
                 msgInput.text.clear()
             }
             quickRepliesContainer.addView(chip)

@@ -58,6 +58,7 @@ class MainActivity : AppCompatActivity(),
 
     private lateinit var webView: WebView
     private lateinit var panelContent: FrameLayout
+    private lateinit var btnNavOperation: LinearLayout
     private lateinit var btnNavChat: LinearLayout
     private lateinit var btnNavPersonal: LinearLayout
     private lateinit var btnNavVehiculos: LinearLayout
@@ -157,6 +158,7 @@ class MainActivity : AppCompatActivity(),
         setContentView(R.layout.activity_main)
 
         panelContent = findViewById(R.id.panelContent)
+        btnNavOperation = findViewById(R.id.btnNavOperation)
         btnNavChat = findViewById(R.id.btnNavChat)
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
         btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
@@ -188,6 +190,7 @@ class MainActivity : AppCompatActivity(),
 
         panelNavigationController = PanelNavigationController(
             panelContent = panelContent,
+            btnNavOperation = btnNavOperation,
             btnNavChat = btnNavChat,
             btnNavPersonal = btnNavPersonal,
             btnNavVehiculos = btnNavVehiculos,
@@ -395,7 +398,7 @@ class MainActivity : AppCompatActivity(),
         cesiumWebController.setup()
     }
 
-    override fun sendChatMessage(text: String, alert: Boolean) {
+    override fun sendChatMessage(text: String, alert: Boolean, destinatarioRol: String?) {
         if (currentOperation.id <= 0) {
             addMessage(
                 ChatMessage(
@@ -415,6 +418,7 @@ class MainActivity : AppCompatActivity(),
             token = token,
             contenido = text,
             tipoMensaje = tipoMensaje,
+            destinatarioRol = destinatarioRol,
             onSuccess = { item ->
                 runOnUiThread {
                     addMessage(parseChatMessage(item))
@@ -475,11 +479,21 @@ class MainActivity : AppCompatActivity(),
             else -> MessageType.NORMAL
         }
 
+        val destinatarioRol = item.optString("destinatario_rol", "GLOBAL")
+        
         return ChatMessage(
             id = id,
             user = autor,
             text = contenido,
-            type = messageType
+            type = messageType,
+            destinatarioRol = destinatarioRol
+        )
+    }
+
+    override fun inflateOperationPanel() {
+        panelRenderer.inflateOperationPanel(
+            panelContent = panelContent,
+            operation = currentOperation
         )
     }
 

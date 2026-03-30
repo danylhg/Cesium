@@ -42,13 +42,38 @@
             android:layout_height="wrap_content"
             android:visibility="gone"/>
 
-        <!-- Barra de navegación inferior (3 botones) -->
+        <!-- Barra de navegación inferior (5 botones) -->
         <LinearLayout
             android:id="@+id/navBar"
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:orientation="horizontal"
             android:background="#0d1526">
+
+            <!-- Botón Operación -->
+            <LinearLayout
+                android:id="@+id/btnNavOperation"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+                <TextView
+                    android:id="@+id/iconNavOperation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📋"
+                    android:textSize="20sp"/>
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Operación"
+                    android:textColor="#64748b"
+                    android:textSize="10sp"/>
+            </LinearLayout>
 
             <!-- Botón Mensajes -->
             <LinearLayout

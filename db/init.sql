@@ -695,6 +695,7 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
   id_participante INT NOT NULL REFERENCES participante_chat(id_participante) ON DELETE CASCADE,
   contenido TEXT NOT NULL,
   tipo_mensaje tipo_mensaje_enum NOT NULL DEFAULT 'NORMAL',
+  destinatario_rol TEXT DEFAULT 'GLOBAL',
   fecha_envio TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -1070,6 +1071,7 @@ SELECT
   m.fecha_envio,
   m.tipo_mensaje,
   m.contenido,
+  m.destinatario_rol,
 
   pc.tipo AS tipo_participante,
   pc.id_usuario,
@@ -1077,8 +1079,8 @@ SELECT
 
   CASE
     WHEN pc.tipo = 'USUARIO' THEN (u.nombre || ' ' || u.apellido)
-    ELSE (p.apodo || ' (' || p.rol::text || ')')
-  END AS display_name
+    ELSE (p.nombre || ' ' || p.apellido || ' (' || p.rol::text || ')')
+  END AS autor_nombre
 FROM chat_operacion co
 JOIN mensaje_chat m         ON m.id_chat = co.id_chat
 JOIN participante_chat pc   ON pc.id_participante = m.id_participante

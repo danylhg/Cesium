@@ -1649,11 +1649,30 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
 app.get("/ops/:id/chat", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const id_actor = Number(req.user.sub);
+  const user_role = req.user.rol;
+  const isPersonal = req.user.tabla === "personal";
+
   try {
-    const { rows } = await pool.query(
-      `SELECT * FROM v_chat_feed WHERE id_operacion = $1 ORDER BY fecha_envio ASC`,
-      [id_operacion]
-    );
+    // ADMIN y CUT ven todo. Otros ven GLOBAL, lo dirigido a su ROL, o sus propios mensajes.
+    let query = `SELECT * FROM v_chat_feed WHERE id_operacion = $1`;
+    let params = [id_operacion];
+
+    if (user_role !== 'ADMIN' && user_role !== 'CUT') {
+      const colActor = isPersonal ? 'id_personal' : 'id_usuario';
+      query += ` AND (
+        destinatario_rol = 'GLOBAL'
+        OR destinatario_rol = $2
+        OR (destinatario_rol = 'CELL,CET' AND $2 IN ('CELL', 'CET'))
+        OR (${colActor} = $3)
+      )`;
+      params.push(user_role, id_actor);
+    }
+
+    query += ` ORDER BY fecha_envio ASC`;
+
+    const { rows } = await pool.query(query, params);
     res.json({ ok: true, items: rows });
   } catch (err) {
     sendDbError(res, err, "Error obteniendo chat");
@@ -1667,6 +1686,8 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
 
   const contenido = (req.body?.contenido || "").toString().trim();
   const tipo_mensaje = (req.body?.tipo_mensaje || "NORMAL").toString().toUpperCase();
+  const destinatario_rol = (req.body?.destinatario_rol || "GLOBAL").toString().toUpperCase();
+
   if (!contenido) return res.status(400).json({ ok: false, mensaje: "Falta contenido" });
   if (!["NORMAL", "URGENTE", "SISTEMA"].includes(tipo_mensaje))
     return res.status(400).json({ ok: false, mensaje: "tipo_mensaje invalido" });
@@ -1674,6 +1695,7 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
   const esPersonal = req.user.tabla === "personal";
   const id_actor = Number(req.user.sub);
   const client = await pool.connect();
+
   try {
     await client.query("BEGIN");
 
@@ -1683,7 +1705,7 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
     if (!cr[0]) { await client.query("ROLLBACK"); return res.status(409).json({ ok: false, mensaje: "El chat no esta activo o no existe" }); }
     const id_chat = cr[0].id_chat;
 
-    // Obtener o crear participante — distingue PERSONAL vs USUARIO
+    // Obtener o crear participante
     const col = esPersonal ? "id_personal" : "id_usuario";
     const tipo = esPersonal ? "PERSONAL" : "USUARIO";
     const { rows: pr } = await client.query(
@@ -1700,12 +1722,22 @@ app.post("/ops/:id/chat", requireAuth, async (req, res) => {
       id_participante = ex[0]?.id_participante;
     }
 
-    const { rows: msg } = await client.query(
-      `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
-       VALUES ($1,$2,$3,$4) RETURNING *`, [id_chat, id_participante, contenido, tipo_mensaje]);
+    const { rows: msgRows } = await client.query(
+      `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol)
+       VALUES ($1,$2,$3,$4,$5) RETURNING *`, [id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol]);
 
     await client.query("COMMIT");
-    res.json({ ok: true, mensaje: msg[0] });
+
+    // Augmentar con datos para el feed (display_name, autor, etc)
+    const { rows: feedRows } = await pool.query(
+      `SELECT * FROM v_chat_feed WHERE id_mensaje = $1 LIMIT 1`, [msgRows[0].id_mensaje]);
+    
+    const messageToBroadcast = feedRows[0] || msgRows[0];
+
+    // Emitir por socket
+    io.to(`op_${id_operacion}`).emit("chat_message", messageToBroadcast);
+
+    res.json({ ok: true, mensaje: messageToBroadcast });
   } catch (err) {
     await client.query("ROLLBACK");
     sendDbError(res, err, "Error enviando mensaje");

@@ -43,6 +43,35 @@
             android:paddingVertical="4dp"/>
     </HorizontalScrollView>
 
+    <!-- Destination / Channel Selector -->
+    <LinearLayout
+        android:id="@+id/channelSelector"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="4dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="DESTINATARIO"
+            android:textColor="#64748b"
+            android:textSize="9sp"
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="2dp"/>
+        <HorizontalScrollView
+            android:id="@+id/channelsScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+            <LinearLayout
+                android:id="@+id/channelsContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingVertical="2dp"/>
+        </HorizontalScrollView>
+    </LinearLayout>
+
     <!-- Input row -->
     <LinearLayout
         android:layout_width="match_parent"

@@ -37,7 +37,14 @@ class ChatAdapter(private val messages: List<ChatMessage>)
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val msg = messages[position]
-        holder.user.text = msg.user
+        
+        holder.user.text = if (msg.destinatarioRol != null && msg.destinatarioRol != "GLOBAL") {
+            val target = if (msg.destinatarioRol == "CELL,CET") "CET+CELL" else msg.destinatarioRol
+            "${msg.user} [Para: $target]"
+        } else {
+            msg.user
+        }
+        
         holder.text.text = msg.text
 
         when (msg.type) {
