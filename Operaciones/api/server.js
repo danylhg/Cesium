@@ -988,10 +988,10 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
       if (!nombre) continue;
 
       // Insertamos el grupo
+      // ON CONFLICT no se usa para actualizar aquí porque mezcla grupos de distintos CETs
       const insRes = await client.query(
         `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por) 
          VALUES ($1,$2,$3,$4,$5) 
-         ON CONFLICT (id_operacion, nombre) DO UPDATE SET apodo = EXCLUDED.apodo, descripcion = EXCLUDED.descripcion
          RETURNING id_grupo_operacion`,
         [id_operacion, nombre, nombre, flotilla || "", who]
       );
