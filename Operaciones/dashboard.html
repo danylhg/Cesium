@@ -1,6 +1,5 @@
 <!doctype html>
 <html lang="es">
-
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -9,35 +8,21 @@
 
   <link rel="stylesheet" href="css/dashboard.css" />
 
-  <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <link
+    href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css"
+    rel="stylesheet"
+  >
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js" defer></script>
 
   <script src="https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.min.js" defer></script>
 </head>
-
 <body>
-  <div id="loadingOverlay">
-    <div class="loadingContainer">
-      <div class="loadingBrand">
-        <span class="brandDot"></span>
-        <h1 class="loadingTitle">Sistema Táctico</h1>
-      </div>
-      <div id="loadingLogBox" class="loadingLogBox">
-        <div class="logEntry"><span class="logStatus">[OK]</span> Sincronizando con satélite...</div>
-      </div>
-      <div class="loadingBarContainer">
-        <div id="loadingBarFill" style="width: 5%"></div>
-      </div>
-      <div id="loadingPercentage" class="loadingPercentage">5%</div>
-    </div>
-  </div>
 
   <header class="topbar">
     <div class="topbarLeft">
       <span class="brandDot" id="brandDot"></span>
       <strong id="topbarTitle">Panorama táctico</strong>
-      <span id="opStatusBadge"
-        style="display:none; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:800; background:#00ffa6; color:#001b1b; letter-spacing:.5px;">ACTIVA</span>
+      <span id="opStatusBadge" style="display:none; padding:2px 10px; border-radius:20px; font-size:12px; font-weight:800; background:#00ffa6; color:#001b1b; letter-spacing:.5px;">ACTIVA</span>
       <span id="who" class="who">(admin)</span>
     </div>
 
@@ -57,16 +42,13 @@
     <div id="map" class="mapBox"></div>
 
     <!-- Popup flotante para eliminar elemento seleccionado -->
-    <div id="entityPopup"
-      style="display:none; position:absolute; z-index:9999; background:rgba(10,20,40,0.95); border:1px solid #00ffa6; border-radius:10px; padding:8px 14px; box-shadow:0 4px 20px rgba(0,255,166,0.2); pointer-events:all; min-width:170px;">
+    <div id="entityPopup" style="display:none; position:absolute; z-index:9999; background:rgba(10,20,40,0.95); border:1px solid #00ffa6; border-radius:10px; padding:8px 14px; box-shadow:0 4px 20px rgba(0,255,166,0.2); pointer-events:all; min-width:170px;">
       <div id="entityPopupName" style="font-size:12px; color:#a0c4ff; margin-bottom:6px; font-weight:600;"></div>
-      <button id="entityPopupDelete"
-        style="width:100%; padding:5px 10px; background:rgba(239,68,68,0.85); border:1px solid #ef4444; border-radius:7px; color:#fff; font-weight:700; font-size:13px; cursor:pointer;">🗑️
-        Eliminar</button>
+      <button id="entityPopupDelete" style="width:100%; padding:5px 10px; background:rgba(239,68,68,0.85); border:1px solid #ef4444; border-radius:7px; color:#fff; font-weight:700; font-size:13px; cursor:pointer;">🗑️ Eliminar</button>
     </div>
 
     <div id="mapActionButtons" class="mapActionButtons">
-      <button id="saveOpMapBtn" class="actionBtn saveBtn">Guardar operación</button>
+      <button id="saveOpMapBtn" class="actionBtn saveBtn">Activar operación</button>
       <button id="cancelOpMapBtn" class="actionBtn cancelBtn">Cancelar operación</button>
     </div>
 
@@ -99,8 +81,7 @@
     </select>
 
     <div class="groupTitle">Ruta por Vehículo</div>
-    <select id="routeVehicleSelect"
-      style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
+    <select id="routeVehicleSelect" style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
       <option value="global">Ruta General (Todos los vehículos)</option>
     </select>
 
@@ -127,7 +108,7 @@
         <button id="clearAreaBtn" class="btnBeige">Limpiar área</button>
       </div>
       <div class="routeInfo" id="areaInfo">
-        Presiona “Marcar área” y haz dos clics en el mapa para delimitar un rectángulo punteado.
+        Presiona "Marcar área" y haz dos clics en el mapa para delimitar un rectángulo punteado.
       </div>
     </div>
   </aside>
@@ -137,47 +118,51 @@
 
     <div class="groupTitle">Herramienta</div>
     <select id="toolSelect">
-      <option value="none">Selecciona herramienta...</option>
-      <option value="mil">Símbolo MIL</option>
-      <option value="poi">Punto de interés / edificio</option>
-      <option value="circle">Círculo de cobertura / amenaza</option>
-      <option value="polygon">Polígono / zona</option>
-      <option value="polyline">Línea táctica</option>
-      <option value="perimeter">Perímetro punteado</option>
-      <option value="label">Etiqueta</option>
+      <option value="none" hidden disabled selected>Selecciona herramienta...</option>
+      <optgroup label="PUNTOS DE INTERÉS">
+        <option value="mil">Símbolo Militar (MIL)</option>
+        <option value="poi">Puntos de Interés</option>
+      </optgroup>
+      <optgroup label="ÁREAS DE INTERÉS">
+        <option value="circle">Círculos de Cobertura</option>
+        <option value="polygon">Polígono / Zona</option>
+      </optgroup>
+      <optgroup label="TRAYECTORIAS">
+        <option value="polyline">Línea táctica</option>
+      </optgroup>
+      <optgroup label="ESTRUCTURA">
+        <option value="label">Etiqueta</option>
+        <option value="bldg">Edificio / Estructura</option>
+      </optgroup>
+      <optgroup label="ZONA DE OPERACIÓN">
+        <option value="perimeter">Perímetro Punteado</option>
+      </optgroup>
     </select>
 
     <div class="groupTitle" id="milSymbolTitle" style="display:none;">Símbolos MIL</div>
 
     <div class="iconPallet" id="iconPallet" style="display:none;">
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png"
-        data-title="Unidad Blindada">
+      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png" data-title="Unidad Blindada">
         <img src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png">
         <span>Unidad Blindada</span>
       </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png"
-        data-title="Punto de Control">
+      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png" data-title="Punto de Control">
         <img src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png">
         <span>Punto de Control</span>
       </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png"
-        data-title="Artillería de Campo">
+      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png" data-title="Artillería de Campo">
         <img src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png">
         <span>Artillería de Campo</span>
       </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Infantry_MGRS-Mapper.png"
-        data-title="Infantería">
+      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Infantry_MGRS-Mapper.png" data-title="Infantería">
         <img src="img/simbolos_militares/Infantry_MGRS-Mapper.png">
         <span>Infantería</span>
       </div>
-      <div class="iconItem" draggable="true"
-        data-src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png"
-        data-title="Infantería Mecanizada">
+      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png" data-title="Infantería Mecanizada">
         <img src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png">
         <span>Infantería Mecanizada</span>
       </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png"
-        data-title="Punto de Referencia">
+      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png" data-title="Punto de Referencia">
         <img src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png">
         <span>Punto de Referencia</span>
       </div>
@@ -214,7 +199,7 @@
         <input id="widthRange" type="range" min="1" max="10" step="1" value="3">
       </div>
 
-      <div>
+      <div id="radiusContainer" style="display:none;">
         <label class="fieldLabel">Radio (m)</label>
         <input id="radiusInput" class="opsInput compactInput" type="number" min="50" step="50" value="5000">
       </div>
@@ -250,20 +235,22 @@
       <button id="chatTabCells" class="chatTab">Células</button>
     </div>
 
-
-
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
       <textarea id="chatInput" placeholder="Escribe un mensaje táctico..."></textarea>
-
-
-
       <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
     </div>
   </aside>
-  <script src="http://192.168.202.103:3001/socket.io/socket.io.js" defer></script>
+
+  <script>
+    (function(){
+      const s = document.createElement('script');
+      s.src = 'http://' + location.hostname + ':3001/socket.io/socket.io.js';
+      s.defer = true;
+      document.head.appendChild(s);
+    })();
+  </script>
   <script src="js/dashboard.js" defer></script>
 </body>
-
 </html>

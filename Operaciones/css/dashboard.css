@@ -16,82 +16,6 @@ body{
   color:#e6edf3;
 }
 
-/* =================== LOADING OVERLAY =================== */
-#loadingOverlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  background: radial-gradient(circle at center, #0a141e 0%, #050a0f 100%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: opacity 0.6s ease, visibility 0.6s;
-}
-
-.loadingContainer {
-  width: 320px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.loadingBrand {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-}
-
-.loadingTitle {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  color: #00ffa6;
-  text-shadow: 0 0 20px rgba(0, 255, 166, 0.4);
-}
-
-.loadingLogBox {
-  min-height: 44px;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 11px;
-  color: #a0c4ff;
-  text-align: left;
-  background: rgba(0, 0, 0, 0.4);
-  padding: 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 255, 170, 0.1);
-}
-
-.logEntry { margin-bottom: 4px; }
-.logStatus { color: #00ffa6; font-weight: bold; margin-right: 6px; }
-
-.loadingBarContainer {
-  height: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 2px;
-  overflow: hidden;
-  position: relative;
-}
-
-#loadingBarFill {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #00ffa6, #00c3ff);
-  box-shadow: 0 0 10px rgba(0, 255, 166, 0.6);
-  transition: width 0.3s ease;
-}
-
-.loadingPercentage {
-  font-size: 14px;
-  font-weight: 700;
-  color: #00ffa6;
-  opacity: 0.8;
-}
-
-
 .topbar{
   position:fixed;
   top:14px;
@@ -163,10 +87,9 @@ body{
 
 .floatingTools{
   position:fixed;
-  top:118px;
+  top:92px;
   left:12px;
   z-index:1150;
-
   display:flex;
   flex-direction:column;
   gap:12px;
@@ -203,9 +126,8 @@ body{
 
 .glassPanel{
   position:fixed;
-  top:118px;
+  top:92px;
   left:78px;
-
   width:360px;
   max-width:calc(100vw - 100px);
   max-height:calc(100vh - 110px);
@@ -790,6 +712,18 @@ body{
   }
 }
 
+/* --- TACTICAL TOOL SELECT --- */
+.glassPanel select optgroup {
+  color: #00ffa6;
+  background: #0d1a2a;
+  font-weight: 800;
+  font-style: normal;
+  padding: 5px 0;
+}
 
-
-
+.glassPanel select option {
+  color: #e6edf3;
+  background: #08111b;
+  font-weight: 500;
+  padding: 8px;
+}

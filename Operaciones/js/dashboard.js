@@ -398,6 +398,17 @@ function firstNumber(...values) {
   return null;
 }
 
+function isFechaHoy(fechaStr) {
+  if (!fechaStr) return false;
+  const hoy = new Date();
+  const fecha = new Date(fechaStr);
+  return (
+    fecha.getFullYear() === hoy.getFullYear() &&
+    fecha.getMonth() === hoy.getMonth() &&
+    fecha.getDate() === hoy.getDate()
+  );
+}
+
 function formatDateText(value) {
   if (!value) return "No disponible";
   const d = new Date(value);
@@ -663,13 +674,20 @@ async function fetchDashboardDataFromBackend() {
     getJson(`${API_BASE}/ops/${opId}/mapa`, true)
   ]);
 
+  const operacionNormalizada =
+    operacionRes?.item ||
+    operacionRes?.operacion ||
+    operacionRes ||
+    mapaRes?.operacion ||
+    {};
+
   const rutasActivas = Array.isArray(mapaRes?.rutas_navegacion)
     ? mapaRes.rutas_navegacion
     : [];
 
   dashboardData = {
     ok: true,
-    operacion: operacionRes || mapaRes?.operacion || {},
+    operacion: operacionNormalizada,
     zona_operacion: zonaRes?.zona || mapaRes?.zona_operacion || null,
     personal: Array.isArray(personalRes?.items)
       ? personalRes.items
@@ -682,6 +700,24 @@ async function fetchDashboardDataFromBackend() {
       : (Array.isArray(mapaRes?.equipos) ? mapaRes.equipos : []),
     rutas_navegacion: rutasActivas
   };
+
+  console.log("OPERACION NORMALIZADA:", dashboardData.operacion);
+  console.log("ESTADO DETECTADO:", dashboardData.operacion?.estado);
+
+  // Si viene directo desde asignación (flag en sessionStorage) y el backend la
+  // marcó ACTIVA con fecha de hoy, mantenerla en PLANIFICADA hasta que el
+  // usuario confirme pulsando "Guardar operación".
+  const estadoBackend = (dashboardData.operacion?.estado || "").trim().toUpperCase();
+  const fechaInicioOp = dashboardData.operacion?.fecha_inicio || dashboardData.operacion?.fechaInicio || "";
+  const pendienteKey = `pendiente_activar_${opId}`;
+  if (
+    sessionStorage.getItem(pendienteKey) === "1" &&
+    estadoBackend === "ACTIVA" &&
+    isFechaHoy(fechaInicioOp)
+  ) {
+    dashboardData.operacion = { ...dashboardData.operacion, estado: "PLANIFICADA" };
+    console.log("Operación pendiente de confirmación: se mantiene en PLANIFICADA hasta guardar.");
+  }
 
   return dashboardData;
 }
@@ -710,8 +746,14 @@ function getEquiposData() {
 // =================== ESTADO OPERACION ===================
 function getEstadoOperacionActual() {
   const op = getOperacionData();
-  const raw = firstString(op.estado, op.status, "");
-  return raw.toUpperCase();
+  const raw = firstString(
+    op.estado,
+    op.status,
+    op.estado_operacion,
+    op.estado_actual,
+    ""
+  );
+  return raw.trim().toUpperCase();
 }
 
 function isOperacionActiva() {
@@ -749,26 +791,26 @@ function applyOperationStateUI() {
   const title = document.getElementById("topbarTitle");
   const dot = document.getElementById("brandDot");
 
-  const active = (estado === "ACTIVA");
+  const isActiva = estado === "ACTIVA";
+  const isPlan = estado === "PLANIFICADA" || estado === "PLANEADA";
+  const isTerm = estado === "TERMINADA" || estado === "FINALIZADA";
 
   // Badge y Título
-  if (badge) badge.style.display = active ? "inline-block" : "none";
-  if (title) title.textContent = active ? (op.nombre || op.title || "Operación") : "Panorama táctico";
-  if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
+  if (badge) badge.style.display = isActiva ? "inline-block" : "none";
+  if (title) title.textContent = op.nombre || op.title || "Operación";
+  if (dot) dot.style.background = isActiva ? "#ff4444" : isPlan ? "#00ffa6" : "#94a3b8";
 
   // Mostrar/ocultar botones guardar y cancelar
   if (mapActionButtonsEl) {
-    if (estado === "PLANIFICADA" || estado === "PLANEADA" || estado === "") {
-      mapActionButtonsEl.style.display = "flex";
-    } else {
-      mapActionButtonsEl.style.display = "none";
-    }
+    mapActionButtonsEl.style.display = isPlan ? "flex" : "none";
   }
 
   // Botón Chat
-  if (chatBtn) chatBtn.style.display = active ? "flex" : "none";
-  
-  if (!active) {
+  if (chatBtn) {
+    chatBtn.style.display = (isActiva || isTerm) ? "flex" : "none";
+  }
+
+  if (!isActiva) {
     if (chatPanelEl) chatPanelEl.classList.remove("open");
     if (chatBtn) chatBtn.classList.remove("active");
   } else {
@@ -2182,11 +2224,18 @@ document.getElementById("goHistory")?.addEventListener("click", () => {
 // =================== OSRM ===================
 async function getOsrmRoute(start, end) {
   const url =
-    `${OSRM_BASE}/route/v1/driving/` +
-    `${start.lng},${start.lat};${end.lng},${end.lat}` +
-    `?overview=full&geometries=geojson`;
+    `${API_BASE}/route/osrm?` +
+    `startLon=${encodeURIComponent(start.lng)}` +
+    `&startLat=${encodeURIComponent(start.lat)}` +
+    `&endLon=${encodeURIComponent(end.lng)}` +
+    `&endLat=${encodeURIComponent(end.lat)}`;
 
-  const r = await fetch(url);
+  const r = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${token}`
+    }
+  });
+
   if (!r.ok) throw new Error("No se pudo obtener ruta");
 
   const data = await r.json();
@@ -2390,8 +2439,12 @@ function drawPersonalEntity(p, color) {
     'Personal'
   );
 
+  const entityId = `personal_${p.id_personal}`;
+  const existing = viewer.entities.getById(entityId);
+  if (existing) viewer.entities.remove(existing);
+
   const ent = viewer.entities.add({
-    id: `personal_${p.id_personal}`,
+    id: entityId,
     name: nombre,
     position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
     point: {
@@ -3012,19 +3065,52 @@ function ensureMapActionButtonsVisible() {
   mapActionButtons.style.display = "flex";
 }
 
-saveOpMapBtn?.addEventListener("click", () => {
-  const op = {
-    id: crypto.randomUUID(),
-    title: document.getElementById("opTitle")?.value?.trim() || "Operación táctica",
-    description: document.getElementById("opDesc")?.value?.trim() || "Operación creada desde mapa",
-    start: startPoint || null,
-    end: endPoint || null,
-    route: lastRoute || null,
-    created_at: new Date().toISOString()
-  };
+saveOpMapBtn?.addEventListener("click", async () => {
+  const opId = getActiveOperationId();
 
-  localStorage.setItem(OPERACION_ACTUAL_KEY, JSON.stringify(op));
-  alert(`¡Operación "${op.title}" guardada correctamente!`);
+  saveOpMapBtn.disabled = true;
+  saveOpMapBtn.textContent = "Activando...";
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/estado`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ estado: "ACTIVA" })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      alert(data?.mensaje || `Error al activar la operación (${res.status})`);
+      saveOpMapBtn.disabled = false;
+      saveOpMapBtn.textContent = "Activar operación";
+      return;
+    }
+
+    sessionStorage.removeItem(`pendiente_activar_${opId}`);
+
+    if (dashboardData?.operacion) {
+      dashboardData.operacion.estado = "ACTIVA";
+    }
+
+    applyOperationStateUI();
+    applyChatPermissions();
+
+    if (!socket) {
+      setupRealtimeSocket();
+    }
+
+    await loadChatHistoryFromBackend();
+
+  } catch (err) {
+    console.error("Error activando operación:", err);
+    alert(err?.message || "No se pudo activar la operación.");
+    saveOpMapBtn.disabled = false;
+    saveOpMapBtn.textContent = "Activar operación";
+  }
 });
 
 cancelOpMapBtn?.addEventListener("click", async () => {

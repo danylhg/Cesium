@@ -2846,6 +2846,7 @@ if (opHoraInicioEl) {
       btnDashboardGo.onclick = () => {
         if (!state.opId) return alert("No hay una operación activa seleccionada.");
         localStorage.setItem("active_operation_id", state.opId);
+        sessionStorage.setItem(`pendiente_activar_${state.opId}`, "1");
         window.location.href = "dashboard.html?id=" + state.opId;
       };
     }

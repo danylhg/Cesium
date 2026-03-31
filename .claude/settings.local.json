@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/\")",
+      "Bash(ls \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/js/\")",
+      "Bash(find \"C:\\\\Users\\\\PC\\\\Downloads\\\\Operaciones \\(8\\)\\\\Operaciones\" -type f \\\\\\( -name \"*.html\" -o -name \"*.css\" \\\\\\) ! -path \"*/node_modules/*\")",
+      "Bash(ls -la \"C:\\\\Users\\\\PC\\\\Downloads\\\\Operaciones \\(8\\)\\\\Operaciones\" \")",
+      "Bash(grep -E '\\\\.\\(html|css\\)$')",
+      "Bash(diff \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/dashboard.css\" \"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/dashboard.css\")",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/menu_inicial.css' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/menu_inicial.css)",
+      "Bash(diff \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/dashboard.html\" \"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/dashboard.html\")",
+      "Bash(diff \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/menu_inicial.html\" \"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/menu_inicial.html\")",
+      "Bash(diff \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/login.css\" \"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/login.css\")",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/control.css' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/control.css)",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/asignacion.css' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/asignacion.css)",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/control_personal.css' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/control_personal.css)",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/asignacion.html' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/asignacion.html)",
+      "Bash(diff \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/js/dashboard.js\" \"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/js/dashboard.js\")",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/historial.html' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/historial.html)",
+      "Bash(diff 'C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/control_personal.html' C:/Users/PC/Desktop/cesium-proyecto/Operaciones/control_personal.html)",
+      "Bash(cmp -s \"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/menu_inicial.css\" \"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/menu_inicial.css\")",
+      "Bash(for f:*)",
+      "Bash(do)",
+      "Bash(ref=\"C:/Users/PC/Downloads/Operaciones \\(8\\)/Operaciones/css/$f\")",
+      "Bash(proj=\"C:/Users/PC/Desktop/cesium-proyecto/Operaciones/css/$f\")",
+      "Bash(if cmp:*)"
+    ]
+  }
+}
