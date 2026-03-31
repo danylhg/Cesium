@@ -417,6 +417,37 @@ async function main() {
     const idPadre = await getGrupoId(client, idOp, "Grupo MLOPEZ");
     if (!idPadre) throw new Error(`No se pudo obtener el grupo padre de la operación.`);
 
+    // CET dentro del grupo padre
+    await client.query(
+      `
+      INSERT INTO grupo_personal
+        (id_grupo_operacion, id_personal, rol_en_grupo, asignado_por)
+      VALUES ($1,$2,'CET',$3)
+      ON CONFLICT (id_grupo_operacion, id_personal) DO NOTHING
+      `,
+      [idPadre, cet.id_personal, creadoPor]
+    );
+
+    // =========================================================
+    // FLOTILLA (nivel intermedio entre grupo padre y subgrupos)
+    // =========================================================
+    await client.query(
+      `
+      INSERT INTO grupo_operacion
+        (id_operacion, nombre, apodo, id_grupo_padre, descripcion, creado_por)
+      VALUES
+        ($1,'Flotilla Alfa','ALFA',$2,'Flotilla principal del CET',$3)
+      ON CONFLICT (id_operacion, nombre) DO NOTHING
+      `,
+      [idOp, idPadre, creadoPor]
+    );
+
+    const idFlotilla = await getGrupoId(client, idOp, "Flotilla Alfa");
+    if (!idFlotilla) throw new Error(`No se pudo obtener la Flotilla Alfa de OP1.`);
+
+    // Vehículo base de la flotilla
+    // (se insertará después de obtener vehiculoAguila1, ver bloque de recursos)
+
     // =========================================================
     // 7) SUBGRUPOS
     // =========================================================
@@ -429,7 +460,7 @@ async function main() {
           ($1,$2,NULL,$3,$4,$5)
         ON CONFLICT (id_operacion, nombre) DO NOTHING
         `,
-        [idOp, nombre, idPadre, `Subgrupo ${nombre}`, creadoPor]
+        [idOp, nombre, idFlotilla, `Subgrupo ${nombre}`, creadoPor]
       );
     }
 
@@ -557,7 +588,7 @@ async function main() {
             asignado_por = EXCLUDED.asignado_por,
             fecha_asignacion = NOW()
       `,
-      [idOp, vehiculoAguila1.id_vehiculo, "Vehículo fijo para Aguila 1", creadoPor]
+      [idOp, vehiculoAguila1.id_vehiculo, "DESTINO:GRUPO:AGUILA1", creadoPor]
     );
 
     await client.query(
@@ -571,7 +602,7 @@ async function main() {
             asignado_por = EXCLUDED.asignado_por,
             fecha_asignacion = NOW()
       `,
-      [idOp, vehiculoAguila2.id_vehiculo, "Vehículo fijo para Aguila 2", creadoPor]
+      [idOp, vehiculoAguila2.id_vehiculo, "DESTINO:GRUPO:AGUILA2", creadoPor]
     );
 
     await client.query(
@@ -594,19 +625,15 @@ async function main() {
       [idAguila2, idOp, vehiculoAguila2.id_vehiculo, "Vehículo de traslado para Aguila 2", creadoPor]
     );
 
+    // Vehículo base asignado a la flotilla (Cambio 5)
     await client.query(
       `
-      INSERT INTO operacion_equipo
-        (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
-      VALUES ($1,$2,1,$3,'ASIGNADO',$4)
-      ON CONFLICT (id_operacion, id_equipo) DO UPDATE
-        SET cantidad = EXCLUDED.cantidad,
-            uso_en_operacion = EXCLUDED.uso_en_operacion,
-            estado_asignacion = EXCLUDED.estado_asignacion,
-            asignado_por = EXCLUDED.asignado_por,
-            fecha_asignacion = NOW()
+      INSERT INTO grupo_vehiculo
+        (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
+      VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
+      ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
       `,
-      [idOp, equipoComunicacion.id_equipo, "Equipo de comunicación principal de la operación", creadoPor]
+      [idFlotilla, idOp, vehiculoAguila1.id_vehiculo, "Vehículo base flotilla", creadoPor]
     );
 
     await client.query(
@@ -621,7 +648,22 @@ async function main() {
             asignado_por = EXCLUDED.asignado_por,
             fecha_asignacion = NOW()
       `,
-      [idOp, equipoTactico.id_equipo, "Equipo táctico principal de la operación", creadoPor]
+      [idOp, equipoComunicacion.id_equipo, "DESTINO:VEHICULO:VH-001", creadoPor]
+    );
+
+    await client.query(
+      `
+      INSERT INTO operacion_equipo
+        (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
+      VALUES ($1,$2,1,$3,'ASIGNADO',$4)
+      ON CONFLICT (id_operacion, id_equipo) DO UPDATE
+        SET cantidad = EXCLUDED.cantidad,
+            uso_en_operacion = EXCLUDED.uso_en_operacion,
+            estado_asignacion = EXCLUDED.estado_asignacion,
+            asignado_por = EXCLUDED.asignado_por,
+            fecha_asignacion = NOW()
+      `,
+      [idOp, equipoTactico.id_equipo, "DESTINO:PERSONAL:MCRUZ", creadoPor]
     );
 
     await client.query(
@@ -1071,9 +1113,9 @@ async function main() {
       INSERT INTO operacion
         (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
       VALUES
-        ($1,$2,$3,'ALTA','PLANIFICADA','2024-09-01 06:00:00-06','2024-11-30 22:00:00-06',$4,$5)
+        ($1,$2,$3,'ALTA','ACTIVA','2024-09-01 06:00:00-06','2024-11-30 22:00:00-06',$4,$5)
       ON CONFLICT (codigo) DO UPDATE
-        SET estado       = 'PLANIFICADA',
+        SET estado       = 'ACTIVA',
             nombre       = EXCLUDED.nombre,
             descripcion  = EXCLUDED.descripcion,
             prioridad    = EXCLUDED.prioridad,
@@ -1307,9 +1349,7 @@ async function main() {
     );
 
     await client.query(
-      `UPDATE operacion
-       SET estado = 'CERRADA'
-       WHERE id_operacion = $1`,
+      `UPDATE operacion SET estado = 'CERRADA' WHERE id_operacion = $1`,
       [idOp3]
     );
 
@@ -1333,9 +1373,9 @@ async function main() {
       INSERT INTO operacion
         (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
       VALUES
-        ($1,$2,$3,'MEDIA','PLANIFICADA','2024-06-01 08:00:00-06','2024-08-31 23:59:59-06',$4,$5)
+        ($1,$2,$3,'MEDIA','ACTIVA','2024-06-01 08:00:00-06','2024-08-31 23:59:59-06',$4,$5)
       ON CONFLICT (codigo) DO UPDATE
-        SET estado       = 'PLANIFICADA',
+        SET estado       = 'ACTIVA',
             nombre       = EXCLUDED.nombre,
             descripcion  = EXCLUDED.descripcion,
             prioridad    = EXCLUDED.prioridad,
@@ -1544,9 +1584,7 @@ async function main() {
     );
 
     await client.query(
-      `UPDATE operacion
-       SET estado = 'CANCELADA'
-       WHERE id_operacion = $1`,
+      `UPDATE operacion SET estado = 'CANCELADA' WHERE id_operacion = $1`,
       [idOp4]
     );
 

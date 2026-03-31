@@ -12,7 +12,8 @@ import androidx.core.content.ContextCompat
 
 class LocationHelper(
     private val activity: Activity,
-    private val onLocationUpdate: (latitude: Double, longitude: Double) -> Unit
+    private val onLocationUpdate: (latitude: Double, longitude: Double) -> Unit,
+    private val onEmitLocation: ((latitude: Double, longitude: Double) -> Unit)? = null
 ) {
 
     companion object {
@@ -65,6 +66,7 @@ class LocationHelper(
 
         locationListener = LocationListener { loc ->
             onLocationUpdate(loc.latitude, loc.longitude)
+            onEmitLocation?.invoke(loc.latitude, loc.longitude)
         }
 
         try {

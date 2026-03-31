@@ -563,19 +563,20 @@ $$ LANGUAGE plpgsql;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_equipo_solo_hijos') THEN
-    CREATE TRIGGER tr_grupo_equipo_solo_hijos
-    BEFORE INSERT OR UPDATE ON grupo_equipo
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
-  END IF;
+  -- DESACTIVADO POR ARQUITECTURA DE FLOTILLAS
+  -- IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_equipo_solo_hijos') THEN
+  --   CREATE TRIGGER tr_grupo_equipo_solo_hijos
+  --   BEFORE INSERT OR UPDATE ON grupo_equipo
+  --   FOR EACH ROW
+  --   EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
+  -- END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_vehiculo_solo_hijos') THEN
-    CREATE TRIGGER tr_grupo_vehiculo_solo_hijos
-    BEFORE INSERT OR UPDATE ON grupo_vehiculo
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
-  END IF;
+  -- IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_vehiculo_solo_hijos') THEN
+  --   CREATE TRIGGER tr_grupo_vehiculo_solo_hijos
+  --   BEFORE INSERT OR UPDATE ON grupo_vehiculo
+  --   FOR EACH ROW
+  --   EXECUTE FUNCTION fn_solo_subgrupos_reciben_asignaciones();
+  -- END IF;
 
   -- Si quieres que el personal también SOLO se asigne a subgrupos, descomenta:
   -- IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_personal_solo_hijos') THEN
@@ -2616,3 +2617,53 @@ CREATE INDEX IF NOT EXISTS idx_ruta_navegacion_op
 
 CREATE INDEX IF NOT EXISTS idx_ruta_navegacion_fecha
   ON ruta_navegacion(fecha_creacion DESC);
+
+-- =========================================================
+-- PATCH: JERARQUÍA FLOTILLA (Paso 1) - Destinos Flexibles
+-- =========================================================
+
+-- 1) vehiculo_operacion
+ALTER TABLE vehiculo_operacion
+  ADD COLUMN IF NOT EXISTS tipo_destino VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS id_grupo_operacion INT REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE SET NULL;
+
+DO $$
+BEGIN
+  ALTER TABLE vehiculo_operacion ADD CONSTRAINT chk_vehiculo_destino CHECK (
+    (tipo_destino = 'PERSONAL' AND id_personal IS NOT NULL) OR
+    (tipo_destino = 'GRUPO' AND id_grupo_operacion IS NOT NULL) OR
+    (tipo_destino = 'FLOTILLA' AND id_grupo_operacion IS NOT NULL) OR
+    (tipo_destino IS NULL)
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+-- 2) uso_equipo_operacion
+ALTER TABLE uso_equipo_operacion DROP CONSTRAINT IF EXISTS uso_equipo_operacion_pkey;
+
+ALTER TABLE uso_equipo_operacion
+  ALTER COLUMN id_personal DROP NOT NULL,
+  ADD COLUMN IF NOT EXISTS tipo_destino VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS id_vehiculo INT REFERENCES vehiculo(id_vehiculo) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS id_grupo_operacion INT REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE SET NULL;
+
+DO $$
+BEGIN
+  ALTER TABLE uso_equipo_operacion ADD CONSTRAINT uso_equipo_operacion_pkey PRIMARY KEY (id_operacion, id_equipo, id_personal);
+EXCEPTION
+  WHEN invalid_table_definition THEN null;
+END $$;
+
+DO $$
+BEGIN
+  ALTER TABLE uso_equipo_operacion ADD CONSTRAINT chk_equipo_destino CHECK (
+    (tipo_destino = 'PERSONAL' AND id_personal IS NOT NULL) OR
+    (tipo_destino = 'VEHICULO' AND id_vehiculo IS NOT NULL) OR
+    (tipo_destino = 'GRUPO' AND id_grupo_operacion IS NOT NULL) OR
+    (tipo_destino = 'FLOTILLA' AND id_grupo_operacion IS NOT NULL) OR
+    (tipo_destino IS NULL)
+  );
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;

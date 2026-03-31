@@ -8,7 +8,9 @@ import org.json.JSONObject
 class ChatSocketManager(
     private val operationId: Int,
     private val onNewMessage: (JSONObject) -> Unit,
-    private val onNavigationRouteEvt: ((event: String, data: JSONObject) -> Unit)? = null
+    private val onNavigationRouteEvt: ((event: String, data: JSONObject) -> Unit)? = null,
+    private val onTrackingPersonal: ((JSONObject) -> Unit)? = null,
+    private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null
 ) {
 
     private var socket: Socket? = null
@@ -37,7 +39,27 @@ class ChatSocketManager(
             onNavigationRouteEvt?.invoke("eliminada", data)
         }
 
+        socket?.on("tracking_personal") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onTrackingPersonal?.invoke(data)
+        }
+
+        socket?.on("tracking_vehiculo") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onTrackingVehiculo?.invoke(data)
+        }
+
         socket?.connect()
+    }
+
+    fun emitTracking(idPersonal: Int, lat: Double, lon: Double, apodo: String) {
+        val payload = JSONObject().apply {
+            put("id_personal", idPersonal)
+            put("latitud", lat)
+            put("longitud", lon)
+            put("apodo", apodo)
+        }
+        socket?.emit("tracking_personal", payload)
     }
 
     fun disconnect() {

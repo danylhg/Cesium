@@ -13,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
+import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.emergency.EmergencyMonitorService
 import com.operaciones.operaciones_android.location.LocationHelper
 import com.operaciones.operaciones_android.map.MapActionController
@@ -151,6 +152,26 @@ class MainActivity : AppCompatActivity(),
                             }
                         }
                     }
+                },
+                onTrackingPersonal = { data ->
+                    runOnUiThread {
+                        val id = data.optInt("id_personal")
+                        val lat = data.optDouble("latitud")
+                        val lon = data.optDouble("longitud")
+                        if (id > 0) {
+                            cesiumWebController.evaluate("if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon)")
+                        }
+                    }
+                },
+                onTrackingVehiculo = { data ->
+                    runOnUiThread {
+                        val id = data.optInt("id_vehiculo")
+                        val lat = data.optDouble("latitud")
+                        val lon = data.optDouble("longitud")
+                        if (id > 0) {
+                            cesiumWebController.evaluate("if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon)")
+                        }
+                    }
                 }
             )
         }
@@ -184,9 +205,22 @@ class MainActivity : AppCompatActivity(),
             panelContent.layoutParams = params
         }
 
-        locationHelper = LocationHelper(this) { latitude, longitude ->
-            cesiumWebController.updateMyPosition(latitude, longitude)
-        }
+        locationHelper = LocationHelper(
+            activity = this,
+            onLocationUpdate = { latitude, longitude ->
+                cesiumWebController.updateMyPosition(latitude, longitude)
+            },
+            onEmitLocation = { lat, lon ->
+                if (::currentUser.isInitialized) {
+                    chatSocketManager?.emitTracking(
+                        idPersonal = currentUser.id,
+                        lat = lat,
+                        lon = lon,
+                        apodo = currentUser.nombreCompleto
+                    )
+                }
+            }
+        )
 
         panelNavigationController = PanelNavigationController(
             panelContent = panelContent,
@@ -587,7 +621,7 @@ class MainActivity : AppCompatActivity(),
             "application/json; charset=utf-8".toMediaType()
         )
 
-        val url = "http://192.168.202.103:3001/ops/$operationId/rutas/navegacion"
+        val url = "${ApiConfig.BASE_URL}/ops/$operationId/rutas/navegacion"
         Log.d("RUTA_ANDROID", "URL ruta: $url")
 
         val request = Request.Builder()
@@ -632,7 +666,7 @@ class MainActivity : AppCompatActivity(),
         val token = AuthManager.getToken(this)
         if (token.isBlank()) return
 
-        val url = "http://192.168.202.103:3001/ops/$operationId/rutas/navegacion/$lastRouteId"
+        val url = "${ApiConfig.BASE_URL}/ops/$operationId/rutas/navegacion/$lastRouteId"
         val request = Request.Builder()
             .url(url)
             .addHeader("Authorization", "Bearer $token")

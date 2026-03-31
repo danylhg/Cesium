@@ -404,7 +404,7 @@ const state = {
   gruposByCet: {}, // { [cetId]: { names:[], active:null, map:{[grupo]: [id_personal...]}, idx:0, vehActive:null } }
 
   // vehículos
-  asignacionVehiculos: {}, // { [id_personal]: id_vehiculo }
+  asignacionVehiculos: [], // [{ id_vehiculo, tipo_destino, id_personal, id_grupo_operacion }]
   cetActivoIndexVeh: 0,
   selectedVehicleId: null,
   selectedPersonIds: [],
@@ -544,13 +544,19 @@ function mapEquipoFromBackend(e) {
 
 function getResourceLabel(resource) {
   if (!resource) return "";
-  if (resource.tipo === "personal" && isPositiveInt(resource.id_personal)) {
+  if (resource.tipo === "PERSONAL" && isPositiveInt(resource.id_personal)) {
     const p = getPersonalById(resource.id_personal);
     return resource.label || fullName(p) || `Personal ${resource.id_personal}`;
   }
   if (resource.tipo === "vehiculo" && isPositiveInt(resource.id_vehiculo)) {
     const v = getVehicleById(resource.id_vehiculo);
     return resource.label || v?.label || `Vehículo ${resource.id_vehiculo}`;
+  }
+  if (resource.tipo === "GRUPO") {
+    return resource.label || `Grupo: ${resource.grupoNombre || "—"}`;
+  }
+  if (resource.tipo === "FLOTILLA") {
+    return resource.label || `Flotilla: ${resource.flotillaNombre || "—"}`;
   }
   return "";
 }
@@ -715,11 +721,12 @@ async function crearOperacionYPersonal() {
   // NUEVO: Guardar Grupos creados en el Wizard
   const gruposPayload = [];
   state.cetSeleccionadosIds.forEach(cetId => {
+    const id_cet_fix = Number(cetId);
+    const cetObj = getPersonalById(id_cet_fix);
     const info = state.gruposByCet[cetId];
+    
     if (info && info.names && info.names.length > 0) {
       info.names.forEach(gName => {
-        const id_cet_fix = Number(cetId);
-        const cetObj = getPersonalById(id_cet_fix);
         if (id_cet_fix > 0) {
           gruposPayload.push({
             nombre: gName,
@@ -731,15 +738,30 @@ async function crearOperacionYPersonal() {
           });
         }
       });
+    } else if (id_cet_fix > 0) {
+      // Incluso si no hay subgrupos/células, mandamos la información de la flotilla
+      gruposPayload.push({
+          nombre: "",
+          id_cet: id_cet_fix,
+          cet_nombre: cetObj?.label || (`CET ${id_cet_fix}`),
+          flotilla: state.flotillaByCet[cetId] || "",
+          integrantes: [],
+          vehiculos: []
+      });
     }
   });
 
   // Siempre enviamos /grupos para asegurar que se registre el mando directo de las CELULAS
   // incluso si la operación no tuviera subgrupos.
-  await api(`/ops/${state.opId}/grupos`, {
+  const gruposResp = await api(`/ops/${state.opId}/grupos`, {
     method: "POST",
     body: { grupos: gruposPayload, directos: state.asignacionCelulas }
   });
+  // Guardamos los IDs devueltos para que saveEquipos pueda resolver GRUPO/FLOTILLA
+  state.grupoIds = {
+    flotillas: gruposResp?.flotillas || {},
+    celulas: gruposResp?.celulas || {}
+  };
 
   saveDraftLocal();
   return { nombre, codigo: opRes?.codigo || null, yaExistia };
@@ -749,9 +771,11 @@ async function crearOperacionYPersonal() {
 async function saveVehiculos() {
   if (!state.opId) throw new Error("No hay operación activa.");
 
-  const vehItems = Object.entries(state.asignacionVehiculos || {}).map(([id_personal, id_vehiculo]) => ({
-    id_personal: Number(id_personal),
-    id_vehiculo: Number(id_vehiculo),
+  const vehItems = (state.asignacionVehiculos || []).map(v => ({
+    id_vehiculo: v.id_vehiculo,
+    tipo_destino: v.tipo_destino,
+    id_personal: v.id_personal || null,
+    id_grupo_operacion: v.id_grupo_operacion || null,
   }));
 
   await api(`/ops/${state.opId}/vehiculos`, {
@@ -775,30 +799,40 @@ async function saveEquipos() {
       const base = {
         id_equipo: Number(id_equipo),
         cantidad: 1,
-        estado_asignacion: "ASIGNADO",
         uso_en_operacion: getResourceLabel(resource) || null
       };
 
-      if (resource?.tipo === "personal" && isPositiveInt(resource.id_personal)) {
-        // Validar que el personal esté asignado a esta operación
+      if (resource?.tipo === "PERSONAL" && isPositiveInt(resource.id_personal)) {
         return {
           ...base,
+          tipo_destino: "PERSONAL",
           id_personal: Number(resource.id_personal)
         };
       }
 
-      if (resource?.tipo === "vehiculo" && isPositiveInt(resource.id_vehiculo)) {
-        // Validar que el vehículo esté en la selección actual
+      if (resource?.tipo === "VEHICULO" && isPositiveInt(resource.id_vehiculo)) {
         const vId = Number(resource.id_vehiculo);
-        const existsInSelection = Object.values(state.asignacionVehiculos || {}).includes(vId);
-        
-        // Si el vehículo no está en la selección actual, no lo guardamos (evita stale VH-001)
+        const existsInSelection = (state.asignacionVehiculos || []).some(v => Number(v.id_vehiculo) === vId);
         if (!existsInSelection) return null;
-
         return {
           ...base,
+          tipo_destino: "VEHICULO",
           id_vehiculo: vId
         };
+      }
+
+      if (resource?.tipo === "GRUPO") {
+        const id_grupo = resource.id_grupo_operacion ||
+          (resource.grupoNombre && state.grupoIds?.celulas?.[resource.grupoNombre]);
+        if (!isPositiveInt(id_grupo)) return null;
+        return { ...base, tipo_destino: "GRUPO", id_grupo_operacion: Number(id_grupo) };
+      }
+
+      if (resource?.tipo === "FLOTILLA") {
+        const id_grupo = resource.id_grupo_operacion ||
+          (resource.flotillaNombre && state.grupoIds?.flotillas?.[resource.flotillaNombre]);
+        if (!isPositiveInt(id_grupo)) return null;
+        return { ...base, tipo_destino: "FLOTILLA", id_grupo_operacion: Number(id_grupo) };
       }
 
       return null;
@@ -921,7 +955,7 @@ function renderCUT() {
           state.cetSeleccionadosIds = [];
           state.cetActivoIndex = 0;
           state.asignacionCelulas = {};
-          state.asignacionVehiculos = {};
+          state.asignacionVehiculos = [];
           state.gruposByCet = {};
           state.flotillaByCet = {};
           state.searchByCet = {};
@@ -1202,7 +1236,15 @@ function renderCelulas() {
   const btnCrearGrupo = document.createElement("button");
   btnCrearGrupo.className = "btnSoft";
   btnCrearGrupo.textContent = "Crear grupo";
-  btnCrearGrupo.addEventListener("click", () => abrirModalCrearGrupo());
+  btnCrearGrupo.addEventListener("click", () => {
+    const flotName = (state.flotillaByCet[cetId] || "").trim();
+    if (!flotName) {
+      alert("Es obligatorio poner un Nombre de la flotilla antes de crear células/grupos.");
+      flotInp.focus();
+      return;
+    }
+    abrirModalCrearGrupo();
+  });
 
   flotillaRow.appendChild(flotWrap);
   flotillaRow.appendChild(btnCrearGrupo);
@@ -1365,6 +1407,15 @@ function renderCelulas() {
     }
 
     try {
+      // 🔥 PASO 5: VALIDACIÓN FLOTILLA OBLIGATORIA
+      for (const cetId of state.cetSeleccionadosIds) {
+        const flotName = (state.flotillaByCet[cetId] || "").trim();
+        if (!flotName) {
+          const cetObj = getPersonalById(cetId);
+          throw new Error(`El CET "${cetObj?.label || cetId}" debe tener un nombre de flotilla antes de continuar.`);
+        }
+      }
+
       setAccion("Guardando...", true);
       await crearOperacionYPersonal();
       state.cetActivoIndexVeh = 0;
@@ -1531,9 +1582,9 @@ function renderVehiculos() {
   showVehiculosLeftPanel("Asignación de personal al vehículo");
 
   const vehCount = {};
-  Object.values(state.asignacionVehiculos || {}).forEach(vId => {
-    if (!vId) return;
-    vehCount[vId] = (vehCount[vId] || 0) + 1;
+  (state.asignacionVehiculos || []).forEach(entry => {
+    if (!entry?.id_vehiculo) return;
+    vehCount[entry.id_vehiculo] = (vehCount[entry.id_vehiculo] || 0) + 1;
   });
 
   const cetId = getCetIdByIndex(state.cetActivoIndexVeh);
@@ -1682,7 +1733,8 @@ function renderVehiculos() {
 
   if (cellsToShow.length > 0) {
     const visibleIds = [Number(cetId), ...cellsToShow.map(Number)];
-    const unlockedVisible = visibleIds.filter(id => !state.asignacionVehiculos[id]);
+    const assignedPersonIds = new Set((state.asignacionVehiculos || []).filter(v => v.tipo_destino === "PERSONAL").map(v => v.id_personal));
+    const unlockedVisible = visibleIds.filter(id => !assignedPersonIds.has(Number(id)));
     const allSel =
       unlockedVisible.length > 0 &&
       unlockedVisible.every(id => (state.selectedPersonIds || []).includes(Number(id)));
@@ -1709,13 +1761,13 @@ function renderVehiculos() {
     cellulasList.appendChild(rowAll);
   }
 
-  const cetLocked = !!state.asignacionVehiculos[cetId];
+  const cetLocked = (state.asignacionVehiculos || []).some(v => v.tipo_destino === "PERSONAL" && v.id_personal === Number(cetId));
   cellulasList.appendChild(mkCheckRow({
     labelText: cetLocked
       ? `CET: ${cetObj?.label || cetId} (Asignado)`
       : `CET: ${cetObj?.label || cetId}`,
     disabled: cetLocked,
-    checked: (state.selectedPersonIds || []).includes(Number(cetId)),
+    checked: (state.selectedPersonIds || []).includes(Number(cetId)) || cetLocked,
     onChange: checked => {
       toggleSelectedId(cetId, checked);
       renderVehiculos();
@@ -1724,7 +1776,7 @@ function renderVehiculos() {
 
   cellsToShow.forEach(cellId => {
     const p = getPersonalById(cellId);
-    const locked = !!state.asignacionVehiculos[cellId];
+    const locked = (state.asignacionVehiculos || []).some(v => v.tipo_destino === "PERSONAL" && v.id_personal === Number(cellId));
     cellulasList.appendChild(mkCheckRow({
       labelText: locked ? `${p?.label || cellId} (Asignado)` : (p?.label || cellId),
       disabled: locked,
@@ -1804,7 +1856,8 @@ function renderVehiculos() {
   assignBtn.textContent = "Asignarle";
 
   const selectedAssignable = (state.selectedPersonIds || []).filter(id => isPositiveInt(id));
-  const lockedSelected = selectedAssignable.filter(id => !!state.asignacionVehiculos[id]);
+  const assignedPersonIds = new Set((state.asignacionVehiculos || []).filter(v => v.tipo_destino === "PERSONAL").map(v => v.id_personal));
+  const lockedSelected = selectedAssignable.filter(id => assignedPersonIds.has(Number(id)));
   const selectedVehicleObj = getVehicleById(state.selectedVehicleId);
   const usedNow = state.selectedVehicleId ? (vehCount[state.selectedVehicleId] || 0) : 0;
   const capNow = selectedVehicleObj ? Number(selectedVehicleObj.capacidad || 0) : 0;
@@ -1821,17 +1874,24 @@ function renderVehiculos() {
     if (!state.selectedVehicleId) return alert("Selecciona un vehículo");
     if (selectedAssignable.length === 0) return alert("Selecciona al menos CET o una CELL");
 
-    const locked = selectedAssignable.filter(id => !!state.asignacionVehiculos[id]);
+    const locked = selectedAssignable.filter(id => assignedPersonIds.has(Number(id)));
     if (locked.length > 0) return alert("Uno o más ya tienen vehículo asignado.");
 
     if (capNow > 0 && selectedAssignable.length > remaining) {
       return alert(`Capacidad insuficiente. Disponible: ${remaining}/${capNow}`);
     }
 
+    // 🔥 PASO 1: Asignación tipada por PERSONAL
     selectedAssignable.forEach(id => {
-      state.asignacionVehiculos[id] = Number(state.selectedVehicleId);
+      state.asignacionVehiculos.push({
+        id_vehiculo: Number(state.selectedVehicleId),
+        tipo_destino: "PERSONAL",
+        id_personal: Number(id),
+        id_grupo_operacion: null
+      });
     });
 
+    // 🔥 PASO 1 EXTRA: Si hay grupo activo, registrar también asignación de GRUPO
     if (ginfo && ginfo.vehActive) {
       if (!ginfo.vehMap) ginfo.vehMap = {};
       ginfo.vehMap[ginfo.vehActive] = [Number(state.selectedVehicleId)];
@@ -1954,8 +2014,36 @@ function renderEquipoAsignacion() {
     renderEquipoAsignacion();
   });
 
+  const chipGrupo = document.createElement("button");
+  chipGrupo.className = "chip" + (state.equipoDestino === "grupo" ? " active" : "");
+  chipGrupo.textContent = "Asignar a Grupo";
+  chipGrupo.addEventListener("click", () => {
+    state.equipoDestino = "grupo";
+    state.equipoSelectedResource = null;
+    state.equipoSelectedItems = [];
+    state.equipoSelectedCet = null;
+    state.equipoSelectedGrupo = null;
+    saveDraftLocal();
+    renderEquipoAsignacion();
+  });
+
+  const chipFlotilla = document.createElement("button");
+  chipFlotilla.className = "chip" + (state.equipoDestino === "flotilla" ? " active" : "");
+  chipFlotilla.textContent = "Asignar a Flotilla";
+  chipFlotilla.addEventListener("click", () => {
+    state.equipoDestino = "flotilla";
+    state.equipoSelectedResource = null;
+    state.equipoSelectedItems = [];
+    state.equipoSelectedCet = null;
+    state.equipoSelectedGrupo = null;
+    saveDraftLocal();
+    renderEquipoAsignacion();
+  });
+
   leftHeader.appendChild(chipPersonal);
   leftHeader.appendChild(chipVehiculo);
+  leftHeader.appendChild(chipGrupo);
+  leftHeader.appendChild(chipFlotilla);
   vehiculosLeftEl.appendChild(leftHeader);
 
   if (state.equipoDestino === "personal") {
@@ -1963,6 +2051,10 @@ function renderEquipoAsignacion() {
       state.equipoSelectedCet = state.cetSeleccionadosIds[0];
     }
     renderEquipoLeftPersonal();
+  } else if (state.equipoDestino === "grupo") {
+    renderEquipoLeftGrupo();
+  } else if (state.equipoDestino === "flotilla") {
+    renderEquipoLeftFlotilla();
   } else {
     renderEquipoLeftVehiculo();
   }
@@ -2211,7 +2303,7 @@ function renderEquipoLeftPersonal() {
     row.style.cursor = "pointer";
     row.textContent = cut.label;
     row.addEventListener("click", () => {
-      state.equipoSelectedResource = { tipo: "personal", id_personal: Number(cut.id_personal), label: cut.label };
+      state.equipoSelectedResource = { tipo: "PERSONAL", id_personal: Number(cut.id_personal), label: cut.label };
       saveDraftLocal();
       renderEquipoAsignacion();
     });
@@ -2233,7 +2325,7 @@ function renderEquipoLeftPersonal() {
     rowCet.style.cursor = "pointer";
     rowCet.textContent = `Asignar al CET: ${cetObj?.label || cetId}`;
     rowCet.addEventListener("click", () => {
-      state.equipoSelectedResource = { tipo: "personal", id_personal: Number(cetId), label: cetObj?.label || `CET ${cetId}` };
+      state.equipoSelectedResource = { tipo: "PERSONAL", id_personal: Number(cetId), label: cetObj?.label || `CET ${cetId}` };
       saveDraftLocal();
       renderEquipoAsignacion();
     });
@@ -2306,7 +2398,7 @@ function renderEquipoLeftPersonal() {
         row.style.cursor = "pointer";
         row.textContent = p.label;
         row.addEventListener("click", () => {
-          state.equipoSelectedResource = { tipo: "personal", id_personal: Number(id), label: p.label };
+          state.equipoSelectedResource = { tipo: "PERSONAL", id_personal: Number(id), label: p.label };
           saveDraftLocal();
           renderEquipoAsignacion();
         });
@@ -2324,45 +2416,49 @@ function renderEquipoLeftPersonal() {
 // ===============================
 function getVehiclesUsedInAssignments() {
   const usados = new Set(
-    Object.values(state.asignacionVehiculos || {})
-      .filter(Boolean)
-      .map(Number)
+    (state.asignacionVehiculos || [])
+      .filter(v => v?.id_vehiculo)
+      .map(v => Number(v.id_vehiculo))
   );
   return state.vehiclesList.filter(v => usados.has(Number(v.id_vehiculo)));
 }
 
 function getResumenVehiculoDetallado(idVehiculo) {
-  const entries = Object.entries(state.asignacionVehiculos || {})
-    .filter(([_, veh]) => Number(veh) === Number(idVehiculo));
+  const entries = (state.asignacionVehiculos || [])
+    .filter(v => Number(v.id_vehiculo) === Number(idVehiculo));
 
   const cets = new Set();
   const grupos = new Set();
   let totalPersonas = 0;
 
-  entries.forEach(([idPersonalStr]) => {
-    const idPersonal = Number(idPersonalStr);
+  entries.forEach(entry => {
+    if (entry.tipo_destino === "PERSONAL" && entry.id_personal) {
+      const idPersonal = Number(entry.id_personal);
 
-    if (state.cetSeleccionadosIds.includes(idPersonal)) {
-      cets.add(idPersonal);
-      totalPersonas += 1;
-      return;
-    }
-
-    const cetEncontrado = state.cetSeleccionadosIds.find(cetId =>
-      (state.asignacionCelulas[cetId] || []).includes(idPersonal)
-    );
-
-    if (cetEncontrado) {
-      cets.add(cetEncontrado);
-      totalPersonas += 1;
-
-      const ginfo = state.gruposByCet[cetEncontrado];
-      if (ginfo && ginfo.map) {
-        Object.keys(ginfo.map).forEach(gName => {
-          const arr = ginfo.map[gName] || [];
-          if (arr.includes(idPersonal)) grupos.add(gName);
-        });
+      if (state.cetSeleccionadosIds.includes(idPersonal)) {
+        cets.add(idPersonal);
+        totalPersonas += 1;
+        return;
       }
+
+      const cetEncontrado = state.cetSeleccionadosIds.find(cetId =>
+        (state.asignacionCelulas[cetId] || []).includes(idPersonal)
+      );
+
+      if (cetEncontrado) {
+        cets.add(cetEncontrado);
+        totalPersonas += 1;
+
+        const ginfo = state.gruposByCet[cetEncontrado];
+        if (ginfo && ginfo.map) {
+          Object.keys(ginfo.map).forEach(gName => {
+            const arr = ginfo.map[gName] || [];
+            if (arr.includes(idPersonal)) grupos.add(gName);
+          });
+        }
+      }
+    } else if ((entry.tipo_destino === "GRUPO" || entry.tipo_destino === "FLOTILLA") && entry.id_grupo_operacion) {
+      grupos.add(`Grupo ${entry.id_grupo_operacion}`);
     }
   });
 
@@ -2373,7 +2469,8 @@ function getResumenVehiculoDetallado(idVehiculo) {
   return {
     flotilla: flotillas.length ? flotillas.join(", ") : "—",
     grupo: grupos.size ? Array.from(grupos).join(", ") : "—",
-    personas: totalPersonas
+    personas: totalPersonas,
+    totalPersonas
   };
 }
 
@@ -2426,13 +2523,17 @@ function renderEquipoLeftVehiculo() {
     title.className = "itemName";
     title.textContent = v.label;
 
+    const cap = Number(v.capacidad || 0);
+    const excede = cap > 0 && resumen.totalPersonas > cap;
+
     const info = document.createElement("div");
     info.style.fontSize = "12px";
     info.style.opacity = "0.8";
     info.innerHTML = `
       <div style="margin-bottom:2px">Flotilla: ${resumen.flotilla}</div>
       <div style="margin-bottom:2px">Grupo: ${resumen.grupo}</div>
-      <div>Personas: ${resumen.personas}</div>
+      <div style="margin-bottom:2px">Personas: ${resumen.personas}${cap > 0 ? ` / cap. ${cap}` : ""}</div>
+      ${excede ? `<div style="color:#f87171;font-weight:600;">⚠ ${resumen.totalPersonas - cap} persona${resumen.totalPersonas - cap !== 1 ? "s" : ""} sin lugar</div>` : ""}
     `;
 
     content.appendChild(title);
@@ -2446,6 +2547,139 @@ function renderEquipoLeftVehiculo() {
     });
 
     box.appendChild(card);
+  });
+
+  vehiculosLeftEl.appendChild(box);
+}
+
+
+// ===============================
+// Equipo izquierda - Grupo (Célula)
+// ===============================
+function renderEquipoLeftGrupo() {
+  const box = document.createElement("div");
+  box.className = "listBox";
+  box.style.gap = "10px";
+
+  const hasCets = state.cetSeleccionadosIds.length > 0;
+  if (!hasCets) {
+    const empty = document.createElement("div");
+    empty.className = "item";
+    empty.textContent = "No hay grupos definidos.";
+    box.appendChild(empty);
+    vehiculosLeftEl.appendChild(box);
+    return;
+  }
+
+  let hasAnyGroup = false;
+
+  state.cetSeleccionadosIds.forEach(cetId => {
+    const ginfo = state.gruposByCet[cetId] || { names: [], map: {} };
+    if (!(ginfo.names || []).length) return;
+    hasAnyGroup = true;
+
+    const flotilla = state.flotillaByCet[cetId] || "—";
+    const lbl = document.createElement("div");
+    lbl.className = "lbl";
+    lbl.textContent = `Flotilla: ${flotilla}`;
+    box.appendChild(lbl);
+
+    ginfo.names.forEach(gName => {
+      const memberCount = (ginfo.map[gName] || []).length;
+      const isSelected = state.equipoSelectedResource?.tipo === "GRUPO" &&
+                         state.equipoSelectedResource?.grupoNombre === gName &&
+                         Number(state.equipoSelectedResource?.cetId) === Number(cetId);
+
+      const row = document.createElement("div");
+      row.className = "item" + (isSelected ? " selected" : "");
+      row.style.cursor = "pointer";
+      row.style.display = "flex";
+      row.style.justifyContent = "space-between";
+      row.style.alignItems = "center";
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = gName;
+
+      const badge = document.createElement("span");
+      badge.style.fontSize = "11px";
+      badge.style.opacity = "0.7";
+      badge.textContent = `${memberCount} persona${memberCount !== 1 ? "s" : ""}`;
+
+      row.appendChild(nameSpan);
+      row.appendChild(badge);
+
+      row.addEventListener("click", () => {
+        state.equipoSelectedResource = {
+          tipo: "GRUPO",
+          grupoNombre: gName,
+          cetId: Number(cetId),
+          label: `Grupo: ${gName}`
+        };
+        saveDraftLocal();
+        renderEquipoAsignacion();
+      });
+
+      box.appendChild(row);
+    });
+  });
+
+  if (!hasAnyGroup) {
+    const empty = document.createElement("div");
+    empty.className = "item";
+    empty.textContent = "No hay grupos/células creados aún.";
+    box.appendChild(empty);
+  }
+
+  vehiculosLeftEl.appendChild(box);
+}
+
+
+// ===============================
+// Equipo izquierda - Flotilla
+// ===============================
+function renderEquipoLeftFlotilla() {
+  const box = document.createElement("div");
+  box.className = "listBox";
+  box.style.gap = "10px";
+
+  const hasCets = state.cetSeleccionadosIds.length > 0;
+  if (!hasCets) {
+    const empty = document.createElement("div");
+    empty.className = "item";
+    empty.textContent = "No hay flotillas definidas.";
+    box.appendChild(empty);
+    vehiculosLeftEl.appendChild(box);
+    return;
+  }
+
+  // Agrupar por nombre de flotilla (puede haber varios CETs en la misma flotilla)
+  const flotillasVistas = new Set();
+
+  state.cetSeleccionadosIds.forEach(cetId => {
+    const flotilla = (state.flotillaByCet[cetId] || "Flotilla General").trim();
+    if (flotillasVistas.has(flotilla)) return;
+    flotillasVistas.add(flotilla);
+
+    const isSelected = state.equipoSelectedResource?.tipo === "FLOTILLA" &&
+                       state.equipoSelectedResource?.flotillaNombre === flotilla;
+
+    const row = document.createElement("div");
+    row.className = "item" + (isSelected ? " selected" : "");
+    row.style.cursor = "pointer";
+
+    row.textContent = flotilla;
+
+    row.addEventListener("click", () => {
+      state.equipoSelectedResource = {
+        tipo: "FLOTILLA",
+        flotillaNombre: flotilla,
+        label: `Flotilla: ${flotilla}`
+      };
+      saveDraftLocal();
+      renderEquipoAsignacion();
+    });
+
+    box.appendChild(row);
   });
 
   vehiculosLeftEl.appendChild(box);

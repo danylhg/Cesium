@@ -100,8 +100,7 @@ class OperationMapRepository(
                                     codigoInterno = codigoInterno,
                                     nombre = nombreVehiculo,
                                     tipo = v.optString("tipo", ""),
-                                    detalle = "",
-                                    flotillaAsignada = ""
+                                    detalle = ""
                                 )
                             )
                         }

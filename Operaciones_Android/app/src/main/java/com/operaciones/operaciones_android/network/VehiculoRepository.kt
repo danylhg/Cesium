@@ -51,17 +51,9 @@ class VehiculoRepository(
                     for (i in 0 until items.length()) {
                         val v = items.getJSONObject(i)
 
-                        val grupoApodo = v.safeString("grupo_apodo")
+                        val tipoDestino = v.safeString("tipo_destino").uppercase()
+                        val asignadoAApodo = v.safeString("asignado_a_apodo")
                         val grupoNombre = v.safeString("grupo_nombre")
-                        val grupoPadreApodo = v.safeString("grupo_padre_apodo")
-                        val grupoPadreNombre = v.safeString("grupo_padre_nombre")
-
-                        val grupoTexto = when {
-                            grupoApodo.isNotBlank() -> grupoApodo
-                            grupoNombre.isNotBlank() -> grupoNombre
-                            else -> ""
-                        }
-
                         val alias = v.safeString("alias")
                         val codigoInterno = v.safeString("codigo_interno")
 
@@ -70,6 +62,15 @@ class VehiculoRepository(
                             .joinToString(" ")
                             .ifBlank { codigoInterno.ifBlank { "Vehículo" } }
 
+                        // Construir detalle basado en el tipo de destino
+                        val usoEnOp = v.safeString("uso_en_operacion")
+                        val detalleStr = when (tipoDestino) {
+                            "PERSONAL" -> "Asignado a: $asignadoAApodo" + (if (usoEnOp.isNotBlank()) " ($usoEnOp)" else "")
+                            "GRUPO" -> "Asignado a Grupo: $grupoNombre"
+                            "FLOTILLA" -> "Asignado a Flotilla: $grupoNombre"
+                            else -> usoEnOp
+                        }
+
                         result.add(
                             VehiculoItem(
                                 idVehiculo = v.optInt("id_vehiculo"),
@@ -77,12 +78,10 @@ class VehiculoRepository(
                                 nombre = nombreVehiculo,
                                 tipo = v.safeString("tipo"),
                                 alias = alias,
-                                detalle = v.safeString("uso_en_operacion"),
-                                flotillaAsignada = grupoTexto,
+                                detalle = detalleStr,
+                                tipoDestino = tipoDestino,
+                                asignadoAApodo = asignadoAApodo,
                                 grupoNombre = grupoNombre,
-                                grupoApodo = grupoApodo,
-                                grupoPadreNombre = grupoPadreNombre,
-                                grupoPadreApodo = grupoPadreApodo,
                                 lat = if (v.isNull("latitud")) null else v.optDouble("latitud"),
                                 lon = if (v.isNull("longitud")) null else v.optDouble("longitud")
                             )

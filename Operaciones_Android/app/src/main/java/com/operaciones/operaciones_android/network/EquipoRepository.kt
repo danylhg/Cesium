@@ -51,23 +51,22 @@ class EquipoRepository(
                     for (i in 0 until items.length()) {
                         val e = items.getJSONObject(i)
 
-                        val personalApodo = e.safeString("personal_apodo")
-                        val personalNombre = e.safeString("personal_asignado")
-                        val vehiculoAsignado = e.safeString("vehiculo_asignado")
-
-                        val personalAsignado = when {
-                            personalApodo.isNotBlank() -> personalApodo
-                            personalNombre.isNotBlank() -> personalNombre
-                            else -> ""
+                        val tipoDestino = e.safeString("tipo_destino").uppercase()
+                        val personalNombre = e.safeString("asignado_a_personal").ifBlank {
+                            e.safeString("personal_apodo").ifBlank { e.safeString("personal_asignado") }
                         }
+                        val vehiculoNombre = e.safeString("asignado_a_vehiculo").ifBlank {
+                            e.safeString("vehiculo_asignado")
+                        }
+                        val grupoNombre = e.safeString("grupo_asignado")
+                        val flotillaNombre = e.safeString("flotilla_nombre")
 
-                        val asignadoA = when {
-                            personalAsignado.isNotBlank() ->
-                                "Asignado a personal: $personalAsignado"
-                            vehiculoAsignado.isNotBlank() ->
-                                "Asignado a vehículo: $vehiculoAsignado"
-                            else ->
-                                "Sin asignación"
+                        val asignadoA = when (tipoDestino) {
+                            "PERSONAL" -> "Asignado a personal: $personalNombre"
+                            "VEHICULO" -> "Asignado a vehículo: $vehiculoNombre"
+                            "GRUPO" -> "Asignado a grupo: $grupoNombre"
+                            "FLOTILLA" -> "Asignado a flotilla: $flotillaNombre"
+                            else -> "Sin asignación"
                         }
 
                         val detalle = buildString {
@@ -87,8 +86,11 @@ class EquipoRepository(
                                 categoria = e.safeString("categoria"),
                                 detalle = detalle,
                                 asignadoA = asignadoA,
-                                personalAsignado = personalAsignado,
-                                vehiculoAsignado = vehiculoAsignado
+                                tipoDestino = tipoDestino,
+                                personalAsignado = personalNombre,
+                                vehiculoAsignado = vehiculoNombre,
+                                grupoAsignado = grupoNombre,
+                                flotillaAsignada = flotillaNombre
                             )
                         )
                     }

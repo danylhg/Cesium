@@ -1,5 +1,27 @@
 // =================== TOKEN CESIUM ION ===================
-const CESIUM_ACCESS_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
+// 🔥 Seguridad: el token se carga desde el backend para no exponerlo en el JS público.
+let CESIUM_ACCESS_TOKEN = null;
+// Token de reserva (se usará solo si el backend no está disponible)
+const _CESIUM_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
+async function loadCesiumToken() {
+  try {
+    const base = typeof API_BASE !== "undefined" ? API_BASE : `http://${window.location.hostname}:3001`;
+    const tok  = localStorage.getItem("token") || "";
+    const res  = await fetch(`${base}/config/cesium-token`, {
+      headers: { Authorization: `Bearer ${tok}` }
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    CESIUM_ACCESS_TOKEN = data.token || _CESIUM_FALLBACK;
+  } catch (e) {
+    console.warn("Token Cesium no cargado desde backend (usando fallback):", e.message);
+    CESIUM_ACCESS_TOKEN = _CESIUM_FALLBACK;
+  }
+  // Asignar solo si Cesium ya está disponible en el scope global
+  if (typeof Cesium !== "undefined") {
+    Cesium.Ion.defaultAccessToken = CESIUM_ACCESS_TOKEN;
+  }
+}
 
 // =================== HELPERS OPERACION ACTIVA ===================
 function getActiveOperationId() {
@@ -317,6 +339,9 @@ if (toggleChatPanel && chatPanel) {
       return;
     }
     togglePanel(chatPanel, toggleChatPanel);
+    if (chatPanel.classList.contains("open")) {
+      loadChatHistoryFromBackend().catch(() => {});
+    }
   });
 }
 
@@ -794,7 +819,6 @@ function renderInfoPanel() {
     "Sin título"
   );
 
-  const codigo = firstString(operacion.codigo, "Sin código");
   const descripcion = firstString(
     operacion.descripcion,
     operacion.description,
@@ -802,13 +826,10 @@ function renderInfoPanel() {
   );
 
   const prioridad = firstString(operacion.prioridad, "No definida");
-  const estado = firstString(operacion.estado, operacion.status, "No definido");
   const fechaInicio = formatDateText(operacion.fecha_inicio || operacion.fechaInicio);
-  const fechaFin = formatDateText(operacion.fecha_fin || operacion.fechaFin);
 
   const centroideLat = firstNumber(zona.centroide_lat, zona.lat, zona.latitude);
   const centroideLon = firstNumber(zona.centroide_lon, zona.lon, zona.lng, zona.longitude);
-  const zoomInicial = firstNumber(zona.zoom_inicial, zona.zoom, 8000);
 
   // --- Lógica de personal agrupado ---
   let personalHtml = "<p>Sin personal asignado.</p>";
@@ -921,7 +942,7 @@ function renderInfoPanel() {
         personalHtml += `
           <div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left:1px dashed rgba(255,255,255,.12);">
             <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">
-              Sin grupo
+              ${flotilla ? 'Flotilla: ' + escapeHtml(flotilla) : 'Flotilla sin nombre'}
             </p>
         `;
 
@@ -955,19 +976,16 @@ function renderInfoPanel() {
       </div>
       <div style="display:grid; gap:6px; font-size:14px;">
         <p><strong>Nombre:</strong> ${escapeHtml(titulo)}</p>
-        <p><strong>Código:</strong> <span style="color:#3b82f6;">${escapeHtml(codigo)}</span></p>
         <p><strong>Descripción:</strong> ${escapeHtml(descripcion)}</p>
         <p><strong>Prioridad:</strong> <span class="badge" style="background:#1e293b; color:#d7e3ff; border:1px solid #334155;">${escapeHtml(prioridad)}</span></p>
-        <p><strong>Estado:</strong> ${escapeHtml(estado)}</p>
-        <p><strong>Vigencia:</strong> ${escapeHtml(fechaInicio)} al ${escapeHtml(fechaFin)}</p>
+        <p><strong>Fecha de inicio:</strong> ${escapeHtml(fechaInicio)}</p>
       </div>
     </div>
 
     <div class="infoBlock">
       <h3 style="font-size:16px; color:#fff; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:8px;">Zona de operación</h3>
       <div style="display:grid; gap:4px; font-size:13px; margin-top:8px;">
-        <p><strong>Centroide:</strong> ${escapeHtml(centroideLat != null ? centroideLat.toFixed(6) : "—")}, ${escapeHtml(centroideLon != null ? centroideLon.toFixed(6) : "—")}</p>
-        <p><strong>Zoom:</strong> ${escapeHtml(zoomInicial != null ? String(zoomInicial) : "—")}</p>
+        <p><strong>Centro de la zona de operación:</strong> ${escapeHtml(centroideLat != null ? centroideLat.toFixed(6) : "—")}, ${escapeHtml(centroideLon != null ? centroideLon.toFixed(6) : "—")}</p>
       </div>
     </div>
 
@@ -983,40 +1001,44 @@ function renderInfoPanel() {
       <div style="margin-top:10px;">
         ${vehiculos.length
           ? vehiculos.map(v => {
-            const unidad = firstString(v.codigo_interno, v.alias, "Sin unidad");
-            const asignadoA = firstString(v.asignado_a_apodo, (v.asignado_a_nombre ? `${v.asignado_a_nombre} ${v.asignado_a_apellido || ""}`.trim() : ""));
-            
-            let multipleGroups = null;
-            if (v.grupo_apodo || v.grupo_nombre) {
-              multipleGroups = (v.grupo_apodo || v.grupo_nombre).split(',').map(s => s.trim());
+            const unidad = firstString(v.codigo_interno, v.alias, 'Sin unidad');
+            const tipoDestino = String(
+              v.tipo_destino ||
+              (v.grupo_nombre ? 'GRUPO' : '') ||
+              (v.asignado_a_apodo || v.asignado_a_nombre ? 'PERSONAL' : '')
+            ).toUpperCase();
+
+            // 🔥 2. Usar tipo_destino real del backend
+            let destinoHtml = '';
+            if (tipoDestino === 'PERSONAL') {
+              const nombre = firstString(v.asignado_a_apodo, v.asignado_a_nombre, '');
+              if (nombre) destinoHtml = `<span style="color:#60a5fa; font-weight:600;">👤 Personal:</span> ${escapeHtml(nombre)}`;
+            } else if (tipoDestino === 'GRUPO') {
+              const grupo = firstString(v.grupo_nombre, v.grupo_apodo, '');
+              if (grupo) destinoHtml = `<span style="color:#a78bfa; font-weight:600;">🗂 Grupo:</span> ${escapeHtml(grupo)}`;
+            } else if (tipoDestino === 'FLOTILLA') {
+              const flotilla = firstString(v.grupo_nombre, v.flotilla_nombre, '');
+              if (flotilla) destinoHtml = `<span style="color:#fb923c; font-weight:600;">🚁 Flotilla:</span> ${escapeHtml(flotilla)}`;
             }
 
-            return `
-                <div class="miniCard" style="margin-bottom:8px;">
-                  <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom: 4px;">
-                    <div>
-                        <p style="font-weight:bold; color:#fff; font-size:14px; margin:0;">${escapeHtml(unidad)}</p>
-                        <p style="font-size:11px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px;">${escapeHtml(v.tipo || "Vehículo")}</p>
-                    </div>
-                  </div>
-                  
-                  ${asignadoA ? `
-                    <div style="margin-top:4px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.05);">
-                      <p style="font-size:11px; color:#fff; margin:0;">
-                        <span style="color:#60a5fa; font-weight:600;">Asignado a:</span> ${escapeHtml(asignadoA)}
-                      </p>
-                    </div>
-                  ` : ""}
+            const badgeColor = { PERSONAL: '#1d4ed8', GRUPO: '#7c3aed', FLOTILLA: '#c2410c' }[tipoDestino] || '#334155';
 
-                  ${multipleGroups && multipleGroups.length ? `
-                    <div style="margin-top:4px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.05);">
-                      <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:2px;">Grupos asignados:</p>
-                      ${multipleGroups.map(g => `<p style="font-size:11px; color:#fff; margin:1px 0; padding-left:4px;">• ${escapeHtml(g)}</p>`).join("")}
+            return `
+                <div class="miniCard" style="margin-bottom:8px; border-left: 3px solid ${badgeColor};">
+                  <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:4px;">
+                    <div>
+                      <p style="font-weight:bold; color:#fff; font-size:14px; margin:0;">${escapeHtml(unidad)}</p>
+                      <p style="font-size:10px; color:#94a3b8; text-transform:uppercase; letter-spacing:0.5px; margin:2px 0;">${escapeHtml(v.tipo || 'Vehículo')}</p>
                     </div>
-                  ` : ""}
-                </div>
-              `;
-          }).join("")
+                    <span style="font-size:9px; background:${badgeColor}; color:#fff; border-radius:4px; padding:2px 6px; white-space:nowrap;">${escapeHtml(tipoDestino || '—')}</span>
+                  </div>
+                  ${destinoHtml ? `
+                    <div style="margin-top:4px; padding:4px 0; border-top:1px solid rgba(255,255,255,0.06); font-size:11px; color:#fff;">
+                      ${destinoHtml}
+                    </div>
+                  ` : ''}
+                </div>`;
+          }).join('')
           : `<p style="font-size:13px; color:#64748b;">Sin vehículos asignados.</p>`
         }
       </div>
@@ -1027,53 +1049,46 @@ function renderInfoPanel() {
       <div style="margin-top:10px;">
         ${equipos.length
           ? equipos.map(e => {
-            const nombre = firstString(e.nombre, "Equipo");
-            
-            const personalAsignado = firstString(e.asignado_a_personal);
-            const vehiculoAsignado = firstString(
-              e.asignado_a_vehiculo,
-              e.vehiculo_alias ? `${e.asignado_a_vehiculo} (${e.vehiculo_alias})` : ""
-            );
-            const grupoAsignado = firstString(e.grupo_asignado);
-            const uso = firstString(e.uso_en_operacion);
+            const nombre = firstString(e.nombre, 'Equipo');
+            const tipoDestino = String(
+              e.tipo_destino ||
+              (e.grupo_asignado ? 'GRUPO' : '') ||
+              (e.asignado_a_personal ? 'PERSONAL' : '') ||
+              (e.asignado_a_vehiculo ? 'VEHICULO' : '')
+            ).toUpperCase();
 
-            let asignacionHtml = `<span style="font-size:10px; color:#64748b;">Sin asignar</span>`;
+            // 🔥 3. Soporte completo de tipos de destino
+            const iconos = { PERSONAL: '👤', VEHICULO: '🚗', GRUPO: '🗂', FLOTILLA: '🚁' };
+            const colores = { PERSONAL: '#3b82f6', VEHICULO: '#f59e0b', GRUPO: '#8b5cf6', FLOTILLA: '#f97316' };
+            const icono = iconos[tipoDestino] || '📦';
+            const color = colores[tipoDestino] || '#64748b';
 
-            if (personalAsignado) {
-              asignacionHtml = `
-                <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
-                  Asignado a personal: ${escapeHtml(personalAsignado)}
-                </p>`;
-            } else if (vehiculoAsignado) {
-              asignacionHtml = `
-                <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
-                  Asignado a vehículo: ${escapeHtml(vehiculoAsignado)}
-                </p>`;
-            } else if (grupoAsignado) {
-              asignacionHtml = `
-                <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
-                  Asignado a grupo: ${escapeHtml(grupoAsignado)}
-                </p>`;
-            } else if (uso) {
-              asignacionHtml = `
-                <p style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:0;">
-                  Uso: ${escapeHtml(uso)}
-                </p>`;
+            let destinoTexto = 'Sin asignar';
+            if (tipoDestino === 'PERSONAL') {
+              destinoTexto = firstString(e.asignado_a_personal, e.asignado_a_apodo, 'Personal');
+            } else if (tipoDestino === 'VEHICULO') {
+              destinoTexto = firstString(e.asignado_a_vehiculo, e.vehiculo_codigo, 'Vehículo');
+            } else if (tipoDestino === 'GRUPO') {
+              destinoTexto = firstString(e.grupo_asignado, e.grupo_nombre, 'Grupo');
+            } else if (tipoDestino === 'FLOTILLA') {
+              destinoTexto = firstString(e.flotilla_nombre, e.grupo_nombre, 'Flotilla');
             }
 
             return `
-                <div class="miniCard" style="display:flex; justify-content:space-between; align-items:center;">
-                  <div>
-                    <p style="font-weight:bold; color:#fff;">${escapeHtml(nombre)}</p>
-                    <p style="font-size:11px; color:#94a3b8;">S/N: ${escapeHtml(e.numero_serie || "—")}</p>
-                  </div>
-                  <div style="text-align:right;">
-                    ${asignacionHtml}
-                    <p style="font-size:9px; color:#94a3b8; text-transform:lowercase; margin:2px 0 0 0;">${escapeHtml(e.categoria || "")}</p>
-                  </div>
+              <div class="miniCard" style="display:flex; justify-content:space-between; align-items:center; border-left:3px solid ${color};">
+                <div>
+                  <p style="font-weight:bold; color:#fff; margin:0;">${escapeHtml(nombre)}</p>
+                  <p style="font-size:10px; color:#94a3b8; margin:2px 0;">S/N: ${escapeHtml(e.numero_serie || '—')}</p>
                 </div>
-              `;
-          }).join("")
+                <div style="text-align:right;">
+                  ${tipoDestino ? `
+                    <p style="font-size:10px; color:${color}; font-weight:700; margin:0;">${icono} ${escapeHtml(destinoTexto)}</p>
+                    <p style="font-size:9px; color:#64748b; margin:1px 0 0 0; text-transform:uppercase;">${escapeHtml(tipoDestino)}</p>
+                  ` : `<span style="font-size:10px; color:#64748b;">Sin asignar</span>`}
+                  <p style="font-size:9px; color:#94a3b8; text-transform:lowercase; margin:2px 0 0;">${escapeHtml(e.categoria || '')}</p>
+                </div>
+              </div>`;
+          }).join('')
           : `<p style="font-size:13px; color:#64748b;">Sin equipos asignados.</p>`
         }
       </div>
@@ -1708,8 +1723,9 @@ function finishPlanningAreaByPoints() {
 
 // =================== INIT MAPA ===================
 function initCesium() {
-  // Aplicar token justo antes de inicializar, asegurando que Cesium esté cargado
-  if (typeof Cesium !== "undefined") {
+  // El token ya fue asignado por loadCesiumToken() antes de llamar a initCesium().
+  // Solo lo asignamos como fallback si por algún motivo aún no está configurado.
+  if (typeof Cesium !== "undefined" && CESIUM_ACCESS_TOKEN) {
     Cesium.Ion.defaultAccessToken = CESIUM_ACCESS_TOKEN;
   }
 
@@ -1861,13 +1877,9 @@ function initCesium() {
 
       pickMode = null;
 
+      setRouteInfo("Destino seleccionado. Calculando ruta...");
       const calcBtn = document.getElementById("calcRoute");
-      if (calcBtn && calcBtn.style.display === "none") {
-        calcBtn.click();
-        setRouteInfo("Destino seleccionado. Calculando ruta...");
-      } else {
-        setRouteInfo("Destino seleccionado. Ya puedes calcular ruta.");
-      }
+      if (calcBtn) calcBtn.click();
       return;
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
@@ -2334,45 +2346,103 @@ function renderZonaOnMap() {
   });
 }
 
-function renderPersonalOnMap() {
-  if (!viewer || !dashboardData) return;
-
+  // =================== ÁRBOL OPERACIONAL (JERARQUÍA REAL) ===================
+// 🔥 1. Construir árbol CET → Flotilla → Grupo → Personal
+function buildOperationalTree() {
   const personal = getPersonalData();
+  const tree = new Map();
 
-  personal.forEach((p) => {
-    const pos = getLatLonFromItem(p);
-    if (!pos) return;
+  for (const p of personal) {
+    const rol = String(p.rol_en_operacion || p.rol || '').toUpperCase();
+    if (rol === 'CUT' || rol === 'COMANDANTE DE UNIDAD DE TRABAJO') continue;
 
-    const nombre = firstString(
-      p.apodo,
-      `${p.nombre || ""} ${p.apellido || ""}`.trim(),
-      p.nombre_completo,
-      "Personal"
-    );
+    const cetId = Number(p.id_cet_ref || p.id_cet_mando || 0);
+    if (!cetId) continue;
 
-    const ent = viewer.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
-      point: {
-        pixelSize: 10,
-        color: Cesium.Color.CYAN,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 1
-      },
-      label: {
-        text: nombre,
-        font: "14px sans-serif",
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -20)
-      }
-    });
+    if (!tree.has(cetId)) {
+      tree.set(cetId, {
+        cetLabel: firstString(p.cet_apodo, p.cet_nombre, `CET ${cetId}`),
+        flotilla: firstString(p.cet_flotilla, ''),
+        grupos: new Map()
+      });
+    }
 
-    personalEntities.push(ent);
-  });
+    const grupoNombre = firstString(p.grupo_hijo_nombre, 'SIN_GRUPO');
+    const bucket = tree.get(cetId);
+
+    if (!bucket.grupos.has(grupoNombre)) {
+      bucket.grupos.set(grupoNombre, []);
+    }
+    bucket.grupos.get(grupoNombre).push(p);
+  }
+
+  return tree;
 }
 
+// 🔥 1. Dibujar personal usando jerarquía real (color por grupo)
+function drawPersonalEntity(p, color) {
+  const pos = getLatLonFromItem(p);
+  if (!pos) return;
+
+  const nombre = firstString(
+    p.apodo,
+    `${p.nombre || ''} ${p.apellido || ''}`.trim(),
+    'Personal'
+  );
+
+  const ent = viewer.entities.add({
+    id: `personal_${p.id_personal}`,
+    name: nombre,
+    position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
+    point: {
+      pixelSize: 10,
+      color: color || Cesium.Color.CYAN,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 1.5,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    },
+    label: {
+      text: nombre,
+      font: '13px sans-serif',
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      pixelOffset: new Cesium.Cartesian2(0, -20)
+    },
+    properties: { tipo: 'personal', id_personal: p.id_personal }
+  });
+  personalEntities.push(ent);
+}
+
+function renderOperationalTreeOnMap() {
+  if (!viewer || !dashboardData) return;
+
+  // Paleta de colores por CET para distinguir jerarquías
+  const cetColors = [
+    Cesium.Color.CYAN, Cesium.Color.AQUAMARINE,
+    Cesium.Color.CORNFLOWERBLUE, Cesium.Color.LIGHTSKYBLUE
+  ];
+
+  const tree = buildOperationalTree();
+  let cetIdx = 0;
+
+  for (const [, cetBlock] of tree) {
+    const cetColor = cetColors[cetIdx % cetColors.length];
+    cetIdx++;
+
+    for (const [, miembros] of cetBlock.grupos) {
+      miembros.forEach(p => drawPersonalEntity(p, cetColor));
+    }
+  }
+
+  // CUTs con color especial
+  getPersonalData()
+    .filter(p => ['CUT', 'COMANDANTE DE UNIDAD DE TRABAJO'].includes(String(p.rol_en_operacion || p.rol || '').toUpperCase()))
+    .forEach(p => drawPersonalEntity(p, Cesium.Color.GOLD));
+}
+
+// 🔥 2. Vehículos con tipo_destino real y color según destino
 function renderVehiculosOnMap() {
   if (!viewer || !dashboardData) return;
 
@@ -2382,36 +2452,52 @@ function renderVehiculosOnMap() {
     const pos = getLatLonFromItem(v);
     if (!pos) return;
 
-    const nombre = firstString(
-      v.codigo_interno,
-      v.unidad,
-      v.nombre,
-      "Vehículo"
-    );
+    const nombre = firstString(v.codigo_interno, v.unidad, v.alias, 'Vehículo');
+    const tipoDestino = String(v.tipo_destino || '').toUpperCase();
+
+    // 🟡 PERSONAL = amarillo, 🔵 GRUPO = azul, 🟠 FLOTILLA = naranja
+    const colorPorDestino = {
+      PERSONAL: Cesium.Color.YELLOW,
+      GRUPO:    Cesium.Color.DODGERBLUE,
+      FLOTILLA: Cesium.Color.ORANGE
+    };
+    const vehColor = colorPorDestino[tipoDestino] || Cesium.Color.LIGHTYELLOW;
+
+    // Etiqueta de destino real
+    let destinoLabel = '';
+    if (tipoDestino === 'PERSONAL' && v.asignado_a_apodo) {
+      destinoLabel = `→ ${v.asignado_a_apodo}`;
+    } else if ((tipoDestino === 'GRUPO' || tipoDestino === 'FLOTILLA') && v.grupo_nombre) {
+      destinoLabel = `→ ${v.grupo_nombre}`;
+    }
 
     const ent = viewer.entities.add({
+      id: `vehiculo_${v.id_vehiculo}`,
+      name: nombre,
       position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
       point: {
-        pixelSize: 12,
-        color: Cesium.Color.YELLOW,
+        pixelSize: 13,
+        color: vehColor,
         outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 1
+        outlineWidth: 2,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
       },
       label: {
-        text: nombre,
-        font: "14px sans-serif",
+        text: destinoLabel ? `${nombre}\n${destinoLabel}` : nombre,
+        font: '12px sans-serif',
         fillColor: Cesium.Color.WHITE,
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -20)
-      }
+        pixelOffset: new Cesium.Cartesian2(0, -22)
+      },
+      properties: { tipo: 'vehiculo', id_vehiculo: v.id_vehiculo, tipo_destino: tipoDestino }
     });
-
     vehiculoEntities.push(ent);
   });
 }
 
+// 🔥 3. Equipos con soporte completo de tipo_destino
 function renderEquiposOnMap() {
   if (!viewer || !dashboardData) return;
 
@@ -2421,32 +2507,38 @@ function renderEquiposOnMap() {
     const pos = getLatLonFromItem(e);
     if (!pos) return;
 
-    const nombre = firstString(
-      e.numero_serie,
-      e.codigo,
-      e.nombre,
-      "Equipo"
-    );
+    const nombre = firstString(e.numero_serie, e.codigo, e.nombre, 'Equipo');
+    const tipoDestino = String(e.tipo_destino || '').toUpperCase();
+
+    const colorPorDestino = {
+      PERSONAL: Cesium.Color.LIME,
+      VEHICULO: Cesium.Color.GREENYELLOW,
+      GRUPO:    Cesium.Color.LIGHTBLUE,
+      FLOTILLA: Cesium.Color.LIGHTSALMON
+    };
+    const eqColor = colorPorDestino[tipoDestino] || Cesium.Color.LIME;
 
     const ent = viewer.entities.add({
+      id: `equipo_${e.id_equipo}`,
+      name: nombre,
       position: Cesium.Cartesian3.fromDegrees(pos.lon, pos.lat),
       point: {
         pixelSize: 9,
-        color: Cesium.Color.LIME,
+        color: eqColor,
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 1
       },
       label: {
         text: nombre,
-        font: "13px sans-serif",
+        font: '11px sans-serif',
         fillColor: Cesium.Color.WHITE,
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -18)
-      }
+        pixelOffset: new Cesium.Cartesian2(0, -16)
+      },
+      properties: { tipo: 'equipo', id_equipo: e.id_equipo, tipo_destino: tipoDestino }
     });
-
     equipoEntities.push(ent);
   });
 }
@@ -2462,9 +2554,9 @@ function renderRutasNavegacionOnMap() {
 function renderOperationalDataOnMap() {
   clearOperationalEntities();
   renderZonaOnMap();
-  renderPersonalOnMap();
-  renderVehiculosOnMap();
-  renderEquiposOnMap();
+  renderOperationalTreeOnMap(); // 🔥 1. Jerarquía real CET→grupo→personal
+  renderVehiculosOnMap();       // 🔥 2. Vehículos con tipo_destino
+  renderEquiposOnMap();         // 🔥 3. Equipos con tipo_destino
   renderRutasNavegacionOnMap();
 }
 
@@ -2490,6 +2582,12 @@ function setupRealtimeSocket() {
 
   socket.on("disconnect", () => {
     console.log("Socket desconectado");
+  });
+
+  socket.on("reconnect", () => {
+    console.log("Socket reconectado, volviendo a unirse a la operación...");
+    socket.emit("join_operacion", { id_operacion: opId });
+    loadChatHistoryFromBackend().catch(() => {});
   });
 
   socket.on("chat_message", (data) => {
@@ -2518,6 +2616,51 @@ function setupRealtimeSocket() {
     dashboardData.rutas_navegacion.unshift(data.ruta);
 
     drawRutaNavegacion(data.ruta);
+  });
+
+  // 🔥 4. TRACKING EN TIEMPO REAL: Personal
+  socket.on("tracking_personal", (data) => {
+    if (!viewer || !data?.id_personal) return;
+    const entityId = `personal_${data.id_personal}`;
+    const entity = viewer.entities.getById(entityId);
+    const lat = Number(data.latitud || data.lat);
+    const lon = Number(data.longitud || data.lon || data.lng);
+    if (!lat || !lon) return;
+    const pos = Cesium.Cartesian3.fromDegrees(lon, lat);
+    if (entity) {
+      entity.position = pos;
+    } else {
+      // Nueva entidad si no estaba en el mapa
+      const ent = viewer.entities.add({
+        id: entityId,
+        position: pos,
+        point: { pixelSize: 10, color: Cesium.Color.CYAN, outlineColor: Cesium.Color.BLACK, outlineWidth: 1 },
+        label: { text: data.apodo || `P${data.id_personal}`, font: '12px sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -18) }
+      });
+      personalEntities.push(ent);
+    }
+  });
+
+  // 🔥 4. TRACKING EN TIEMPO REAL: Vehículos
+  socket.on("tracking_vehiculo", (data) => {
+    if (!viewer || !data?.id_vehiculo) return;
+    const entityId = `vehiculo_${data.id_vehiculo}`;
+    const entity = viewer.entities.getById(entityId);
+    const lat = Number(data.latitud || data.lat);
+    const lon = Number(data.longitud || data.lon || data.lng);
+    if (!lat || !lon) return;
+    const pos = Cesium.Cartesian3.fromDegrees(lon, lat);
+    if (entity) {
+      entity.position = pos;
+    } else {
+      const ent = viewer.entities.add({
+        id: entityId,
+        position: pos,
+        point: { pixelSize: 13, color: Cesium.Color.YELLOW, outlineColor: Cesium.Color.BLACK, outlineWidth: 2 },
+        label: { text: data.codigo_interno || `V${data.id_vehiculo}`, font: '12px sans-serif', fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 2, style: Cesium.LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cesium.Cartesian2(0, -22) }
+      });
+      vehiculoEntities.push(ent);
+    }
   });
 
   socket.on("ruta_navegacion_eliminada", (data) => {
@@ -2958,6 +3101,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     updateLoadingProgress(10);
     addLoadingLog("Autenticando sesión táctica...", "OK");
+
+    // 🔥 5. SEGURIDAD: Cargar token Cesium desde backend
+    updateLoadingProgress(20);
+    addLoadingLog("Cargando configuración de mapas...");
+    await loadCesiumToken();
+    addLoadingLog("Configuración de mapas lista", "OK");
 
     // Inicializar Cesium (pesado)
     updateLoadingProgress(25);

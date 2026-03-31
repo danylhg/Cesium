@@ -38,6 +38,21 @@ io.on("connection", (socket) => {
 
     socket.join(`op_${idOperacion}`);
     console.log(`Socket ${socket.id} unido a operación ${idOperacion}`);
+    // Guardar el id de operación en el socket para los eventos de tracking
+    socket.operationId = idOperacion;
+  });
+
+  socket.on("tracking_personal", (data) => {
+    if (socket.operationId) {
+      // Re-transmitir a todos en la sala de la operación
+      socket.to(`op_${socket.operationId}`).emit("tracking_personal", data);
+    }
+  });
+
+  socket.on("tracking_vehiculo", (data) => {
+    if (socket.operationId) {
+      socket.to(`op_${socket.operationId}`).emit("tracking_vehiculo", data);
+    }
   });
 
   socket.on("disconnect", () => {
@@ -148,6 +163,15 @@ function isInt(n) {
 // Prueba
 // ===============================
 app.get("/health", (req, res) => res.json({ ok: true, mensaje: "API funcionando" }));
+
+// 🔥 5. SEGURIDAD: Token de Cesium Ion servido desde backend, no expuesto en el JS público
+app.get("/config/cesium-token", requireAuth, (req, res) => {
+  const token = process.env.CESIUM_TOKEN;
+  if (!token) {
+    return res.status(404).json({ ok: false, mensaje: "Token de Cesium no configurado en el servidor." });
+  }
+  return res.json({ ok: true, token });
+});
 
 app.get("/db-test", async (req, res) => {
   try {
@@ -881,6 +905,17 @@ app.post("/ops/:id/personal", requireAuth, async (req, res) => {
     try {
       await client.query("BEGIN");
 
+      // 🔥 4. VALIDACIÓN POR ESTADO DE OPERACIÓN
+      const opStatP = await client.query(`SELECT estado FROM operacion WHERE id_operacion=$1`, [id_operacion]);
+      if (opStatP.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ ok: false, mensaje: "Operación no encontrada" });
+      }
+      if (opStatP.rows[0].estado === 'CANCELADA' || opStatP.rows[0].estado === 'CERRADA') {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: `Operación ${opStatP.rows[0].estado}. No se puede modificar.` });
+      }
+
       for (const it of items) {
         const id_personal = Number(it.id_personal);
         if (!isInt(id_personal)) continue;
@@ -974,17 +1009,28 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    // 🔥 4. VALIDACIÓN POR ESTADO DE OPERACIÓN
+    const opStat = await client.query(`SELECT estado FROM operacion WHERE id_operacion=$1`, [id_operacion]);
+    if (opStat.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, mensaje: "Operación no encontrada" });
+    }
+    if (opStat.rows[0].estado === 'CANCELADA' || opStat.rows[0].estado === 'CERRADA') {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ ok: false, mensaje: `Operación ${opStat.rows[0].estado}. No se puede modificar.` });
+    }
+
     // 1) Limpieza ATÓMICA de la operación
     // Borramos todas las relaciones de equipos ligadas a grupos de esta operación
     await client.query(`DELETE FROM grupo_vehiculo WHERE id_operacion = $1`, [id_operacion]);
-    
+
     // Obtenemos los grupos actuales para limpiar personal_grupo
     const prevGroups = await client.query(`SELECT id_grupo_operacion FROM grupo_operacion WHERE id_operacion = $1`, [id_operacion]);
     if (prevGroups.rows.length > 0) {
       const ids = prevGroups.rows.map(r => r.id_grupo_operacion);
       await client.query(`DELETE FROM grupo_personal WHERE id_grupo_operacion = ANY($1::int[])`, [ids]);
     }
-    
+
     // Borramos los grupos y mando viejo para re-sincronizar de cero
     await client.query(`DELETE FROM mando_operacion WHERE id_operacion = $1`, [id_operacion]);
     await client.query(`DELETE FROM grupo_operacion WHERE id_operacion = $1`, [id_operacion]);
@@ -998,38 +1044,52 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
     );
     const id_padre_raiz = resRoot.rows[0].id_grupo_operacion;
 
-    // Mapa para no duplicar Grupos CET (Nivel 1)
-    const cetGroupIds = new Map();
+    // Mapa para no duplicar Grupos Flotilla (Nivel 1)
+    const flotillaGroupIds = new Map();
+    // Mapa para retornar IDs de células al frontend: nombre → id_grupo_operacion
+    const celulaGroupIds = new Map();
 
     for (const g of grupos) {
-      const { nombre, id_cet, cet_nombre, integrantes, flotilla } = g;
-      if (!nombre) continue;
+      const { nombre, id_cet, cet_nombre, integrantes, flotilla, vehiculos } = g;
 
-      // 3) Aseguramos un Grupo de Nivel 1 (CET) para jerarquizar
-      let id_padre_cet = id_padre_raiz;
+      const nombreFlotilla = (flotilla || "Flotilla General").trim();
+
+      // 3) Aseguramos un Grupo de Nivel 1 (Flotilla) para jerarquizar
+      let id_padre_flotilla = id_padre_raiz;
+      if (!flotillaGroupIds.has(nombreFlotilla)) {
+        const resFlotilla = await client.query(
+          `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre)
+           VALUES ($1, $2, 'FLOTILLA', $3, $4, $5)
+           RETURNING id_grupo_operacion`,
+          [id_operacion, nombreFlotilla, `A cargo del CET: ${cet_nombre || ''}`, who, id_padre_raiz]
+        );
+        flotillaGroupIds.set(nombreFlotilla, resFlotilla.rows[0].id_grupo_operacion);
+      }
+      id_padre_flotilla = flotillaGroupIds.get(nombreFlotilla);
+
+      // Ligamos al CET a la Flotilla siempre
       if (isInt(id_cet)) {
-        if (!cetGroupIds.has(id_cet)) {
-          const resCet = await client.query(
-            `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre)
-             VALUES ($1, $2, $3, $4, $5, $6)
-             RETURNING id_grupo_operacion`,
-            [id_operacion, cet_nombre || `CET ${id_cet}`, "CET", flotilla || "", who, id_padre_raiz]
-          );
-          cetGroupIds.set(id_cet, resCet.rows[0].id_grupo_operacion);
-        }
-        id_padre_cet = cetGroupIds.get(id_cet);
+        await client.query(
+          `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por) 
+           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [id_padre_flotilla, id_cet, who]
+        );
       }
 
-      // 4) Insertamos el grupo final (Nivel 2) como HIJO del Grupo CET
+      // Si no hay nombre de Célula, terminamos el ciclo aquí (ya se guardo la flotilla)
+      if (!nombre) continue;
+
+      // 4) Insertamos el grupo final (Célula / Nivel 2) como HIJO de la Flotilla
       const insRes = await client.query(
         `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre) 
-         VALUES ($1,$2,$3,$4,$5,$6) 
+         VALUES ($1,$2,'CELULA',$3,$4,$5) 
          RETURNING id_grupo_operacion`,
-        [id_operacion, nombre, nombre, flotilla || "", who, id_padre_cet]
+        [id_operacion, nombre, "", who, id_padre_flotilla]
       );
       const id_grupo = insRes.rows[0].id_grupo_operacion;
+      celulaGroupIds.set(nombre, id_grupo);
 
-      // 5) Ligamos al CET al grupo final (Opcional, pero recomendado para UI)
+      // 5) Ligamos al CET a la Célula
       if (isInt(id_cet)) {
         await client.query(
           `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por) 
@@ -1043,6 +1103,24 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
         for (const id_p of integrantes) {
           if (isInt(id_p)) {
             // A) Link en grupos
+            // 🔥 3. VALIDACIÓN: PERSONAL NO DUPLICADO EN GRUPOS
+            const cellExists = await client.query(
+              `SELECT 1
+               FROM grupo_personal gp
+               JOIN grupo_operacion g ON g.id_grupo_operacion = gp.id_grupo_operacion
+               WHERE g.id_operacion = $1
+               AND gp.id_personal = $2`,
+              [id_operacion, id_p]
+            );
+
+            if (cellExists.rowCount > 0) {
+              await client.query("ROLLBACK");
+              return res.status(400).json({
+                ok: false,
+                mensaje: `El personal ${id_p} ya está asignado a otro grupo`
+              });
+            }
+
             await client.query(
               `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por) 
                VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
@@ -1094,14 +1172,21 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
       }
     }
 
-          await client.query("COMMIT");
-          return res.json({ ok: true });
-        } catch (err) {
-          await client.query("ROLLBACK");
-          return sendDbError(res, err, "Error guardando grupos");
-        } finally {
-          client.release();
-        }
+    await client.query("COMMIT");
+
+    // Convertir Maps a objetos planos para la respuesta
+    const flotillasOut = {};
+    flotillaGroupIds.forEach((id, nombre) => { flotillasOut[nombre] = id; });
+    const celulasOut = {};
+    celulaGroupIds.forEach((id, nombre) => { celulasOut[nombre] = id; });
+
+    return res.json({ ok: true, flotillas: flotillasOut, celulas: celulasOut });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    return sendDbError(res, err, "Error guardando grupos");
+  } finally {
+    client.release();
+  }
 });
 
 app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
@@ -1127,6 +1212,17 @@ app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
     try {
       await client.query("BEGIN");
 
+      // 🔥 4. VALIDACIÓN POR ESTADO DE OPERACIÓN
+      const opStat = await client.query(`SELECT estado FROM operacion WHERE id_operacion=$1`, [id_operacion]);
+      if (opStat.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ ok: false, mensaje: "Operación no encontrada" });
+      }
+      if (opStat.rows[0].estado === 'CANCELADA' || opStat.rows[0].estado === 'CERRADA') {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: `Operación ${opStat.rows[0].estado}. No se puede modificar.` });
+      }
+
       // 1) Limpiar asignaciones de vehículos previas de esta operación
       await client.query(
         `DELETE FROM vehiculo_operacion WHERE id_operacion = $1`,
@@ -1136,20 +1232,83 @@ app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
       // 2) Insertar cada vehículo único en vehiculo_operacion con su asignación
       for (const it of items) {
         const id_vehiculo = Number(it.id_vehiculo);
-        const id_personal = Number(it.id_personal) || null;
+        const tipo_destino = (it.tipo_destino || "").toUpperCase();
+        const id_personal = tipo_destino === "PERSONAL" ? Number(it.id_personal) : null;
+        const id_grupo_operacion = 
+          (tipo_destino === "GRUPO" || tipo_destino === "FLOTILLA")
+            ? Number(it.id_grupo_operacion)
+            : null;
 
         if (!isInt(id_vehiculo)) continue;
 
+        // 🔥 8. VALIDACIÓN: NO MEZCLAR DESTINOS
+        const destinosVeh = [id_personal, id_grupo_operacion].filter(Boolean);
+        if (destinosVeh.length > 1) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El vehículo ${id_vehiculo} debe tener un solo destino`
+          });
+        }
+
+        // 🔥 6. VALIDACIÓN: CONSISTENCIA DE JERARQUÍA (GRUPO)
+        if (id_grupo_operacion) {
+          const grupoExiste = await client.query(
+            `SELECT 1 FROM grupo_operacion
+             WHERE id_grupo_operacion=$1 AND id_operacion=$2`,
+            [id_grupo_operacion, id_operacion]
+          );
+          if (grupoExiste.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ ok: false, mensaje: "Grupo no válido" });
+          }
+        }
+
+        // 🔥 1. VALIDACIÓN: UN RECURSO = UN DESTINO (Sin duplicados dentro de esta operación)
+        const existe = await client.query(
+          `SELECT 1 FROM vehiculo_operacion
+           WHERE id_operacion=$1 AND id_vehiculo=$2 AND estado_asignacion='ASIGNADO'`,
+          [id_operacion, id_vehiculo]
+        );
+
+        if (existe.rowCount > 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El vehículo ${id_vehiculo} ya está asignado`
+          });
+        }
+
+        // 🔥 VALIDACIÓN MULTI-OPERACIÓN: Modo militar — un vehículo no puede estar en dos operaciones activas
+        const enOtraOp = await client.query(
+          `SELECT o.nombre FROM vehiculo_operacion vo
+           JOIN operacion o ON o.id_operacion = vo.id_operacion
+           WHERE vo.id_vehiculo = $1
+             AND vo.estado_asignacion = 'ASIGNADO'
+             AND vo.id_operacion != $2
+             AND o.estado NOT IN ('CERRADA', 'CANCELADA', 'FINALIZADA')`,
+          [id_vehiculo, id_operacion]
+        );
+        if (enOtraOp.rowCount > 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El vehículo ${id_vehiculo} ya está activo en la operación "${enOtraOp.rows[0].nombre}"`
+          });
+        }
+
         await client.query(
           `INSERT INTO vehiculo_operacion
-             (id_operacion, id_vehiculo, id_personal, estado_asignacion, asignado_por)
-           VALUES ($1, $2, $3, 'ASIGNADO', $4)
+             (id_operacion, id_vehiculo, tipo_destino, id_personal, id_grupo_operacion, estado_asignacion, asignado_por)
+           VALUES ($1, $2, $3, $4, $5, 'ASIGNADO', $6)
            ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE SET
+             tipo_destino = EXCLUDED.tipo_destino,
              id_personal = EXCLUDED.id_personal,
+             id_grupo_operacion = EXCLUDED.id_grupo_operacion,
              estado_asignacion = 'ASIGNADO',
              asignado_por = EXCLUDED.asignado_por,
              fecha_asignacion = NOW()`,
-          [id_operacion, id_vehiculo, id_personal, who]
+          [id_operacion, id_vehiculo, tipo_destino, id_personal, id_grupo_operacion, who]
         );
       }
 
@@ -1449,6 +1608,17 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
     try {
       await client.query("BEGIN");
 
+      // 🔥 4. VALIDACIÓN POR ESTADO DE OPERACIÓN
+      const opStatEq = await client.query(`SELECT estado FROM operacion WHERE id_operacion=$1`, [id_operacion]);
+      if (opStatEq.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ ok: false, mensaje: "Operación no encontrada" });
+      }
+      if (opStatEq.rows[0].estado === 'CANCELADA' || opStatEq.rows[0].estado === 'CERRADA') {
+        await client.query("ROLLBACK");
+        return res.status(400).json({ ok: false, mensaje: `Operación ${opStatEq.rows[0].estado}. No se puede modificar.` });
+      }
+
       // 1) Obtener equipos previamente ligados a la operación
       const prevRes = await client.query(
         `SELECT id_equipo
@@ -1474,101 +1644,137 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
       for (const it of items) {
         const id_equipo = Number(it.id_equipo);
         const cantidad = Number(it.cantidad || 1);
-        const estado_asignacion = String(it.estado_asignacion || "ASIGNADO").toUpperCase().trim();
-        const uso_en_operacion =
-          it.uso_en_operacion != null
-            ? String(it.uso_en_operacion).trim() || null
-            : null;
-
-        const id_personal =
-          it.id_personal != null ? Number(it.id_personal) : null;
-        const id_vehiculo =
-          it.id_vehiculo != null ? Number(it.id_vehiculo) : null;
+        const tipo_destino = (it.tipo_destino || "").toUpperCase();
 
         if (!isInt(id_equipo)) continue;
         if (!Number.isInteger(cantidad) || cantidad <= 0) continue;
 
-        // No permitir destino doble
-        if (isInt(id_personal) && isInt(id_vehiculo)) {
+        let id_personal = null;
+        let id_vehiculo = null;
+        let id_grupo_operacion = null;
+
+        if (tipo_destino === "PERSONAL") {
+          id_personal = Number(it.id_personal);
+        } else if (tipo_destino === "VEHICULO") {
+          id_vehiculo = Number(it.id_vehiculo);
+        } else if (tipo_destino === "GRUPO" || tipo_destino === "FLOTILLA") {
+          id_grupo_operacion = Number(it.id_grupo_operacion);
+        } else {
           await client.query("ROLLBACK");
           return res.status(400).json({
             ok: false,
-            mensaje: `El equipo ${id_equipo} no puede asignarse a personal y vehículo al mismo tiempo`
+            mensaje: `tipo_destino inválido para equipo ${id_equipo}`
           });
         }
 
-        // 4.1 Reservar equipo para la operación
+        // 🚨 VALIDACIÓN: solo un destino
+        const destinos = [id_personal, id_vehiculo, id_grupo_operacion].filter(Boolean);
+        if (destinos.length !== 1) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El equipo ${id_equipo} debe tener un solo destino`
+          });
+        }
+
+        // 🔥 7. VALIDACIÓN: VEHÍCULO EN OPERACIÓN
+        if (id_vehiculo) {
+          const vehExists = await client.query(
+            `SELECT 1 FROM vehiculo_operacion WHERE id_operacion=$1 AND id_vehiculo=$2`,
+            [id_operacion, id_vehiculo]
+          );
+          if (vehExists.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ ok: false, mensaje: `El vehículo ${id_vehiculo} no está asignado a esta operación` });
+          }
+        }
+
+        // 🔥 6. VALIDACIÓN: CONSISTENCIA DE JERARQUÍA (GRUPO)
+        if (id_grupo_operacion) {
+          const grupExists = await client.query(
+            `SELECT 1 FROM grupo_operacion WHERE id_grupo_operacion=$1 AND id_operacion=$2`,
+            [id_grupo_operacion, id_operacion]
+          );
+          if (grupExists.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({ ok: false, mensaje: "Grupo no válido para esta operación" });
+          }
+        }
+
+        // 🔥 2. VALIDACIÓN: EQUIPO NO DUPLICADO (dentro de esta operación)
+        const existeEq = await client.query(
+          `SELECT 1 FROM uso_equipo_operacion
+           WHERE id_operacion=$1 AND id_equipo=$2
+           AND COALESCE(id_personal,0)=COALESCE($3,0)
+           AND COALESCE(id_vehiculo,0)=COALESCE($4,0)
+           AND COALESCE(id_grupo_operacion,0)=COALESCE($5,0)
+           AND fecha_devolucion IS NULL`,
+          [id_operacion, id_equipo, id_personal, id_vehiculo, id_grupo_operacion]
+        );
+
+        if (existeEq.rowCount > 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El equipo ${id_equipo} ya está asignado a ese destino`
+          });
+        }
+
+        // 🔥 VALIDACIÓN MULTI-OPERACIÓN: Modo militar — un equipo no puede estar en dos operaciones activas
+        const enOtraOpEq = await client.query(
+          `SELECT o.nombre FROM uso_equipo_operacion ue
+           JOIN operacion o ON o.id_operacion = ue.id_operacion
+           WHERE ue.id_equipo = $1
+             AND ue.fecha_devolucion IS NULL
+             AND ue.id_operacion != $2
+             AND o.estado NOT IN ('CERRADA', 'CANCELADA', 'FINALIZADA')`,
+          [id_equipo, id_operacion]
+        );
+        if (enOtraOpEq.rowCount > 0) {
+          await client.query("ROLLBACK");
+          return res.status(400).json({
+            ok: false,
+            mensaje: `El equipo ${id_equipo} ya está activo en la operación "${enOtraOpEq.rows[0].nombre}"`
+          });
+        }
+
+        // 1. Registrar uso en operación
         await client.query(
-          `INSERT INTO operacion_equipo
-             (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, id_personal, id_vehiculo, asignado_por)
+          `INSERT INTO uso_equipo_operacion
+             (id_operacion, id_equipo, cantidad, tipo_destino, id_personal, id_vehiculo, id_grupo_operacion, asignado_por)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            ON CONFLICT (id_operacion, id_equipo)
            DO UPDATE SET
              cantidad = EXCLUDED.cantidad,
-             uso_en_operacion = EXCLUDED.uso_en_operacion,
-             estado_asignacion = EXCLUDED.estado_asignacion,
+             tipo_destino = EXCLUDED.tipo_destino,
              id_personal = EXCLUDED.id_personal,
              id_vehiculo = EXCLUDED.id_vehiculo,
+             id_grupo_operacion = EXCLUDED.id_grupo_operacion,
              asignado_por = EXCLUDED.asignado_por,
              fecha_asignacion = NOW(),
-             fecha_fin_asignacion = NULL`,
-          [id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, id_personal, id_vehiculo, who]
+             fecha_devolucion = NULL`,
+          [
+            id_operacion,
+            id_equipo,
+            cantidad,
+            tipo_destino,
+            id_personal,
+            id_vehiculo,
+            id_grupo_operacion,
+            who
+          ]
         );
 
-        // 4.2 Si va a persona: inventario entregado a personal
-        if (isInt(id_personal)) {
-          await client.query(
-            `INSERT INTO personal_equipo
-               (id_personal, id_equipo, cantidad, estado, asignado_por)
-             VALUES ($1,$2,$3,'ASIGNADO',$4)
-             ON CONFLICT (id_personal, id_equipo)
-             DO UPDATE SET
-               cantidad = EXCLUDED.cantidad,
-               estado = EXCLUDED.estado,
-               asignado_por = EXCLUDED.asignado_por,
-               fecha_asignacion = NOW(),
-               fecha_devolucion = NULL`,
-            [id_personal, id_equipo, cantidad, who]
-          );
-
-          // 4.3 Si además quieres reflejar uso del equipo dentro de la operación
-          await client.query(
-            `INSERT INTO uso_equipo_operacion
-               (id_operacion, id_equipo, id_personal, cantidad, asignado_por, notas)
-             VALUES ($1,$2,$3,$4,$5,$6)
-             ON CONFLICT (id_operacion, id_equipo, id_personal)
-             DO UPDATE SET
-               cantidad = EXCLUDED.cantidad,
-               asignado_por = EXCLUDED.asignado_por,
-               notas = EXCLUDED.notas,
-               fecha_asignacion = NOW(),
-               fecha_devolucion = NULL`,
-            [
-              id_operacion,
-              id_equipo,
-              id_personal,
-              cantidad,
-              who,
-              uso_en_operacion
-            ]
-          );
-        }
-
-        // 4.4 Si va a vehículo: equipo instalado en vehículo
-        if (isInt(id_vehiculo)) {
-          await client.query(
-            `INSERT INTO vehiculo_equipo
-               (id_vehiculo, id_equipo, cantidad, estado)
-             VALUES ($1,$2,$3,'INSTALADO')
-             ON CONFLICT (id_vehiculo, id_equipo)
-             DO UPDATE SET
-               cantidad = EXCLUDED.cantidad,
-               estado = EXCLUDED.estado,
-               fecha_instalacion = NOW(),
-               fecha_retiro = NULL`,
-            [id_vehiculo, id_equipo, cantidad]
-          );
-        }
+        // 2. Mantener reserva en operacion_equipo (stock)
+        await client.query(
+          `INSERT INTO operacion_equipo
+             (id_operacion, id_equipo, cantidad, estado_asignacion, asignado_por)
+           VALUES ($1,$2,$3,'ASIGNADO',$4)
+           ON CONFLICT (id_operacion, id_equipo)
+           DO UPDATE SET
+             cantidad = operacion_equipo.cantidad + EXCLUDED.cantidad`,
+          [id_operacion, id_equipo, cantidad, who]
+        );
       }
 
       await client.query("COMMIT");
@@ -1790,7 +1996,7 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       if (cr[0]) {
         const id_chat = cr[0].id_chat;
         const id_p = await getOrCreateParticipante(id_chat, id_actor, esPersonal);
-        
+
         if (nuevoEstado === "CERRADA" && id_p) {
           await client.query(
             `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
@@ -1809,7 +2015,7 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
     let q = `UPDATE operacion SET estado = $1`;
     if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
     if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
-    
+
     await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
 
     if (nuevoEstado === "ACTIVA") {
@@ -2830,13 +3036,12 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
         END AS cet_nombre,
 
         (
-          SELECT gp.descripcion
+          SELECT cet_g.nombre
           FROM grupo_personal cet_gper
           JOIN grupo_operacion cet_g ON cet_g.id_grupo_operacion = cet_gper.id_grupo_operacion
-          JOIN grupo_operacion gp ON gp.id_grupo_operacion = cet_g.id_grupo_padre
           WHERE cet_gper.id_personal = (CASE WHEN p.rol = 'CET' THEN p.id_personal ELSE mo.id_cet END)
-            AND gp.apodo = 'CET'
-            AND gp.id_operacion = a.id_operacion
+            AND cet_g.apodo = 'FLOTILLA'
+            AND cet_g.id_operacion = a.id_operacion
           LIMIT 1
         ) AS cet_flotilla,
 
@@ -2915,6 +3120,7 @@ app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         v.alias,
         vo.uso_en_operacion,
         vo.estado_asignacion,
+        vo.tipo_destino,
         STRING_AGG(DISTINCT go.nombre, ', ') AS grupo_nombre,
         STRING_AGG(DISTINCT go.apodo, ', ') AS grupo_apodo,
         STRING_AGG(DISTINCT gp_padre.nombre, ', ') AS grupo_padre_nombre,
@@ -2943,6 +3149,7 @@ app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         v.alias,
         vo.uso_en_operacion,
         vo.estado_asignacion,
+        vo.tipo_destino,
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
@@ -2989,18 +3196,35 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
           NULLIF(TRIM(CONCAT_WS(' ', p_pe.nombre, p_pe.apellido)), '')
         ) AS asignado_a_personal,
       
+        -- Alias de retrocompatibilidad para APKs antiguas
+        COALESCE(
+          p_oe.apodo,
+          NULLIF(TRIM(CONCAT_WS(' ', p_oe.nombre, p_oe.apellido)), ''),
+          p_ueo.apodo,
+          NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), ''),
+          p_pe.apodo,
+          NULLIF(TRIM(CONCAT_WS(' ', p_pe.nombre, p_pe.apellido)), '')
+        ) AS personal_asignado,
+      
         COALESCE(
           v_oe.codigo_interno,
           v_match.codigo_interno
         ) AS asignado_a_vehiculo,
+        
+        -- Alias de retrocompatibilidad
+        COALESCE(
+          v_oe.codigo_interno,
+          v_match.codigo_interno
+        ) AS vehiculo_asignado,
       
         COALESCE(
           v_oe.alias,
           v_match.alias
         ) AS vehiculo_alias,
       
-        gr_eq.nombre AS grupo_asignado
-      
+        gr_eq.nombre AS grupo_asignado,
+        ueo.tipo_destino
+
       FROM operacion_equipo oe
       JOIN equipo e ON e.id_equipo = oe.id_equipo
       LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
@@ -3575,7 +3799,7 @@ app.use((req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.100.12:${PORT}`);
+  console.log(`API + WS en http://192.168.202.103:${PORT}`);
   // http://192.168.202.103 SEDAM
   // http://192.168.100.12:3001 MI CASA WE
 });

@@ -337,9 +337,11 @@ class MainPanelRenderer(
 
             row.findViewById<TextView>(R.id.equipoDetalle).text =
                 when {
-                    item.flotillaAsignada.isNotBlank() -> "Flotilla asignada: ${item.flotillaAsignada}"
+                    item.tipoDestino == "FLOTILLA" && item.grupoNombre.isNotBlank() -> "Flotilla: ${item.grupoNombre}"
+                    item.tipoDestino == "GRUPO" && item.grupoNombre.isNotBlank() -> "Grupo: ${item.grupoNombre}"
+                    item.tipoDestino == "PERSONAL" && item.asignadoAApodo.isNotBlank() -> "Asignado a: ${item.asignadoAApodo}"
                     item.detalle.isNotBlank() -> item.detalle
-                    else -> "Sin flotilla asignada"
+                    else -> "Sin asignación"
                 }
 
             row.findViewById<TextView>(R.id.equipoTipo).text =
