@@ -821,6 +821,8 @@ function renderInfoPanel() {
     const groupMembersMap = new Map();
     // Mapa: grupo_nombre → id_personal del CET responsable
     const groupCetMap = new Map();
+    // Mapa: id_cet → Set<id_personal> de células sin grupo asignado
+    const cetDirectCellsMap = new Map();
 
     personal.forEach(row => {
       const pid = row.id_personal;
@@ -841,6 +843,17 @@ function renderInfoPanel() {
       }
     });
 
+    // Pre-pass: build cetDirectCellsMap from id_cet_mando for cells with no groups
+    personal.forEach(row => {
+      const rol = row.rol_en_operacion || row.rol || "";
+      const isCell = !["CUT", "Comandante de Unidad de Trabajo", "CET", "Comandante de Equipo de trabajo"].includes(rol);
+      if (isCell && !row.grupo_nombre && row.id_cet_mando) {
+        const cetId = Number(row.id_cet_mando);
+        if (!cetDirectCellsMap.has(cetId)) cetDirectCellsMap.set(cetId, new Set());
+        cetDirectCellsMap.get(cetId).add(row.id_personal);
+      }
+    });
+
     // 1) CUTs
     const processedIds = new Set();
     const cutEntries = [...personMap.values()].filter(p => ["CUT", "Comandante de Unidad de Trabajo"].includes(p.rol_en_operacion || p.rol));
@@ -848,34 +861,60 @@ function renderInfoPanel() {
       processedIds.add(c.id_personal);
       const nombre = firstString(c.apodo, `${c.nombre || ""} ${c.apellido || ""}`.trim(), "Sin nombre");
       const puesto = c.puesto ? ` (${c.puesto})` : "";
-      const flotilla = c.grupo_flotilla ? `<p style="font-size:11px; color:#94a3b8; margin-top:2px; font-weight:bold;">FLOTILLA ASIGNADA: ${escapeHtml(c.grupo_flotilla)}</p>` : "";
       personalHtml += `<div class="miniCard" style="border-left: 3px solid #10b981; margin-bottom:12px;">
         <p style="margin:0;"><strong>CUT:</strong> ${escapeHtml(nombre)}${escapeHtml(puesto)}</p>
-        ${flotilla}
       </div>`;
     });
 
-    // 2) CETs — cada CET aparece UNA vez con sus grupos bajo él
+    // 2) CETs — cada CET aparece UNA vez con sus grupos (o sus células directas) bajo él
     const cetEntries = [...personMap.values()].filter(p => ["CET", "Comandante de Equipo de trabajo"].includes(p.rol_en_operacion || p.rol));
     cetEntries.forEach(cet => {
       if (processedIds.has(cet.id_personal)) return;
       processedIds.add(cet.id_personal);
 
       const cetNombre = firstString(cet.apodo, `${cet.nombre || ""} ${cet.apellido || ""}`.trim(), "Sin nombre");
-      const cetFlotilla = cet.grupo_flotilla ? ` (FLOTILLA: ${cet.grupo_flotilla})` : "";
+
+      // Buscar flotilla: si vine del row directamente, o del primer subgrupo asignado a este CET
+      let cetFlotilla = cet.cet_flotilla || "";
+      if (!cetFlotilla) {
+        // Intentar desde los subgrupos que le pertenecen
+        for (const gName of cet.grupos) {
+          if (groupCetMap.get(gName) === cet.id_personal) {
+            // Los subgrupos guardan la flotilla en grupo_flotilla del personMap de sus miembros
+            const firstMemberId = [...(groupMembersMap.get(gName) || [])][0];
+            const firstMember = firstMemberId ? personMap.get(firstMemberId) : null;
+            if (firstMember?.grupo_flotilla) { cetFlotilla = firstMember.grupo_flotilla; break; }
+          }
+        }
+      }
+      const flotillaBadge = cetFlotilla ? ` <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${escapeHtml(cetFlotilla)})</span>` : "";
 
       personalHtml += `<div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:15px; background: rgba(59,130,246,0.05);">
-        <p style="font-weight:bold; color:#60a5fa; font-size:14px; margin-bottom:8px;">CET: ${escapeHtml(cetNombre)}${escapeHtml(cetFlotilla)}</p>`;
+        <p style="font-weight:bold; color:#60a5fa; font-size:14px; margin-bottom:8px;">CET: ${escapeHtml(cetNombre)}${flotillaBadge}</p>`;
 
-      // Solo los grupos donde ESTE CET es el responsable
+      // Grupos con nombre donde este CET es responsable
       const myGroups = [...cet.grupos].filter(gName => groupCetMap.get(gName) === cet.id_personal);
 
-      myGroups.forEach(gName => {
-        personalHtml += `<div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left: 1px solid rgba(255,255,255,0.1);">
-          <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">- Grupo: ${escapeHtml(gName)}</p>`;
+      if (myGroups.length > 0) {
+        myGroups.forEach(gName => {
+          personalHtml += `<div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left: 1px solid rgba(255,255,255,0.1);">
+            <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">- Grupo: ${escapeHtml(gName)}</p>`;
 
-        const memberIds = groupMembersMap.get(gName) || new Set();
-        memberIds.forEach(mid => {
+          const memberIds = groupMembersMap.get(gName) || new Set();
+          memberIds.forEach(mid => {
+            processedIds.add(mid);
+            const m = personMap.get(mid);
+            if (!m) return;
+            const mNombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
+            const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
+            personalHtml += `<p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
+          });
+          personalHtml += `</div>`;
+        });
+      } else {
+        // Fallback: células asignadas directamente a este CET vía mando_operacion
+        const directCells = cetDirectCellsMap.get(cet.id_personal) || new Set();
+        directCells.forEach(mid => {
           processedIds.add(mid);
           const m = personMap.get(mid);
           if (!m) return;
@@ -883,8 +922,8 @@ function renderInfoPanel() {
           const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
           personalHtml += `<p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
         });
-        personalHtml += `</div>`;
-      });
+      }
+
       personalHtml += `</div>`;
     });
 
@@ -908,6 +947,7 @@ function renderInfoPanel() {
       });
       personalHtml += `</div>`;
     });
+
   } // end if (personal.length)
 
   container.innerHTML = `

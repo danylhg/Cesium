@@ -709,17 +709,8 @@ async function crearOperacionYPersonal() {
     body: { items: personalItems },
   });
 
-  const mandoItems = [];
-  state.cetSeleccionadosIds.forEach(cetId => {
-    (state.asignacionCelulas[cetId] || []).forEach(cellId => {
-      mandoItems.push({ id_cet: Number(cetId), id_cell: Number(cellId) });
-    });
-  });
-
-  await api(`/ops/${state.opId}/mando`, {
-    method: "POST",
-    body: { items: mandoItems },
-  });
+  // ELIMINADO: Ya no guardamos /mando por separado. 
+  // La jerarquía se reconstruirá 100% desde /grupos para evitar conflictos.
 
   // NUEVO: Guardar Grupos creados en el Wizard
   const gruposPayload = [];
@@ -727,13 +718,18 @@ async function crearOperacionYPersonal() {
     const info = state.gruposByCet[cetId];
     if (info && info.names && info.names.length > 0) {
       info.names.forEach(gName => {
-        gruposPayload.push({
-          nombre: gName,
-          id_cet: Number(cetId),
-          flotilla: state.flotillaByCet[cetId] || "",
-          integrantes: (info.map[gName] || []).map(Number),
-          vehiculos: (info.vehMap && info.vehMap[gName] || []).map(Number)
-        });
+        const id_cet_fix = Number(cetId);
+        const cetObj = getPersonalById(id_cet_fix);
+        if (id_cet_fix > 0) {
+          gruposPayload.push({
+            nombre: gName,
+            id_cet: id_cet_fix,
+            cet_nombre: cetObj?.label || (`CET ${id_cet_fix}`),
+            flotilla: state.flotillaByCet[cetId] || "",
+            integrantes: (info.map[gName] || []).map(Number),
+            vehiculos: (info.vehMap && info.vehMap[gName]) ? [Number(info.vehMap[gName])] : []
+          });
+        }
       });
     }
   });
@@ -784,6 +780,7 @@ async function saveEquipos() {
       };
 
       if (resource?.tipo === "personal" && isPositiveInt(resource.id_personal)) {
+        // Validar que el personal esté asignado a esta operación
         return {
           ...base,
           id_personal: Number(resource.id_personal)
@@ -791,9 +788,16 @@ async function saveEquipos() {
       }
 
       if (resource?.tipo === "vehiculo" && isPositiveInt(resource.id_vehiculo)) {
+        // Validar que el vehículo esté en la selección actual
+        const vId = Number(resource.id_vehiculo);
+        const existsInSelection = Object.values(state.asignacionVehiculos || {}).includes(vId);
+        
+        // Si el vehículo no está en la selección actual, no lo guardamos (evita stale VH-001)
+        if (!existsInSelection) return null;
+
         return {
           ...base,
-          id_vehiculo: Number(resource.id_vehiculo)
+          id_vehiculo: vId
         };
       }
 
@@ -1105,7 +1109,7 @@ function renderCelulas() {
   clearPanel();
   showBack(true);
 
-  const cetId = getCetIdByIndex(state.cetActivoIndex);
+  const cetId = state.cetSeleccionadosIds[state.cetActivoIndex];
   const asignadas = state.asignacionCelulas[cetId] || [];
 
   ensureCetState(cetId);
@@ -1198,7 +1202,7 @@ function renderCelulas() {
   const btnCrearGrupo = document.createElement("button");
   btnCrearGrupo.className = "btnSoft";
   btnCrearGrupo.textContent = "Crear grupo";
-  btnCrearGrupo.addEventListener("click", () => abrirModalCrearGrupo(cetId));
+  btnCrearGrupo.addEventListener("click", () => abrirModalCrearGrupo());
 
   flotillaRow.appendChild(flotWrap);
   flotillaRow.appendChild(btnCrearGrupo);
@@ -1378,7 +1382,10 @@ function renderCelulas() {
 // ===============================
 // Modal crear grupos
 // ===============================
-function abrirModalCrearGrupo(cetId) {
+function abrirModalCrearGrupo() {
+  const cetId = state.cetSeleccionadosIds[state.cetActivoIndex];
+  if (!cetId) return;
+
   const overlay = document.createElement("div");
   overlay.style.position = "fixed";
   overlay.style.inset = "0";
@@ -1825,6 +1832,11 @@ function renderVehiculos() {
       state.asignacionVehiculos[id] = Number(state.selectedVehicleId);
     });
 
+    if (ginfo && ginfo.vehActive) {
+      if (!ginfo.vehMap) ginfo.vehMap = {};
+      ginfo.vehMap[ginfo.vehActive] = [Number(state.selectedVehicleId)];
+    }
+
     state.selectedVehicleId = null;
     state.selectedPersonIds = [];
     saveDraftLocal();
@@ -1866,6 +1878,8 @@ function renderVehiculos() {
     try {
       setAccion("Guardando...", true);
       await saveVehiculos();
+      // Guardar grupos nuevamente para amarrar los vehículos
+      await crearOperacionYPersonal(); 
       state.categoria = "equipo";
       resetEquipoFlow();
       saveDraftLocal();
@@ -2105,7 +2119,13 @@ function renderEquipoAsignacion() {
   btnAccion.onclick = async () => {
     try {
       setAccion("Guardando...", true);
+      
+      // 1) Sincronización Final: Re-guardamos grupos con sus vehículos actualizados
+      await crearOperacionYPersonal();
+      
+      // 2) Guardamos equipos
       await saveEquipos();
+      
       const nombre = opNombreEl?.value.trim() || "";
       clearDraftLocal();
       showDashboardButton();

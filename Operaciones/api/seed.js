@@ -891,6 +891,13 @@ async function main() {
         [idAguila1_OP2, persona.id_personal, creadoPor]
       );
     }
+    // CET Lopez leads Aguila 1
+    await client.query(
+      `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, rol_en_grupo, asignado_por)
+       VALUES ($1,$2,'CET',$3)
+       ON CONFLICT (id_grupo_operacion, id_personal) DO NOTHING`,
+      [idAguila1_OP2, cet2a.id_personal, creadoPor]
+    );
 
     for (const username of ["pmendoza", "hcastillo", "eruiz"]) {
       const persona = personalAsignado2.find((p) => p.username === username);
@@ -902,6 +909,69 @@ async function main() {
         [idAguila2_OP2, persona.id_personal, creadoPor]
       );
     }
+    // CET Vega leads Aguila 2
+    await client.query(
+      `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, rol_en_grupo, asignado_por)
+       VALUES ($1,$2,'CET',$3)
+       ON CONFLICT (id_grupo_operacion, id_personal) DO NOTHING`,
+      [idAguila2_OP2, cet2b.id_personal, creadoPor]
+    );
+
+    // =========================================================
+    // 10.2) RECURSOS OP-NORTE-002
+    // =========================================================
+    const vhNorte1 = await getVehiculoByCodigo(client, "VH-004");
+    const vhNorte2 = await getVehiculoByCodigo(client, "VH-005");
+    const eqComNorte = await getEquipoBySerie(client, "HFC-001");
+    const eqTacNorte = await getEquipoBySerie(client, "DRN-001");
+
+    // Vehiculos a Operacion
+    for (const v of [vhNorte1, vhNorte2]) {
+      await client.query(
+        `INSERT INTO vehiculo_operacion (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
+         VALUES ($1,$2,$3,'ASIGNADO',$4)
+         ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE SET estado_asignacion = 'ASIGNADO'`,
+        [idOp2, v.id_vehiculo, "Vehiculo para Operacion Norte", creadoPor]
+      );
+    }
+
+    // Equipos a Operacion
+    for (const e of [eqComNorte, eqTacNorte]) {
+      await client.query(
+        `INSERT INTO operacion_equipo (id_operacion, id_equipo, cantidad, uso_en_operacion, estado_asignacion, asignado_por)
+         VALUES ($1,$2,1,$3,'ASIGNADO',$4)
+         ON CONFLICT (id_operacion, id_equipo) DO UPDATE SET estado_asignacion = 'ASIGNADO'`,
+        [idOp2, e.id_equipo, "Equipo para Operacion Norte", creadoPor]
+      );
+    }
+
+    // Vehiculos a Subgrupos
+    await client.query(
+      `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
+       VALUES ($1,$2,$3,'Transporte Panther Aguila 1','ASIGNADO',$4)
+       ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING`,
+      [idAguila1_OP2, idOp2, vhNorte1.id_vehiculo, creadoPor]
+    );
+    await client.query(
+      `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
+       VALUES ($1,$2,$3,'Interceptor Scualo Aguila 2','ASIGNADO',$4)
+       ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING`,
+      [idAguila2_OP2, idOp2, vhNorte2.id_vehiculo, creadoPor]
+    );
+
+    // Equipos a Subgrupos
+    await client.query(
+      `INSERT INTO grupo_equipo (id_grupo_operacion, id_operacion, id_equipo, cantidad, uso_en_grupo, estado_asignacion, asignado_por)
+       VALUES ($1,$2,$3,1,'Radio Aguila 1','ASIGNADO',$4)
+       ON CONFLICT (id_grupo_operacion, id_equipo) DO NOTHING`,
+      [idAguila1_OP2, idOp2, eqComNorte.id_equipo, creadoPor]
+    );
+    await client.query(
+      `INSERT INTO grupo_equipo (id_grupo_operacion, id_operacion, id_equipo, cantidad, uso_en_grupo, estado_asignacion, asignado_por)
+       VALUES ($1,$2,$3,1,'Dron Aguila 2','ASIGNADO',$4)
+       ON CONFLICT (id_grupo_operacion, id_equipo) DO NOTHING`,
+      [idAguila2_OP2, idOp2, eqTacNorte.id_equipo, creadoPor]
+    );
 
     const chat2Res = await client.query(
       `INSERT INTO chat_operacion (id_operacion, activo)
@@ -943,11 +1013,11 @@ async function main() {
     const zonaGeometria2 = {
       type: "Polygon",
       coordinates: [[
-        [-96.1600, 19.2300],
-        [-96.0900, 19.2300],
-        [-96.0900, 19.1700],
-        [-96.1600, 19.1700],
-        [-96.1600, 19.2300],
+        [-96.9600, 19.5600],
+        [-96.8900, 19.5600],
+        [-96.8900, 19.5100],
+        [-96.9600, 19.5100],
+        [-96.9600, 19.5600],
       ]],
     };
 
@@ -970,9 +1040,9 @@ async function main() {
         idOp2,
         "Zona Puerto Veracruz",
         JSON.stringify(zonaGeometria2),
-        19.2000,
-        -96.1250,
-        1200,
+        19.5390,
+        -96.9270,
+        1500,
         "#f97316",
         creadoPor,
       ]
@@ -1460,6 +1530,10 @@ async function main() {
        WHERE id_operacion = $1`,
       [idOp4]
     );
+
+    // Liberar tambien recursos si tuviera
+    await client.query(`UPDATE vehiculo_operacion SET estado_asignacion = 'LIBERADO' WHERE id_operacion = $1`, [idOp4]);
+    await client.query(`UPDATE operacion_equipo SET estado_asignacion = 'LIBERADO' WHERE id_operacion = $1`, [idOp4]);
 
     await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_sync_chat_estado`);
     await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_touch`);

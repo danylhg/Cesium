@@ -495,8 +495,7 @@ CREATE TABLE IF NOT EXISTS grupo_vehiculo (
     ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_vehiculo_unico_por_operacion
-  ON grupo_vehiculo (id_operacion, id_vehiculo);
+DROP INDEX IF EXISTS uq_grupo_vehiculo_unico_por_operacion;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_grupo_equipo_unico_por_operacion
   ON grupo_equipo (id_operacion, id_equipo);
@@ -1982,19 +1981,8 @@ $$ LANGUAGE plpgsql;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_personal') THEN
-    CREATE TRIGGER tr_validar_disponibilidad_personal
-    BEFORE INSERT OR UPDATE ON asignacion_operacion_personal
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_validar_disponibilidad_personal();
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_vehiculo') THEN
-    CREATE TRIGGER tr_validar_disponibilidad_vehiculo
-    BEFORE INSERT OR UPDATE ON vehiculo_operacion
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_validar_disponibilidad_vehiculo();
-  END IF;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_personal ON asignacion_operacion_personal;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_vehiculo ON vehiculo_operacion;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_equipo') THEN
     CREATE TRIGGER tr_validar_disponibilidad_equipo

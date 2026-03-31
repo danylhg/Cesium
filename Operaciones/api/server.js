@@ -1,4 +1,5 @@
 import "dotenv/config";
+import fs from "fs";
 import express from "express";
 import cors from "cors";
 import { pool } from "./db.js";
@@ -973,31 +974,62 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // Limpiamos grupos previos de esta operación
-    // Primero desconectamos al personal (ON DELETE CASCADE debería ocuparse, pero lo hacemos explícito si no está)
+    // 1) Limpieza ATÓMICA de la operación
+    // Borramos todas las relaciones de equipos ligadas a grupos de esta operación
+    await client.query(`DELETE FROM grupo_vehiculo WHERE id_operacion = $1`, [id_operacion]);
+    
+    // Obtenemos los grupos actuales para limpiar personal_grupo
     const prevGroups = await client.query(`SELECT id_grupo_operacion FROM grupo_operacion WHERE id_operacion = $1`, [id_operacion]);
     if (prevGroups.rows.length > 0) {
       const ids = prevGroups.rows.map(r => r.id_grupo_operacion);
       await client.query(`DELETE FROM grupo_personal WHERE id_grupo_operacion = ANY($1::int[])`, [ids]);
-      await client.query(`DELETE FROM grupo_vehiculo WHERE id_grupo_operacion = ANY($1::int[])`, [ids]);
-      await client.query(`DELETE FROM grupo_operacion WHERE id_operacion = $1`, [id_operacion]);
     }
+    
+    // Borramos los grupos y mando viejo para re-sincronizar de cero
+    await client.query(`DELETE FROM mando_operacion WHERE id_operacion = $1`, [id_operacion]);
+    await client.query(`DELETE FROM grupo_operacion WHERE id_operacion = $1`, [id_operacion]);
+
+    // 2) Creamos un Grupo Raíz (Nivel 0: Mando Operativo) para toda la operación.
+    const resRoot = await client.query(
+      `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por)
+       VALUES ($1, 'Mando Operativo', 'Mando', 'Grupo raíz de la operación', $2)
+       RETURNING id_grupo_operacion`,
+      [id_operacion, who]
+    );
+    const id_padre_raiz = resRoot.rows[0].id_grupo_operacion;
+
+    // Mapa para no duplicar Grupos CET (Nivel 1)
+    const cetGroupIds = new Map();
 
     for (const g of grupos) {
-      const { nombre, id_cet, integrantes, flotilla } = g;
+      const { nombre, id_cet, cet_nombre, integrantes, flotilla } = g;
       if (!nombre) continue;
 
-      // Insertamos el grupo
-      // ON CONFLICT no se usa para actualizar aquí porque mezcla grupos de distintos CETs
+      // 3) Aseguramos un Grupo de Nivel 1 (CET) para jerarquizar
+      let id_padre_cet = id_padre_raiz;
+      if (isInt(id_cet)) {
+        if (!cetGroupIds.has(id_cet)) {
+          const resCet = await client.query(
+            `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             RETURNING id_grupo_operacion`,
+            [id_operacion, cet_nombre || `CET ${id_cet}`, "CET", `Sección de ${cet_nombre || id_cet}`, who, id_padre_raiz]
+          );
+          cetGroupIds.set(id_cet, resCet.rows[0].id_grupo_operacion);
+        }
+        id_padre_cet = cetGroupIds.get(id_cet);
+      }
+
+      // 4) Insertamos el grupo final (Nivel 2) como HIJO del Grupo CET
       const insRes = await client.query(
-        `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por) 
-         VALUES ($1,$2,$3,$4,$5) 
+        `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre) 
+         VALUES ($1,$2,$3,$4,$5,$6) 
          RETURNING id_grupo_operacion`,
-        [id_operacion, nombre, nombre, flotilla || "", who]
+        [id_operacion, nombre, nombre, flotilla || "", who, id_padre_cet]
       );
       const id_grupo = insRes.rows[0].id_grupo_operacion;
 
-      // Ligamos al CET al grupo
+      // 5) Ligamos al CET al grupo final (Opcional, pero recomendado para UI)
       if (isInt(id_cet)) {
         await client.query(
           `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por) 
@@ -1006,41 +1038,51 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
         );
       }
 
-      // Ligamos integrantes
+      // 6) Ligamos integrantes y Sincronizamos con Mando_Operacion
       if (Array.isArray(integrantes)) {
         for (const id_p of integrantes) {
           if (isInt(id_p)) {
+            // A) Link en grupos
             await client.query(
               `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por) 
                VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
               [id_grupo, id_p, who]
             );
+
+            // B) Sincronización TRIPLE LOCK: Link en mando_operacion (para el árbol del Dashboard)
+            if (isInt(id_cet)) {
+              await client.query(
+                `INSERT INTO mando_operacion (id_operacion, id_cet, id_cell, asignado_por)
+                 VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+                [id_operacion, id_cet, id_p, who]
+              );
+            }
           }
         }
       }
 
-      // Ligamos vehículos al grupo
+      // 7) Ligamos vehículos al grupo
       if (Array.isArray(g.vehiculos)) {
         for (const id_v of g.vehiculos) {
           if (isInt(id_v)) {
             await client.query(
-              `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_vehiculo, id_operacion)
-               VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-              [id_grupo, id_v, id_operacion]
+              `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_vehiculo, id_operacion, asignado_por)
+               VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
+              [id_grupo, id_v, id_operacion, who]
             );
           }
         }
       }
     }
 
-    await client.query("COMMIT");
-    return res.json({ ok: true });
-  } catch (err) {
-    await client.query("ROLLBACK");
-    return sendDbError(res, err, "Error guardando grupos");
-  } finally {
-    client.release();
-  }
+          await client.query("COMMIT");
+          return res.json({ ok: true });
+        } catch (err) {
+          await client.query("ROLLBACK");
+          return sendDbError(res, err, "Error guardando grupos");
+        } finally {
+          client.release();
+        }
 });
 
 app.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
@@ -1399,26 +1441,10 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
         .map(r => Number(r.id_equipo))
         .filter(id => Number.isInteger(id) && id > 0);
 
-      // 2) Limpiar relaciones derivadas de esos equipos
-      if (prevEquipoIds.length > 0) {
-        await client.query(
-          `DELETE FROM uso_equipo_operacion
-           WHERE id_operacion = $1`,
-          [id_operacion]
-        );
+      // 2) Limpieza implacable de equipos de la operación
+      // Borramos asignaciones a uso_equipo_operacion (que es local a la operación)
+      await client.query(`DELETE FROM uso_equipo_operacion WHERE id_operacion = $1`, [id_operacion]);
 
-        await client.query(
-          `DELETE FROM personal_equipo
-           WHERE id_equipo = ANY($1::int[])`,
-          [prevEquipoIds]
-        );
-
-        await client.query(
-          `DELETE FROM vehiculo_equipo
-           WHERE id_equipo = ANY($1::int[])`,
-          [prevEquipoIds]
-        );
-      }
 
       // 3) Limpiar la reserva de equipos en la operación
       await client.query(
@@ -1745,6 +1771,32 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       }
     }
     await client.query("RELEASE SAVEPOINT before_estado_update");
+
+    // ── CANCELADA: liberar todos los recursos de la operación ──
+    if (nuevoEstado === "CANCELADA") {
+      const ahora = new Date().toISOString();
+      // Liberar personal
+      await client.query(
+        `UPDATE asignacion_operacion_personal
+         SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+         WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
+        [ahora, id_operacion]
+      );
+      // Liberar vehículos
+      await client.query(
+        `UPDATE vehiculo_operacion
+         SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+         WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
+        [ahora, id_operacion]
+      );
+      // Liberar equipos
+      await client.query(
+        `UPDATE operacion_equipo
+         SET estado_asignacion = 'LIBERADO'
+         WHERE id_operacion = $1 AND estado_asignacion != 'LIBERADO'`,
+        [id_operacion]
+      );
+    }
 
     if (nuevoEstado === "ACTIVA") {
       const { rows: cr } = await client.query(
@@ -2499,7 +2551,7 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
            AND a.estado_asignacion NOT IN ('LIBERADO')
          ORDER BY p.id_personal,
                   CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
-                  go.id_grupo_operacion`, 
+                  go.id_grupo_operacion`,
         [id_operacion]
       ),
 
@@ -2690,7 +2742,7 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `
-      SELECT DISTINCT ON (p.id_personal)
+      SELECT
         p.id_personal,
         p.apodo,
         p.nombre,
@@ -2704,6 +2756,9 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
         go.apodo AS grupo_apodo,
         gp_padre.nombre AS grupo_padre_nombre,
         gp_padre.apodo AS grupo_padre_apodo,
+        gp_padre.descripcion AS grupo_flotilla,
+        mo.id_cet AS id_cet_mando,
+        cet_go.descripcion AS cet_flotilla,
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
@@ -2717,6 +2772,18 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
        AND go.id_operacion = a.id_operacion
       LEFT JOIN grupo_operacion gp_padre
         ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+      LEFT JOIN mando_operacion mo
+        ON mo.id_operacion = a.id_operacion
+       AND mo.id_cell = a.id_personal
+      LEFT JOIN grupo_personal cet_gper
+        ON cet_gper.id_personal = a.id_personal
+       AND NOT EXISTS (
+          SELECT 1 FROM grupo_operacion child
+          WHERE child.id_grupo_padre = cet_gper.id_grupo_operacion
+       )
+      LEFT JOIN grupo_operacion cet_go
+        ON cet_go.id_grupo_operacion = cet_gper.id_grupo_operacion
+       AND cet_go.id_operacion = a.id_operacion
       LEFT JOIN v_ultima_posicion_personal t
         ON t.id_personal = a.id_personal
        AND t.id_operacion = a.id_operacion
@@ -2753,44 +2820,38 @@ app.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         v.alias,
         vo.uso_en_operacion,
         vo.estado_asignacion,
-        gv.id_grupo_operacion,
-        gv.grupo_nombre,
-        gv.grupo_apodo,
-        gv.grupo_padre_nombre,
-        gv.grupo_padre_apodo,
+        STRING_AGG(DISTINCT go.nombre, ', ') AS grupo_nombre,
+        STRING_AGG(DISTINCT go.apodo, ', ') AS grupo_apodo,
+        STRING_AGG(DISTINCT gp_padre.nombre, ', ') AS grupo_padre_nombre,
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
       FROM vehiculo_operacion vo
       JOIN vehiculo v
         ON v.id_vehiculo = vo.id_vehiculo
-      LEFT JOIN LATERAL (
-        SELECT
-          go.id_grupo_operacion,
-          go.nombre AS grupo_nombre,
-          go.apodo AS grupo_apodo,
-          gp_padre.nombre AS grupo_padre_nombre,
-          gp_padre.apodo AS grupo_padre_apodo
-        FROM grupo_vehiculo gv
-        JOIN grupo_operacion go
-          ON go.id_grupo_operacion = gv.id_grupo_operacion
-        LEFT JOIN grupo_operacion gp_padre
-          ON gp_padre.id_grupo_operacion = go.id_grupo_padre
-        WHERE gv.id_vehiculo = v.id_vehiculo
-          AND go.id_operacion = vo.id_operacion
-        ORDER BY
-          CASE WHEN go.id_grupo_padre IS NULL THEN 0 ELSE 1 END,
-          go.id_grupo_operacion
-        LIMIT 1
-      ) gv ON TRUE
+      LEFT JOIN grupo_vehiculo gv
+        ON gv.id_vehiculo = v.id_vehiculo
+       AND gv.id_operacion = vo.id_operacion
+      LEFT JOIN grupo_operacion go
+        ON go.id_grupo_operacion = gv.id_grupo_operacion
+      LEFT JOIN grupo_operacion gp_padre
+        ON gp_padre.id_grupo_operacion = go.id_grupo_padre
       LEFT JOIN v_ultima_posicion_vehiculo t
         ON t.id_vehiculo = vo.id_vehiculo
        AND t.id_operacion = vo.id_operacion
       WHERE vo.id_operacion = $1
         AND vo.estado_asignacion != 'LIBERADO'
+      GROUP BY 
+        v.id_vehiculo,
+        v.codigo_interno,
+        v.tipo,
+        v.alias,
+        vo.uso_en_operacion,
+        vo.estado_asignacion,
+        t.latitud,
+        t.longitud,
+        t.ultima_actualizacion
       ORDER BY
-        COALESCE(gv.grupo_padre_nombre, gv.grupo_nombre, ''),
-        COALESCE(gv.grupo_nombre, ''),
         v.tipo,
         v.codigo_interno
       `,
@@ -2835,16 +2896,11 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
       LEFT JOIN equipo_tactico et
         ON et.id_equipo = e.id_equipo
 
-      LEFT JOIN uso_equipo_operacion ueo
-        ON ueo.id_operacion = oe.id_operacion
-       AND ueo.id_equipo = oe.id_equipo
       LEFT JOIN personal p
-        ON p.id_personal = ueo.id_personal
+        ON p.id_personal = oe.id_personal
 
-      LEFT JOIN vehiculo_equipo ve
-        ON ve.id_equipo = e.id_equipo
       LEFT JOIN vehiculo v
-        ON v.id_vehiculo = ve.id_vehiculo
+        ON v.id_vehiculo = oe.id_vehiculo
 
       WHERE oe.id_operacion = $1
         AND oe.estado_asignacion != 'LIBERADO'
@@ -3384,7 +3440,7 @@ app.use((req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.202.103:${PORT}`);
+  console.log(`API + WS en http://192.168.100.12:${PORT}`);
   // http://192.168.202.103 SEDAM
   // http://192.168.100.12:3001 MI CASA WE
 });
