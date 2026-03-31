@@ -1812,10 +1812,33 @@ BEGIN
   END IF;
 
   IF v_estado IN ('CERRADA', 'CANCELADA') THEN
+
     -- Permitir mensajes de SISTEMA incluso en operaciones cerradas/canceladas
-    -- (esto permite que el trigger de log del sistema funcione)
-    IF TG_TABLE_NAME = 'mensaje_chat' AND NEW.tipo_mensaje = 'SISTEMA' THEN
-      RETURN NEW;
+    IF TG_TABLE_NAME = 'mensaje_chat' THEN
+      IF NEW.tipo_mensaje = 'SISTEMA' THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
+    -- Permitir LIBERAR personal en operación cerrada/cancelada
+    IF TG_TABLE_NAME = 'asignacion_operacion_personal' AND TG_OP = 'UPDATE' THEN
+      IF NEW.estado_asignacion = 'LIBERADO' THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
+    -- Permitir LIBERAR vehículos en operación cerrada/cancelada
+    IF TG_TABLE_NAME = 'vehiculo_operacion' AND TG_OP = 'UPDATE' THEN
+      IF NEW.estado_asignacion = 'LIBERADO' THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
+    -- Permitir LIBERAR equipos en operación cerrada/cancelada
+    IF TG_TABLE_NAME = 'operacion_equipo' AND TG_OP = 'UPDATE' THEN
+      IF NEW.estado_asignacion = 'LIBERADO' THEN
+        RETURN NEW;
+      END IF;
     END IF;
 
     RAISE EXCEPTION
@@ -1983,13 +2006,22 @@ DO $$
 BEGIN
   DROP TRIGGER IF EXISTS tr_validar_disponibilidad_personal ON asignacion_operacion_personal;
   DROP TRIGGER IF EXISTS tr_validar_disponibilidad_vehiculo ON vehiculo_operacion;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_equipo ON operacion_equipo;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_disponibilidad_equipo') THEN
-    CREATE TRIGGER tr_validar_disponibilidad_equipo
-    BEFORE INSERT OR UPDATE ON operacion_equipo
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_validar_disponibilidad_equipo();
-  END IF;
+  CREATE TRIGGER tr_validar_disponibilidad_personal
+  BEFORE INSERT OR UPDATE ON asignacion_operacion_personal
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_disponibilidad_personal();
+
+  CREATE TRIGGER tr_validar_disponibilidad_vehiculo
+  BEFORE INSERT OR UPDATE ON vehiculo_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_disponibilidad_vehiculo();
+
+  CREATE TRIGGER tr_validar_disponibilidad_equipo
+  BEFORE INSERT OR UPDATE ON operacion_equipo
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_disponibilidad_equipo();
 END $$;
 
 -- =========================================================

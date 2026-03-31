@@ -966,7 +966,7 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
 
-  const { grupos, asignado_por } = req.body ?? {};
+  const { grupos, directos, asignado_por } = req.body ?? {};
   if (!Array.isArray(grupos)) return res.status(400).json({ ok: false, mensaje: "grupos inválido" });
   const who = Number(asignado_por || req.user.sub);
 
@@ -1013,7 +1013,7 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
             `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre)
              VALUES ($1, $2, $3, $4, $5, $6)
              RETURNING id_grupo_operacion`,
-            [id_operacion, cet_nombre || `CET ${id_cet}`, "CET", `Sección de ${cet_nombre || id_cet}`, who, id_padre_raiz]
+            [id_operacion, cet_nombre || `CET ${id_cet}`, "CET", flotilla || "", who, id_padre_raiz]
           );
           cetGroupIds.set(id_cet, resCet.rows[0].id_grupo_operacion);
         }
@@ -1070,6 +1070,25 @@ app.post("/ops/:id/grupos", requireAuth, async (req, res) => {
                VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
               [id_grupo, id_v, id_operacion, who]
             );
+          }
+        }
+      }
+    }
+
+    // 8) Sincronizar CELULAS asignadas directamente a su CET
+    if (directos && typeof directos === "object") {
+      for (const [cetIdStr, arrCells] of Object.entries(directos)) {
+        const id_cet = Number(cetIdStr);
+        if (isInt(id_cet) && Array.isArray(arrCells)) {
+          for (const cellId of arrCells) {
+            const id_cell = Number(cellId);
+            if (isInt(id_cell)) {
+              await client.query(
+                `INSERT INTO mando_operacion (id_operacion, id_cet, id_cell, asignado_por)
+                 VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,
+                [id_operacion, id_cet, id_cell, who]
+              );
+            }
           }
         }
       }
@@ -1441,11 +1460,9 @@ app.post("/ops/:id/equipos", requireAuth, async (req, res) => {
         .map(r => Number(r.id_equipo))
         .filter(id => Number.isInteger(id) && id > 0);
 
-      // 2) Limpieza implacable de equipos de la operación
-      // Borramos asignaciones a uso_equipo_operacion (que es local a la operación)
-      await client.query(`DELETE FROM uso_equipo_operacion WHERE id_operacion = $1`, [id_operacion]);
-
-
+      // 2) Limpieza limitante:
+      // Ya NO borramos uso_equipo_operacion a ciegas para no matar las asignaciones activas (checkouts).
+      // Solo actualizamos o borramos desde la UI táctica o si se retira el equipo.
       // 3) Limpiar la reserva de equipos en la operación
       await client.query(
         `DELETE FROM operacion_equipo
@@ -1737,66 +1754,63 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
       return ex[0]?.id_participante;
     }
 
-    // ── CANCELADA: cerrar chat ANTES del UPDATE para que el trigger no falle ──
-    if (nuevoEstado === "CANCELADA") {
-      const { rows: cr } = await client.query(
-        `SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 AND activo=TRUE LIMIT 1`,
-        [id_operacion]
-      );
-      if (cr[0]) {
-        await client.query(
-          `UPDATE chat_operacion SET activo=FALSE, fecha_cierre=NOW() WHERE id_chat=$1`,
-          [cr[0].id_chat]
-        );
-      }
-    }
-
-    // ── Ejecutar el UPDATE de estado con SAVEPOINT por si el trigger de BD falla ──
-    let q = `UPDATE operacion SET estado = $1`;
-    if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
-    if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
-
-    await client.query("SAVEPOINT before_estado_update");
-    try {
-      await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
-    } catch (triggerErr) {
-      // Si el trigger de BD lanza error al cambiar a CANCELADA, lo ignoramos:
-      // el UPDATE ya se aplicó (el trigger falla DESPUÉS del UPDATE)
-      if (nuevoEstado === "CANCELADA" && triggerErr.code === "P0001") {
-        await client.query("ROLLBACK TO SAVEPOINT before_estado_update");
-        // Reintentar sin el trigger: actualizamos directo con advisory lock
-        await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
-      } else {
-        throw triggerErr;
-      }
-    }
-    await client.query("RELEASE SAVEPOINT before_estado_update");
-
-    // ── CANCELADA: liberar todos los recursos de la operación ──
-    if (nuevoEstado === "CANCELADA") {
+    // ── LIBERAR RECURSOS (Personal, Vehículos, Equipos) si se Cierra o Cancela ──
+    if (nuevoEstado === "CERRADA" || nuevoEstado === "CANCELADA") {
       const ahora = new Date().toISOString();
-      // Liberar personal
+
+      // 1) Liberar personal
       await client.query(
         `UPDATE asignacion_operacion_personal
          SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
          WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
         [ahora, id_operacion]
       );
-      // Liberar vehículos
+
+      // 2) Liberar vehículos
       await client.query(
         `UPDATE vehiculo_operacion
          SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
          WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
         [ahora, id_operacion]
       );
-      // Liberar equipos
+
+      // 3) Liberar equipos
       await client.query(
         `UPDATE operacion_equipo
          SET estado_asignacion = 'LIBERADO'
          WHERE id_operacion = $1 AND estado_asignacion != 'LIBERADO'`,
         [id_operacion]
       );
+
+      // 4) Cerrar chat
+      const { rows: cr } = await client.query(
+        `SELECT id_chat FROM chat_operacion WHERE id_operacion = $1 AND activo = TRUE LIMIT 1`,
+        [id_operacion]
+      );
+      if (cr[0]) {
+        const id_chat = cr[0].id_chat;
+        const id_p = await getOrCreateParticipante(id_chat, id_actor, esPersonal);
+        
+        if (nuevoEstado === "CERRADA" && id_p) {
+          await client.query(
+            `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
+            [id_chat, id_p, `OPERACION CERRADA\nCodigo: ${codigoOp}\nNombre: ${nombreOp}\nHora oficial de cierre: ${horaStr()}`]
+          );
+        }
+
+        await client.query(
+          `UPDATE chat_operacion SET activo = FALSE, fecha_cierre = NOW() WHERE id_chat = $1`,
+          [id_chat]
+        );
+      }
     }
+
+    // ── Ejecutar el UPDATE de estado ──
+    let q = `UPDATE operacion SET estado = $1`;
+    if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
+    if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
+    
+    await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
 
     if (nuevoEstado === "ACTIVA") {
       const { rows: cr } = await client.query(
@@ -1808,21 +1822,6 @@ app.patch("/ops/:id/estado", requireAuth, async (req, res) => {
         `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
         [id_chat, id_participante, `OPERACION ACTIVADA\nCodigo: ${codigoOp}\nNombre: ${nombreOp}\nHora oficial de inicio: ${horaStr()}`]
       );
-    }
-
-    if (nuevoEstado === "CERRADA") {
-      const { rows: cr } = await client.query(`SELECT id_chat FROM chat_operacion WHERE id_operacion=$1 LIMIT 1`, [id_operacion]);
-      if (cr[0]) {
-        const id_chat = cr[0].id_chat;
-        const id_participante = await getOrCreateParticipante(id_chat, id_actor, esPersonal);
-        if (id_participante) {
-          await client.query(
-            `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje) VALUES ($1,$2,$3,'SISTEMA')`,
-            [id_chat, id_participante, `OPERACION CERRADA\nCodigo: ${codigoOp}\nNombre: ${nombreOp}\nHora oficial de cierre: ${horaStr()}`]
-          );
-        }
-        await client.query(`UPDATE chat_operacion SET activo=FALSE, fecha_cierre=NOW() WHERE id_chat=$1`, [id_chat]);
-      }
     }
 
     await client.query("COMMIT");
@@ -2603,23 +2602,71 @@ app.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             e.numero_serie,
             e.nombre,
             e.categoria,
+            e.estado,
             oe.cantidad,
             oe.uso_en_operacion,
             oe.estado_asignacion,
-            COALESCE(p.apodo, CONCAT_WS(' ', p.nombre, p.apellido), p_legacy.apodo, CONCAT_WS(' ', p_legacy.nombre, p_legacy.apellido)) AS asignado_a_personal,
-            COALESCE(v.codigo_interno, v_legacy.codigo_interno) AS asignado_a_vehiculo
-         FROM operacion_equipo oe
-         JOIN equipo e ON e.id_equipo = oe.id_equipo
-         -- Asignaciones directas nuevas
-         LEFT JOIN personal p ON p.id_personal = oe.id_personal
-         LEFT JOIN vehiculo v ON v.id_vehiculo = oe.id_vehiculo
-         -- Fallback para compatibilidad con asignaciones 'activas' (lógica Android)
-         LEFT JOIN uso_equipo_operacion ueo
-           ON ueo.id_operacion = oe.id_operacion
-          AND ueo.id_equipo = oe.id_equipo
-         LEFT JOIN personal p_legacy ON p_legacy.id_personal = ueo.id_personal
-         LEFT JOIN vehiculo v_legacy ON v_legacy.id_vehiculo = oe.id_vehiculo
-         WHERE oe.id_operacion = $1`,
+            COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+          
+            COALESCE(
+              p_oe.apodo,
+              NULLIF(TRIM(CONCAT_WS(' ', p_oe.nombre, p_oe.apellido)), ''),
+              p_ueo.apodo,
+              NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), ''),
+              p_pe.apodo,
+              NULLIF(TRIM(CONCAT_WS(' ', p_pe.nombre, p_pe.apellido)), '')
+            ) AS asignado_a_personal,
+          
+            COALESCE(
+              v_oe.codigo_interno,
+              v_match.codigo_interno
+            ) AS asignado_a_vehiculo,
+          
+            COALESCE(
+              v_oe.alias,
+              v_match.alias
+            ) AS vehiculo_alias,
+          
+            gr_eq.nombre AS grupo_asignado
+          
+          FROM operacion_equipo oe
+          JOIN equipo e ON e.id_equipo = oe.id_equipo
+          LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
+          LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+          
+          LEFT JOIN personal p_oe ON p_oe.id_personal = oe.id_personal
+          LEFT JOIN vehiculo v_oe ON v_oe.id_vehiculo = oe.id_vehiculo
+          
+          LEFT JOIN uso_equipo_operacion ueo
+            ON ueo.id_operacion = oe.id_operacion
+           AND ueo.id_equipo = oe.id_equipo
+          LEFT JOIN personal p_ueo
+            ON p_ueo.id_personal = ueo.id_personal
+          
+          LEFT JOIN personal_equipo pe
+            ON pe.id_equipo = oe.id_equipo
+           AND pe.estado = 'ASIGNADO'
+          LEFT JOIN personal p_pe
+            ON p_pe.id_personal = pe.id_personal
+          
+          LEFT JOIN vehiculo_equipo ve
+            ON ve.id_equipo = oe.id_equipo
+           AND ve.estado = 'INSTALADO'
+          LEFT JOIN vehiculo_operacion vo_match
+            ON vo_match.id_operacion = oe.id_operacion
+           AND vo_match.id_vehiculo = ve.id_vehiculo
+           AND vo_match.estado_asignacion != 'LIBERADO'
+          LEFT JOIN vehiculo v_match
+            ON v_match.id_vehiculo = vo_match.id_vehiculo
+          
+          LEFT JOIN grupo_equipo ge
+            ON ge.id_equipo = oe.id_equipo
+           AND ge.id_operacion = oe.id_operacion
+          LEFT JOIN grupo_operacion gr_eq
+            ON gr_eq.id_grupo_operacion = ge.id_grupo_operacion
+          
+          WHERE oe.id_operacion = $1
+            AND oe.estado_asignacion != 'LIBERADO'`,
         [id_operacion]
       ),
 
@@ -2756,9 +2803,54 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
         go.apodo AS grupo_apodo,
         gp_padre.nombre AS grupo_padre_nombre,
         gp_padre.apodo AS grupo_padre_apodo,
-        gp_padre.descripcion AS grupo_flotilla,
-        mo.id_cet AS id_cet_mando,
-        cet_go.descripcion AS cet_flotilla,
+
+        CASE
+          WHEN go.id_grupo_operacion IS NOT NULL AND go.id_grupo_padre IS NOT NULL THEN go.id_grupo_operacion
+          ELSE NULL
+        END AS grupo_hijo_id,
+
+        CASE
+          WHEN go.id_grupo_operacion IS NOT NULL AND go.id_grupo_padre IS NOT NULL THEN go.nombre
+          ELSE NULL
+        END AS grupo_hijo_nombre,
+
+        CASE
+          WHEN p.rol = 'CET' THEN p.id_personal
+          ELSE mo.id_cet
+        END AS id_cet_ref,
+
+        CASE
+          WHEN p.rol = 'CET' THEN p.apodo
+          ELSE cet.apodo
+        END AS cet_apodo,
+
+        CASE
+          WHEN p.rol = 'CET' THEN CONCAT_WS(' ', p.nombre, p.apellido)
+          ELSE CONCAT_WS(' ', cet.nombre, cet.apellido)
+        END AS cet_nombre,
+
+        (
+          SELECT gp.descripcion
+          FROM grupo_personal cet_gper
+          JOIN grupo_operacion cet_g ON cet_g.id_grupo_operacion = cet_gper.id_grupo_operacion
+          JOIN grupo_operacion gp ON gp.id_grupo_operacion = cet_g.id_grupo_padre
+          WHERE cet_gper.id_personal = (CASE WHEN p.rol = 'CET' THEN p.id_personal ELSE mo.id_cet END)
+            AND gp.apodo = 'CET'
+            AND gp.id_operacion = a.id_operacion
+          LIMIT 1
+        ) AS cet_flotilla,
+
+        CASE
+          WHEN p.rol = 'CELL'
+           AND mo.id_cet IS NOT NULL
+           AND (
+                go.id_grupo_operacion IS NULL
+                OR go.id_grupo_padre IS NULL
+               )
+          THEN TRUE
+          ELSE FALSE
+        END AS es_miembro_directo_flotilla,
+
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
@@ -2767,22 +2859,25 @@ app.get("/ops/:id/personal", requireAuth, async (req, res) => {
         ON p.id_personal = a.id_personal
       LEFT JOIN grupo_personal gper
         ON gper.id_personal = p.id_personal
+       AND EXISTS (
+         SELECT 1
+         FROM grupo_operacion gpx
+         WHERE gpx.id_grupo_operacion = gper.id_grupo_operacion
+           AND gpx.id_operacion = a.id_operacion
+       )
       LEFT JOIN grupo_operacion go
         ON go.id_grupo_operacion = gper.id_grupo_operacion
-       AND go.id_operacion = a.id_operacion
       LEFT JOIN grupo_operacion gp_padre
         ON gp_padre.id_grupo_operacion = go.id_grupo_padre
       LEFT JOIN mando_operacion mo
         ON mo.id_operacion = a.id_operacion
        AND mo.id_cell = a.id_personal
-      LEFT JOIN grupo_personal cet_gper
-        ON cet_gper.id_personal = a.id_personal
-       AND NOT EXISTS (
-          SELECT 1 FROM grupo_operacion child
-          WHERE child.id_grupo_padre = cet_gper.id_grupo_operacion
-       )
+      LEFT JOIN personal cet
+        ON cet.id_personal = mo.id_cet
+      LEFT JOIN grupo_personal cet_gp
+        ON cet_gp.id_personal = mo.id_cet
       LEFT JOIN grupo_operacion cet_go
-        ON cet_go.id_grupo_operacion = cet_gper.id_grupo_operacion
+        ON cet_go.id_grupo_operacion = cet_gp.id_grupo_operacion
        AND cet_go.id_operacion = a.id_operacion
       LEFT JOIN v_ultima_posicion_personal t
         ON t.id_personal = a.id_personal
@@ -2884,24 +2979,64 @@ app.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
         oe.uso_en_operacion,
         oe.estado_asignacion,
         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
-        COALESCE(p.apodo, CONCAT_WS(' ', p.nombre, p.apellido)) AS asignado_a_personal,
-        v.codigo_interno AS asignado_a_vehiculo,
-        v.alias AS vehiculo_alias
-
+      
+        COALESCE(
+          p_oe.apodo,
+          NULLIF(TRIM(CONCAT_WS(' ', p_oe.nombre, p_oe.apellido)), ''),
+          p_ueo.apodo,
+          NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), ''),
+          p_pe.apodo,
+          NULLIF(TRIM(CONCAT_WS(' ', p_pe.nombre, p_pe.apellido)), '')
+        ) AS asignado_a_personal,
+      
+        COALESCE(
+          v_oe.codigo_interno,
+          v_match.codigo_interno
+        ) AS asignado_a_vehiculo,
+      
+        COALESCE(
+          v_oe.alias,
+          v_match.alias
+        ) AS vehiculo_alias,
+      
+        gr_eq.nombre AS grupo_asignado
+      
       FROM operacion_equipo oe
-      JOIN equipo e
-        ON e.id_equipo = oe.id_equipo
-      LEFT JOIN equipo_comunicacion ec
-        ON ec.id_equipo = e.id_equipo
-      LEFT JOIN equipo_tactico et
-        ON et.id_equipo = e.id_equipo
-
-      LEFT JOIN personal p
-        ON p.id_personal = oe.id_personal
-
-      LEFT JOIN vehiculo v
-        ON v.id_vehiculo = oe.id_vehiculo
-
+      JOIN equipo e ON e.id_equipo = oe.id_equipo
+      LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
+      LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+      
+      LEFT JOIN personal p_oe ON p_oe.id_personal = oe.id_personal
+      LEFT JOIN vehiculo v_oe ON v_oe.id_vehiculo = oe.id_vehiculo
+      
+      LEFT JOIN uso_equipo_operacion ueo
+        ON ueo.id_operacion = oe.id_operacion
+       AND ueo.id_equipo = oe.id_equipo
+      LEFT JOIN personal p_ueo
+        ON p_ueo.id_personal = ueo.id_personal
+      
+      LEFT JOIN personal_equipo pe
+        ON pe.id_equipo = oe.id_equipo
+       AND pe.estado = 'ASIGNADO'
+      LEFT JOIN personal p_pe
+        ON p_pe.id_personal = pe.id_personal
+      
+      LEFT JOIN vehiculo_equipo ve
+        ON ve.id_equipo = oe.id_equipo
+       AND ve.estado = 'INSTALADO'
+      LEFT JOIN vehiculo_operacion vo_match
+        ON vo_match.id_operacion = oe.id_operacion
+       AND vo_match.id_vehiculo = ve.id_vehiculo
+       AND vo_match.estado_asignacion != 'LIBERADO'
+      LEFT JOIN vehiculo v_match
+        ON v_match.id_vehiculo = vo_match.id_vehiculo
+      
+      LEFT JOIN grupo_equipo ge
+        ON ge.id_equipo = oe.id_equipo
+       AND ge.id_operacion = oe.id_operacion
+      LEFT JOIN grupo_operacion gr_eq
+        ON gr_eq.id_grupo_operacion = ge.id_grupo_operacion
+      
       WHERE oe.id_operacion = $1
         AND oe.estado_asignacion != 'LIBERADO'
       ORDER BY e.categoria, e.nombre, e.numero_serie

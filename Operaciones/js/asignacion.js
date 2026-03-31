@@ -734,12 +734,12 @@ async function crearOperacionYPersonal() {
     }
   });
 
-  if (gruposPayload.length > 0) {
-    await api(`/ops/${state.opId}/grupos`, {
-      method: "POST",
-      body: { grupos: gruposPayload }
-    });
-  }
+  // Siempre enviamos /grupos para asegurar que se registre el mando directo de las CELULAS
+  // incluso si la operación no tuviera subgrupos.
+  await api(`/ops/${state.opId}/grupos`, {
+    method: "POST",
+    body: { grupos: gruposPayload, directos: state.asignacionCelulas }
+  });
 
   saveDraftLocal();
   return { nombre, codigo: opRes?.codigo || null, yaExistia };

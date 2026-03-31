@@ -1278,21 +1278,27 @@ async function main() {
       ]
     );
 
-    await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_sync_chat_estado`);
-    await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_touch`);
-    await client.query(`ALTER TABLE mensaje_chat DISABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
-    await client.query(`ALTER TABLE asignacion_operacion_personal DISABLE TRIGGER tr_aop_operacion_modificable`);
-    await client.query(`ALTER TABLE chat_operacion DISABLE TRIGGER tr_chat_operacion_touch`);
-
     await client.query(
-      `UPDATE operacion SET estado = 'CERRADA' WHERE id_operacion = $1`,
-      [idOp3]
-    );
-    await client.query(
-      `UPDATE asignacion_operacion_personal SET estado_asignacion = 'LIBERADO'
+      `UPDATE asignacion_operacion_personal
+       SET estado_asignacion = 'LIBERADO'
        WHERE id_operacion = $1`,
       [idOp3]
     );
+
+    await client.query(
+      `UPDATE vehiculo_operacion
+       SET estado_asignacion = 'LIBERADO'
+       WHERE id_operacion = $1`,
+      [idOp3]
+    );
+
+    await client.query(
+      `UPDATE operacion_equipo
+       SET estado_asignacion = 'LIBERADO'
+       WHERE id_operacion = $1`,
+      [idOp3]
+    );
+
     await client.query(
       `UPDATE chat_operacion
        SET activo = FALSE, fecha_cierre = NOW()
@@ -1300,11 +1306,12 @@ async function main() {
       [idOp3]
     );
 
-    await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_sync_chat_estado`);
-    await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_touch`);
-    await client.query(`ALTER TABLE mensaje_chat ENABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
-    await client.query(`ALTER TABLE asignacion_operacion_personal ENABLE TRIGGER tr_aop_operacion_modificable`);
-    await client.query(`ALTER TABLE chat_operacion ENABLE TRIGGER tr_chat_operacion_touch`);
+    await client.query(
+      `UPDATE operacion
+       SET estado = 'CERRADA'
+       WHERE id_operacion = $1`,
+      [idOp3]
+    );
 
     // =========================================================
     // OP-CANCELADA-004 — CANCELADA
@@ -1515,31 +1522,33 @@ async function main() {
       ]
     );
 
-    await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_sync_chat_estado`);
-    await client.query(`ALTER TABLE operacion DISABLE TRIGGER tr_operacion_touch`);
-    await client.query(`ALTER TABLE mensaje_chat DISABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
-    await client.query(`ALTER TABLE asignacion_operacion_personal DISABLE TRIGGER tr_aop_operacion_modificable`);
-    await client.query(`ALTER TABLE chat_operacion DISABLE TRIGGER tr_chat_operacion_touch`);
-
     await client.query(
-      `UPDATE operacion SET estado = 'CANCELADA' WHERE id_operacion = $1`,
-      [idOp4]
-    );
-    await client.query(
-      `UPDATE asignacion_operacion_personal SET estado_asignacion = 'LIBERADO'
+      `UPDATE asignacion_operacion_personal
+       SET estado_asignacion = 'LIBERADO'
        WHERE id_operacion = $1`,
       [idOp4]
     );
 
-    // Liberar tambien recursos si tuviera
-    await client.query(`UPDATE vehiculo_operacion SET estado_asignacion = 'LIBERADO' WHERE id_operacion = $1`, [idOp4]);
-    await client.query(`UPDATE operacion_equipo SET estado_asignacion = 'LIBERADO' WHERE id_operacion = $1`, [idOp4]);
+    await client.query(
+      `UPDATE vehiculo_operacion
+       SET estado_asignacion = 'LIBERADO'
+       WHERE id_operacion = $1`,
+      [idOp4]
+    );
 
-    await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_sync_chat_estado`);
-    await client.query(`ALTER TABLE operacion ENABLE TRIGGER tr_operacion_touch`);
-    await client.query(`ALTER TABLE mensaje_chat ENABLE TRIGGER tr_mensaje_chat_operacion_modificable`);
-    await client.query(`ALTER TABLE asignacion_operacion_personal ENABLE TRIGGER tr_aop_operacion_modificable`);
-    await client.query(`ALTER TABLE chat_operacion ENABLE TRIGGER tr_chat_operacion_touch`);
+    await client.query(
+      `UPDATE operacion_equipo
+       SET estado_asignacion = 'LIBERADO'
+       WHERE id_operacion = $1`,
+      [idOp4]
+    );
+
+    await client.query(
+      `UPDATE operacion
+       SET estado = 'CANCELADA'
+       WHERE id_operacion = $1`,
+      [idOp4]
+    );
 
     await client.query("COMMIT");
 

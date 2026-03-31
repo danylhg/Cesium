@@ -814,139 +814,136 @@ function renderInfoPanel() {
   let personalHtml = "<p>Sin personal asignado.</p>";
   if (personal.length) {
     personalHtml = "";
-    // ── DEDUPLICAR filas del backend (1 fila por persona-por-grupo del JOIN) ──
-    // Construimos un mapa: id_personal → { info del personal, grupos: Set<string> }
-    const personMap = new Map();
-    // Mapa: grupo_nombre → Set<id_personal> de miembros (solo CELLs)
-    const groupMembersMap = new Map();
-    // Mapa: grupo_nombre → id_personal del CET responsable
-    const groupCetMap = new Map();
-    // Mapa: id_cet → Set<id_personal> de células sin grupo asignado
-    const cetDirectCellsMap = new Map();
 
-    personal.forEach(row => {
-      const pid = row.id_personal;
-      if (!personMap.has(pid)) {
-        personMap.set(pid, { ...row, grupos: new Set() });
+    const cetTree = new Map();
+    const seen = new Set();
+
+    for (const row of personal) {
+      const key = [
+        row.id_personal,
+        row.id_cet_ref || row.id_cet_mando || "",
+        row.grupo_hijo_nombre || ""
+      ].join("|");
+
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const rol = String(row.rol_en_operacion || row.rol || "").toUpperCase();
+
+      if (rol === "CUT" || rol === "COMANDANTE DE UNIDAD DE TRABAJO") {
+        // render aparte
+        continue;
       }
-      if (row.grupo_nombre) {
-        personMap.get(pid).grupos.add(row.grupo_nombre);
-        
-        const rol = row.rol_en_operacion || row.rol || "";
-        const isCet = ["CET", "Comandante de Equipo de trabajo"].includes(rol);
-        if (isCet) {
-          groupCetMap.set(row.grupo_nombre, pid);
-        } else {
-          if (!groupMembersMap.has(row.grupo_nombre)) groupMembersMap.set(row.grupo_nombre, new Set());
-          groupMembersMap.get(row.grupo_nombre).add(pid);
+
+      if (rol === "CET" || rol === "COMANDANTE DE EQUIPO DE TRABAJO") {
+        const cetId = Number(row.id_personal);
+        if (!cetTree.has(cetId)) {
+          cetTree.set(cetId, {
+            cet: row,
+            flotilla: firstString(row.cet_flotilla, ""),
+            directos: [],
+            grupos: new Map()
+          });
         }
+        continue;
       }
-    });
 
-    // Pre-pass: build cetDirectCellsMap from id_cet_mando for cells with no groups
-    personal.forEach(row => {
-      const rol = row.rol_en_operacion || row.rol || "";
-      const isCell = !["CUT", "Comandante de Unidad de Trabajo", "CET", "Comandante de Equipo de trabajo"].includes(rol);
-      if (isCell && !row.grupo_nombre && row.id_cet_mando) {
-        const cetId = Number(row.id_cet_mando);
-        if (!cetDirectCellsMap.has(cetId)) cetDirectCellsMap.set(cetId, new Set());
-        cetDirectCellsMap.get(cetId).add(row.id_personal);
+      const cetId = Number(row.id_cet_ref || row.id_cet_mando);
+      if (!cetId) continue;
+
+      if (!cetTree.has(cetId)) {
+        cetTree.set(cetId, {
+          cet: {
+            id_personal: cetId,
+            apodo: firstString(row.cet_apodo, row.cet_nombre, `CET ${cetId}`)
+          },
+          flotilla: firstString(row.cet_flotilla, ""),
+          directos: [],
+          grupos: new Map()
+        });
       }
-    });
 
-    // 1) CUTs
-    const processedIds = new Set();
-    const cutEntries = [...personMap.values()].filter(p => ["CUT", "Comandante de Unidad de Trabajo"].includes(p.rol_en_operacion || p.rol));
-    cutEntries.forEach(c => {
-      processedIds.add(c.id_personal);
+      const bucket = cetTree.get(cetId);
+      const grupo = firstString(row.grupo_hijo_nombre, "");
+
+      if (grupo) {
+        if (!bucket.grupos.has(grupo)) bucket.grupos.set(grupo, []);
+        bucket.grupos.get(grupo).push(row);
+      } else if (row.es_miembro_directo_flotilla) {
+        bucket.directos.push(row);
+      }
+    }
+
+    // CUTs render aparte
+    const cuts = personal.filter(p => ["CUT", "COMANDANTE DE UNIDAD DE TRABAJO"].includes(String(p.rol_en_operacion || p.rol || "").toUpperCase()));
+    for (const c of cuts) {
       const nombre = firstString(c.apodo, `${c.nombre || ""} ${c.apellido || ""}`.trim(), "Sin nombre");
       const puesto = c.puesto ? ` (${c.puesto})` : "";
       personalHtml += `<div class="miniCard" style="border-left: 3px solid #10b981; margin-bottom:12px;">
         <p style="margin:0;"><strong>CUT:</strong> ${escapeHtml(nombre)}${escapeHtml(puesto)}</p>
       </div>`;
-    });
+    }
 
-    // 2) CETs — cada CET aparece UNA vez con sus grupos (o sus células directas) bajo él
-    const cetEntries = [...personMap.values()].filter(p => ["CET", "Comandante de Equipo de trabajo"].includes(p.rol_en_operacion || p.rol));
-    cetEntries.forEach(cet => {
-      if (processedIds.has(cet.id_personal)) return;
-      processedIds.add(cet.id_personal);
+    for (const [, block] of cetTree) {
+      const cetNombre = firstString(
+        block.cet.apodo,
+        `${block.cet.nombre || ""} ${block.cet.apellido || ""}`.trim(),
+        "Sin nombre"
+      );
 
-      const cetNombre = firstString(cet.apodo, `${cet.nombre || ""} ${cet.apellido || ""}`.trim(), "Sin nombre");
+      const flotilla = firstString(block.flotilla, "");
 
-      // Buscar flotilla: si vine del row directamente, o del primer subgrupo asignado a este CET
-      let cetFlotilla = cet.cet_flotilla || "";
-      if (!cetFlotilla) {
-        // Intentar desde los subgrupos que le pertenecen
-        for (const gName of cet.grupos) {
-          if (groupCetMap.get(gName) === cet.id_personal) {
-            // Los subgrupos guardan la flotilla en grupo_flotilla del personMap de sus miembros
-            const firstMemberId = [...(groupMembersMap.get(gName) || [])][0];
-            const firstMember = firstMemberId ? personMap.get(firstMemberId) : null;
-            if (firstMember?.grupo_flotilla) { cetFlotilla = firstMember.grupo_flotilla; break; }
-          }
+      personalHtml += `
+        <div class="miniCard" style="border-left:3px solid #3b82f6; margin-top:15px; background:rgba(59,130,246,.05);">
+          <p style="font-weight:bold; color:#60a5fa; font-size:14px; margin-bottom:8px;">
+            CET: ${escapeHtml(cetNombre)}
+            ${flotilla ? `<span style="font-size:11px; color:#94a3b8;"> (${escapeHtml(flotilla)})</span>` : ""}
+          </p>
+      `;
+
+      for (const [grupoNombre, miembros] of block.grupos) {
+        personalHtml += `
+          <div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left:1px solid rgba(255,255,255,.1);">
+            <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">
+              ${escapeHtml(grupoNombre)}
+            </p>
+        `;
+
+        for (const m of miembros) {
+          const nombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
+          personalHtml += `<p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">• ${escapeHtml(nombre)}</p>`;
         }
+
+        personalHtml += `</div>`;
       }
-      const flotillaBadge = cetFlotilla ? ` <span style="font-size:11px; color:#94a3b8; font-weight:normal;">(${escapeHtml(cetFlotilla)})</span>` : "";
 
-      personalHtml += `<div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:15px; background: rgba(59,130,246,0.05);">
-        <p style="font-weight:bold; color:#60a5fa; font-size:14px; margin-bottom:8px;">CET: ${escapeHtml(cetNombre)}${flotillaBadge}</p>`;
+      if (block.directos.length) {
+        personalHtml += `
+          <div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left:1px dashed rgba(255,255,255,.12);">
+            <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">
+              Sin grupo
+            </p>
+        `;
 
-      // Grupos con nombre donde este CET es responsable
-      const myGroups = [...cet.grupos].filter(gName => groupCetMap.get(gName) === cet.id_personal);
+        for (const m of block.directos) {
+          const nombre = firstString(
+            m.apodo,
+            `${m.nombre || ""} ${m.apellido || ""}`.trim(),
+            "Sin nombre"
+          );
 
-      if (myGroups.length > 0) {
-        myGroups.forEach(gName => {
-          personalHtml += `<div style="margin-left:12px; margin-top:8px; padding-left:8px; border-left: 1px solid rgba(255,255,255,0.1);">
-            <p style="font-size:12px; font-weight:bold; color:#d7e3ff; margin-bottom:4px;">- Grupo: ${escapeHtml(gName)}</p>`;
+          personalHtml += `
+            <p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">
+              • ${escapeHtml(nombre)}
+            </p>
+          `;
+        }
 
-          const memberIds = groupMembersMap.get(gName) || new Set();
-          memberIds.forEach(mid => {
-            processedIds.add(mid);
-            const m = personMap.get(mid);
-            if (!m) return;
-            const mNombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
-            const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
-            personalHtml += `<p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
-          });
-          personalHtml += `</div>`;
-        });
-      } else {
-        // Fallback: células asignadas directamente a este CET vía mando_operacion
-        const directCells = cetDirectCellsMap.get(cet.id_personal) || new Set();
-        directCells.forEach(mid => {
-          processedIds.add(mid);
-          const m = personMap.get(mid);
-          if (!m) return;
-          const mNombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
-          const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
-          personalHtml += `<p style="font-size:12px; color:#fff; margin:2px 0; padding-left:8px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
-        });
+        personalHtml += `</div>`;
       }
 
       personalHtml += `</div>`;
-    });
-
-    // 3) Personal sobrante (sin grupo ni CET que lo cubra)
-    const leftoverByGroup = {};
-    [...personMap.values()].forEach(p => {
-      if (processedIds.has(p.id_personal)) return;
-      const gName = [...p.grupos][0] || "Personal de la operación";
-      if (!leftoverByGroup[gName]) leftoverByGroup[gName] = [];
-      leftoverByGroup[gName].push(p);
-      processedIds.add(p.id_personal);
-    });
-
-    Object.entries(leftoverByGroup).forEach(([gName, members]) => {
-      personalHtml += `<div class="miniCard" style="border-left: 3px solid #64748b; margin-top:10px; background: rgba(255,255,255,0.02);">
-        <p style="margin-bottom:6px; font-weight:bold; font-size:12px; color:#94a3b8; border-bottom:1px dashed rgba(255,255,255,0.05); padding-bottom:4px;">${escapeHtml(gName)}</p>`;
-      members.forEach(m => {
-        const mNombre = firstString(m.apodo, `${m.nombre || ""} ${m.apellido || ""}`.trim(), "Sin nombre");
-        const rolM = (m.rol_en_operacion || m.rol || "CELL") === "CELL" ? "CÉLULA" : (m.rol_en_operacion || m.rol);
-        personalHtml += `<p style="font-size:12px; color:#fff; margin:4px 0; padding-left:4px;">• ${escapeHtml(mNombre)} <span style="font-size:10px; opacity:0.6;">(${escapeHtml(rolM)})</span></p>`;
-      });
-      personalHtml += `</div>`;
-    });
+    }
 
   } // end if (personal.length)
 
@@ -1031,11 +1028,38 @@ function renderInfoPanel() {
         ${equipos.length
           ? equipos.map(e => {
             const nombre = firstString(e.nombre, "Equipo");
-            const target = e.asignado_a_personal || e.personal_apodo || e.personal_asignado ||
-                           e.asignado_a_vehiculo || e.vehiculo_asignado ||
-                           e.uso_en_operacion || "";
-            const isVehiculo = !!(e.asignado_a_vehiculo || e.vehiculo_asignado);
-            const targetPrefix = e.asignado_a_vehiculo ? "Vehículo: " : "";
+            
+            const personalAsignado = firstString(e.asignado_a_personal);
+            const vehiculoAsignado = firstString(
+              e.asignado_a_vehiculo,
+              e.vehiculo_alias ? `${e.asignado_a_vehiculo} (${e.vehiculo_alias})` : ""
+            );
+            const grupoAsignado = firstString(e.grupo_asignado);
+            const uso = firstString(e.uso_en_operacion);
+
+            let asignacionHtml = `<span style="font-size:10px; color:#64748b;">Sin asignar</span>`;
+
+            if (personalAsignado) {
+              asignacionHtml = `
+                <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
+                  Asignado a personal: ${escapeHtml(personalAsignado)}
+                </p>`;
+            } else if (vehiculoAsignado) {
+              asignacionHtml = `
+                <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
+                  Asignado a vehículo: ${escapeHtml(vehiculoAsignado)}
+                </p>`;
+            } else if (grupoAsignado) {
+              asignacionHtml = `
+                <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
+                  Asignado a grupo: ${escapeHtml(grupoAsignado)}
+                </p>`;
+            } else if (uso) {
+              asignacionHtml = `
+                <p style="font-size:10px; color:#94a3b8; font-weight:600; margin-bottom:0;">
+                  Uso: ${escapeHtml(uso)}
+                </p>`;
+            }
 
             return `
                 <div class="miniCard" style="display:flex; justify-content:space-between; align-items:center;">
@@ -1043,16 +1067,10 @@ function renderInfoPanel() {
                     <p style="font-weight:bold; color:#fff;">${escapeHtml(nombre)}</p>
                     <p style="font-size:11px; color:#94a3b8;">S/N: ${escapeHtml(e.numero_serie || "—")}</p>
                   </div>
-                  ${target ? `
-                    <div style="text-align:right;">
-                      <p style="font-size:10px; color:#60a5fa; font-weight:600; margin-bottom:0;">
-                        ${target.includes("principal de la operación") ? "Sin asignar" : `asignado a ${isVehiculo ? "vehiculo" : "personal"}: ${escapeHtml(target)}`}
-                      </p>
-                      <p style="font-size:9px; color:#94a3b8; text-transform:lowercase;">${escapeHtml(e.categoria || "")}</p>
-                    </div>` : `
-                    <div style="text-align:right;">
-                      <span style="font-size:10px; color:#64748b;">Sin asignar</span>
-                    </div>`}
+                  <div style="text-align:right;">
+                    ${asignacionHtml}
+                    <p style="font-size:9px; color:#94a3b8; text-transform:lowercase; margin:2px 0 0 0;">${escapeHtml(e.categoria || "")}</p>
+                  </div>
                 </div>
               `;
           }).join("")
