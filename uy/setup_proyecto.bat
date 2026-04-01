@@ -7,7 +7,7 @@ set PGHOST=localhost
 set PGPORT=5433
 set PGUSER=postgres
 set PROYECTO=C:\Users\PC\Desktop\cesium-proyecto
-set INIT_SQL=C:/Users/PC/Desktop/cesium-proyecto/db/init.sql
+set INIT_SQL=C:/Users/PC/Desktop/cesium-proyecto/db/remodulacion/00_init.sql
 set PSQL="C:\Program Files\PostgreSQL\18\bin\psql.exe"
 
 :: ============================================================
