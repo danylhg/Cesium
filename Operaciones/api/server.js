@@ -3854,7 +3854,7 @@ app.use((req, res) => {
 // ===============================
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.202.103:${PORT}`);
+  console.log(`API + WS en http://192.168.100.12:${PORT}`);
   // http://192.168.202.103 SEDAM
   // http://192.168.100.12:3001 MI CASA WE
 });
