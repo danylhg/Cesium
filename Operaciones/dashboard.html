@@ -39,6 +39,15 @@
   </div>
 
   <main class="mapStage">
+    <!-- Menú Contextual (Clic derecho) -->
+    <div id="contextMenu" class="contextMenu">
+      <div id="ctxEntityLabel" class="contextMenuLabel"></div>
+      <div class="contextMenuItem" id="ctxSetStart">🟢 Usar como origen</div>
+      <div class="contextMenuItem" id="ctxSetEnd">🟡 Usar como destino</div>
+      <div class="contextMenuDivider"></div>
+      <div class="contextMenuItem danger" id="ctxClearRoute">🧹 Limpiar ruta</div>
+    </div>
+
     <div id="map" class="mapBox"></div>
 
     <!-- Popup flotante para eliminar elemento seleccionado -->

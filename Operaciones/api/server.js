@@ -3759,6 +3759,61 @@ app.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
 });
 
 // ===============================
+// PROXY OSRM — GET /route/osrm
+// ===============================
+// El frontend llama a este endpoint para calcular rutas de conducción.
+// Actúa como proxy hacia el servidor OSRM público para evitar problemas
+// de CORS y para no exponer la URL del proveedor de rutas al cliente.
+//
+// Query params: startLon, startLat, endLon, endLat
+//
+app.get("/route/osrm", requireAuth, async (req, res) => {
+  const { startLon, startLat, endLon, endLat } = req.query;
+
+  // Validar parámetros numéricos
+  const coords = [startLon, startLat, endLon, endLat].map(Number);
+  if (coords.some((n) => !Number.isFinite(n))) {
+    return sendError(res, 400, "Parámetros inválidos. Se requieren: startLon, startLat, endLon, endLat");
+  }
+
+  const [sLon, sLat, eLon, eLat] = coords;
+
+  // OSRM pide: /route/v1/driving/{lon1},{lat1};{lon2},{lat2}
+  const osrmUrl =
+    `https://router.project-osrm.org/route/v1/driving/` +
+    `${sLon},${sLat};${eLon},${eLat}` +
+    `?overview=full&geometries=geojson&steps=false`;
+
+  try {
+    const response = await fetch(osrmUrl, {
+      headers: { "User-Agent": "TacticalDashboard/1.0" },
+      signal: AbortSignal.timeout(10000) // 10 s de tiempo límite
+    });
+
+    if (!response.ok) {
+      console.error("[OSRM] upstream error:", response.status, osrmUrl);
+      return sendError(res, 502, `Error del servidor de rutas OSRM: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    if (!data.routes || data.routes.length === 0) {
+      return sendError(res, 404, "OSRM no encontró una ruta entre esos puntos.");
+    }
+
+    // Devolvemos la estructura que el frontend ya espera (data.routes[0])
+    return res.json({ ok: true, routes: data.routes });
+
+  } catch (err) {
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      return sendError(res, 504, "El servidor de rutas OSRM tardó demasiado en responder.");
+    }
+    console.error("[OSRM] fetch error:", err.message);
+    return sendError(res, 502, "No se pudo contactar al servidor de rutas OSRM. Intenta de nuevo.");
+  }
+});
+
+// ===============================
 // Manejadores globales de error
 // ===============================
 

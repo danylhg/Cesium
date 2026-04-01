@@ -202,9 +202,17 @@ let zonaEntity = null;
 
 let socket = null;
 
+const contextMenu = document.getElementById("contextMenu");
+const ctxSetStart = document.getElementById("ctxSetStart");
+const ctxSetEnd = document.getElementById("ctxSetEnd");
+const ctxClearRoute = document.getElementById("ctxClearRoute");
+
+let lastContextPos = null;
+
 const saveOpMapBtn = document.getElementById("saveOpMapBtn");
 const cancelOpMapBtn = document.getElementById("cancelOpMapBtn");
 const mapActionButtons = document.getElementById("mapActionButtons");
+const routeVehicleSelect = document.getElementById("routeVehicleSelect");
 
 const OSRM_BASE = "https://router.project-osrm.org";
 
@@ -1763,6 +1771,154 @@ function finishPlanningAreaByPoints() {
   setTacticalUI();
 }
 
+function populateVehicleSelect() {
+  if (!routeVehicleSelect) return;
+  const originalVal = routeVehicleSelect.value;
+  routeVehicleSelect.innerHTML = '<option value="global">Ruta General (Todos los vehículos)</option>';
+
+  const vehiculos = getVehiculosData();
+  vehiculos.forEach(v => {
+    const name = firstString(v.codigo_interno, v.alias, `Vehículo ${v.id_vehiculo}`);
+    const opt = document.createElement("option");
+    opt.value = v.id_vehiculo;
+    opt.textContent = name;
+    routeVehicleSelect.appendChild(opt);
+  });
+
+  if (Array.from(routeVehicleSelect.options).some(o => o.value == originalVal)) {
+    routeVehicleSelect.value = originalVal;
+  }
+}
+
+function filterRoutesByVehicle(vehicleId) {
+  if (!viewer) return;
+
+  if (vehicleId === "global") {
+    // Mostrar todas las rutas
+    rutasNavegacionEntities.forEach((ent) => { ent.show = true; });
+    setRouteInfo("Mostrando todas las rutas activas.");
+    return;
+  }
+
+  // Construir mapa: id_personal -> id_vehiculo (desde vehiculos asignados)
+  const vehiculos = getVehiculosData();
+  const personalToVehicle = new Map();
+  vehiculos.forEach(v => {
+    if (v.tipo_destino === "PERSONAL" && v.asignado_a_id_personal) {
+      personalToVehicle.set(Number(v.asignado_a_id_personal), Number(v.id_vehiculo));
+    }
+  });
+
+  const targetVehicleId = Number(vehicleId);
+  let rutasVisibles = 0;
+
+  rutasNavegacionEntities.forEach((ent) => {
+    const idPersonal = ent.properties?.id_personal?.getValue?.() ?? ent.properties?.id_personal;
+    const idUsuario  = ent.properties?.id_usuario?.getValue?.()  ?? ent.properties?.id_usuario;
+
+    // ¿Este personal tiene asignado el vehículo filtrado?
+    let perteneceAlVehiculo = false;
+
+    if (idPersonal != null) {
+      const vehAsignado = personalToVehicle.get(Number(idPersonal));
+      perteneceAlVehiculo = (vehAsignado === targetVehicleId);
+    }
+
+    // Fallback: buscar si algún campo directo coincide
+    if (!perteneceAlVehiculo) {
+      const idVehDirecto = ent.properties?.id_vehiculo?.getValue?.() ?? ent.properties?.id_vehiculo;
+      if (idVehDirecto != null) {
+        perteneceAlVehiculo = (Number(idVehDirecto) === targetVehicleId);
+      }
+    }
+
+    ent.show = perteneceAlVehiculo;
+    if (perteneceAlVehiculo) rutasVisibles++;
+  });
+
+  const vehData = vehiculos.find(v => Number(v.id_vehiculo) === targetVehicleId);
+  const vehNombre = vehData ? firstString(vehData.codigo_interno, vehData.alias, `Vehículo ${targetVehicleId}`) : `Vehículo ${targetVehicleId}`;
+
+  setRouteInfo(rutasVisibles > 0
+    ? `Filtrando: ${vehNombre} · ${rutasVisibles} ruta(s) activa(s).`
+    : `Sin rutas activas para ${vehNombre}.`
+  );
+}
+
+let routeDebounceTimer = null;
+function debounceCalculateRoute() {
+  if (routeDebounceTimer) clearTimeout(routeDebounceTimer);
+  routeDebounceTimer = setTimeout(() => {
+    const calcBtn = document.getElementById("calcRoute");
+    if (calcBtn) calcBtn.click();
+  }, 500);
+}
+
+function setRoutePointFromClick(type, lat, lng) {
+  if (!viewer) return;
+
+  const isStart = type === "start";
+  if (isStart) {
+    startPoint = { lat, lng };
+    document.getElementById("opLat").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    if (startEntity) viewer.entities.remove(startEntity);
+    startEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(lng, lat),
+      point: { pixelSize: 12, color: Cesium.Color.LIME, heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND },
+      label: { text: "ORIGEN", font: "14px sans-serif", fillColor: Cesium.Color.WHITE, pixelOffset: new Cesium.Cartesian2(0, -24), heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND },
+      properties: { draggable: true }
+    });
+  } else {
+    endPoint = { lat, lng };
+    document.getElementById("opLng").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    if (endEntity) viewer.entities.remove(endEntity);
+    endEntity = viewer.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(lng, lat),
+      point: { pixelSize: 12, color: Cesium.Color.YELLOW, heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND },
+      label: { text: "DESTINO", font: "14px sans-serif", fillColor: Cesium.Color.WHITE, pixelOffset: new Cesium.Cartesian2(0, -24), heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND },
+      properties: { draggable: true }
+    });
+  }
+
+  lastRoute = null;
+  if (routeEntity) {
+    viewer.entities.remove(routeEntity);
+    routeEntity = null;
+  }
+
+  pickMode = null;
+  // Quitar indicador visual de modo selección
+  if (toggleRoutePanel) toggleRoutePanel.classList.remove("pickActive");
+
+  if (startPoint && endPoint) {
+    setRouteInfo("⏳ Calculando ruta automáticamente...");
+    debounceCalculateRoute();
+  } else {
+    setRouteInfo(isStart ? "🟢 Origen fijado. Ahora elige el destino." : "🟡 Destino fijado. Ahora elige el origen.");
+  }
+}
+
+// Listeners Menú Contextual
+if (ctxSetStart) {
+  ctxSetStart.onclick = () => {
+    if (lastContextPos) setRoutePointFromClick("start", lastContextPos.lat, lastContextPos.lng);
+    if (contextMenu) contextMenu.style.display = "none";
+  };
+}
+if (ctxSetEnd) {
+  ctxSetEnd.onclick = () => {
+    if (lastContextPos) setRoutePointFromClick("end", lastContextPos.lat, lastContextPos.lng);
+    if (contextMenu) contextMenu.style.display = "none";
+  };
+}
+if (ctxClearRoute) {
+  ctxClearRoute.onclick = () => {
+    const btn = document.getElementById("clearRoute");
+    if (btn) btn.click();
+    if (contextMenu) contextMenu.style.display = "none";
+  };
+}
+
 // =================== INIT MAPA ===================
 function initCesium() {
   // El token ya fue asignado por loadCesiumToken() antes de llamar a initCesium().
@@ -1799,6 +1955,13 @@ function initCesium() {
   document.getElementById("layerSelect").addEventListener("change", (e) => {
     setBaseLayer(e.target.value);
   });
+
+  if (routeVehicleSelect) {
+    routeVehicleSelect.addEventListener("change", (e) => {
+      const val = e.target.value;
+      filterRoutesByVehicle(val);
+    });
+  }
 
   document.getElementById("modeSelect").addEventListener("change", (e) => {
     const v = e.target.value;
@@ -1861,70 +2024,73 @@ function initCesium() {
     if (handleTacticalPlacement(lat, lng)) return;
 
     if (pickMode === "start") {
-      startPoint = { lat, lng };
-      lastRoute = null;
-
-      document.getElementById("opLat").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-
-      if (routeEntity) {
-        viewer.entities.remove(routeEntity);
-        routeEntity = null;
-      }
-
-      if (startEntity) viewer.entities.remove(startEntity);
-      startEntity = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lng, lat),
-        point: {
-          pixelSize: 12,
-          color: Cesium.Color.LIME
-        },
-        label: {
-          text: "ORIGEN",
-          font: "14px sans-serif",
-          fillColor: Cesium.Color.WHITE,
-          pixelOffset: new Cesium.Cartesian2(0, -24)
-        }
-      });
-
-      pickMode = null;
-      setRouteInfo("Origen seleccionado. Ahora elige destino.");
+      setRoutePointFromClick("start", lat, lng);
       return;
     }
 
     if (pickMode === "end") {
-      endPoint = { lat, lng };
-      lastRoute = null;
-
-      document.getElementById("opLng").value = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-
-      if (routeEntity) {
-        viewer.entities.remove(routeEntity);
-        routeEntity = null;
-      }
-
-      if (endEntity) viewer.entities.remove(endEntity);
-      endEntity = viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(lng, lat),
-        point: {
-          pixelSize: 12,
-          color: Cesium.Color.YELLOW
-        },
-        label: {
-          text: "DESTINO",
-          font: "14px sans-serif",
-          fillColor: Cesium.Color.WHITE,
-          pixelOffset: new Cesium.Cartesian2(0, -24)
-        }
-      });
-
-      pickMode = null;
-
-      setRouteInfo("Destino seleccionado. Calculando ruta...");
-      const calcBtn = document.getElementById("calcRoute");
-      if (calcBtn) calcBtn.click();
+      setRoutePointFromClick("end", lat, lng);
       return;
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+  // --- MANEJO DE CLIC DERECHO (Menú Contextual) ---
+  handler.setInputAction((movement) => {
+    if (!contextMenu) return;
+
+    const cartesian = getMapClickPosition(movement.position);
+    if (!cartesian) {
+      contextMenu.style.display = "none";
+      return;
+    }
+
+    const pos = cartesianToLatLng(cartesian);
+    lastContextPos = pos;
+
+    // Detectar si se hizo clic sobre una entidad táctica/operacional
+    const pickedObj = viewer.scene.pick(movement.position);
+    const pickedEnt = pickedObj?.id;
+
+    // Actualizar subtítulo del menú si hay entidad
+    const ctxEntityLabel = document.getElementById("ctxEntityLabel");
+    if (ctxEntityLabel) {
+      if (pickedEnt && pickedEnt.name) {
+        const tipo = pickedEnt.properties?.tipo?.getValue?.() ||
+                     pickedEnt.properties?.tacticalType?.getValue?.() ||
+                     pickedEnt.properties?.tipo ||
+                     pickedEnt.properties?.tacticalType || "";
+        const tipoStr = tipo ? ` (${tipo})` : "";
+        ctxEntityLabel.textContent = `📍 ${pickedEnt.name}${tipoStr}`;
+        ctxEntityLabel.style.display = "block";
+      } else {
+        ctxEntityLabel.textContent = `📍 ${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
+        ctxEntityLabel.style.display = "block";
+      }
+    }
+
+    // Ajustar posición del menú para que no salga de la pantalla
+    const rect = viewer.canvas.getBoundingClientRect();
+    let menuX = movement.position.x + rect.left;
+    let menuY = movement.position.y + rect.top;
+
+    // Mostrar brevemente para medir tamaño
+    contextMenu.style.display = "block";
+    const menuW = contextMenu.offsetWidth || 200;
+    const menuH = contextMenu.offsetHeight || 140;
+
+    if (menuX + menuW > window.innerWidth - 10)  menuX = window.innerWidth - menuW - 10;
+    if (menuY + menuH > window.innerHeight - 10) menuY = window.innerHeight - menuH - 10;
+    if (menuX < 5) menuX = 5;
+    if (menuY < 5) menuY = 5;
+
+    contextMenu.style.left = menuX + "px";
+    contextMenu.style.top  = menuY + "px";
+  }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+
+  // Cerrar menú al hacer clic izquierdo en cualquier parte del mapa
+  handler.setInputAction(() => {
+    if (contextMenu) contextMenu.style.display = "none";
+  }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
 
   handler.setInputAction((click) => {
     const picked = viewer.scene.pick(click.position);
@@ -1962,6 +2128,19 @@ function initCesium() {
     if (!cartesian) return;
 
     draggingEntity.position = cartesian;
+
+    // Si arrastramos origen o destino, recalculamos ruta
+    if (draggingEntity === startEntity || draggingEntity === endEntity) {
+      const pos = cartesianToLatLng(cartesian);
+      if (draggingEntity === startEntity) {
+        startPoint = { lat: pos.lat, lng: pos.lng };
+        document.getElementById("opLat").value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
+      } else {
+        endPoint = { lat: pos.lat, lng: pos.lng };
+        document.getElementById("opLng").value = `${pos.lat.toFixed(5)}, ${pos.lng.toFixed(5)}`;
+      }
+      debounceCalculateRoute();
+    }
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
   handler.setInputAction(() => {
@@ -1984,17 +2163,35 @@ function setBaseLayer(key) {
 // =================== BOTONES DE RUTA ===================
 document.getElementById("setStart").onclick = () => {
   pickMode = "start";
-  setRouteInfo("Modo origen activo: haz click en el mapa.");
+  setRouteInfo("⚪ Modo origen activo: haz click en el mapa o usa clic derecho.");
   routePanel.classList.add("open");
   toggleRoutePanel.classList.add("active");
+  // Feedback visual en el botón de rutas
+  toggleRoutePanel.classList.add("pickActive");
+  setTimeout(() => toggleRoutePanel.classList.remove("pickActive"), 5000);
 };
 
 document.getElementById("setEnd").onclick = () => {
   pickMode = "end";
-  setRouteInfo("Modo destino activo: haz click en el mapa.");
+  setRouteInfo("🟡 Modo destino activo: haz click en el mapa o usa clic derecho.");
   routePanel.classList.add("open");
   toggleRoutePanel.classList.add("active");
+  // Feedback visual en el botón de rutas
+  toggleRoutePanel.classList.add("pickActive");
+  setTimeout(() => toggleRoutePanel.classList.remove("pickActive"), 5000);
 };
+
+// Cerrar menú contextual con Escape
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") {
+    if (contextMenu) contextMenu.style.display = "none";
+    if (pickMode) {
+      pickMode = null;
+      toggleRoutePanel.classList.remove("pickActive");
+      setRouteInfo("Selección cancelada.");
+    }
+  }
+});
 
 document.getElementById("clearRoute").onclick = async () => {
   lastRoute = null;
@@ -2223,6 +2420,22 @@ document.getElementById("goHistory")?.addEventListener("click", () => {
 
 // =================== OSRM ===================
 async function getOsrmRoute(start, end) {
+  // Intentar primero llamar directamente a OSRM desde el navegador (mejor rendimiento y evita 504 del proxy)
+  const osrmDirectUrl = `https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${end.lng},${end.lat}?overview=full&geometries=geojson`;
+
+  try {
+    const response = await fetch(osrmDirectUrl);
+    if (response.ok) {
+      const data = await response.json();
+      if (data.routes && data.routes.length > 0) {
+        return data.routes[0];
+      }
+    }
+  } catch (e) {
+    console.warn("Fallo acceso directo a OSRM, intentando v\u00eda proxy backend...", e.message);
+  }
+
+  // Fallback: usar el proxy del backend (con token de autenticaci\u00f3n)
   const url =
     `${API_BASE}/route/osrm?` +
     `startLon=${encodeURIComponent(start.lng)}` +
@@ -2232,15 +2445,18 @@ async function getOsrmRoute(start, end) {
 
   const r = await fetch(url, {
     headers: {
-      Authorization: `Bearer ${token}`
+      Authorization: `Bearer ${token || localStorage.getItem("token")}`
     }
   });
 
-  if (!r.ok) throw new Error("No se pudo obtener ruta");
+  if (!r.ok) {
+    const errorData = await r.json().catch(() => ({}));
+    throw new Error(errorData.mensaje || "No se pudo obtener la ruta desde el servidor.");
+  }
 
   const data = await r.json();
   if (!data.routes || !data.routes.length) {
-    throw new Error("No hay ruta disponible");
+    throw new Error("No hay ruta disponible entre los puntos seleccionados.");
   }
 
   return data.routes[0];
@@ -2716,6 +2932,31 @@ function setupRealtimeSocket() {
     }
   });
 
+  // 🔥 Actualización de ruta en tiempo real (cuando el Android actualiza)
+  socket.on("ruta_navegacion_actualizada", (data) => {
+    console.log("Evento ruta_navegacion_actualizada:", data);
+    if (!data?.ruta) return;
+
+    if (!Array.isArray(dashboardData?.rutas_navegacion)) {
+      if (!dashboardData) dashboardData = {};
+      dashboardData.rutas_navegacion = [];
+    }
+
+    // Reemplazar en el estado local
+    dashboardData.rutas_navegacion = dashboardData.rutas_navegacion.filter(
+      (r) => Number(r.id_ruta) !== Number(data.ruta.id_ruta)
+    );
+    dashboardData.rutas_navegacion.unshift(data.ruta);
+
+    // Redibujar la ruta actualizada
+    drawRutaNavegacion(data.ruta);
+
+    // Actualizar filtro si está activo
+    if (routeVehicleSelect && routeVehicleSelect.value !== "global") {
+      filterRoutesByVehicle(routeVehicleSelect.value);
+    }
+  });
+
   socket.on("ruta_navegacion_eliminada", (data) => {
     console.log("Evento ruta_navegacion_eliminada:", data);
     if (!viewer || !data || !data.id_ruta) return;
@@ -2746,6 +2987,7 @@ async function loadDashboardFromBackend() {
 
   renderInfoPanel();
   renderOperationalDataOnMap();
+  populateVehicleSelect();
 
   // ── Centrar la cámara en la zona de operación ──────────────────────────────
   if (viewer) {
@@ -2796,28 +3038,34 @@ function loadCurrentOperationOnMap() {
       position: Cesium.Cartesian3.fromDegrees(op.start.lng, op.start.lat),
       point: {
         pixelSize: 12,
-        color: Cesium.Color.LIME
+        color: Cesium.Color.LIME,
+        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
       },
       label: {
         text: "ORIGEN",
         font: "14px sans-serif",
         fillColor: Cesium.Color.WHITE,
-        pixelOffset: new Cesium.Cartesian2(0, -24)
-      }
+        pixelOffset: new Cesium.Cartesian2(0, -24),
+        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+      },
+      properties: { draggable: true }
     });
 
     endEntity = viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(op.end.lng, op.end.lat),
       point: {
         pixelSize: 12,
-        color: Cesium.Color.YELLOW
+        color: Cesium.Color.YELLOW,
+        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
       },
       label: {
         text: "DESTINO",
         font: "14px sans-serif",
         fillColor: Cesium.Color.WHITE,
-        pixelOffset: new Cesium.Cartesian2(0, -24)
-      }
+        pixelOffset: new Cesium.Cartesian2(0, -24),
+        heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND
+      },
+      properties: { draggable: true }
     });
 
     if (op.route?.geometry) {
