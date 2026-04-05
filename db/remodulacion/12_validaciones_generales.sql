@@ -24,22 +24,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION fn_solo_subgrupos_reciben_asignaciones()
-RETURNS TRIGGER AS $$
-DECLARE
-  padre INT;
-BEGIN
-  SELECT id_grupo_padre INTO padre
-  FROM grupo_operacion
-  WHERE id_grupo_operacion = NEW.id_grupo_operacion;
-
-  IF padre IS NULL THEN
-    RAISE EXCEPTION 'No se permite asignar recursos al GRUPO PADRE (id_grupo_operacion=%). Asigna a un subgrupo.', NEW.id_grupo_operacion;
-  END IF;
-
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION fn_validar_mando_operacion()
 RETURNS TRIGGER AS $$
@@ -311,49 +295,6 @@ BEGIN
   END IF;
 END $$;
 
--- =========================================================
--- CHECKS GEO ADICIONALES
--- =========================================================
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_poi_latitud'
-  ) THEN
-    ALTER TABLE puntos_interes
-      ADD CONSTRAINT chk_poi_latitud CHECK (latitud BETWEEN -90 AND 90);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_poi_longitud'
-  ) THEN
-    ALTER TABLE puntos_interes
-      ADD CONSTRAINT chk_poi_longitud CHECK (longitud BETWEEN -180 AND 180);
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_area_color_hex'
-  ) THEN
-    ALTER TABLE area_interes
-      ADD CONSTRAINT chk_area_color_hex
-      CHECK (color ~* '^#[0-9A-F]{6}$');
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_ruta_color_hex'
-  ) THEN
-    ALTER TABLE ruta_operacion
-      ADD CONSTRAINT chk_ruta_color_hex
-      CHECK (color ~* '^#[0-9A-F]{6}$');
-  END IF;
-
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'chk_zona_color_hex'
-  ) THEN
-    ALTER TABLE zona_operacion
-      ADD CONSTRAINT chk_zona_color_hex
-      CHECK (color ~* '^#[0-9A-F]{6}$');
-  END IF;
-END $$;
 
 -- =========================================================
 -- HELPERS DE OPERACIÓN
@@ -389,6 +330,7 @@ BEGIN
   IF TG_TABLE_NAME IN (
     'asignacion_operacion_personal',
     'vehiculo_operacion',
+    'uso_equipo_operacion',
     'operacion_equipo',
     'grupo_operacion',
     'grupo_equipo',
@@ -851,5 +793,164 @@ BEGIN
 
     RETURN NEW;
   END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =========================================================
+-- VALIDACIÓN DE DESTINOS FLEXIBLES (PATCH 06b)
+-- Aplica la regla: flotilla no recibe recursos.
+-- Solo subgrupos (id_grupo_padre IS NOT NULL) pueden recibir
+-- asignaciones directas de vehículos y equipos.
+-- =========================================================
+
+-- ── vehiculo_operacion ────────────────────────────────────
+-- Valida que el destino (tipo_destino + FK) sea coherente
+-- y que cuando sea GRUPO, apunte a un subgrupo real, no al padre.
+CREATE OR REPLACE FUNCTION fn_validar_destino_vehiculo_operacion()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_op_grupo   INT;
+  v_grupo_padre INT;
+BEGIN
+  -- Sin destino aún → planificación en curso, se permite
+  IF NEW.tipo_destino IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.tipo_destino = 'PERSONAL' THEN
+    IF NEW.id_personal IS NULL THEN
+      RAISE EXCEPTION 'vehiculo_operacion: tipo_destino=PERSONAL requiere id_personal';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM asignacion_operacion_personal
+      WHERE id_operacion = NEW.id_operacion
+        AND id_personal   = NEW.id_personal
+        AND estado_asignacion <> 'LIBERADO'
+    ) THEN
+      RAISE EXCEPTION
+        'vehiculo_operacion: id_personal=% no está asignado a la operación %',
+        NEW.id_personal, NEW.id_operacion;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.tipo_destino = 'GRUPO' THEN
+    IF NEW.id_grupo_operacion IS NULL THEN
+      RAISE EXCEPTION 'vehiculo_operacion: tipo_destino=GRUPO requiere id_grupo_operacion';
+    END IF;
+
+    -- El grupo debe pertenecer a la misma operación
+    SELECT id_operacion, id_grupo_padre
+      INTO v_op_grupo, v_grupo_padre
+    FROM grupo_operacion
+    WHERE id_grupo_operacion = NEW.id_grupo_operacion;
+
+    IF v_op_grupo IS NULL THEN
+      RAISE EXCEPTION
+        'vehiculo_operacion: id_grupo_operacion=% no existe', NEW.id_grupo_operacion;
+    END IF;
+
+    IF v_op_grupo <> NEW.id_operacion THEN
+      RAISE EXCEPTION
+        'vehiculo_operacion: id_grupo_operacion=% pertenece a la operación %, no a %',
+        NEW.id_grupo_operacion, v_op_grupo, NEW.id_operacion;
+    END IF;
+
+    -- Solo subgrupos (tienen padre): la flotilla es el grupo raíz y no recibe recursos
+    IF v_grupo_padre IS NULL THEN
+      RAISE EXCEPTION
+        'vehiculo_operacion: id_grupo_operacion=% es un grupo padre (flotilla). Solo los subgrupos pueden recibir vehículos.',
+        NEW.id_grupo_operacion;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'vehiculo_operacion: tipo_destino=% no es válido', NEW.tipo_destino;
+END;
+$$ LANGUAGE plpgsql;
+
+
+-- ── uso_equipo_operacion ──────────────────────────────────
+-- Valida coherencia del destino flexible y aplica la misma
+-- regla: solo subgrupos (no la flotilla) reciben equipos.
+CREATE OR REPLACE FUNCTION fn_validar_destino_uso_equipo_operacion()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_op_grupo    INT;
+  v_grupo_padre INT;
+BEGIN
+  -- Sin destino aún → planificación en curso, se permite
+  IF NEW.tipo_destino IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  IF NEW.tipo_destino = 'PERSONAL' THEN
+    IF NEW.id_personal IS NULL THEN
+      RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=PERSONAL requiere id_personal';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM asignacion_operacion_personal
+      WHERE id_operacion = NEW.id_operacion
+        AND id_personal   = NEW.id_personal
+        AND estado_asignacion <> 'LIBERADO'
+    ) THEN
+      RAISE EXCEPTION
+        'uso_equipo_operacion: id_personal=% no está asignado a la operación %',
+        NEW.id_personal, NEW.id_operacion;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.tipo_destino = 'VEHICULO' THEN
+    IF NEW.id_vehiculo IS NULL THEN
+      RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=VEHICULO requiere id_vehiculo';
+    END IF;
+    IF NOT EXISTS (
+      SELECT 1 FROM vehiculo_operacion
+      WHERE id_operacion    = NEW.id_operacion
+        AND id_vehiculo     = NEW.id_vehiculo
+        AND estado_asignacion <> 'LIBERADO'
+    ) THEN
+      RAISE EXCEPTION
+        'uso_equipo_operacion: id_vehiculo=% no está asignado a la operación %',
+        NEW.id_vehiculo, NEW.id_operacion;
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF NEW.tipo_destino = 'GRUPO' THEN
+    IF NEW.id_grupo_operacion IS NULL THEN
+      RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=GRUPO requiere id_grupo_operacion';
+    END IF;
+
+    -- El grupo debe pertenecer a la misma operación
+    SELECT id_operacion, id_grupo_padre
+      INTO v_op_grupo, v_grupo_padre
+    FROM grupo_operacion
+    WHERE id_grupo_operacion = NEW.id_grupo_operacion;
+
+    IF v_op_grupo IS NULL THEN
+      RAISE EXCEPTION
+        'uso_equipo_operacion: id_grupo_operacion=% no existe', NEW.id_grupo_operacion;
+    END IF;
+
+    IF v_op_grupo <> NEW.id_operacion THEN
+      RAISE EXCEPTION
+        'uso_equipo_operacion: id_grupo_operacion=% pertenece a la operación %, no a %',
+        NEW.id_grupo_operacion, v_op_grupo, NEW.id_operacion;
+    END IF;
+
+    -- Solo subgrupos: la flotilla es el grupo raíz y no recibe recursos
+    IF v_grupo_padre IS NULL THEN
+      RAISE EXCEPTION
+        'uso_equipo_operacion: id_grupo_operacion=% es un grupo padre (flotilla). Solo los subgrupos pueden recibir equipos.',
+        NEW.id_grupo_operacion;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=% no es válido', NEW.tipo_destino;
 END;
 $$ LANGUAGE plpgsql;

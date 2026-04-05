@@ -1,5 +1,6 @@
 @echo off
 title Setup Cesium Proyecto
+
 :: ============================================================
 ::  CONFIGURACION
 :: ============================================================
@@ -7,7 +8,7 @@ set PGHOST=localhost
 set PGPORT=5433
 set PGUSER=postgres
 set PROYECTO=C:\Users\PC\Desktop\cesium-proyecto
-set INIT_SQL=C:/Users/PC/Desktop/cesium-proyecto/db/remodulacion/00_init.sql
+set INIT_SQL=C:\Users\PC\Desktop\cesium-proyecto\db\remodulacion\00_init.sql
 set PSQL="C:\Program Files\PostgreSQL\18\bin\psql.exe"
 
 :: ============================================================
@@ -56,12 +57,11 @@ echo       Base de datos inicializada correctamente.
 echo.
 
 :: ============================================================
-::  PASO 3: Ejecutar seed.js EN ESTA MISMA VENTANA
-::  (para que herede PGPASSWORD y veamos si falla)
+::  PASO 3: Ejecutar seed modular EN ESTA MISMA VENTANA
 :: ============================================================
-echo [3/4] Ejecutando seed.js ...
+echo [3/4] Ejecutando seed modular ...
 cd /d %PROYECTO%\operaciones\api
-node seed.js
+node seed\index.js
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: El seed fallo. Revisa el mensaje de arriba.
     pause

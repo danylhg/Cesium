@@ -1,303 +1,191 @@
-// ===============================
-// Validación de sesión
-// ===============================
-const usernameGuard =
-  localStorage.getItem("username") ||
-  localStorage.getItem("userName") ||
-  localStorage.getItem("usuario") ||
-  "Invitado";
-
-const userNameEl = document.getElementById("userName");
-
-// mostrar usuario que inició sesión
-if (userNameEl) {
-  userNameEl.textContent = usernameGuard;
-}
-
-// ===============================
-// Referencias DOM
-// ===============================
-const btnCreate = document.getElementById("btnCreate");
-const btnSelect = document.getElementById("btnSelect");
-const btnPersonal = document.getElementById("btnPersonal");
-const btnLogout = document.getElementById("btnLogout");
-
-const opsList = document.getElementById("opsList");
-const opsUl = document.getElementById("opsUl");
-
-const submenuControl = document.getElementById("submenuControl");
-const btnControlPersonal = document.getElementById("btnControlPersonal");
-const btnControlVehiculos = document.getElementById("btnControlVehiculos");
-const btnControlEquipos = document.getElementById("btnControlEquipos");
-
 const API = `http://${window.location.hostname}:3001`;
 
-const ESTADOS_VALIDOS = [
-  "planificada",
-  "activa",
-  "cerrada",
-  "cancelada",
-  "finalizada"
-];
-
-let cargandoOps = false;
-
-// ===============================
-// Helpers UI
-// ===============================
-function hideOpsPanel() {
-  if (opsList) opsList.classList.add("hidden");
+function getToken() {
+  return localStorage.getItem("token");
 }
 
-function showOpsPanel() {
-  if (opsList) opsList.classList.remove("hidden");
+function apiFetch(path, options = {}) {
+  const token = getToken();
+  return fetch(`${API}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
 }
 
-function hideControlPanel() {
-  if (submenuControl) submenuControl.classList.add("hidden");
-}
+// ── Elementos DOM ────────────────────────────────────────────
+const btnCreate        = document.getElementById("btnCreate");
+const btnSelect        = document.getElementById("btnSelect");
+const btnEmergency     = document.getElementById("btnEmergency");
+const btnPersonal      = document.getElementById("btnPersonal");
+const btnLogout        = document.getElementById("btnLogout");
+const userName         = document.getElementById("userName");
+const opsList          = document.getElementById("opsList");
+const opsUl            = document.getElementById("opsUl");
+const submenuControl   = document.getElementById("submenuControl");
+const btnControlPersonal = document.getElementById("btnControlPersonal");
+const btnControlVehiculos = document.getElementById("btnControlVehiculos");
+const btnControlEquipos  = document.getElementById("btnControlEquipos");
 
-function showControlPanel() {
-  if (submenuControl) submenuControl.classList.remove("hidden");
-}
-
-function toggleOpsPanelExclusive() {
-  if (!opsList) return;
-
-  const estabaOculto = opsList.classList.contains("hidden");
-
-  hideControlPanel();
-
-  if (estabaOculto) {
-    showOpsPanel();
-  } else {
-    hideOpsPanel();
+// ── Inicialización ───────────────────────────────────────────
+async function init() {
+  // Validar sesión con el servidor (GET /me)
+  const token = getToken();
+  if (!token) {
+    window.location.href = "login.html";
+    return;
   }
-}
 
-function toggleControlPanelExclusive() {
-  if (!submenuControl) return;
-
-  const estabaOculto = submenuControl.classList.contains("hidden");
-
-  hideOpsPanel();
-
-  if (estabaOculto) {
-    showControlPanel();
-  } else {
-    hideControlPanel();
+  let usuario;
+  try {
+    const res = await apiFetch("/me");
+    if (!res.ok) throw new Error("no autorizado");
+    usuario = await res.json();
+  } catch {
+    localStorage.removeItem("token");
+    window.location.href = "login.html";
+    return;
   }
+
+  // Mostrar nombre del usuario desde el servidor
+  userName.textContent = usuario.nombre ?? usuario.username;
 }
 
-function limpiarSesionYRedirigir(msg) {
-  localStorage.removeItem("session");
+// ── Logout ───────────────────────────────────────────────────
+btnLogout.addEventListener("click", () => {
+  // No hay endpoint de logout en el servidor; solo se descarta el token local
   localStorage.removeItem("token");
-  localStorage.removeItem("username");
-  localStorage.removeItem("userName");
-  localStorage.removeItem("usuario");
-  localStorage.removeItem("active_operation_id");
+  window.location.href = "login.html";
+});
 
-  if (msg) {
-    alert(msg);
+// ── Crear operación ──────────────────────────────────────────
+btnCreate.addEventListener("click", () => {
+  localStorage.removeItem("active_operation_id");
+  localStorage.removeItem("operacion_actual");
+  localStorage.removeItem("asignacion_actual");
+  window.location.href = "asignacion.html";
+});
+
+// ── Operación de emergencia ──────────────────────────────────
+btnEmergency.addEventListener("click", () => {
+  localStorage.removeItem("active_operation_id");
+  localStorage.removeItem("operacion_actual");
+  localStorage.removeItem("asignacion_actual");
+  localStorage.setItem("operation_mode", "emergency");
+  window.location.href = "asignacion.html";
+});
+
+// ── Seleccionar operación ────────────────────────────────────
+btnSelect.addEventListener("click", async () => {
+  if (!opsList.classList.contains("hidden")) {
+    opsList.classList.add("hidden");
+    return;
   }
 
-  window.location.href = "login.html";
-}
+  // Cerrar submenú de sistema de control si está abierto
+  submenuControl.classList.add("hidden");
 
-function crearLiMensaje(texto, tagTexto = "") {
-  const li = document.createElement("li");
-  li.textContent = texto;
+  opsUl.innerHTML = "<li>Cargando...</li>";
+  opsList.classList.remove("hidden");
 
-  if (tagTexto) {
+  // GET /ops → { ok, items: [{ id_operacion, nombre, estado, fecha_inicio, ... }] }
+  let ops = [];
+  try {
+    const res = await apiFetch("/ops");
+    if (!res.ok) throw new Error("error al cargar operaciones");
+    const data = await res.json();
+    ops = data.items ?? [];
+  } catch {
+    opsUl.innerHTML = "<li>Error al cargar operaciones</li>";
+    return;
+  }
+
+  opsUl.innerHTML = "";
+
+  if (!ops.length) {
+    const li = document.createElement("li");
+    li.textContent = "No hay operaciones creadas";
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = tagTexto;
+    tag.textContent = "vacío";
     li.appendChild(tag);
+    opsUl.appendChild(li);
+    return;
   }
 
-  return li;
-}
+  ops.forEach(op => {
+    // El backend devuelve estado en MAYÚSCULAS; normalizamos a minúsculas para los estilos
+    const pClass = (op.estado ?? "PLANIFICADA").toLowerCase();
 
-function normalizarEstado(estado) {
-  const valor = String(estado || "").trim().toLowerCase();
-  return ESTADOS_VALIDOS.includes(valor) ? valor : "desconocido";
-}
+    const li = document.createElement("li");
+    li.textContent = op.nombre;
 
-// ===============================
-// Backend
-// ===============================
-async function getOpsDB() {
-  const token = localStorage.getItem("token");
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = pClass.charAt(0).toUpperCase() + pClass.slice(1);
 
-  if (!token) {
-    throw new Error("Sesión inválida. Inicia sesión nuevamente.");
-  }
+    if (pClass === "activa") {
+      tag.style.background = "#00ffa6";
+      tag.style.color = "#001b1b";
+      tag.style.border = "none";
+    } else if (pClass === "cancelada") {
+      tag.style.background = "rgba(239, 68, 68, 0.4)";
+      tag.style.color = "#ffdede";
+      tag.style.border = "1px solid #ef4444";
+    } else if (pClass === "terminada") {
+      tag.style.background = "rgba(59, 130, 246, 0.4)";
+      tag.style.color = "#dbeafe";
+      tag.style.border = "1px solid #3b82f6";
+    }
 
-  let r;
+    li.appendChild(tag);
 
-  try {
-    r = await fetch(`${API}/ops`, {
-      headers: {
-        Authorization: `Bearer ${token}`
+    li.addEventListener("click", async () => {
+      // Cargar datos frescos de la operación desde el servidor (GET /ops/:id)
+      try {
+        const res = await apiFetch(`/ops/${op.id_operacion}`);
+        if (!res.ok) throw new Error("error al cargar operación");
+        const opData = await res.json();
+        localStorage.setItem("active_operation_id", opData.id_operacion);
+        localStorage.setItem("operacion_actual", JSON.stringify(opData));
+      } catch {
+        // Si falla la carga, igual navegar con el id disponible
+        localStorage.setItem("active_operation_id", op.id_operacion);
+      }
+
+      if (pClass === "activa") {
+        localStorage.setItem("force_open_chat", "true");
+        window.location.href = "dashboard.html";
+      } else {
+        window.location.href = "asignacion.html";
       }
     });
-  } catch {
-    throw new Error("No se pudo conectar con el servidor.");
-  }
 
-  const data = await r.json().catch(() => null);
-
-  if (r.status === 401 || r.status === 403) {
-    limpiarSesionYRedirigir("Tu sesión expiró. Vuelve a iniciar sesión.");
-    return [];
-  }
-
-  if (!r.ok || (data && data.ok === false)) {
-    throw new Error(data?.mensaje || `Error ${r.status}`);
-  }
-
-  const ops = Array.isArray(data) ? data : (data?.items || data?.ops || []);
-
-  if (!Array.isArray(ops)) {
-    throw new Error("Formato de respuesta inválido.");
-  }
-
-  return ops;
-}
-
-// ===============================
-// Logout
-// ===============================
-if (btnLogout) {
-  btnLogout.addEventListener("click", () => {
-    localStorage.removeItem("session");
-    localStorage.removeItem("token");
-    localStorage.removeItem("username");
-    localStorage.removeItem("userName");
-    localStorage.removeItem("usuario");
-    localStorage.removeItem("active_operation_id");
-    window.location.href = "login.html";
+    opsUl.appendChild(li);
   });
-}
+});
 
-// ===============================
-// Crear operación
-// ===============================
-if (btnCreate) {
-  btnCreate.addEventListener("click", () => {
-    localStorage.removeItem("active_operation_id");
-    window.location.href = "asignacion.html";
-  });
-}
+// ── Submenú personal ─────────────────────────────────────────
+btnPersonal.addEventListener("click", () => {
+  // Cerrar lista de operaciones si está abierta
+  opsList.classList.add("hidden");
+  submenuControl.classList.toggle("hidden");
+});
 
-// ===============================
-// Seleccionar operación
-// ===============================
-if (btnSelect) {
-  btnSelect.addEventListener("click", async () => {
-    if (!opsList || !opsUl) return;
-    if (cargandoOps) return;
+btnControlPersonal.addEventListener("click", () => {
+  window.location.href = "control_personal.html";
+});
 
-    const panelEstabaAbierto = !opsList.classList.contains("hidden");
+btnControlVehiculos.addEventListener("click", () => {
+  window.location.href = "control_vehiculos.html";
+});
 
-    if (panelEstabaAbierto) {
-      hideOpsPanel();
-      return;
-    }
+btnControlEquipos.addEventListener("click", () => {
+  window.location.href = "control_equipos.html";
+});
 
-    hideControlPanel();
-    showOpsPanel();
-
-    cargandoOps = true;
-    btnSelect.disabled = true;
-
-    opsUl.innerHTML = "";
-    opsUl.appendChild(crearLiMensaje("Cargando operaciones...", "espera"));
-
-    try {
-      const ops = await getOpsDB();
-
-      opsUl.innerHTML = "";
-
-      if (!ops.length) {
-        opsUl.appendChild(crearLiMensaje("No hay operaciones creadas", "vacío"));
-      } else {
-        ops.forEach((op) => {
-          const idOperacion = op?.id_operacion;
-          const nombre = String(op?.nombre || "").trim() || "Sin nombre";
-          const codigo = String(op?.codigo || "").trim() || "Sin código";
-          const estado = normalizarEstado(op?.estado);
-
-          const li = document.createElement("li");
-          li.textContent = `${nombre} (${codigo})`;
-
-          const tag = document.createElement("span");
-          tag.className = "tag";
-          tag.textContent = estado;
-          li.appendChild(tag);
-
-          if (!idOperacion) {
-            tag.textContent = "inválida";
-            li.style.opacity = "0.6";
-            li.style.pointerEvents = "none";
-            opsUl.appendChild(li);
-            return;
-          }
-
-          li.addEventListener("click", () => {
-            if (estado === "cancelada") {
-              alert("Operación cancelada, se eliminará en 10 días.");
-              return;
-            }
-
-            localStorage.setItem("active_operation_id", idOperacion);
-            window.location.href = `dashboard.html?op=${encodeURIComponent(codigo)}`;
-          });
-
-          opsUl.appendChild(li);
-        });
-      }
-    } catch (e) {
-      opsUl.innerHTML = "";
-      opsUl.appendChild(
-        crearLiMensaje("Error cargando operaciones", e?.message || "desconocido")
-      );
-    } finally {
-      cargandoOps = false;
-      btnSelect.disabled = false;
-    }
-  });
-}
-
-// ===============================
-// Sistema de control
-// ===============================
-if (btnPersonal && submenuControl) {
-  btnPersonal.addEventListener("click", () => {
-    toggleControlPanelExclusive();
-  });
-}
-
-// ===============================
-// Navegación control
-// ===============================
-if (btnControlPersonal) {
-  btnControlPersonal.addEventListener("click", () => {
-    hideControlPanel();
-    window.location.href = "control_personal.html";
-  });
-}
-
-if (btnControlVehiculos) {
-  btnControlVehiculos.addEventListener("click", () => {
-    hideControlPanel();
-    window.location.href = "control_vehiculos.html";
-  });
-}
-
-if (btnControlEquipos) {
-  btnControlEquipos.addEventListener("click", () => {
-    hideControlPanel();
-    window.location.href = "control_equipos.html";
-  });
-}
+// ── Arrancar ─────────────────────────────────────────────────
+init();

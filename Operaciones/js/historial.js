@@ -1,5 +1,4 @@
-const session = localStorage.getItem("session");
-if (session !== "ok") window.location.href = "login.html";
+// Session validation is now handled globally by js/auth_check.js
 
 document.getElementById("backBtn").onclick = () => {
   window.location.href = "dashboard.html";

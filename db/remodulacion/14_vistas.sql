@@ -137,29 +137,62 @@ SELECT
 FROM operacion_equipo oe
 JOIN equipo e ON e.id_equipo = oe.id_equipo;
 
--- 5) Uso de equipo por personal en operación
+-- 5) Uso de equipo en operación — destino flexible (PERSONAL / VEHICULO / GRUPO)
+-- Los tres LEFT JOIN resuelven el destino según tipo_destino.
+-- El campo destino_nombre expone el resultado legible sin importar cuál aplica.
+-- La flotilla (grupo padre, id_grupo_padre IS NULL) nunca aparece como destino
+-- porque los triggers de 13_triggers_operativos.sql lo impiden en la BD.
 CREATE OR REPLACE VIEW v_uso_equipo_operacion_detalle AS
 SELECT
+  ueo.id_uso_equipo_operacion,
   ueo.id_operacion,
-  ueo.id_personal,
-  p.rol AS rol_personal,
-  p.apodo,
-  p.nombre,
-  p.apellido,
 
+  -- equipo
   ueo.id_equipo,
-  e.numero_serie,
-  e.nombre AS equipo_nombre,
-  e.categoria AS equipo_categoria,
-
+  e.numero_serie       AS equipo_serie,
+  e.nombre             AS equipo_nombre,
+  e.categoria          AS equipo_categoria,
   ueo.cantidad,
+
+  -- tipo de destino
+  ueo.tipo_destino,
+
+  -- destino: personal
+  ueo.id_personal,
+  p.rol                AS personal_rol,
+  p.apodo              AS personal_apodo,
+  p.nombre             AS personal_nombre,
+  p.apellido           AS personal_apellido,
+
+  -- destino: vehículo
+  ueo.id_vehiculo,
+  v.codigo_interno     AS vehiculo_codigo,
+  v.alias              AS vehiculo_alias,
+  v.tipo               AS vehiculo_tipo,
+
+  -- destino: grupo (solo subgrupos)
+  ueo.id_grupo_operacion,
+  g.nombre             AS grupo_nombre,
+  g.apodo              AS grupo_apodo,
+
+  -- campo resuelto para UI / reportes
+  CASE ueo.tipo_destino
+    WHEN 'PERSONAL' THEN COALESCE(p.apodo, p.nombre || ' ' || p.apellido)
+    WHEN 'VEHICULO' THEN COALESCE(v.alias, v.codigo_interno)
+    WHEN 'GRUPO'    THEN COALESCE(g.apodo, g.nombre)
+    ELSE '—'
+  END AS destino_nombre,
+
   ueo.fecha_asignacion,
   ueo.fecha_devolucion,
   ueo.asignado_por,
   ueo.notas
+
 FROM uso_equipo_operacion ueo
-JOIN personal p ON p.id_personal = ueo.id_personal
-JOIN equipo e ON e.id_equipo = ueo.id_equipo;
+JOIN  equipo          e ON e.id_equipo            = ueo.id_equipo
+LEFT JOIN personal    p ON p.id_personal           = ueo.id_personal
+LEFT JOIN vehiculo    v ON v.id_vehiculo            = ueo.id_vehiculo
+LEFT JOIN grupo_operacion g ON g.id_grupo_operacion = ueo.id_grupo_operacion;
 
 -- 6) Jerarquía de mando
 CREATE OR REPLACE VIEW v_mando_operacion_detalle AS

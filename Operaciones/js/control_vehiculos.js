@@ -12,10 +12,11 @@
      Sesión / seguridad
   ========================= */
   function clearSession() {
-    localStorage.removeItem("session");
     localStorage.removeItem("token");
-    localStorage.removeItem("username");
     localStorage.removeItem("rol");
+    localStorage.removeItem("userData");
+    localStorage.removeItem("username");
+    localStorage.removeItem("session");
     localStorage.removeItem("nombre");
     localStorage.removeItem("active_operation_id");
   }
@@ -28,12 +29,7 @@
 
   const currentRole = (localStorage.getItem("rol") || "").toUpperCase();
 
-  // Ajusta aquí los roles permitidos
-  const ALLOWED_WEB_ROLES = ["ADMIN", "CUT"];
-  if (!ALLOWED_WEB_ROLES.includes(currentRole)) {
-    redirectToLogin("No tienes permisos para acceder a esta sección.");
-    return;
-  }
+  // Role validation is now handled globally by js/auth_check.js
 
   const API_BASE =
     localStorage.getItem("API_BASE") ||

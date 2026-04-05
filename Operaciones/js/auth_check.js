@@ -1,10 +1,15 @@
 (function() {
-  const session = localStorage.getItem("session");
   const token = localStorage.getItem("token");
+  const rol = (localStorage.getItem("rol") || "").toUpperCase();
+  const ALLOWED_ROLES = ["ADMIN", "CUT"];
 
-  // Si no hay sesión u falta el token, expulsar al login inmediatamente
-  if (session !== "ok" || !token) {
-    console.warn("Acceso denegado: No hay sesión activa. Redirigiendo al login...");
+  if (!token) {
+    window.location.href = "login.html";
+    return;
+  }
+
+  if (!ALLOWED_ROLES.includes(rol)) {
+    alert("Acceso denegado: No tienes permisos para acceder a esta sección.");
     window.location.href = "login.html";
   }
 })();

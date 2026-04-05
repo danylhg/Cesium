@@ -23,11 +23,7 @@
 
   const currentRole = (localStorage.getItem("rol") || "").toUpperCase();
 
-  const ALLOWED_WEB_ROLES = ["ADMIN", "CUT"];
-  if (!ALLOWED_WEB_ROLES.includes(currentRole)) {
-    redirectToLogin("No tienes permisos para acceder a esta sección.");
-    return;
-  }
+  // Role validation is now handled globally by js/auth_check.js
 
   const API_BASE =
     localStorage.getItem("API_BASE") ||

@@ -4,47 +4,39 @@
 -- =========================================================
 
 -- =========================================================
--- VALIDACIÓN: id_cut debe existir y tener rol CUT
+-- Trigger validación CUT en operación
 -- =========================================================
-CREATE OR REPLACE FUNCTION fn_validar_cut_operacion()
-RETURNS TRIGGER AS $$
-DECLARE
-  rol_cut rol_personal_enum;
-BEGIN
-  IF NEW.id_cut IS NULL THEN
-    RETURN NEW;
-  END IF;
-
-  SELECT p.rol INTO rol_cut
-  FROM personal p
-  WHERE p.id_personal = NEW.id_cut;
-
-  IF rol_cut IS NULL THEN
-    RAISE EXCEPTION 'id_cut % no existe en personal', NEW.id_cut;
-  END IF;
-
-  IF rol_cut <> 'CUT' THEN
-    RAISE EXCEPTION 'El responsable principal de la operación debe tener rol CUT. id_cut=% tiene rol=%', NEW.id_cut, rol_cut;
-  END IF;
-
-  RETURN NEW;
-END;
-
--- =========================================================
--- 13_triggers_operativos.sql
--- Triggers de consistencia para grupos
--- =========================================================
-
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_equipo_op_consistente') THEN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger
+    WHERE tgname = 'tr_validar_cut_operacion'
+  ) THEN
+    CREATE TRIGGER tr_validar_cut_operacion
+    BEFORE INSERT OR UPDATE ON operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_cut_operacion();
+  END IF;
+END $$;
+
+-- =========================================================
+-- Triggers de consistencia para grupos
+-- =========================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_equipo_op_consistente'
+  ) THEN
     CREATE TRIGGER tr_grupo_equipo_op_consistente
     BEFORE INSERT OR UPDATE ON grupo_equipo
     FOR EACH ROW
     EXECUTE FUNCTION fn_validar_grupo_operacion_consistente();
   END IF;
 
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_vehiculo_op_consistente') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_grupo_vehiculo_op_consistente'
+  ) THEN
     CREATE TRIGGER tr_grupo_vehiculo_op_consistente
     BEFORE INSERT OR UPDATE ON grupo_vehiculo
     FOR EACH ROW
@@ -52,6 +44,9 @@ BEGIN
   END IF;
 END $$;
 
+-- =========================================================
+-- Trigger validación de mando
+-- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -67,12 +62,13 @@ BEGIN
 END $$;
 
 -- =========================================================
--- Trigger: validación de stock por grupo
+-- Trigger validación de stock por grupo
 -- =========================================================
-
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tr_validar_stock_equipo_grupo') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_validar_stock_equipo_grupo'
+  ) THEN
     CREATE TRIGGER tr_validar_stock_equipo_grupo
     BEFORE INSERT OR UPDATE ON grupo_equipo
     FOR EACH ROW
@@ -81,10 +77,8 @@ BEGIN
 END $$;
 
 -- =========================================================
--- 13_triggers_operativos.sql
--- Triggers operativos automáticos
+-- Triggers touch fecha_actualizacion
 -- =========================================================
-
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_operacion_touch') THEN
@@ -151,11 +145,15 @@ BEGIN
   END IF;
 END $$;
 
+-- =========================================================
+-- Triggers de disponibilidad
+-- =========================================================
 DO $$
 BEGIN
-  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_personal ON asignacion_operacion_personal;
-  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_vehiculo ON vehiculo_operacion;
-  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_equipo ON operacion_equipo;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_personal   ON asignacion_operacion_personal;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_vehiculo   ON vehiculo_operacion;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_equipo     ON operacion_equipo;
+  DROP TRIGGER IF EXISTS tr_validar_disponibilidad_uso_equipo ON uso_equipo_operacion;
 
   CREATE TRIGGER tr_validar_disponibilidad_personal
   BEFORE INSERT OR UPDATE ON asignacion_operacion_personal
@@ -171,119 +169,150 @@ BEGIN
   BEFORE INSERT OR UPDATE ON operacion_equipo
   FOR EACH ROW
   EXECUTE FUNCTION fn_validar_disponibilidad_equipo();
+
+  -- uso_equipo_operacion es la asignación real dentro de la operación.
+  -- Este trigger previene que el mismo equipo aparezca activo en
+  -- dos operaciones con rangos de fecha solapados.
+  CREATE TRIGGER tr_validar_disponibilidad_uso_equipo
+  BEFORE INSERT OR UPDATE ON uso_equipo_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_disponibilidad_equipo();
 END $$;
 
 -- =========================================================
--- BLOQUEAR CAMBIOS EN OPERACIONES CERRADAS/CANCELADAS
+-- Bloquear cambios en operaciones cerradas/canceladas
 -- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_aop_operacion_modificable') THEN
     CREATE TRIGGER tr_aop_operacion_modificable
     BEFORE INSERT OR UPDATE ON asignacion_operacion_personal
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_vo_operacion_modificable') THEN
     CREATE TRIGGER tr_vo_operacion_modificable
     BEFORE INSERT OR UPDATE ON vehiculo_operacion
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_oe_operacion_modificable') THEN
     CREATE TRIGGER tr_oe_operacion_modificable
     BEFORE INSERT OR UPDATE ON operacion_equipo
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_gp_operacion_modificable') THEN
     CREATE TRIGGER tr_gp_operacion_modificable
     BEFORE INSERT OR UPDATE ON grupo_personal
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_ge_operacion_modificable') THEN
     CREATE TRIGGER tr_ge_operacion_modificable
     BEFORE INSERT OR UPDATE ON grupo_equipo
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_gv_operacion_modificable') THEN
     CREATE TRIGGER tr_gv_operacion_modificable
     BEFORE INSERT OR UPDATE ON grupo_vehiculo
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_poi_operacion_modificable') THEN
     CREATE TRIGGER tr_poi_operacion_modificable
     BEFORE INSERT OR UPDATE ON puntos_interes
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_area_operacion_modificable') THEN
     CREATE TRIGGER tr_area_operacion_modificable
     BEFORE INSERT OR UPDATE ON area_interes
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_ruta_operacion_modificable') THEN
     CREATE TRIGGER tr_ruta_operacion_modificable
     BEFORE INSERT OR UPDATE ON ruta_operacion
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_marca_operacion_modificable') THEN
     CREATE TRIGGER tr_marca_operacion_modificable
     BEFORE INSERT OR UPDATE ON marca_edificio
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_zona_operacion_modificable') THEN
     CREATE TRIGGER tr_zona_operacion_modificable
     BEFORE INSERT OR UPDATE ON zona_operacion
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_tracking_personal_op_modificable') THEN
     CREATE TRIGGER tr_tracking_personal_op_modificable
     BEFORE INSERT OR UPDATE ON tracking_personal
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_tracking_vehiculo_op_modificable') THEN
     CREATE TRIGGER tr_tracking_vehiculo_op_modificable
     BEFORE INSERT OR UPDATE ON tracking_vehiculo
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_aviso_operacion_modificable') THEN
     CREATE TRIGGER tr_aviso_operacion_modificable
     BEFORE INSERT OR UPDATE ON aviso_operacion
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_novedad_operacion_modificable') THEN
     CREATE TRIGGER tr_novedad_operacion_modificable
     BEFORE INSERT OR UPDATE ON novedad_operacion
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_operacion_modificable();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
   END IF;
 END $$;
 
+-- =========================================================
+-- Triggers de validación geométrica
+-- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_geometria_area') THEN
     CREATE TRIGGER tr_validar_geometria_area
     BEFORE INSERT OR UPDATE ON area_interes
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_geometria_area();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_geometria_area();
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_validar_geometria_ruta') THEN
     CREATE TRIGGER tr_validar_geometria_ruta
     BEFORE INSERT OR UPDATE ON ruta_operacion
-    FOR EACH ROW EXECUTE FUNCTION fn_validar_geometria_ruta();
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_geometria_ruta();
   END IF;
 END $$;
 
+-- =========================================================
+-- Triggers de chat automático
+-- =========================================================
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname='tr_operacion_sync_chat_insert') THEN
@@ -309,7 +338,7 @@ BEGIN
 END $$;
 
 -- =========================================================
--- TRIGGERS DE SINCRONIZACIÓN DE INVENTARIO
+-- Triggers de sincronización de inventario
 -- =========================================================
 DO $$
 BEGIN
@@ -336,7 +365,47 @@ BEGIN
 END $$;
 
 -- =========================================================
--- BLOQUEO DE CHAT EN OPERACIONES CERRADAS
+-- Triggers de destinos flexibles (PATCH 06b)
+-- Conectan las funciones validadoras de 12_validaciones
+-- con las tablas parcheadas. Garantizan que:
+--   • el tipo_destino sea coherente con la FK usada
+--   • cuando el destino es GRUPO, sea subgrupo (no padre/flotilla)
+-- =========================================================
+DO $$
+BEGIN
+  -- vehiculo_operacion: valida tipo_destino + pertenencia de grupo
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_vo_validar_destino'
+  ) THEN
+    CREATE TRIGGER tr_vo_validar_destino
+    BEFORE INSERT OR UPDATE ON vehiculo_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_destino_vehiculo_operacion();
+  END IF;
+
+  -- uso_equipo_operacion: valida tipo_destino + pertenencia de grupo/vehiculo/personal
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_ueo_validar_destino'
+  ) THEN
+    CREATE TRIGGER tr_ueo_validar_destino
+    BEFORE INSERT OR UPDATE ON uso_equipo_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_destino_uso_equipo_operacion();
+  END IF;
+
+  -- uso_equipo_operacion: bloquear cambios en operaciones cerradas/canceladas
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_ueo_operacion_modificable'
+  ) THEN
+    CREATE TRIGGER tr_ueo_operacion_modificable
+    BEFORE INSERT OR UPDATE ON uso_equipo_operacion
+    FOR EACH ROW
+    EXECUTE FUNCTION fn_validar_operacion_modificable();
+  END IF;
+END $$;
+
+-- =========================================================
+-- Bloqueo de chat en operaciones cerradas
 -- =========================================================
 DROP TRIGGER IF EXISTS tr_participante_chat_operacion_modificable ON participante_chat;
 
