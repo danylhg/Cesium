@@ -66,6 +66,7 @@ btnCreate.addEventListener("click", () => {
   localStorage.removeItem("active_operation_id");
   localStorage.removeItem("operacion_actual");
   localStorage.removeItem("asignacion_actual");
+  sessionStorage.setItem("asignacion_entry", "create");
   window.location.href = "asignacion.html";
 });
 
@@ -75,6 +76,7 @@ btnEmergency.addEventListener("click", () => {
   localStorage.removeItem("operacion_actual");
   localStorage.removeItem("asignacion_actual");
   localStorage.setItem("operation_mode", "emergency");
+  sessionStorage.setItem("asignacion_entry", "create");
   window.location.href = "asignacion.html";
 });
 
@@ -158,6 +160,8 @@ btnSelect.addEventListener("click", async () => {
 
       if (pClass === "activa") {
         localStorage.setItem("force_open_chat", "true");
+        window.location.href = "dashboard.html";
+      } else if (pClass === "planificada") {
         window.location.href = "dashboard.html";
       } else {
         window.location.href = "asignacion.html";

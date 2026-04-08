@@ -47,13 +47,15 @@ export function buildAsignacionActual() {
 
     // Células
     const cells = state.asignacionCelulas[cet] || [];
-    cells.forEach((celula) => {
-      const vehAsig = state.asignacionVehiculos.find(a => a.tipo_destino === 'personal' && a.id_personal === celula.id);
+    cells.forEach((celulaNombre) => {
+      const id_p = state.personalMap[celulaNombre];
+      const vehAsig = id_p ? state.asignacionVehiculos.find(a => a.tipo_destino === 'personal' && a.id_personal === id_p) : null;
       const vehNombre = vehAsig ? state.vehiclesList.find(v => v.id === vehAsig.id_vehiculo)?.name : "";
+      
       personal.push({
-        nombre: celula.nombre,
+        nombre: celulaNombre,
         cargo: "Célula",
-        grupo: getGrupoDeCelula(cet, celula.nombre),
+        grupo: getGrupoDeCelula(cet, celulaNombre),
         cet,
         flotilla: state.flotillaByCet[cet] || "",
         vehiculo: vehNombre
@@ -130,31 +132,32 @@ export function buildAsignacionActual() {
   };
 }
 
-export function saveAsignacionActual() {
-  // BACKEND: Esta función se vuelve async. Ejecuta 4 llamadas en secuencia:
-  // 1. POST /ops/:id/personal { items: [{ id_personal, rol_en_operacion }] } → CUT, CETs y células (rol_en_operacion: "CUT"|"CET"|"CELL")
-  // 2. POST /ops/:id/grupos { grupos: [...], directos: { id_cet: [id_cell] } } → estructura flotilla → grupo/célula → integrantes + mando_operacion
-  // 3. POST /ops/:id/vehiculos { items: [{ id_vehiculo, tipo_destino, id_personal }] } → vehículos asignados a personas (tipo_destino: "PERSONAL")
-  // 4. POST /ops/:id/equipos { items: [{ id_equipo, cantidad, tipo_destino, id_personal|id_vehiculo }] } → equipos tácticos y de comunicación
-  // Los nombres del state se resuelven a IDs con mapas idByNombre/idByVehiculo/idByEquipo poblados durante hydrateCatalogsFromControl.
-  // Todo el writeStorage desaparece.
+export async function saveAsignacionActual() {
+  const { syncOperacionCompleta } = await import("../operacion/operacion.service.js");
+  
   const payload = buildAsignacionActual();
   writeStorage(STORAGE_ASIGNACION_ACTUAL, payload);
 
   const op = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
   if (op.id) {
     writeStorage(`asignacion_op_${op.id}`, payload);
+    
+    // BACKEND: Sincronizar con el servidor
+    try {
+      await syncOperacionCompleta(op.id);
+    } catch (err) {
+      console.error("Fallo al sincronizar asignación:", err);
+    }
   }
 
   return payload;
 }
 
-export function saveOperacionYAsignacion() {
-  // BACKEND: Esta función se vuelve async y usa await en ambas llamadas.
-  // Por ahora, guarda operación y asignación en secuencia.
+export async function saveOperacionYAsignacion() {
   const op = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
   if (op.id) {
     writeStorage(`operacion_${op.id}`, op);
+    // Aquí también podríamos llamar a syncOperacionCompleta(op.id) si fuera necesario
   }
-  saveAsignacionActual();
+  return await saveAsignacionActual();
 }

@@ -9,11 +9,13 @@ import {
   getScrollTopInPanel,
   restoreScrollTop
 } from "../../core/ui.js";
-import { DEFAULT_GROUP_INFO } from "../../core/constants.js";
-import { celulaRow } from "./personal.helpers.js";
+import { DEFAULT_GROUP_INFO, STORAGE_OPERACION_ACTUAL } from "../../core/constants.js";
+import { readObjectStorage, writeStorage } from "../../core/storage.js";
+import { celulaRow, getGrupoDeCelula } from "./personal.helpers.js";
 import { saveAsignacionActual } from "../asignacion/asignacion.service.js";
 import { abrirModalCrearGrupo } from "./grupos.modal.js";
 import { renderVehiculos } from "../vehiculos/vehiculos.view.js";
+import { guardarOperacionBaseDatos, collectOperacionActual, validarOperacionInfo } from "../operacion/operacion.service.js";
 
 export function renderCUT() {
   showOperacionInfo();
@@ -77,6 +79,7 @@ export function renderCUT() {
   restoreScrollTop(listBox, prevScroll);
 
   btnAccion.onclick = () => {
+    if (!validarOperacionInfo()) return;
     if (!state.cutSeleccionado) return;
     saveAsignacionActual();
     state.pasoPersonal = "cet";
@@ -150,7 +153,7 @@ export function renderCET() {
             if (!state.flotillaByCet[name]) state.flotillaByCet[name] = "";
             if (!state.searchByCet[name]) state.searchByCet[name] = "";
             if (!state.gruposByCet[name]) {
-              state.gruposByCet[name] = { ...DEFAULT_GROUP_INFO, map: {} };
+              state.gruposByCet[name] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
             } else {
               if (state.gruposByCet[name].idx === undefined) state.gruposByCet[name].idx = 0;
               if (state.gruposByCet[name].vehActive === undefined) state.gruposByCet[name].vehActive = null;
@@ -175,13 +178,14 @@ export function renderCET() {
   restoreScrollTop(listBox, prevScroll);
 
   btnAccion.onclick = () => {
+    if (!validarOperacionInfo()) return;
     if (state.cetSeleccionados.length === 0) return;
 
     state.cetSeleccionados.forEach(n => {
       if (!state.asignacionCelulas[n]) state.asignacionCelulas[n] = [];
       if (state.flotillaByCet[n] === undefined) state.flotillaByCet[n] = "";
       if (state.searchByCet[n] === undefined) state.searchByCet[n] = "";
-      if (!state.gruposByCet[n]) state.gruposByCet[n] = { ...DEFAULT_GROUP_INFO, map: {} };
+      if (!state.gruposByCet[n]) state.gruposByCet[n] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
       if (state.gruposByCet[n].idx === undefined) state.gruposByCet[n].idx = 0;
       if (state.gruposByCet[n].vehActive === undefined) state.gruposByCet[n].vehActive = null;
     });
@@ -206,14 +210,14 @@ export function renderCET() {
 export function pintarChipsGrupos(cet, container) {
   container.innerHTML = "";
 
-  const info = state.gruposByCet[cet] || { ...DEFAULT_GROUP_INFO, map: {} };
+  const info = state.gruposByCet[cet] || { names: [], active: null, map: {}, idx: 0, vehActive: null };
   if (info.idx === undefined) info.idx = 0;
   if (info.vehActive === undefined) info.vehActive = null;
 
   const hasGroups = (info.names || []).length > 0;
   if (hasGroups) {
     info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
-    if (!info.active) info.active = info.names[info.idx];
+    if (info.active === undefined) info.active = info.names[info.idx];
     if (info.active && !info.names.includes(info.active)) {
       info.active = info.names[info.idx];
     }
@@ -226,6 +230,7 @@ export function pintarChipsGrupos(cet, container) {
 
   state.gruposByCet[cet] = info;
 
+  // Botones de grupos (a, b, ...)
   info.names.forEach((gName, index) => {
     const chip = document.createElement("button");
     chip.className = "chip" + (info.active === gName ? " active" : "");
@@ -234,12 +239,26 @@ export function pintarChipsGrupos(cet, container) {
     chip.addEventListener("click", () => {
       info.idx = index;
       info.active = gName;
-      saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
+      saveAsignacionActual();
       renderCelulas();
     });
 
     container.appendChild(chip);
   });
+
+  // BOTÓN EXTRA: "Sin grupo" (Mando Directo)
+  const sinGrupoBtn = document.createElement("button");
+  sinGrupoBtn.className = "chip" + (info.active === null ? " active" : "");
+  sinGrupoBtn.textContent = "Sin grupo";
+  sinGrupoBtn.style.backgroundColor = info.active === null ? "#2563eb" : "#f1f5f9";
+  sinGrupoBtn.style.color = info.active === null ? "#fff" : "#1e293b";
+  
+  sinGrupoBtn.addEventListener("click", () => {
+    info.active = null; // Modo Mando Directo
+    saveAsignacionActual();
+    renderCelulas();
+  });
+  container.appendChild(sinGrupoBtn);
 }
 
 export function renderCelulas() {
@@ -252,7 +271,7 @@ export function renderCelulas() {
   const asignadas = state.asignacionCelulas[cetActivo] || [];
 
   if (!state.gruposByCet[cetActivo]) {
-    state.gruposByCet[cetActivo] = { ...DEFAULT_GROUP_INFO, map: {} };
+    state.gruposByCet[cetActivo] = { names: [], active: null, map: {}, idx: 0, vehActive: null };
   }
 
   const info = state.gruposByCet[cetActivo];
@@ -338,15 +357,24 @@ export function renderCelulas() {
   const flotInp = document.createElement("input");
   flotInp.className = "inp";
   flotInp.value = state.flotillaByCet[cetActivo] || "";
-  flotInp.placeholder = "";
+  flotInp.placeholder = "Nombre de la flotilla (obligatorio)";
+
+  const flotError = document.createElement("div");
+  flotError.style.cssText = "color:#dc2626;font-size:12px;margin-top:4px;display:none;";
+  flotError.textContent = "El nombre de la flotilla es obligatorio.";
 
   flotInp.addEventListener("input", () => {
     state.flotillaByCet[cetActivo] = flotInp.value;
+    if (flotInp.value.trim()) {
+      flotInp.style.borderColor = "";
+      flotError.style.display = "none";
+    }
     saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
   });
 
   flotWrap.appendChild(flotLbl);
   flotWrap.appendChild(flotInp);
+  flotWrap.appendChild(flotError);
 
   const btnCrearGrupo = document.createElement("button");
   btnCrearGrupo.className = "btnSoft";
@@ -396,28 +424,40 @@ export function renderCelulas() {
           name: cel,
           selected: enEste,
           disabled: bloqueada,
-          status: bloqueada ? "Asignado" : (enEste ? "En este CET" : "Disponible"),
+          status: (() => {
+            if (bloqueada) return "Asignado";
+            if (!enEste) return "Disponible";
+            const gName = getGrupoDeCelula(cetActivo, cel);
+            return gName ? `Grupo ${gName}` : "Sin grupo";
+          })(),
           onToggle: () => {
             if (bloqueada) return;
 
             const grupoInfo = state.gruposByCet[cetActivo];
             const grupoActivo = grupoInfo?.active || null;
+            const grupoActualDePersona = getGrupoDeCelula(cetActivo, cel);
 
-            if (grupoActivo) {
-              if (!grupoInfo.map[grupoActivo]) grupoInfo.map[grupoActivo] = new Set();
-
-              if (enEste) {
+            if (enEste) {
+              // Si ya está en el CET, evaluamos si movemos de grupo o desasignamos
+              if (grupoActivo === grupoActualDePersona) {
+                // Si el modo actual coincide con donde está: DESASIGNAR
                 state.asignacionCelulas[cetActivo] = asignadas.filter(x => x !== cel);
                 Object.keys(grupoInfo.map).forEach(g => grupoInfo.map[g]?.delete(cel));
               } else {
-                state.asignacionCelulas[cetActivo] = [...asignadas, cel];
-                grupoInfo.map[grupoActivo].add(cel);
+                // Si el modo es distinto: MOVER (Primero quitamos de todos los grupos)
+                Object.keys(grupoInfo.map).forEach(g => grupoInfo.map[g]?.delete(cel));
+                // Y si el modo nuevo es un grupo real, lo metemos ahí
+                if (grupoActivo) {
+                  if (!grupoInfo.map[grupoActivo]) grupoInfo.map[grupoActivo] = new Set();
+                  grupoInfo.map[grupoActivo].add(cel);
+                }
               }
             } else {
-              if (enEste) {
-                state.asignacionCelulas[cetActivo] = asignadas.filter(x => x !== cel);
-              } else {
-                state.asignacionCelulas[cetActivo] = [...asignadas, cel];
+              // SI NO ESTABA EN EL CET: ASIGNAR (Normal)
+              state.asignacionCelulas[cetActivo] = [...asignadas, cel];
+              if (grupoActivo) {
+                if (!grupoInfo.map[grupoActivo]) grupoInfo.map[grupoActivo] = new Set();
+                grupoInfo.map[grupoActivo].add(cel);
               }
             }
 
@@ -442,9 +482,56 @@ export function renderCelulas() {
   paintCells();
   restoreScrollTop(listBox, prevScroll);
 
-  btnAccion.onclick = () => {
-    const gi = state.gruposByCet[cetActivo] || { ...DEFAULT_GROUP_INFO, map: {} };
+  btnAccion.onclick = async () => {
+    if (!validarOperacionInfo()) return;
+
+    // Validación estricta: Busca el primer CET que tenga su flotilla vacía
+    const cetFaltanteIndex = state.cetSeleccionados.findIndex(n => !state.flotillaByCet[n] || !state.flotillaByCet[n].trim());
+    
+    // Si hay un CET sin flotilla "Y" el usuario trata de irse o ese CET es el actual, bloqueamos
+    if (cetFaltanteIndex !== -1) {
+      // Si el faltante no es el activo, lo forzamos a navegar allá para avisarle
+      if (cetFaltanteIndex !== state.cetActivoIndex) {
+        state.cetActivoIndex = cetFaltanteIndex;
+        saveAsignacionActual();
+        renderCelulas();
+        setTimeout(() => alert(`Falta la flotilla para el CET: ${state.cetSeleccionados[cetFaltanteIndex]}`), 50);
+        return;
+      }
+      
+      // Si el faltante es el actual, le mostramos el recuadro rojo clásico
+      flotInp.style.borderColor = "#dc2626";
+      flotError.style.display = "block";
+      flotInp.focus();
+      return;
+    }
+
+    const gi = state.gruposByCet[cetActivo] || { names: [], active: null, map: {}, idx: 0, vehActive: null };
     const has = (gi.names || []).length > 0;
+
+    // Detectamos si es el último paso "FINALIZAR" del panel de células
+    const lastCet = (state.cetActivoIndex === state.cetSeleccionados.length - 1);
+    const isFinalizar = (has && gi.idx >= gi.names.length - 1 && lastCet) || (!has && lastCet);
+
+    if (isFinalizar) {
+      try {
+        const opLoc = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+        const fromForm = collectOperacionActual();
+        // Dispara POST (si no hay ID) o PUT (si hay ID) silenciosamente
+        const opDB = await guardarOperacionBaseDatos(fromForm, { 
+            id_operacion: opLoc.id || null, 
+            estado_operacion: opLoc.estado || 'PLANIFICADA' 
+        });
+        
+        // Si fue una creación (POST) y nos regresó el ID, lo guardamos para futuros PUT
+        if (opDB && opDB.id_operacion && !opLoc.id) {
+           opLoc.id = opDB.id_operacion;
+           writeStorage(STORAGE_OPERACION_ACTUAL, opLoc);
+        }
+      } catch (e) {
+        console.error("Fallo auto-guardado de operación en BD:", e);
+      }
+    }
 
     if (has) {
       if (gi.idx < gi.names.length - 1) {

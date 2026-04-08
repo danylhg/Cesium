@@ -373,26 +373,6 @@ END $$;
 -- =========================================================
 DO $$
 BEGIN
-  -- vehiculo_operacion: valida tipo_destino + pertenencia de grupo
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_vo_validar_destino'
-  ) THEN
-    CREATE TRIGGER tr_vo_validar_destino
-    BEFORE INSERT OR UPDATE ON vehiculo_operacion
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_validar_destino_vehiculo_operacion();
-  END IF;
-
-  -- uso_equipo_operacion: valida tipo_destino + pertenencia de grupo/vehiculo/personal
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_trigger WHERE tgname = 'tr_ueo_validar_destino'
-  ) THEN
-    CREATE TRIGGER tr_ueo_validar_destino
-    BEFORE INSERT OR UPDATE ON uso_equipo_operacion
-    FOR EACH ROW
-    EXECUTE FUNCTION fn_validar_destino_uso_equipo_operacion();
-  END IF;
-
   -- uso_equipo_operacion: bloquear cambios en operaciones cerradas/canceladas
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger WHERE tgname = 'tr_ueo_operacion_modificable'

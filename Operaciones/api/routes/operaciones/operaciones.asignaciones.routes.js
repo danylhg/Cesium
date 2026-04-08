@@ -334,12 +334,21 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
     // Map para guardar qué célula/subgrupo fue creada: nombre -> id
     const celulaGroupIds = new Map();
 
+    // Valida que todos los grupos traigan nombre de flotilla
+    const gruposSinFlotilla = grupos.filter(g => !g.flotilla || !g.flotilla.trim());
+    if (gruposSinFlotilla.length > 0) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: "El nombre de la flotilla es obligatorio para todos los grupos."
+      });
+    }
+
     // Recorre cada definición de grupo enviada por frontend
     for (const g of grupos) {
       const { nombre, id_cet, cet_nombre, integrantes, flotilla } = g;
 
-      // Si no viene flotilla, usa una general
-      const nombreFlotilla = (flotilla || "Flotilla General").trim();
+      const nombreFlotilla = flotilla.trim();
 
       // Por default el padre inmediato sería el grupo raíz
       let id_padre_flotilla = id_padre_raiz;
@@ -443,16 +452,39 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
         }
       }
 
-      // Si el grupo trae vehículos, los liga al subgrupo
+      // Si el grupo trae vehículos, los liga al subgrupo con su custodio humano.
+      // Cada entrada debe ser { id_vehiculo, id_personal } para respetar el
+      // nuevo modelo donde el vehículo siempre cuelga de una persona.
       if (Array.isArray(g.vehiculos)) {
-        for (const id_v of g.vehiculos) {
-          if (isInt(id_v)) {
-            await client.query(
-              `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_vehiculo, id_operacion, asignado_por)
-               VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
-              [id_grupo, id_v, id_operacion, who]
-            );
-          }
+        for (const veh of g.vehiculos) {
+          const id_v = Number(veh.id_vehiculo ?? veh);
+          const id_p = Number(veh.id_personal ?? id_cet); // fallback al CET del grupo
+
+          if (!isInt(id_v) || !isInt(id_p)) continue;
+
+          // Asegura que el par (vehículo, custodio) exista en vehiculo_operacion
+          await client.query(
+            `INSERT INTO vehiculo_operacion
+               (id_operacion, id_vehiculo, id_personal, id_grupo_operacion,
+                nivel_asignacion, estado_asignacion, asignado_por)
+             VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+             ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO UPDATE SET
+               id_grupo_operacion = EXCLUDED.id_grupo_operacion,
+               nivel_asignacion   = EXCLUDED.nivel_asignacion,
+               estado_asignacion  = 'ASIGNADO',
+               asignado_por       = EXCLUDED.asignado_por,
+               fecha_asignacion   = NOW()`,
+            [id_operacion, id_v, id_p, id_grupo, who]
+          );
+
+          // Registra también en grupo_vehiculo para el árbol visual
+          await client.query(
+            `INSERT INTO grupo_vehiculo
+               (id_grupo_operacion, id_vehiculo, id_personal, id_operacion, asignado_por)
+             VALUES ($1,$2,$3,$4,$5)
+             ON CONFLICT DO NOTHING`,
+            [id_grupo, id_v, id_p, id_operacion, who]
+          );
         }
       }
     }
@@ -512,59 +544,47 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
 // =========================================================
 // POST /ops/:id/vehiculos
 // Qué hace:
-//   Guarda o reemplaza las asignaciones de vehículos de una operación.
-//   Cada vehículo puede quedar asignado a:
-//     - PERSONAL
-//     - GRUPO
-//   Primero borra todos los vehículos actuales de la operación y luego
-//   inserta los nuevos enviados en items.
-// Validaciones importantes:
+//   Reemplaza las asignaciones de vehículos de una operación.
+//   Cada item vincula un vehículo a un custodio humano obligatorio,
+//   con contexto de grupo opcional. Un mismo vehículo puede tener
+//   N custodios (uno por nivel jerárquico: flotilla, grupo, etc.).
+// Body esperado:
+//   { items: [{ id_vehiculo, id_personal, id_grupo_operacion?, nivel_asignacion? }] }
+// Validaciones:
 //   - operación existe y es modificable
-//   - tipo_destino válido
-//   - un vehículo solo puede tener un destino
-//   - si el destino es grupo, el grupo debe pertenecer a la operación
-//   - no debe estar asignado ya en otra operación activa
+//   - id_personal es obligatorio en cada item
+//   - si viene id_grupo_operacion, debe pertenecer a la operación
+//   - un vehículo no puede estar activo en otra operación abierta
 // =========================================================
 router.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
-  // Obtiene id de operación desde la URL
   const id_operacion = Number(req.params.id);
 
-  // Valida que sea entero
   if (!isInt(id_operacion)) {
     return res.status(400).json({ ok: false, mensaje: "id inválido" });
   }
 
   try {
-    // Lee body
     const { asignado_por, items } = req.body ?? {};
-
-    // Usuario que realiza la asignación
     const who = Number(asignado_por || req.user.sub);
 
-    // items debe ser arreglo
     if (!Array.isArray(items)) {
       return res.status(400).json({ ok: false, mensaje: "items inválido" });
     }
 
-    // Conexión para transacción
     const client = await pool.connect();
     try {
-      // Inicia transacción
       await client.query("BEGIN");
 
-      // Consulta estado de la operación
       const opStat = await client.query(
         `SELECT estado FROM operacion WHERE id_operacion=$1`,
         [id_operacion]
       );
 
-      // Si no existe, 404
       if (opStat.rows.length === 0) {
         await client.query("ROLLBACK");
         return res.status(404).json({ ok: false, mensaje: "Operación no encontrada" });
       }
 
-      // Si está cerrada o cancelada, bloquea cambios
       if (opStat.rows[0].estado === "CANCELADA" || opStat.rows[0].estado === "CERRADA") {
         await client.query("ROLLBACK");
         return res.status(400).json({
@@ -573,95 +593,31 @@ router.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
         });
       }
 
-      // Limpia todas las asignaciones previas de vehículos en esta operación
-      // Ojo: esta ruta reemplaza el set completo de vehículos
+      // Borra todas las asignaciones previas de esta operación
       await client.query(
         `DELETE FROM vehiculo_operacion WHERE id_operacion = $1`,
         [id_operacion]
       );
 
-      // Recorre cada vehículo enviado
-      for (const it of items) {
-        // Convierte id_vehiculo a número
-        const id_vehiculo = Number(it.id_vehiculo);
+      // Verifica una sola vez por vehículo único si está en otra operación activa
+      const vehiculosUnicos = [
+        ...new Set(
+          items.map(it => Number(it.id_vehiculo)).filter(v => isInt(v))
+        )
+      ];
 
-        // Normaliza el tipo_destino
-        const tipo_destino = (it.tipo_destino || "").toUpperCase();
-
-        // Si el destino es PERSONAL, toma id_personal; si no, null
-        const id_personal =
-          tipo_destino === "PERSONAL" ? Number(it.id_personal) : null;
-
-        // Si el destino es GRUPO, toma id_grupo_operacion; si no, null
-        const id_grupo_operacion =
-          tipo_destino === "GRUPO"
-            ? Number(it.id_grupo_operacion)
-            : null;
-
-        // Si el id del vehículo no es válido, lo ignora
-        if (!isInt(id_vehiculo)) continue;
-
-        // Solo acepta PERSONAL o GRUPO como destinos válidos
-        if (tipo_destino && !["PERSONAL", "GRUPO"].includes(tipo_destino)) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            ok: false,
-            mensaje: `tipo_destino inválido para vehículo: "${it.tipo_destino}". Solo se permite PERSONAL o GRUPO.`
-          });
-        }
-
-        // Cuenta cuántos destinos concretos trae
-        const destinosVeh = [id_personal, id_grupo_operacion].filter(Boolean);
-
-        // Un solo vehículo no puede apuntar a más de un destino
-        if (destinosVeh.length > 1) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            ok: false,
-            mensaje: `El vehículo ${id_vehiculo} debe tener un solo destino`
-          });
-        }
-
-        // Si viene grupo, verifica que exista y pertenezca a la operación
-        if (id_grupo_operacion) {
-          const grupoExiste = await client.query(
-            `SELECT 1 FROM grupo_operacion WHERE id_grupo_operacion=$1 AND id_operacion=$2`,
-            [id_grupo_operacion, id_operacion]
-          );
-
-          if (grupoExiste.rowCount === 0) {
-            await client.query("ROLLBACK");
-            return res.status(400).json({ ok: false, mensaje: "Grupo no válido" });
-          }
-        }
-
-        // Revisa si ese vehículo ya estaba asignado en esa misma operación
-        // Nota: después del DELETE de arriba, esta validación casi siempre quedará en 0
-        const existe = await client.query(
-          `SELECT 1 FROM vehiculo_operacion WHERE id_operacion=$1 AND id_vehiculo=$2 AND estado_asignacion='ASIGNADO'`,
-          [id_operacion, id_vehiculo]
-        );
-
-        if (existe.rowCount > 0) {
-          await client.query("ROLLBACK");
-          return res.status(400).json({
-            ok: false,
-            mensaje: `El vehículo ${id_vehiculo} ya está asignado`
-          });
-        }
-
-        // Verifica si ese vehículo está activo en otra operación abierta
+      for (const id_vehiculo of vehiculosUnicos) {
         const enOtraOp = await client.query(
           `SELECT o.nombre FROM vehiculo_operacion vo
            JOIN operacion o ON o.id_operacion = vo.id_operacion
            WHERE vo.id_vehiculo = $1
              AND vo.estado_asignacion = 'ASIGNADO'
              AND vo.id_operacion != $2
-             AND o.estado NOT IN ('CERRADA', 'CANCELADA', 'FINALIZADA')`,
+             AND o.estado NOT IN ('CERRADA', 'CANCELADA', 'FINALIZADA')
+           LIMIT 1`,
           [id_vehiculo, id_operacion]
         );
 
-        // Si sí está en otra operación activa, bloquea
         if (enOtraOp.rowCount > 0) {
           await client.query("ROLLBACK");
           return res.status(400).json({
@@ -669,38 +625,61 @@ router.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
             mensaje: `El vehículo ${id_vehiculo} ya está activo en la operación "${enOtraOp.rows[0].nombre}"`
           });
         }
+      }
 
-        // Inserta o actualiza la asignación del vehículo dentro de la operación
+      // Inserta cada par (vehículo, custodio)
+      for (const it of items) {
+        const id_vehiculo     = Number(it.id_vehiculo);
+        const id_personal     = Number(it.id_personal);
+        const id_grupo_op_raw = Number(it.id_grupo_operacion);
+        const id_grupo_operacion = isInt(id_grupo_op_raw) ? id_grupo_op_raw : null;
+        const nivel_asignacion   = it.nivel_asignacion ?? null;
+
+        // Ambos ids son obligatorios
+        if (!isInt(id_vehiculo) || !isInt(id_personal)) continue;
+
+        // Si viene contexto de grupo, valida que pertenezca a esta operación
+        if (id_grupo_operacion) {
+          const grupoExiste = await client.query(
+            `SELECT 1 FROM grupo_operacion
+             WHERE id_grupo_operacion=$1 AND id_operacion=$2`,
+            [id_grupo_operacion, id_operacion]
+          );
+
+          if (grupoExiste.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              ok: false,
+              mensaje: `Grupo ${id_grupo_operacion} no pertenece a esta operación`
+            });
+          }
+        }
+
+        // Inserta el par vehículo+custodio; si ya existe, actualiza contexto
         await client.query(
           `INSERT INTO vehiculo_operacion
-             (id_operacion, id_vehiculo, tipo_destino, id_personal, id_grupo_operacion, estado_asignacion, asignado_por)
+             (id_operacion, id_vehiculo, id_personal, id_grupo_operacion,
+              nivel_asignacion, estado_asignacion, asignado_por)
            VALUES ($1, $2, $3, $4, $5, 'ASIGNADO', $6)
-           ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE SET
-             tipo_destino = EXCLUDED.tipo_destino,
-             id_personal = EXCLUDED.id_personal,
+           ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO UPDATE SET
              id_grupo_operacion = EXCLUDED.id_grupo_operacion,
-             estado_asignacion = 'ASIGNADO',
-             asignado_por = EXCLUDED.asignado_por,
-             fecha_asignacion = NOW()`,
-          [id_operacion, id_vehiculo, tipo_destino, id_personal, id_grupo_operacion, who]
+             nivel_asignacion   = EXCLUDED.nivel_asignacion,
+             estado_asignacion  = 'ASIGNADO',
+             asignado_por       = EXCLUDED.asignado_por,
+             fecha_asignacion   = NOW()`,
+          [id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, who]
         );
       }
 
-      // Confirma transacción
       await client.query("COMMIT");
-
-      // Respuesta exitosa
       return res.json({ ok: true });
     } catch (e) {
-      // Deshace cambios si algo falló
       await client.query("ROLLBACK");
       throw e;
     } finally {
-      // Libera conexión
       client.release();
     }
   } catch (err) {
-    // Manejo uniforme de errores
     return sendDbError(res, err, "Error guardando vehículos");
   }
 });

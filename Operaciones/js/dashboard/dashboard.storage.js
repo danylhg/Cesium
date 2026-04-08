@@ -82,6 +82,13 @@ export function getOperationDateTime(op) {
 export function ensureOperationPhase(op) {
   const current = { ...(op || {}) };
 
+  // El backend devuelve `estado` en mayúsculas (ACTIVA, PLANIFICADA, TERMINADA, CANCELADA).
+  // Si existe, usarlo como fuente de verdad en lugar de recalcular desde fecha_inicio.
+  if (current.estado) {
+    current.phase = current.estado.toLowerCase();
+    return current;
+  }
+
   if (current.phase === "terminada") return current;
 
   const scheduled = getOperationDateTime(current);

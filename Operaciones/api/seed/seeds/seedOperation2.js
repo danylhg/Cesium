@@ -189,14 +189,21 @@ export async function seedOperation2(client) {
   const eqComNorte = await getEquipoBySerie(client, "HFC-001");
   const eqTacNorte = await getEquipoBySerie(client, "DRN-001");
 
-  for (const v of [vhNorte1, vhNorte2]) {
-    await client.query(
-      `INSERT INTO vehiculo_operacion (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
-       VALUES ($1,$2,$3,'ASIGNADO',$4)
-       ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE SET estado_asignacion = 'ASIGNADO'`,
-      [idOp2, v.id_vehiculo, "Vehiculo para Operacion Norte", creadoPor]
-    );
-  }
+  await client.query(
+    `INSERT INTO vehiculo_operacion 
+       (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
+     VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+     ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO UPDATE SET estado_asignacion = 'ASIGNADO'`,
+    [idOp2, vhNorte1.id_vehiculo, cet2a.id_personal, idAguila1_OP2, creadoPor]
+  );
+
+  await client.query(
+    `INSERT INTO vehiculo_operacion 
+       (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
+     VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+     ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO UPDATE SET estado_asignacion = 'ASIGNADO'`,
+    [idOp2, vhNorte2.id_vehiculo, cet2b.id_personal, idAguila2_OP2, creadoPor]
+  );
 
   for (const e of [eqComNorte, eqTacNorte]) {
     await client.query(
@@ -208,17 +215,17 @@ export async function seedOperation2(client) {
   }
 
   await client.query(
-    `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-     VALUES ($1,$2,$3,'Transporte Panther Aguila 1','ASIGNADO',$4)
-     ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING`,
-    [idAguila1_OP2, idOp2, vhNorte1.id_vehiculo, creadoPor]
+    `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, id_personal, asignado_por)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT DO NOTHING`,
+    [idAguila1_OP2, idOp2, vhNorte1.id_vehiculo, cet2a.id_personal, creadoPor]
   );
 
   await client.query(
-    `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-     VALUES ($1,$2,$3,'Interceptor Scualo Aguila 2','ASIGNADO',$4)
-     ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING`,
-    [idAguila2_OP2, idOp2, vhNorte2.id_vehiculo, creadoPor]
+    `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, id_personal, asignado_por)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT DO NOTHING`,
+    [idAguila2_OP2, idOp2, vhNorte2.id_vehiculo, cet2b.id_personal, creadoPor]
   );
 
   await client.query(

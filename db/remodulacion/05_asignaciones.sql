@@ -43,17 +43,18 @@ CREATE TABLE IF NOT EXISTS asignacion_operacion_personal (
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
--- Operación <-> Vehículo
+-- Operación <-> Vehículo (MODIFICADA: Soporta múltiples custodios humanos)
 CREATE TABLE IF NOT EXISTS vehiculo_operacion (
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   id_vehiculo INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
-  id_personal INT REFERENCES personal(id_personal) ON DELETE SET NULL,
+  id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE, -- Ahora es NOT NULL y parte de la PK
+  nivel_asignacion VARCHAR(50) DEFAULT 'OPERACION', -- Para distinguir entre FLOTILLA, GRUPO, etc.
   uso_en_operacion TEXT,
   estado_asignacion estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
   fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   fecha_fin_asignacion TIMESTAMPTZ,
   asignado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
-  PRIMARY KEY (id_operacion, id_vehiculo),
+  PRIMARY KEY (id_operacion, id_vehiculo, id_personal), -- Llave primaria compuesta para permitir varios responsables
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion)
 );
 
@@ -112,6 +113,9 @@ CREATE INDEX IF NOT EXISTS idx_asig_op_personal
 CREATE INDEX IF NOT EXISTS idx_veh_op_op
   ON vehiculo_operacion(id_operacion);
 
+CREATE INDEX IF NOT EXISTS idx_veh_op_personal
+  ON vehiculo_operacion(id_personal); -- Nuevo índice para búsquedas rápidas por responsable
+
 CREATE INDEX IF NOT EXISTS idx_op_eq_busqueda
   ON operacion_equipo(id_operacion, id_equipo);
 
@@ -120,4 +124,3 @@ CREATE INDEX IF NOT EXISTS idx_uso_eq_op_operacion
 
 CREATE INDEX IF NOT EXISTS idx_uso_eq_op_personal
   ON uso_equipo_operacion(id_personal);
-

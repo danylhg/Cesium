@@ -53,18 +53,37 @@ export function getEquiposAsignadosPorCategoria(categoria) {
 // Obtener destino formateado (para compatibilidad)
 export function getDestinoFormateado(asignacion) {
   if (!asignacion) return "Disponible";
+  
   if (asignacion.tipo_destino === 'personal') {
-    // Buscar el nombre de la persona
-    for (const cet of state.cetSeleccionados) {
-      const celulas = state.asignacionCelulas[cet] || [];
-      const persona = celulas.find(p => p.id === asignacion.id_personal);
-      if (persona) {
-        return `${cet} - ${persona.nombre}`;
+    // 1. Obtener el nombre de la persona (la CELULA) a partir del ID
+    let personaNombre = null;
+    for (const [nombre, id] of Object.entries(state.personalMap)) {
+      if (id === asignacion.id_personal) {
+        personaNombre = nombre;
+        break;
       }
     }
+
+    if (!personaNombre) return "Personal desconocido";
+
+    // 2. Identificar el CET responsable de esa persona
+    let cetResponsable = "CET Desconocido";
+    for (const cet of state.cetSeleccionados) {
+      const celulas = state.asignacionCelulas[cet] || [];
+      if (celulas.includes(personaNombre) || cet === personaNombre) {
+        cetResponsable = cet;
+        break;
+      }
+    }
+
+    // Si la persona es el mismo CET, no repetimos el nombre
+    if (cetResponsable === personaNombre) return `CET: ${personaNombre}`;
+    return `CET: ${cetResponsable} - ${personaNombre}`;
+
   } else if (asignacion.tipo_destino === 'vehiculo') {
     const veh = state.vehiclesList.find(v => v.id === asignacion.id_vehiculo);
-    return veh?.name || "Vehículo desconocido";
+    return veh ? `Vehículo: ${veh.name}` : "Vehículo desconocido";
   }
+  
   return "Asignado";
 }

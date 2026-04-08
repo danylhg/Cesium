@@ -257,7 +257,7 @@ export async function seedOperation1(client) {
   }
 
   // =========================================================
-  // 10) RECURSOS FIJOS OP-PRUEBA-001
+  // 10) RECURSOS FIJOS CON RESPONSABLE HUMANO (CORREGIDO)
   // =========================================================
   const vehiculoAguila1 = await getVehiculoByCodigo(client, "VH-001");
   const vehiculoAguila2 = await getVehiculoByCodigo(client, "VH-003");
@@ -270,63 +270,45 @@ export async function seedOperation1(client) {
     throw new Error(`No se encontró el personal "mcruz" para asignarle el equipo táctico.`);
   }
 
+  // Definimos quién es el responsable de cada vehículo en su subgrupo
+  // Debe ser alguien que hayamos metido al grupo en el paso 8
+  const respH1 = await getPersonalByUsername(client, "mcruz");     // Miembro de Aguila 1
+  const respH2 = await getPersonalByUsername(client, "lgomez");    // Miembro de Aguila 2
+
+  // --- ASIGNACIÓN VEHÍCULO 1 ---
+  // Primero en la tabla maestra de la operación
   await client.query(
-    `
-    INSERT INTO vehiculo_operacion
-      (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
-    VALUES ($1,$2,$3,'ASIGNADO',$4)
-    ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE
-      SET uso_en_operacion = EXCLUDED.uso_en_operacion,
-          estado_asignacion = EXCLUDED.estado_asignacion,
-          asignado_por = EXCLUDED.asignado_por,
-          fecha_asignacion = NOW()
-    `,
-    [idOp, vehiculoAguila1.id_vehiculo, "DESTINO:GRUPO:AGUILA1", creadoPor]
+    `INSERT INTO vehiculo_operacion
+      (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
+    VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+    ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO NOTHING`,
+    [idOp, vehiculoAguila1.id_vehiculo, respH1.id_personal, idAguila1, creadoPor]
+  );
+
+  // Luego en el grupo (Aquí es donde fallaba por la FK)
+  await client.query(
+    `INSERT INTO grupo_vehiculo
+      (id_grupo_operacion, id_operacion, id_vehiculo, id_personal, asignado_por)
+    VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT DO NOTHING`,
+    [idAguila1, idOp, vehiculoAguila1.id_vehiculo, respH1.id_personal, creadoPor]
+  );
+
+  // --- ASIGNACIÓN VEHÍCULO 2 ---
+  await client.query(
+    `INSERT INTO vehiculo_operacion
+      (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
+    VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+    ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO NOTHING`,
+    [idOp, vehiculoAguila2.id_vehiculo, respH2.id_personal, idAguila2, creadoPor]
   );
 
   await client.query(
-    `
-    INSERT INTO vehiculo_operacion
-      (id_operacion, id_vehiculo, uso_en_operacion, estado_asignacion, asignado_por)
-    VALUES ($1,$2,$3,'ASIGNADO',$4)
-    ON CONFLICT (id_operacion, id_vehiculo) DO UPDATE
-      SET uso_en_operacion = EXCLUDED.uso_en_operacion,
-          estado_asignacion = EXCLUDED.estado_asignacion,
-          asignado_por = EXCLUDED.asignado_por,
-          fecha_asignacion = NOW()
-    `,
-    [idOp, vehiculoAguila2.id_vehiculo, "DESTINO:GRUPO:AGUILA2", creadoPor]
-  );
-
-  await client.query(
-    `
-    INSERT INTO grupo_vehiculo
-      (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-    VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
-    ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
-    `,
-    [idAguila1, idOp, vehiculoAguila1.id_vehiculo, "Vehículo de traslado para Aguila 1", creadoPor]
-  );
-
-  await client.query(
-    `
-    INSERT INTO grupo_vehiculo
-      (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-    VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
-    ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
-    `,
-    [idAguila2, idOp, vehiculoAguila2.id_vehiculo, "Vehículo de traslado para Aguila 2", creadoPor]
-  );
-
-  // Vehículo base asignado a la flotilla
-  await client.query(
-    `
-    INSERT INTO grupo_vehiculo
-      (id_grupo_operacion, id_operacion, id_vehiculo, uso_en_grupo, estado_asignacion, asignado_por)
-    VALUES ($1,$2,$3,$4,'ASIGNADO',$5)
-    ON CONFLICT (id_grupo_operacion, id_vehiculo) DO NOTHING
-    `,
-    [idFlotilla, idOp, vehiculoAguila1.id_vehiculo, "Vehículo base flotilla", creadoPor]
+    `INSERT INTO grupo_vehiculo
+      (id_grupo_operacion, id_operacion, id_vehiculo, id_personal, asignado_por)
+    VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT DO NOTHING`,
+    [idAguila2, idOp, vehiculoAguila2.id_vehiculo, respH2.id_personal, creadoPor]
   );
 
   await client.query(
@@ -408,7 +390,7 @@ export async function seedOperation1(client) {
     INSERT INTO uso_equipo_operacion
       (id_operacion, id_equipo, id_personal, cantidad, asignado_por, notas)
     VALUES ($1,$2,$3,1,$4,$5)
-    ON CONFLICT (id_operacion, id_equipo, id_personal) WHERE id_personal IS NOT NULL DO UPDATE
+    ON CONFLICT (id_operacion, id_equipo, id_personal, id_grupo_operacion) DO UPDATE
       SET cantidad = EXCLUDED.cantidad,
           asignado_por = EXCLUDED.asignado_por,
           notas = EXCLUDED.notas,

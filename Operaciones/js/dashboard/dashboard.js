@@ -40,12 +40,15 @@ if (dom.who) {
 
 if (dom.logout) {
   dom.logout.onclick = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("rol");
-    localStorage.removeItem("userData");
-    localStorage.removeItem("username");
-    localStorage.removeItem("session");
-    window.location.href = "login.html";
+    const op = getCurrentOperation();
+    const esPlanificada = (op.phase || "planificada") === "planificada";
+
+    if (esPlanificada) {
+      const ok = confirm("¿Seguro que quieres salir? Se descartará toda la información ingresada.");
+      if (!ok) return;
+    }
+
+    window.location.href = "menu_inicial.html";
   };
 }
 

@@ -70,6 +70,16 @@ function bindFormEvents() {
     const eventType = field.tagName === "SELECT" ? "change" : "input";
     field.addEventListener(eventType, () => {
       if (field === opInicioEl) validateDateTime(opInicioEl, opHoraInicioEl);
+      
+      // Limpiar error visual si el usuario escribe
+      if (field.value.trim()) {
+        field.style.borderColor = "";
+        const errDiv = field.nextElementSibling;
+        if (errDiv && errDiv.classList.contains('op-inline-error')) {
+          errDiv.style.display = 'none';
+        }
+      }
+
       saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
       if (field === opNombreEl && lblOperacion) {
         lblOperacion.textContent = opNombreEl.value || "—";
@@ -113,7 +123,27 @@ function restoreSavedState() {
   return storedOp;
 }
 
-function init() {
+async function init() {
+  // ── Validación de entrada ────────────────────────────────────
+  // Entradas válidas:
+  //   "create"  → viene del botón "Crear operación" o "Emergencia" del menú inicial
+  //   "edit"    → viene del botón "Editar" del dashboard
+  // Cualquier otra entrada es inválida y se redirige.
+  const entry = sessionStorage.getItem("asignacion_entry");
+  sessionStorage.removeItem("asignacion_entry");
+
+  if (!entry) {
+    const hasActiveOp = !!localStorage.getItem("active_operation_id");
+    window.location.href = hasActiveOp ? "dashboard.html" : "menu_inicial.html";
+    return;
+  }
+
+  if (entry === "edit" && !localStorage.getItem("active_operation_id")) {
+    window.location.href = "menu_inicial.html";
+    return;
+  }
+  // ─────────────────────────────────────────────────────────────
+
   const qs = new URLSearchParams(window.location.search);
   const op = qs.get("op");
   if (op) lblOperacion.textContent = op;
@@ -123,9 +153,17 @@ function init() {
     lblUsuario.textContent = user ? `Usuario: ${user}` : "Usuario no identificado";
   }
 
-  hydrateCatalogsFromControl(); // BACKEND: Se vuelve async → await Promise.all([GET /catalog/personal?rol=CUT, GET /catalog/personal?rol=CET, GET /catalog/personal?rol=CELL, GET /catalog/vehiculos, GET /catalog/equipos])
-  const storedOp = restoreSavedState();
-  loadOperacionActualIntoForm(); // BACKEND: Se vuelve async → GET /ops/:id si hay active_operation_id
+  await hydrateCatalogsFromControl(); // BACKEND: await Promise.all([GET /catalog/personal?rol=CUT, GET /catalog/personal?rol=CET, GET /catalog/personal?rol=CELL, GET /catalog/vehiculos, GET /catalog/equipos])
+
+  let storedOp = {};
+  if (entry === "edit") {
+    // Solo carga los datos del formulario; no restaura asignaciones desde localStorage
+    loadOperacionActualIntoForm();
+    storedOp = { id: localStorage.getItem("active_operation_id") };
+  } else {
+    storedOp = restoreSavedState();
+    loadOperacionActualIntoForm();
+  }
 
   renderHome();
   bindNavigation();

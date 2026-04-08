@@ -1,6 +1,7 @@
 import { panel, btnAccion, vehiculosLeftEl } from "../../core/dom.js";
 import { state } from "../../core/state.js";
-import { DEFAULT_GROUP_INFO } from "../../core/constants.js";
+import { DEFAULT_GROUP_INFO, STORAGE_OPERACION_ACTUAL } from "../../core/constants.js";
+import { readObjectStorage, writeStorage } from "../../core/storage.js";
 import {
   clearPanel,
   showBack,
@@ -8,9 +9,11 @@ import {
   setHeader,
   setAccion
 } from "../../core/ui.js";
+import { getGrupoDeCelula } from "../personal/personal.helpers.js";
 import { saveAsignacionActual } from "../asignacion/asignacion.service.js";
 import { asignarVehiculo, removerAsignacionVehiculo, getNombreVehiculoAsignado } from "./vehiculos.service.js";
 import { renderEquipoAsignacion } from "../equipos/equipos.view.js";
+import { guardarOperacionBaseDatos, collectOperacionActual } from "../operacion/operacion.service.js";
 
 export function renderVehiculos() {
   clearPanel();
@@ -37,7 +40,7 @@ export function renderVehiculos() {
 
   const hasGroups = (ginfo.names || []).length > 0;
   if (hasGroups) {
-    if (!ginfo.vehActive || !ginfo.names.includes(ginfo.vehActive)) {
+    if (ginfo.vehActive === undefined || (ginfo.vehActive !== null && !ginfo.names.includes(ginfo.vehActive))) {
       ginfo.vehActive =
         (ginfo.active && ginfo.names.includes(ginfo.active))
           ? ginfo.active
@@ -99,34 +102,48 @@ export function renderVehiculos() {
   headerBox.appendChild(flotillaLbl);
   headerBox.appendChild(flotillaChip);
 
-  if (hasGroups) {
-    const grpLbl = document.createElement("div");
-    grpLbl.className = "lbl";
-    grpLbl.style.margin = "12px 0 8px";
-    grpLbl.textContent = "Grupos";
+  const grpLbl = document.createElement("div");
+  grpLbl.className = "lbl";
+  grpLbl.style.margin = "12px 0 8px";
+  grpLbl.textContent = "Grupos";
+  headerBox.appendChild(grpLbl);
 
-    const grpRow = document.createElement("div");
-    grpRow.className = "groupsRow";
+  const grpRow = document.createElement("div");
+  grpRow.className = "groupsRow";
+  grpRow.style.display = "flex";
+  grpRow.style.gap = "8px";
+  grpRow.style.flexWrap = "wrap";
 
-    ginfo.names.forEach((gName) => {
-      const chip = document.createElement("button");
-      chip.className = "chip" + (ginfo.vehActive === gName ? " active" : "");
-      chip.textContent = gName;
-
-      chip.addEventListener("click", () => {
-        ginfo.vehActive = gName;
-        state.selectedVehicle = null;
-        state.selectedCells = [];
-        saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
-        renderVehiculos();
-      });
-
-      grpRow.appendChild(chip);
+  // Grupos existentes (a, b...)
+  ginfo.names.forEach((gName) => {
+    const chip = document.createElement("button");
+    chip.className = "chip" + (ginfo.vehActive === gName ? " active" : "");
+    chip.textContent = gName;
+    chip.addEventListener("click", () => {
+      ginfo.vehActive = gName;
+      state.selectedVehicle = null;
+      state.selectedCells = [];
+      saveAsignacionActual();
+      renderVehiculos();
     });
+    grpRow.appendChild(chip);
+  });
 
-    headerBox.appendChild(grpLbl);
-    headerBox.appendChild(grpRow);
-  }
+  // Botón Sin Grupo fijo
+  const sinGrupoBtn = document.createElement("button");
+  sinGrupoBtn.className = "chip" + (ginfo.vehActive === null ? " active" : "");
+  sinGrupoBtn.textContent = "Sin grupo";
+  sinGrupoBtn.style.backgroundColor = ginfo.vehActive === null ? "#2563eb" : "#f1f5f9";
+  sinGrupoBtn.style.color = ginfo.vehActive === null ? "#fff" : "#1e293b";
+  sinGrupoBtn.addEventListener("click", () => {
+    ginfo.vehActive = null;
+    state.selectedVehicle = null;
+    state.selectedCells = [];
+    saveAsignacionActual();
+    renderVehiculos();
+  });
+  grpRow.appendChild(sinGrupoBtn);
+  headerBox.appendChild(grpRow);
 
   vehiculosLeftEl.appendChild(headerBox);
 
@@ -136,11 +153,14 @@ export function renderVehiculos() {
 
   const cellsForCET = state.asignacionCelulas[cet] || [];
 
-  let cellsToShow = cellsForCET.slice();
-  if (hasGroups && ginfo.vehActive) {
+  let cellsToShow = [];
+  if (ginfo.vehActive) {
     const set = ginfo.map[ginfo.vehActive] || new Set();
     const arr = Array.from(set);
     cellsToShow = arr.filter(c => cellsForCET.some(p => (p.nombre ?? p) === c));
+  } else {
+    // Modo Sin Grupo: mostrar solo los que no están en ningún subgrupo
+    cellsToShow = cellsForCET.filter(c => !getGrupoDeCelula(cet, c));
   }
 
   function toggleSelectedKey(value, checked) {
@@ -178,22 +198,24 @@ export function renderVehiculos() {
     return label;
   }
 
-  const cetKey = `${cet}`;
-  const cetAssigned = getNombreVehiculoAsignado(cetKey);
-  const cetLocked = !!cetAssigned;
+  if (!ginfo.vehActive) {
+    const cetKey = `${cet}`;
+    const cetAssigned = getNombreVehiculoAsignado(cetKey);
+    const cetLocked = !!cetAssigned;
 
-  cellulasList.appendChild(
-    mkCheckRow({
-      labelText: cetLocked ? `CET: ${cet} (Asignado: ${cetAssigned})` : `CET: ${cet}`,
-      valueKey: cetKey,
-      disabled: cetLocked,
-      checked: (state.selectedCells || []).includes(cetKey),
-      onChange: (checked) => {
-        toggleSelectedKey(cetKey, checked);
-        renderVehiculos();
-      }
-    })
-  );
+    cellulasList.appendChild(
+      mkCheckRow({
+        labelText: cetLocked ? `CET: ${cet} (Asignado: ${cetAssigned})` : `CET: ${cet}`,
+        valueKey: cetKey,
+        disabled: cetLocked,
+        checked: (state.selectedCells || []).includes(cetKey),
+        onChange: (checked) => {
+          toggleSelectedKey(cetKey, checked);
+          renderVehiculos();
+        }
+      })
+    );
+  }
 
   if (cellsToShow.length > 0) {
     const visibleKeys = [cetKey, ...cellsToShow.map(c => `${cet}-${c}`)];
@@ -229,9 +251,15 @@ export function renderVehiculos() {
     const assignedVehicle = getNombreVehiculoAsignado(key);
     const isLocked = !!assignedVehicle;
 
+    // Obtener etiqueta de grupo
+    const gName = getGrupoDeCelula(cet, cell);
+    const gLabel = gName ? `Grupo ${gName}` : "Sin grupo";
+
     cellulasList.appendChild(
       mkCheckRow({
-        labelText: isLocked ? `${cell} (Asignado: ${assignedVehicle})` : cell,
+        labelText: isLocked 
+          ? `${cell} (Asignado: ${assignedVehicle})` 
+          : cell,
         valueKey: key,
         disabled: isLocked,
         checked: (state.selectedCells || []).includes(key),
@@ -381,9 +409,9 @@ export function renderVehiculos() {
         }
       } else {
         // Asignar a grupo del CET
-        const grupo = state.gruposByCet[cet]?.active;
-        if (grupo) {
-          asignarVehiculo(vehObj.id, 'grupo', null, grupo.id);
+        const grupoNombre = state.gruposByCet[cet]?.active;
+        if (grupoNombre) {
+          asignarVehiculo(vehObj.id, 'grupo', null, grupoNombre);
         }
       }
     });
@@ -395,7 +423,7 @@ export function renderVehiculos() {
 
   panel.appendChild(assignBtn);
 
-  btnAccion.onclick = () => {
+  btnAccion.onclick = async () => {
     if (hasGroups && groupIndex < lastGroupIndex) {
       ginfo.vehActive = ginfo.names[groupIndex + 1];
       state.selectedVehicle = null;
@@ -429,6 +457,24 @@ export function renderVehiculos() {
       saveAsignacionActual();
       renderVehiculos();
       return;
+    }
+
+    // --- BLOQUE FINALIZAR: AUTO-GUARDADO DE CABECERA ---
+    // Si llegó hasta aquí, significa que ya pasó el último grupo y el último CET (isLastOverall es true)
+    try {
+        const opLoc = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+        const fromForm = collectOperacionActual();
+        const opDB = await guardarOperacionBaseDatos(fromForm, { 
+            id_operacion: opLoc.id || null, 
+            estado_operacion: opLoc.estado || 'PLANIFICADA' 
+        });
+        
+        if (opDB && opDB.id_operacion && !opLoc.id) {
+           opLoc.id = opDB.id_operacion;
+           writeStorage(STORAGE_OPERACION_ACTUAL, opLoc);
+        }
+    } catch (e) {
+        console.error("Fallo auto-guardado de operación en BD desde Vehículos:", e);
     }
 
     state.categoria = "equipo";

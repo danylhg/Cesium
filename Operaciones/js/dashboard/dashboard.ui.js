@@ -81,6 +81,8 @@ export function renderInfoPanel() {
     ? asignacion.equipos
     : (Array.isArray(operacion.equipos) ? operacion.equipos : []);
 
+  const esActiva = (operacion.phase || operacion.estado?.toLowerCase()) === "activa";
+
   const titulo = operacion.title || operacion.titulo || operacion.name || "Sin título";
   const descripcion = operacion.description || operacion.descripcion || "Sin descripción";
   const programada = getOperationDateTime(operacion);
@@ -225,7 +227,7 @@ export function renderInfoPanel() {
     <div class="infoBlock">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <h3 style="margin:0;">Operación</h3>
-        <button id="editOpInfoBtn" style="padding:4px 12px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid #00ffa6; background:rgba(0,255,170,0.12); color:#00ffa6; cursor:pointer;">Editar ✏️</button>
+        ${!esActiva ? `<button id="editOpInfoBtn" style="padding:4px 12px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid #00ffa6; background:rgba(0,255,170,0.12); color:#00ffa6; cursor:pointer;">Editar ✏️</button>` : ""}
       </div>
       <p><strong>Título:</strong> ${escapeHtml(titulo)}</p>
       <p><strong>Descripción:</strong> ${escapeHtml(descripcion)}</p>
@@ -253,6 +255,7 @@ export function renderInfoPanel() {
   const editBtn = document.getElementById("editOpInfoBtn");
   if (editBtn) {
     editBtn.addEventListener("click", () => {
+      sessionStorage.setItem("asignacion_entry", "edit");
       window.location.href = "asignacion.html";
     });
   }

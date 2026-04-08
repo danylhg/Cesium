@@ -8,6 +8,14 @@ export function asignarVehiculo(idVehiculo, tipoDestino, idPersonal = null, idGr
   const vehObj = state.vehiclesList.find(v => v.id === idVehiculo);
   if (!vehObj) throw new Error("Vehículo no encontrado");
 
+  // Si es asignación a grupo y no viene idPersonal, intentamos buscar el responsable (CET)
+  if (tipoDestino === 'grupo' && !idPersonal && idGrupoOperacion) {
+    // Intentar encontrar el CET asociado a este grupo
+    // En el estado actual, esto es complejo de forma directa, pero
+    // por ahora el backend hace el fallback al id_cet si enviamos null.
+    // Sin embargo, para consistencia lo dejamos explícito si podemos.
+  }
+
   const used = state.asignacionVehiculos.filter(a => a.id_vehiculo === idVehiculo).length;
   const cap = Number(vehObj.capacity || 0);
   if (cap > 0 && used >= cap) throw new Error("Capacidad insuficiente");
@@ -24,7 +32,7 @@ export function asignarVehiculo(idVehiculo, tipoDestino, idPersonal = null, idGr
   state.asignacionVehiculos.push({
     id_vehiculo: idVehiculo,
     tipo_destino: tipoDestino,
-    id_personal: idPersonal,
+    id_personal: idPersonal, // Puede ser null si el backend hace el fallback
     id_grupo_operacion: idGrupoOperacion
   });
 

@@ -30,6 +30,9 @@ export const initialState = {
   tacticalEquipmentList: [],
   communicationEquipmentList: [],
 
+  // Mapeos para resolución de IDs (Nombre -> ID)
+  personalMap: {}, // { "Nombre Apellido": id_personal }
+
   // Datos derivados o temporales
   flotillaByCet: {},
   searchByCet: {},

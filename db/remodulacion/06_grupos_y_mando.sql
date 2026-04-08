@@ -63,10 +63,12 @@ CREATE TABLE IF NOT EXISTS grupo_equipo (
     ON DELETE CASCADE
 );
 
+-- TABLA MODIFICADA: Ahora vincula Vehículo -> Persona -> Grupo
 CREATE TABLE IF NOT EXISTS grupo_vehiculo (
   id_grupo_operacion INT NOT NULL REFERENCES grupo_operacion(id_grupo_operacion) ON DELETE CASCADE,
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   id_vehiculo INT NOT NULL REFERENCES vehiculo(id_vehiculo) ON DELETE RESTRICT,
+  id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE CASCADE, -- El responsable humano
 
   uso_en_grupo TEXT,
   estado_asignacion estado_asig_vehiculo_enum NOT NULL DEFAULT 'ASIGNADO',
@@ -74,12 +76,20 @@ CREATE TABLE IF NOT EXISTS grupo_vehiculo (
   fecha_fin_asignacion TIMESTAMPTZ,
   asignado_por INT NOT NULL REFERENCES usuario(id_usuario) ON DELETE RESTRICT,
 
-  PRIMARY KEY (id_grupo_operacion, id_vehiculo),
+  -- La PK ahora incluye a la persona para permitir la jerarquía de responsables
+  PRIMARY KEY (id_grupo_operacion, id_vehiculo, id_personal),
   CHECK (fecha_fin_asignacion IS NULL OR fecha_fin_asignacion >= fecha_asignacion),
 
+  -- FK ajustada a la nueva PK de vehiculo_operacion
   CONSTRAINT fk_grupo_vehiculo_a_vehiculo_operacion
-    FOREIGN KEY (id_operacion, id_vehiculo)
-    REFERENCES vehiculo_operacion (id_operacion, id_vehiculo)
+    FOREIGN KEY (id_operacion, id_vehiculo, id_personal)
+    REFERENCES vehiculo_operacion (id_operacion, id_vehiculo, id_personal)
+    ON DELETE CASCADE,
+
+  -- Asegura que la persona responsable realmente pertenezca a este grupo
+  CONSTRAINT fk_grupo_vehiculo_personal_en_grupo
+    FOREIGN KEY (id_grupo_operacion, id_personal)
+    REFERENCES grupo_personal (id_grupo_operacion, id_personal)
     ON DELETE CASCADE
 );
 
