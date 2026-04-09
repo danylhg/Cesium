@@ -327,6 +327,7 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
 
         -- Custodio de esta fila (id_personal NOT NULL en vehiculo_operacion)
         vo.id_personal,
+        per.apodo       AS asignado_a_apodo,
         per.nombre      AS personal_nombre,
         per.apellido    AS personal_apellido,
         per.puesto      AS personal_puesto,
@@ -334,11 +335,14 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
 
         -- Datos de asignación
         vo.nivel_asignacion,
+        vo.nivel_asignacion AS tipo_destino,
+        vo.nivel_asignacion AS uso_en_operacion,
         vo.estado_asignacion,
         vo.id_grupo_operacion,
 
         -- Grupo del vehículo si aplica
-        go.nombre AS grupo_nombre,
+        go.nombre      AS grupo_nombre,
+        go.apodo       AS grupo_apodo,
         gp_padre.nombre AS grupo_padre_nombre,
 
         -- Última posición conocida del vehículo

@@ -216,7 +216,8 @@ class MainActivity : AppCompatActivity(),
                         idPersonal = currentUser.id,
                         lat = lat,
                         lon = lon,
-                        apodo = currentUser.nombreCompleto
+                        apodo = currentUser.nombreCompleto,
+                        rol = currentUser.rol.name
                     )
                 }
             }

@@ -13,6 +13,17 @@ const ROUTE_COLORS = [
   Cesium.Color.GOLD,       Cesium.Color.VIOLET,   Cesium.Color.SPRINGGREEN
 ];
 
+// Colores por rol — mismos que la app Android (map.html)
+function getRolColor(rol) {
+  switch ((rol || "").toUpperCase()) {
+    case "CUT":
+    case "ADMIN": return Cesium.Color.RED;
+    case "CET":   return Cesium.Color.ORANGE;
+    case "CELL":  return Cesium.Color.DODGERBLUE;
+    default:      return Cesium.Color.PURPLE;
+  }
+}
+
 // IDs de rutas que yo acabo de enviar (evita redibujar lo que ya dibujé localmente)
 const _mySentRouteIds = new Set();
 
@@ -335,7 +346,7 @@ export function initRoutes(socket) {
       `P:${data.id_personal}`,
       Number(data.latitud), Number(data.longitud),
       data.nombre || `P-${data.id_personal}`,
-      Cesium.Color.fromCssColorString("#00ffa6")
+      getRolColor(data.rol)
     );
   });
 

@@ -52,12 +52,14 @@ class ChatSocketManager(
         socket?.connect()
     }
 
-    fun emitTracking(idPersonal: Int, lat: Double, lon: Double, apodo: String) {
+    fun emitTracking(idPersonal: Int, lat: Double, lon: Double, apodo: String, rol: String = "") {
         val payload = JSONObject().apply {
             put("id_personal", idPersonal)
             put("latitud", lat)
             put("longitud", lon)
             put("apodo", apodo)
+            put("nombre", apodo)
+            put("rol", rol)
         }
         socket?.emit("tracking_personal", payload)
     }
