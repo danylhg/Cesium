@@ -740,32 +740,17 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             oe.uso_en_operacion,
             oe.estado_asignacion,
             COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
-            ueo.tipo_destino,
 
-            -- Si el destino es PERSONAL, arma nombre/apodo
-            CASE ueo.tipo_destino
-              WHEN 'PERSONAL' THEN COALESCE(p_ueo.apodo,
-                                   NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), ''))
-              ELSE NULL
-            END AS asignado_a_personal,
+            -- Persona responsable (siempre obligatoria)
+            COALESCE(p_ueo.apodo,
+              NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), '')) AS asignado_a_personal,
 
-            -- Si el destino es VEHICULO, devuelve código
-            CASE ueo.tipo_destino
-              WHEN 'VEHICULO' THEN v_ueo.codigo_interno
-              ELSE NULL
-            END AS asignado_a_vehiculo,
+            -- Vehículo contexto si aplica
+            v_ueo.codigo_interno AS asignado_a_vehiculo,
+            v_ueo.alias          AS vehiculo_alias,
 
-            -- Alias del vehículo si aplica
-            CASE ueo.tipo_destino
-              WHEN 'VEHICULO' THEN v_ueo.alias
-              ELSE NULL
-            END AS vehiculo_alias,
-
-            -- Grupo asignado si el destino es GRUPO
-            CASE ueo.tipo_destino
-              WHEN 'GRUPO' THEN go_ueo.nombre
-              ELSE NULL
-            END AS grupo_asignado
+            -- Grupo si aplica
+            go_ueo.nombre AS grupo_asignado
           FROM operacion_equipo oe
           JOIN equipo e ON e.id_equipo = oe.id_equipo
           LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
@@ -779,7 +764,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
 
           -- Resolución del destino según tipo_destino
           LEFT JOIN personal        p_ueo  ON p_ueo.id_personal          = ueo.id_personal
-          LEFT JOIN vehiculo        v_ueo  ON v_ueo.id_vehiculo           = ueo.id_vehiculo
+          LEFT JOIN vehiculo        v_ueo  ON v_ueo.id_vehiculo           = ueo.id_vehiculo_contexto
           LEFT JOIN grupo_operacion go_ueo ON go_ueo.id_grupo_operacion   = ueo.id_grupo_operacion
 
           -- Solo equipo no liberado

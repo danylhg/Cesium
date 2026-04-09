@@ -25,7 +25,7 @@ import {
   initRoutes
 } from "./dashboard.routes.js";
 
-Cesium.Ion.defaultAccessToken = "TU_TOKEN_DE_CESIUM_ION";
+Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
@@ -79,16 +79,28 @@ function loadCurrentOperationOnMap() {
   const op = getCurrentOperation();
   dashboardState.currentOperation = op;
   if (!op || !dashboardState.viewer) return;
-  populateRouteVehicleSelect(op);
+  populateRouteVehicleSelect(op?.vehiculos || []);
   loadRouteForSelectedVehicle();
   restoreTacticalData();
 }
 
 // ── Socket.io connection ─────────────────────────────────────
-function connectSocket(opId) {
-  // window.io is provided by /socket.io/socket.io.js (loaded in HTML)
-  if (!window.io) {
-    console.warn("[SOCKET] socket.io client no disponible");
+function loadSocketIOScript() {
+  return new Promise((resolve, reject) => {
+    if (window.io) return resolve();
+    const script = document.createElement("script");
+    script.src = `${API_BASE}/socket.io/socket.io.js`;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`No se pudo cargar socket.io desde ${API_BASE}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function connectSocket(opId) {
+  try {
+    await loadSocketIOScript();
+  } catch (err) {
+    console.warn("[SOCKET] socket.io client no disponible:", err.message);
     return null;
   }
   const socket = window.io(API_BASE, { transports: ["websocket", "polling"] });
@@ -136,7 +148,7 @@ window.addEventListener("load", async () => {
   // Conectar Socket.io — chat y rutas en tiempo real
   const opId = localStorage.getItem("active_operation_id");
   if (opId) {
-    const socket = connectSocket(opId);
+    const socket = await connectSocket(opId);
     if (socket) {
       initChat(opId, socket);
       initRoutes(socket);
