@@ -40,7 +40,10 @@
       "Read(//tmp/**)",
       "Bash(node -e \"process.stdin.resume\\(\\);let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\);console.log\\('ok:',r.ok,'rol:',r.usuario?.rol,'token[0..30]:',r.token?.slice\\(0,30\\)\\);require\\('fs'\\).writeFileSync\\('/tmp/token.txt',r.token||''\\);}\\)\")",
       "Bash(node -e \"process.stdin.resume\\(\\);let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const r=JSON.parse\\(d\\);console.log\\('ok:',r.ok,'items:',r.items?.length\\);}\\)\")",
-      "Bash(grep -v \"^.*//.*BACKEND\")"
+      "Bash(grep -v \"^.*//.*BACKEND\")",
+      "Bash(Get-Content \"C:\\\\Users\\\\pedro\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-PC-Desktop-cesium-proyecto\\\\d16d4668-9d6e-4ae8-b5fd-38ce059883c4\\\\tasks\\\\b627mzs5d.output\" -Wait -Tail 30)",
+      "Bash(Select-Object -First 30)",
+      "Bash(Start-Sleep -Seconds 3)"
     ]
   }
 }

@@ -40,11 +40,9 @@ export function renderVehiculos() {
 
   const hasGroups = (ginfo.names || []).length > 0;
   if (hasGroups) {
-    if (ginfo.vehActive === undefined || (ginfo.vehActive !== null && !ginfo.names.includes(ginfo.vehActive))) {
-      ginfo.vehActive =
-        (ginfo.active && ginfo.names.includes(ginfo.active))
-          ? ginfo.active
-          : ginfo.names[0];
+    // null ("Sin grupo") es válido aunque haya grupos — no forzar a un grupo
+    if (ginfo.vehActive !== null && ginfo.vehActive !== undefined && !ginfo.names.includes(ginfo.vehActive)) {
+      ginfo.vehActive = null;
     }
   } else {
     ginfo.vehActive = null;
@@ -133,8 +131,6 @@ export function renderVehiculos() {
   const sinGrupoBtn = document.createElement("button");
   sinGrupoBtn.className = "chip" + (ginfo.vehActive === null ? " active" : "");
   sinGrupoBtn.textContent = "Sin grupo";
-  sinGrupoBtn.style.backgroundColor = ginfo.vehActive === null ? "#2563eb" : "#f1f5f9";
-  sinGrupoBtn.style.color = ginfo.vehActive === null ? "#fff" : "#1e293b";
   sinGrupoBtn.addEventListener("click", () => {
     ginfo.vehActive = null;
     state.selectedVehicle = null;
@@ -198,8 +194,9 @@ export function renderVehiculos() {
     return label;
   }
 
+  const cetKey = `${cet}`;
+
   if (!ginfo.vehActive) {
-    const cetKey = `${cet}`;
     const cetAssigned = getNombreVehiculoAsignado(cetKey);
     const cetLocked = !!cetAssigned;
 
@@ -218,7 +215,9 @@ export function renderVehiculos() {
   }
 
   if (cellsToShow.length > 0) {
-    const visibleKeys = [cetKey, ...cellsToShow.map(c => `${cet}-${c}`)];
+    const visibleKeys = ginfo.vehActive
+      ? cellsToShow.map(c => `${cet}-${c}`)
+      : [cetKey, ...cellsToShow.map(c => `${cet}-${c}`)];
     const unlockedVisible = visibleKeys.filter(k => !getNombreVehiculoAsignado(k));
 
     const allSelectedVisible =
@@ -290,10 +289,12 @@ export function renderVehiculos() {
     const used = vehCount[vehicle.name] || 0;
     const cap = Number(vehicle.capacity || 0);
     const isFull = cap > 0 && used >= cap;
+    const isEnOperacion = vehicle.status && vehicle.status !== "DISPONIBLE";
+    const isDisabled = isFull || isEnOperacion;
 
     const isSelected = state.selectedVehicle === vehicle.name;
     if (isSelected) card.classList.add("selected");
-    if (isFull) {
+    if (isDisabled) {
       card.classList.add("disabled");
       card.style.cursor = "not-allowed";
     }
@@ -310,14 +311,20 @@ export function renderVehiculos() {
     capP.style.fontWeight = "700";
     capP.style.fontSize = "12px";
     capP.style.opacity = "0.85";
-    capP.textContent = `Capacidad: ${used}/${cap || 0}`;
+
+    if (isEnOperacion) {
+      capP.textContent = "En operación";
+      capP.style.color = "#c0392b";
+    } else {
+      capP.textContent = `Capacidad: ${used}/${cap || 0}`;
+    }
 
     card.appendChild(img);
     card.appendChild(nameP);
     card.appendChild(capP);
 
     card.addEventListener("click", () => {
-      if (isFull) return;
+      if (isDisabled) return;
       state.selectedVehicle = state.selectedVehicle === vehicle.name ? null : vehicle.name;
       renderVehiculos();
     });
@@ -402,16 +409,16 @@ export function renderVehiculos() {
       const celula = parts[1] || null;
 
       if (celula) {
-        // Asignar a personal
-        const personal = state.asignacionCelulas[cet]?.find(p => p.nombre === celula);
-        if (personal) {
-          asignarVehiculo(vehObj.id, 'personal', personal.id);
+        // Asignar a personal — asignacionCelulas guarda strings, buscar id en personalMap
+        const idPersonal = state.personalMap[celula];
+        if (idPersonal) {
+          asignarVehiculo(vehObj.id, 'personal', idPersonal);
         }
       } else {
-        // Asignar a grupo del CET
-        const grupoNombre = state.gruposByCet[cet]?.active;
-        if (grupoNombre) {
-          asignarVehiculo(vehObj.id, 'grupo', null, grupoNombre);
+        // CET sin grupo — asignar directamente por nombre de CET
+        const idCet = state.personalMap[cet];
+        if (idCet) {
+          asignarVehiculo(vehObj.id, 'personal', idCet);
         }
       }
     });

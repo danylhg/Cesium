@@ -69,15 +69,7 @@ export function renderEquipoAsignacion() {
     state.equipoSelectedResource = null;
     state.equipoSelectedItems = [];
     state.equipoSelectedCet = state.cetSeleccionados[0] || null;
-
-    const primerCet = state.equipoSelectedCet;
-    if (primerCet) {
-      const ginfo = state.gruposByCet[primerCet] || { names: [], map: {} };
-      state.equipoSelectedGrupo =
-        (ginfo.names && ginfo.names.length > 0) ? ginfo.names[0] : null;
-    } else {
-      state.equipoSelectedGrupo = null;
-    }
+    state.equipoSelectedGrupo = null;
 
     saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
     renderEquipoAsignacion();
@@ -149,12 +141,17 @@ export function renderEquipoAsignacion() {
 
   getList(state.equipoCategoria).forEach((eq) => {
     const eqId = eq.id;
-    const assignedTo = formatEquipoAsignado(eqId);
-    const isSelected = state.equipoSelectedItems.includes(eqId);
+    const isEnOperacion = eq.estado && eq.estado !== "DISPONIBLE";
+    const assignedInFlow = formatEquipoAsignado(eqId); // "Disponible" o destino del flujo actual
+    const isAssignedInFlow = assignedInFlow !== "Disponible";
+    const isDisabled = isEnOperacion || isAssignedInFlow;
+    const badgeText = isEnOperacion ? "En operación" : assignedInFlow;
+    const isSelected = !isDisabled && state.equipoSelectedItems.includes(eqId);
 
     const row = document.createElement("div");
     row.className = "item" + (isSelected ? " selected" : "");
-    row.style.cursor = assignedTo ? "not-allowed" : "pointer";
+    row.style.cursor = isDisabled ? "not-allowed" : "pointer";
+    if (isDisabled) row.style.opacity = "0.55";
     row.style.display = "flex";
     row.style.alignItems = "center";
     row.style.justifyContent = "space-between";
@@ -200,13 +197,17 @@ export function renderEquipoAsignacion() {
 
     const right = document.createElement("div");
     right.className = "badgeRight";
-    right.textContent = assignedTo;
+    right.textContent = badgeText;
+    if (isEnOperacion) {
+      right.style.color = "#c0392b";
+      right.style.fontWeight = "700";
+    }
 
     row.appendChild(leftWrap);
     row.appendChild(right);
 
     row.addEventListener("click", () => {
-      if (assignedTo !== "Disponible") return;
+      if (isDisabled) return;
 
       if (isSelected) {
         state.equipoSelectedItems = state.equipoSelectedItems.filter(x => x !== eqId);
@@ -247,8 +248,9 @@ export function renderEquipoAsignacion() {
         const cet = parts[0];
         const personaNombre = parts[1];
         const celulas = state.asignacionCelulas[cet] || [];
-        const persona = celulas.find(p => p.nombre === personaNombre);
-        if (persona) idPersonal = persona.id;
+        const nombreNorm = personaNombre.replace(/^CET: /, "");
+        const idFromMap = state.personalMap[nombreNorm] || state.personalMap[personaNombre];
+        if (idFromMap) idPersonal = idFromMap;
       }
     } else {
       tipoDestino = "vehiculo";
@@ -325,12 +327,8 @@ export function renderEquipoLeftPersonal() {
     chip.addEventListener("click", () => {
       state.equipoSelectedCet = cet;
       state.equipoSelectedResource = null;
-
-      const ginfo = state.gruposByCet[cet] || { names: [], map: {} };
-      state.equipoSelectedGrupo =
-        (ginfo.names && ginfo.names.length > 0) ? ginfo.names[0] : null;
-
-      saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
+      state.equipoSelectedGrupo = null;
+      saveAsignacionActual();
       renderEquipoAsignacion();
     });
 
@@ -381,8 +379,6 @@ export function renderEquipoLeftPersonal() {
   const sinGrupoBtn = document.createElement("button");
   sinGrupoBtn.className = "chip" + (state.equipoSelectedGrupo === null ? " active" : "");
   sinGrupoBtn.textContent = "Sin grupo";
-  sinGrupoBtn.style.backgroundColor = state.equipoSelectedGrupo === null ? "#2563eb" : "#f1f5f9";
-  sinGrupoBtn.style.color = state.equipoSelectedGrupo === null ? "#fff" : "#1e293b";
   sinGrupoBtn.addEventListener("click", () => {
     state.equipoSelectedGrupo = null;
     state.equipoSelectedResource = null;
@@ -392,10 +388,6 @@ export function renderEquipoLeftPersonal() {
   gruposRow.appendChild(sinGrupoBtn);
 
   box.appendChild(gruposRow);
-  
-  if (hasGroups && !state.equipoSelectedGrupo && state.equipoSelectedGrupo !== null) {
-      state.equipoSelectedGrupo = ginfo.names[0];
-  }
 
   const personasWrap = document.createElement("div");
   personasWrap.style.display = "flex";

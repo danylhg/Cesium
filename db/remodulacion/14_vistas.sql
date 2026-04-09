@@ -154,8 +154,12 @@ SELECT
   e.categoria          AS equipo_categoria,
   ueo.cantidad,
 
-  -- tipo de destino
-  ueo.tipo_destino,
+  -- tipo de destino (derivado de las columnas de contexto)
+  CASE
+    WHEN ueo.id_grupo_operacion IS NOT NULL THEN 'GRUPO'
+    WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN 'VEHICULO'
+    ELSE 'PERSONAL'
+  END AS tipo_destino,
 
   -- destino: personal
   ueo.id_personal,
@@ -164,8 +168,8 @@ SELECT
   p.nombre             AS personal_nombre,
   p.apellido           AS personal_apellido,
 
-  -- destino: vehículo
-  ueo.id_vehiculo,
+  -- destino: vehículo (contexto)
+  ueo.id_vehiculo_contexto,
   v.codigo_interno     AS vehiculo_codigo,
   v.alias              AS vehiculo_alias,
   v.tipo               AS vehiculo_tipo,
@@ -176,11 +180,10 @@ SELECT
   g.apodo              AS grupo_apodo,
 
   -- campo resuelto para UI / reportes
-  CASE ueo.tipo_destino
-    WHEN 'PERSONAL' THEN COALESCE(p.apodo, p.nombre || ' ' || p.apellido)
-    WHEN 'VEHICULO' THEN COALESCE(v.alias, v.codigo_interno)
-    WHEN 'GRUPO'    THEN COALESCE(g.apodo, g.nombre)
-    ELSE '—'
+  CASE
+    WHEN ueo.id_grupo_operacion  IS NOT NULL THEN COALESCE(g.apodo, g.nombre)
+    WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN COALESCE(v.alias, v.codigo_interno)
+    ELSE COALESCE(p.apodo, p.nombre || ' ' || p.apellido)
   END AS destino_nombre,
 
   ueo.fecha_asignacion,
@@ -189,9 +192,9 @@ SELECT
   ueo.notas
 
 FROM uso_equipo_operacion ueo
-JOIN  equipo          e ON e.id_equipo            = ueo.id_equipo
-LEFT JOIN personal    p ON p.id_personal           = ueo.id_personal
-LEFT JOIN vehiculo    v ON v.id_vehiculo            = ueo.id_vehiculo
+JOIN  equipo          e ON e.id_equipo              = ueo.id_equipo
+LEFT JOIN personal    p ON p.id_personal             = ueo.id_personal
+LEFT JOIN vehiculo    v ON v.id_vehiculo             = ueo.id_vehiculo_contexto
 LEFT JOIN grupo_operacion g ON g.id_grupo_operacion = ueo.id_grupo_operacion;
 
 -- 6) Jerarquía de mando

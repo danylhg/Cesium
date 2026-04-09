@@ -401,15 +401,6 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
       // Guarda referencia nombre -> id
       celulaGroupIds.set(nombre, id_grupo);
 
-      // También mete al CET dentro del subgrupo
-      if (isInt(id_cet)) {
-        await client.query(
-          `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por)
-           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
-          [id_grupo, id_cet, who]
-        );
-      }
-
       // Si vienen integrantes, los asigna a este subgrupo
       if (Array.isArray(integrantes)) {
         for (const id_p of integrantes) {
@@ -613,7 +604,7 @@ router.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
            WHERE vo.id_vehiculo = $1
              AND vo.estado_asignacion = 'ASIGNADO'
              AND vo.id_operacion != $2
-             AND o.estado NOT IN ('CERRADA', 'CANCELADA', 'FINALIZADA')
+             AND o.estado NOT IN ('CERRADA', 'CANCELADA')
            LIMIT 1`,
           [id_vehiculo, id_operacion]
         );
@@ -680,6 +671,7 @@ router.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
       client.release();
     }
   } catch (err) {
+    console.error("[POST /vehiculos] PG error:", err.code, err.message, err.detail, err.hint);
     return sendDbError(res, err, "Error guardando vehículos");
   }
 });

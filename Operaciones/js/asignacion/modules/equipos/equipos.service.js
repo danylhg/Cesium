@@ -22,6 +22,7 @@ export function asignarEquipo(idEquipo, tipoDestino, idPersonal = null, idVehicu
     categoria: categoria
   });
 
+  console.log("[EQUIPOS] asignacionEquipos →", JSON.stringify(state.asignacionEquipos, null, 2));
   saveAsignacionActual();
 }
 
@@ -36,6 +37,7 @@ export function removerAsignacionEquipo(idEquipo, tipoDestino, idPersonal = null
 
   if (index > -1) {
     state.asignacionEquipos.splice(index, 1);
+    console.log("[EQUIPOS] asignacionEquipos (tras remover) →", JSON.stringify(state.asignacionEquipos, null, 2));
     saveAsignacionActual();
   }
 }

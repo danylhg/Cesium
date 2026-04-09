@@ -189,6 +189,7 @@ export async function syncOperacionCompleta(idOperacion) {
     // D. Equipos
     const equiposFinal = payload.asignacionEquipos.map(e => ({
       id_equipo: e.id_equipo,
+      tipo_destino: e.tipo_destino,
       id_personal: e.id_personal || null,
       id_vehiculo: e.id_vehiculo || null,
       cantidad: 1

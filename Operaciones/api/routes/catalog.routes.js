@@ -575,7 +575,7 @@ router.post("/ops/:id/equipos", requireAuth, async (req, res) => {
           `SELECT 1 FROM uso_equipo_operacion
            WHERE id_operacion=$1 AND id_equipo=$2
            AND COALESCE(id_personal,0)=COALESCE($3,0)
-           AND COALESCE(id_vehiculo,0)=COALESCE($4,0)
+           AND COALESCE(id_vehiculo_contexto,0)=COALESCE($4,0)
            AND COALESCE(id_grupo_operacion,0)=COALESCE($5,0)
            AND fecha_devolucion IS NULL`,
           [id_operacion, id_equipo, id_personal, id_vehiculo, id_grupo_operacion]
@@ -596,7 +596,7 @@ router.post("/ops/:id/equipos", requireAuth, async (req, res) => {
            WHERE ue.id_equipo = $1
              AND ue.fecha_devolucion IS NULL
              AND ue.id_operacion != $2
-             AND o.estado NOT IN ('CERRADA', 'CANCELADA', 'FINALIZADA')`,
+             AND o.estado NOT IN ('CERRADA', 'CANCELADA')`,
           [id_equipo, id_operacion]
         );
 
@@ -608,15 +608,27 @@ router.post("/ops/:id/equipos", requireAuth, async (req, res) => {
           });
         }
 
-        // Inserta el uso real del equipo con su destino concreto
-        await client.query(
-          `INSERT INTO uso_equipo_operacion
-             (id_operacion, id_equipo, cantidad, tipo_destino, id_personal, id_vehiculo, id_grupo_operacion, asignado_por)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [id_operacion, id_equipo, cantidad, tipo_destino, id_personal, id_vehiculo, id_grupo_operacion, who]
-        );
+        // Para destino vehículo: id_personal es obligatorio (NOT NULL).
+        // Buscamos al primer custodio de ese vehículo en esta operación.
+        let id_personal_final = id_personal;
+        if (tipo_destino === "VEHICULO" && id_vehiculo && !id_personal_final) {
+          const custodio = await client.query(
+            `SELECT id_personal FROM vehiculo_operacion
+             WHERE id_operacion=$1 AND id_vehiculo=$2
+             LIMIT 1`,
+            [id_operacion, id_vehiculo]
+          );
+          if (custodio.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              ok: false,
+              mensaje: `El vehículo ${id_vehiculo} no tiene custodio asignado en esta operación`
+            });
+          }
+          id_personal_final = custodio.rows[0].id_personal;
+        }
 
-        // Inserta o acumula la reserva global del equipo en la operación
+        // Primero: reserva global del equipo en la operación (uso_equipo_operacion la referencia por FK)
         await client.query(
           `INSERT INTO operacion_equipo
              (id_operacion, id_equipo, cantidad, estado_asignacion, asignado_por)
@@ -624,6 +636,16 @@ router.post("/ops/:id/equipos", requireAuth, async (req, res) => {
            ON CONFLICT (id_operacion, id_equipo)
            DO UPDATE SET cantidad = operacion_equipo.cantidad + EXCLUDED.cantidad`,
           [id_operacion, id_equipo, cantidad, who]
+        );
+
+        // Después: uso real del equipo con su destino concreto.
+        // id_vehiculo_contexto es el vehículo cuando el destino es un vehículo.
+        // id_personal es siempre NOT NULL (custodio responsable).
+        await client.query(
+          `INSERT INTO uso_equipo_operacion
+             (id_operacion, id_equipo, cantidad, id_personal, id_vehiculo_contexto, id_grupo_operacion, asignado_por)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [id_operacion, id_equipo, cantidad, id_personal_final, id_vehiculo, id_grupo_operacion, who]
         );
       }
 

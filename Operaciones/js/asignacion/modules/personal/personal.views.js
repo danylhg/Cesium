@@ -217,9 +217,10 @@ export function pintarChipsGrupos(cet, container) {
   const hasGroups = (info.names || []).length > 0;
   if (hasGroups) {
     info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
-    if (info.active === undefined) info.active = info.names[info.idx];
+    // Solo corregir info.active si apunta a un grupo que ya no existe
+    // null ("Sin grupo") es un estado válido aunque haya grupos
     if (info.active && !info.names.includes(info.active)) {
-      info.active = info.names[info.idx];
+      info.active = null;
     }
     if (!info.vehActive) info.vehActive = info.active;
   } else {
@@ -250,8 +251,6 @@ export function pintarChipsGrupos(cet, container) {
   const sinGrupoBtn = document.createElement("button");
   sinGrupoBtn.className = "chip" + (info.active === null ? " active" : "");
   sinGrupoBtn.textContent = "Sin grupo";
-  sinGrupoBtn.style.backgroundColor = info.active === null ? "#2563eb" : "#f1f5f9";
-  sinGrupoBtn.style.color = info.active === null ? "#fff" : "#1e293b";
   
   sinGrupoBtn.addEventListener("click", () => {
     info.active = null; // Modo Mando Directo
@@ -281,9 +280,9 @@ export function renderCelulas() {
   const hasGroups = (info.names || []).length > 0;
   if (hasGroups) {
     info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
-    if (!info.active) info.active = info.names[info.idx];
+    // null ("Sin grupo") es válido aunque haya grupos — no forzar a un grupo
     if (info.active && !info.names.includes(info.active)) {
-      info.active = info.names[info.idx];
+      info.active = null;
     }
     if (!info.vehActive) info.vehActive = info.active;
   } else {
@@ -292,7 +291,7 @@ export function renderCelulas() {
     info.vehActive = null;
   }
 
-  setHeader("Células", "");
+  setHeader("Asignación de Personal", "");
 
   const lastCet = state.cetActivoIndex === state.cetSeleccionados.length - 1;
   const lastGroup = !hasGroups ? true : (info.idx === info.names.length - 1);
@@ -390,7 +389,7 @@ export function renderCelulas() {
 
   const searchInp = document.createElement("input");
   searchInp.className = "inp";
-  searchInp.placeholder = "Buscar células...";
+  searchInp.placeholder = "Buscar personal...";
   searchInp.value = state.searchByCet[cetActivo] || "";
 
   sticky.appendChild(flotillaRow);

@@ -132,22 +132,13 @@ export function buildAsignacionActual() {
   };
 }
 
-export async function saveAsignacionActual() {
-  const { syncOperacionCompleta } = await import("../operacion/operacion.service.js");
-  
+export function saveAsignacionActual() {
   const payload = buildAsignacionActual();
   writeStorage(STORAGE_ASIGNACION_ACTUAL, payload);
 
   const op = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
   if (op.id) {
     writeStorage(`asignacion_op_${op.id}`, payload);
-    
-    // BACKEND: Sincronizar con el servidor
-    try {
-      await syncOperacionCompleta(op.id);
-    } catch (err) {
-      console.error("Fallo al sincronizar asignación:", err);
-    }
   }
 
   return payload;
@@ -159,5 +150,5 @@ export async function saveOperacionYAsignacion() {
     writeStorage(`operacion_${op.id}`, op);
     // Aquí también podríamos llamar a syncOperacionCompleta(op.id) si fuera necesario
   }
-  return await saveAsignacionActual();
+  return saveAsignacionActual();
 }

@@ -36,6 +36,7 @@ export function asignarVehiculo(idVehiculo, tipoDestino, idPersonal = null, idGr
     id_grupo_operacion: idGrupoOperacion
   });
 
+  console.log("[VEHÍCULOS] asignacionVehiculos →", JSON.stringify(state.asignacionVehiculos, null, 2));
   saveAsignacionActual();
 }
 
@@ -50,28 +51,25 @@ export function removerAsignacionVehiculo(idVehiculo, tipoDestino, idPersonal = 
 
   if (index > -1) {
     state.asignacionVehiculos.splice(index, 1);
+    console.log("[VEHÍCULOS] asignacionVehiculos (tras remover) →", JSON.stringify(state.asignacionVehiculos, null, 2));
     saveAsignacionActual();
   }
 }
 
-// Obtener asignaciones por CET o célula (para compatibilidad temporal)
+// Obtener asignaciones por CET o célula
+// key formato: "NOMBRE_CET" (para el CET) o "NOMBRE_CET-NOMBRE_CELULA"
 export function getAsignacionVehiculoPorKey(key) {
-  // key puede ser "CET" o "CET-celula"
-  const parts = key.split('-');
-  const cet = parts[0];
-  const celula = parts[1] || null;
+  const separador = key.indexOf('-');
+  const cet    = separador === -1 ? key : key.slice(0, separador);
+  const celula = separador === -1 ? null : key.slice(separador + 1);
 
-  return state.asignacionVehiculos.find(a => {
-    if (celula) {
-      // Buscar por personal en célula
-      const personal = state.asignacionCelulas[cet]?.find(p => p.nombre === celula);
-      return a.tipo_destino === 'personal' && a.id_personal === personal?.id;
-    } else {
-      // Buscar por grupo del CET
-      const grupo = state.gruposByCet[cet]?.active;
-      return a.tipo_destino === 'grupo' && a.id_grupo_operacion === grupo?.id;
-    }
-  });
+  const nombre  = celula || cet;
+  const idPersonal = state.personalMap[nombre];
+  if (!idPersonal) return null;
+
+  return state.asignacionVehiculos.find(a =>
+    a.tipo_destino === 'personal' && a.id_personal === idPersonal
+  );
 }
 
 // Obtener nombre del vehículo asignado (para compatibilidad)
