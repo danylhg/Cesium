@@ -234,8 +234,17 @@ async function saveRouteToDB(start, end, route) {
     if (!data.ok) return null;
     // Marcar como "mía" para no redibujar cuando llegue el socket event
     const id_ruta = data.ruta.id_ruta;
-    _mySentRouteIds.add(id_ruta);
-    setTimeout(() => _mySentRouteIds.delete(id_ruta), 5000);
+
+    // Si el socket event ya llegó antes que esta respuesta y dibujó la ruta remota,
+    // eliminar el duplicado local. Si no llegó aún, bloquearlo cuando llegue.
+    if (dashboardState.remoteRouteEntities.has(id_ruta)) {
+      removeEntity(dashboardState.routeEntity);
+      dashboardState.routeEntity = null;
+    } else {
+      _mySentRouteIds.add(id_ruta);
+      setTimeout(() => _mySentRouteIds.delete(id_ruta), 5000);
+    }
+
     return id_ruta;
   } catch (err) {
     console.error("[RUTAS] Error guardando ruta:", err);
@@ -283,11 +292,19 @@ export async function autoCalcRoute() {
 
     const selectedId = selectedVehicleId();
     drawSelectedRoute(route.geometry, selectedId);
-    zoomToCoords(route.geometry.coordinates);
 
     const km  = route.distance / 1000;
     const min = route.duration / 60;
     setRouteInfo(`Ruta lista. ${km.toFixed(2)} km · ${min.toFixed(1)} min`);
+
+    // Eliminar ruta previa del mismo vehículo (solo una ruta por vehículo/global)
+    dashboardState.remoteRouteEntities.forEach((entry, id_ruta_prev) => {
+      const rutaVehId = entry.ruta.id_vehiculo != null ? String(entry.ruta.id_vehiculo) : "global";
+      if (rutaVehId === selectedId) {
+        deleteRoutFromDB(id_ruta_prev);
+        removeRemoteRoute(id_ruta_prev);
+      }
+    });
 
     // Guardar en DB (el socket event llegará al room; yo ya la dibujé)
     const id_ruta = await saveRouteToDB(dashboardState.startPoint, dashboardState.endPoint, route);
@@ -388,12 +405,19 @@ export function applyRouteFilter(vehiculoIdStr) {
 }
 
 export function selectRemoteRoute(id_ruta) {
-  dashboardState.selectedRemoteRouteId = id_ruta;
   const vehiculoIdStr = document.getElementById("routeVehicleSelect")?.value || "global";
-  applyRouteFilter(vehiculoIdStr);
-  if (id_ruta) {
-    setRouteInfo(`Ruta seleccionada. Pulsa "Limpiar ruta" para eliminarla del mapa y la base de datos.`);
+
+  // Toggle: si ya está seleccionada, deseleccionar
+  if (dashboardState.selectedRemoteRouteId === id_ruta) {
+    dashboardState.selectedRemoteRouteId = null;
+    applyRouteFilter(vehiculoIdStr);
+    setRouteInfo("");
+    return;
   }
+
+  dashboardState.selectedRemoteRouteId = id_ruta;
+  applyRouteFilter(vehiculoIdStr);
+  setRouteInfo(`Ruta seleccionada. Pulsa "Limpiar ruta" para eliminarla del mapa y la base de datos.`);
 }
 
 // ── Inicialización con Socket.io ──────────────────────────────

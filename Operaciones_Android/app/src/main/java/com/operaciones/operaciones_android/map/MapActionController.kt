@@ -4,6 +4,7 @@ import androidx.appcompat.app.AlertDialog
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.MessageType
 import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.model.UserRole
 import com.operaciones.operaciones_android.webview.CesiumWebController
 
 class MapActionController(
@@ -27,17 +28,19 @@ class MapActionController(
 
         val actions = mutableListOf<Pair<String, () -> Unit>>()
 
-        actions += "🟢 Usar como origen de ruta" to {
-            cesiumWebController.setRouteStart(lat, lon)
-        }
+        if (currentUser.rol == UserRole.CET) {
+            actions += "🟢 Usar como origen de ruta" to {
+                cesiumWebController.setRouteStart(lat, lon)
+            }
 
-        actions += "🟡 Usar como destino de ruta" to {
-            cesiumWebController.setRouteEnd(lat, lon)
-        }
+            actions += "🟡 Usar como destino de ruta" to {
+                cesiumWebController.setRouteEnd(lat, lon)
+            }
 
-        actions += "🧹 Limpiar ruta" to {
-            cesiumWebController.clearRoute()
-            (host as? com.operaciones.operaciones_android.ui.MainActivity)?.sendClearRouteToBackend()
+            actions += "🧹 Limpiar ruta" to {
+                cesiumWebController.clearRoute()
+                (host as? com.operaciones.operaciones_android.ui.MainActivity)?.sendClearRouteToBackend()
+            }
         }
 
         actions += "📍 Punto de interés" to {

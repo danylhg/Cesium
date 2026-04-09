@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS ruta_navegacion (
 
   id_usuario  INTEGER REFERENCES usuario(id_usuario) ON DELETE SET NULL,
   id_personal INTEGER REFERENCES personal(id_personal) ON DELETE SET NULL,
+  id_vehiculo INTEGER REFERENCES vehiculo(id_vehiculo) ON DELETE SET NULL,
 
   activo BOOLEAN NOT NULL DEFAULT true,
   fecha_eliminacion TIMESTAMP NULL,
