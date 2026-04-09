@@ -8,7 +8,9 @@
       "Bash(PGPASSWORD='pollito' psql -U postgres -d ops_db -p 5433 -P pager=off -c \"SELECT prosrc FROM pg_proc WHERE proname = 'fn_rangos_conflictivos';\")",
       "Bash(PGPASSWORD='pollito' psql -U postgres -d ops_db -p 5433 -P pager=off -c \"SELECT enumlabel FROM pg_enum WHERE enumtypid = 'estado_operacion_enum'::regtype ORDER BY enumsortorder;\")",
       "Bash(PGPASSWORD='pollito' psql -U postgres -d ops_db -p 5433 -P pager=off -c \"\\\\d uso_equipo_operacion\")",
-      "Bash(psql -U postgres -d ops_db -p 5433 -P pager=off -c ':*)"
+      "Bash(psql -U postgres -d ops_db -p 5433 -P pager=off -c ':*)",
+      "Bash(grep -E \"\\\\.\\(sql|js\\)$\")",
+      "Bash(find \"/c/Users/PC/Desktop/cesium-proyecto\" -type f \\\\\\( -name \"*.sql\" -o -name \"*.js\" \\\\\\) -exec grep -l \"ruta_navegacion\" {} \\\\;)"
     ]
   }
 }

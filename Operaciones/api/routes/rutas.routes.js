@@ -200,6 +200,36 @@ router.patch("/ops/:id/rutas/:id_ruta/estado", requireAuth, async (req, res) => 
 
 
 // =========================================================
+// GET /ops/:id/rutas/navegacion
+// Devuelve todas las rutas de navegación activas de la operación.
+// =========================================================
+router.get("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT r.id_ruta, r.id_operacion, r.geojson,
+              r.origen_lat, r.origen_lon, r.destino_lat, r.destino_lon,
+              r.distancia_m, r.duracion_s,
+              r.created_by_tipo, r.id_usuario, r.id_personal,
+              r.fecha_creacion,
+              COALESCE(u.nombre || ' ' || u.apellido, p.nombre || ' ' || p.apellido, 'Sistema') AS creador_nombre
+       FROM ruta_navegacion r
+       LEFT JOIN usuario  u ON u.id_usuario  = r.id_usuario
+       LEFT JOIN personal p ON p.id_personal = r.id_personal
+       WHERE r.id_operacion = $1 AND r.activo = true
+       ORDER BY r.fecha_creacion ASC`,
+      [id_operacion]
+    );
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo rutas de navegación");
+  }
+});
+
+
+// =========================================================
 // POST /ops/:id/rutas/navegacion
 // Qué hace:
 //   Registra una ruta de navegación real dentro de una operación.

@@ -35,5 +35,10 @@ export const dashboardState = {
 
   currentChatChannel: "cet",
   mediaRecorder: null,
-  audioChunks: []
+  audioChunks: [],
+
+  // Rutas en tiempo real
+  lastRouteId: null,           // id_ruta guardado en DB para la ruta activa del selector
+  remoteRouteEntities: new Map(), // id_ruta → [cesiumEntity, ...]
+  trackingEntities: new Map()     // "P:id_personal" | "V:id_vehiculo" → cesiumEntity
 };

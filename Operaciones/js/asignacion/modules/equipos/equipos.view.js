@@ -138,14 +138,20 @@ export function renderEquipoAsignacion() {
   eqWrap.style.gap = "10px";
 
   const bucket = getBucket(state.equipoCategoria);
+  console.log("[EQUIPOS VIEW] asignacionEquipos en state:", JSON.stringify(state.asignacionEquipos, null, 2));
 
   getList(state.equipoCategoria).forEach((eq) => {
     const eqId = eq.id;
-    const isEnOperacion = eq.estado && eq.estado !== "DISPONIBLE";
-    const assignedInFlow = formatEquipoAsignado(eqId); // "Disponible" o destino del flujo actual
-    const isAssignedInFlow = assignedInFlow !== "Disponible";
-    const isDisabled = isEnOperacion || isAssignedInFlow;
-    const badgeText = isEnOperacion ? "En operación" : assignedInFlow;
+    // ¿Tiene registro en el flujo de ESTA operación?
+    const asigActual = state.asignacionEquipos.find(a => a.id_equipo === eqId);
+    const assignedInFlow = formatEquipoAsignado(eqId);
+    const isAssignedInFlow = !!asigActual;
+    // Si NO está en esta op pero el catálogo lo marca como no disponible → otra operación
+    const isEnOtraOperacion = !isAssignedInFlow && eq.estado && eq.estado !== "DISPONIBLE";
+    const isDisabled = isAssignedInFlow || isEnOtraOperacion;
+    const badgeText = isAssignedInFlow
+      ? assignedInFlow
+      : (isEnOtraOperacion ? "En otra operación" : "Disponible");
     const isSelected = !isDisabled && state.equipoSelectedItems.includes(eqId);
 
     const row = document.createElement("div");
@@ -198,7 +204,7 @@ export function renderEquipoAsignacion() {
     const right = document.createElement("div");
     right.className = "badgeRight";
     right.textContent = badgeText;
-    if (isEnOperacion) {
+    if (isEnOtraOperacion) {
       right.style.color = "#c0392b";
       right.style.fontWeight = "700";
     }

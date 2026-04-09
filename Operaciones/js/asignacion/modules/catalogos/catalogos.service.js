@@ -1,5 +1,6 @@
 import { state } from "../../core/state.js";
 import { formatPuesto, normalizeEquipoCategoria, generateUUID } from "../../core/utils.js";
+import { DEFAULT_GROUP_INFO } from "../../core/constants.js";
 
 // 1. Configuramos la base de la API igual que en tu control_personal.js
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
@@ -115,4 +116,128 @@ export async function hydrateCatalogsFromControl() {
     state.tacticalEquipmentList = equipos.filter(x => x.tipo === "tactico");
     state.communicationEquipmentList = equipos.filter(x => x.tipo === "comunicacion");
   }
+}
+
+// Construye el nombre formateado igual que mapPersonal (puesto + nombre + apellido)
+function buildNombre(row) {
+  let base = `${row.nombre ?? ""} ${row.apellido ?? ""}`.trim();
+  if (row.puesto) {
+    const prefijo = formatPuesto(row.puesto.trim());
+    if (prefijo) base = `${prefijo} ${base}`.trim();
+  }
+  return base;
+}
+
+/**
+ * Hidrata el state con la asignación ya guardada en BD para una operación existente.
+ * Se llama cuando entry === "edit", después de hydrateCatalogsFromControl().
+ */
+export async function hydrateAsignacionFromBD(idOperacion) {
+  const [personalRows, vehiculosRows, equiposRows] = await Promise.all([
+    apiFetch(`/ops/${idOperacion}/personal`),
+    apiFetch(`/ops/${idOperacion}/vehiculos-asignados`),
+    apiFetch(`/ops/${idOperacion}/equipos-asignados`)
+  ]);
+
+  console.log("[HYDRATE] personal rows →", personalRows);
+  console.log("[HYDRATE] vehiculos rows →", vehiculosRows);
+  console.log("[HYDRATE] equipos rows →", equiposRows);
+
+  // ── 1. PERSONAL ───────────────────────────────────────────────────────────
+  // Deduplicar por id_personal (LEFT JOINs pueden duplicar)
+  const seen = new Set();
+  const personal = personalRows.filter(r => {
+    if (seen.has(r.id_personal)) return false;
+    seen.add(r.id_personal);
+    return true;
+  });
+
+  // CUT
+  const cutRow = personal.find(r => r.rol_en_operacion === "CUT");
+  if (cutRow) state.cutSeleccionado = buildNombre(cutRow);
+
+  // CETs (en orden)
+  const cetRows = personal.filter(r => r.rol_en_operacion === "CET");
+  state.cetSeleccionados = cetRows.map(r => buildNombre(r));
+
+  // Flotilla por CET
+  cetRows.forEach(r => {
+    const cetNombre = buildNombre(r);
+    if (r.cet_flotilla) state.flotillaByCet[cetNombre] = r.cet_flotilla;
+  });
+
+  // CELLS agrupadas por CET + reconstrucción de gruposByCet
+  const cellRows = personal.filter(r => r.rol_en_operacion === "CELL");
+
+  state.cetSeleccionados.forEach(cetNombre => {
+    // Obtener id del CET para comparar con id_cet_ref
+    const idCet = state.personalMap[cetNombre];
+    const misCells = cellRows.filter(r => r.id_cet_ref === idCet);
+
+    // asignacionCelulas: array de nombres de células
+    state.asignacionCelulas[cetNombre] = misCells.map(r => buildNombre(r));
+
+    // gruposByCet: reconstruir grupos (subgrupos nombrados)
+    if (!state.gruposByCet[cetNombre]) {
+      state.gruposByCet[cetNombre] = structuredClone(DEFAULT_GROUP_INFO);
+    }
+    const ginfo = state.gruposByCet[cetNombre];
+
+    misCells.forEach(r => {
+      const cellNombre = buildNombre(r);
+      const grupoNombre = r.grupo_hijo_nombre; // null si está en mando directo
+
+      if (grupoNombre) {
+        if (!ginfo.names.includes(grupoNombre)) {
+          ginfo.names.push(grupoNombre);
+          ginfo.map[grupoNombre] = new Set();
+        }
+        ginfo.map[grupoNombre].add(cellNombre);
+      }
+      // Si grupoNombre es null → va a "sin grupo" (mando directo), no se agrega a ningún subgrupo
+    });
+  });
+
+  console.log("[HYDRATE] cutSeleccionado →", state.cutSeleccionado);
+  console.log("[HYDRATE] cetSeleccionados →", state.cetSeleccionados);
+  console.log("[HYDRATE] flotillaByCet →", state.flotillaByCet);
+  console.log("[HYDRATE] asignacionCelulas →", JSON.stringify(state.asignacionCelulas, null, 2));
+  console.log("[HYDRATE] gruposByCet →", JSON.stringify(
+    Object.fromEntries(Object.entries(state.gruposByCet).map(([k, v]) => [k, {
+      names: v.names,
+      map: Object.fromEntries(Object.entries(v.map).map(([g, s]) => [g, [...s]]))
+    }])),
+    null, 2
+  ));
+
+  // ── 2. VEHÍCULOS ─────────────────────────────────────────────────────────
+  // Cada fila = un par (id_vehiculo, id_personal)
+  state.asignacionVehiculos = vehiculosRows
+    .filter(r => r.id_vehiculo && r.id_personal)
+    .map(r => ({
+      id_vehiculo: r.id_vehiculo,
+      tipo_destino: "personal",
+      id_personal: r.id_personal,
+      id_grupo_operacion: r.id_grupo_operacion ?? null
+    }));
+
+  console.log("[HYDRATE] asignacionVehiculos →", JSON.stringify(state.asignacionVehiculos, null, 2));
+
+  // ── 3. EQUIPOS ───────────────────────────────────────────────────────────
+  state.asignacionEquipos = equiposRows
+    .filter(r => r.ueo_id_personal != null)
+    .map(r => {
+      const tipoDestino = (r.tipo_destino || "PERSONAL").toLowerCase();
+      const categoria = normalizeEquipoCategoria(r.categoria);
+      return {
+        id_equipo: r.id_equipo,
+        tipo_destino: tipoDestino,
+        id_personal: tipoDestino === "personal" ? r.ueo_id_personal : null,
+        id_vehiculo: tipoDestino === "vehiculo"  ? r.id_vehiculo_contexto : null,
+        categoria
+      };
+    });
+
+  console.log("[HYDRATE] asignacionEquipos →", JSON.stringify(state.asignacionEquipos, null, 2));
+  console.log("[HYDRATE] ✓ hidratación completa para operación", idOperacion);
 }

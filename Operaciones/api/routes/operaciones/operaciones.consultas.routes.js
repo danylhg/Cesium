@@ -323,68 +323,44 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         v.codigo_interno,
         v.tipo,
         v.alias,
+        v.estado,
 
-        -- Datos de asignación a la operación
-        vo.uso_en_operacion,
+        -- Custodio de esta fila (id_personal NOT NULL en vehiculo_operacion)
+        vo.id_personal,
+        per.nombre      AS personal_nombre,
+        per.apellido    AS personal_apellido,
+        per.puesto      AS personal_puesto,
+        aop.rol_en_operacion AS personal_rol,
+
+        -- Datos de asignación
+        vo.nivel_asignacion,
         vo.estado_asignacion,
-        vo.tipo_destino,
+        vo.id_grupo_operacion,
 
-        -- Si el vehículo está ligado a uno o más grupos, concatena nombres
-        STRING_AGG(DISTINCT go.nombre, ', ') AS grupo_nombre,
-        STRING_AGG(DISTINCT go.apodo, ', ') AS grupo_apodo,
-
-        -- Nombre del grupo padre (por ejemplo flotilla) si existe
-        STRING_AGG(DISTINCT gp_padre.nombre, ', ') AS grupo_padre_nombre,
+        -- Grupo del vehículo si aplica
+        go.nombre AS grupo_nombre,
+        gp_padre.nombre AS grupo_padre_nombre,
 
         -- Última posición conocida del vehículo
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
       FROM vehiculo_operacion vo
-
-      -- Datos base del vehículo
-      JOIN vehiculo v
-        ON v.id_vehiculo = vo.id_vehiculo
-
-      -- Relación vehículo <-> grupo dentro de la operación
+      JOIN vehiculo v   ON v.id_vehiculo  = vo.id_vehiculo
+      JOIN personal per ON per.id_personal = vo.id_personal
+      LEFT JOIN asignacion_operacion_personal aop
+        ON aop.id_personal = vo.id_personal AND aop.id_operacion = vo.id_operacion
       LEFT JOIN grupo_vehiculo gv
-        ON gv.id_vehiculo = v.id_vehiculo
-       AND gv.id_operacion = vo.id_operacion
-
-      -- Grupo del vehículo
+        ON gv.id_vehiculo = v.id_vehiculo AND gv.id_operacion = vo.id_operacion
       LEFT JOIN grupo_operacion go
         ON go.id_grupo_operacion = gv.id_grupo_operacion
-
-      -- Grupo padre del grupo del vehículo
       LEFT JOIN grupo_operacion gp_padre
         ON gp_padre.id_grupo_operacion = go.id_grupo_padre
-
-      -- Última posición conocida desde tracking
       LEFT JOIN v_ultima_posicion_vehiculo t
-        ON t.id_vehiculo = vo.id_vehiculo
-       AND t.id_operacion = vo.id_operacion
-
-      -- Solo vehículos de la operación y no liberados
+        ON t.id_vehiculo = vo.id_vehiculo AND t.id_operacion = vo.id_operacion
       WHERE vo.id_operacion = $1
         AND vo.estado_asignacion != 'LIBERADO'
-
-      -- Agrupa para poder usar STRING_AGG
-      GROUP BY
-        v.id_vehiculo,
-        v.codigo_interno,
-        v.tipo,
-        v.alias,
-        vo.uso_en_operacion,
-        vo.estado_asignacion,
-        vo.tipo_destino,
-        t.latitud,
-        t.longitud,
-        t.ultima_actualizacion
-
-      -- Orden amigable por tipo y código
-      ORDER BY
-        v.tipo,
-        v.codigo_interno
+      ORDER BY v.tipo, v.codigo_interno, per.nombre
       `,
       [id_operacion]
     );
@@ -442,33 +418,41 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
         -- Imagen: si es comunicación toma ec, si es táctico toma et
         COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
 
-        -- Tipo de destino actual resuelto desde uso_equipo_operacion
-        ueo.tipo_destino,
+        -- Custodio directo del equipo (siempre presente)
+        ueo.id_personal AS ueo_id_personal,
+        ueo.id_vehiculo_contexto,
+        ueo.id_grupo_operacion AS ueo_id_grupo_operacion,
+
+        -- Tipo de destino derivado (NULL si no hay registro en uso_equipo_operacion)
+        CASE
+          WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN 'VEHICULO'
+          WHEN ueo.id_grupo_operacion   IS NOT NULL THEN 'GRUPO'
+          WHEN ueo.id_personal          IS NOT NULL THEN 'PERSONAL'
+          ELSE NULL
+        END AS tipo_destino,
 
         -- Si el destino es PERSONAL, devuelve apodo o nombre completo
-        CASE ueo.tipo_destino
-          WHEN 'PERSONAL' THEN COALESCE(
-                                p_ueo.apodo,
-                                NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), '')
-                              )
+        CASE
+          WHEN ueo.id_vehiculo_contexto IS NULL AND ueo.id_grupo_operacion IS NULL
+          THEN COALESCE(p_ueo.apodo, NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), ''))
           ELSE NULL
         END AS asignado_a_personal,
 
         -- Si el destino es VEHICULO, devuelve su código interno
-        CASE ueo.tipo_destino
-          WHEN 'VEHICULO' THEN v_ueo.codigo_interno
+        CASE
+          WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN v_ueo.codigo_interno
           ELSE NULL
         END AS asignado_a_vehiculo,
 
         -- Si el destino es VEHICULO, también devuelve alias del vehículo
-        CASE ueo.tipo_destino
-          WHEN 'VEHICULO' THEN v_ueo.alias
+        CASE
+          WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN v_ueo.alias
           ELSE NULL
         END AS vehiculo_alias,
 
         -- Si el destino es GRUPO, devuelve nombre del grupo
-        CASE ueo.tipo_destino
-          WHEN 'GRUPO' THEN go_ueo.nombre
+        CASE
+          WHEN ueo.id_grupo_operacion IS NOT NULL THEN go_ueo.nombre
           ELSE NULL
         END AS grupo_asignado
       FROM operacion_equipo oe
@@ -493,7 +477,7 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
       LEFT JOIN personal        p_ueo  ON p_ueo.id_personal        = ueo.id_personal
 
       -- Si el destino es vehículo
-      LEFT JOIN vehiculo        v_ueo  ON v_ueo.id_vehiculo        = ueo.id_vehiculo
+      LEFT JOIN vehiculo        v_ueo  ON v_ueo.id_vehiculo        = ueo.id_vehiculo_contexto
 
       -- Si el destino es grupo
       LEFT JOIN grupo_operacion go_ueo ON go_ueo.id_grupo_operacion = ueo.id_grupo_operacion

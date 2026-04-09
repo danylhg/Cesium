@@ -10,7 +10,7 @@ import {
 } from "./core/dom.js";
 
 import { state } from "./core/state.js";
-import { readObjectStorage } from "./core/storage.js";
+import { readObjectStorage, writeStorage } from "./core/storage.js";
 import {
   STORAGE_OPERACION_ACTUAL,
   STORAGE_ASIGNACION_ACTUAL
@@ -21,10 +21,11 @@ import { showDashboardButton } from "./core/ui.js";
 
 import {
   saveOperacionActual,
-  loadOperacionActualIntoForm
+  loadOperacionActualIntoForm,
+  cargarOperacionRemota
 } from "./modules/operacion/operacion.service.js";
 
-import { hydrateCatalogsFromControl } from "./modules/catalogos/catalogos.service.js";
+import { hydrateCatalogsFromControl, hydrateAsignacionFromBD } from "./modules/catalogos/catalogos.service.js";
 import { bindNavigation } from "./modules/navigation/asignacion.navigation.js";
 import { renderHome } from "./views/home.view.js";
 
@@ -157,9 +158,31 @@ async function init() {
 
   let storedOp = {};
   if (entry === "edit") {
-    // Solo carga los datos del formulario; no restaura asignaciones desde localStorage
-    loadOperacionActualIntoForm();
-    storedOp = { id: localStorage.getItem("active_operation_id") };
+    const opId = localStorage.getItem("active_operation_id");
+    storedOp = { id: opId };
+
+    if (opId) {
+      // Cargar operación desde BD y normalizar keys para el formulario
+      const opData = await cargarOperacionRemota(opId);
+      if (opData) {
+        const opNorm = {
+          id: opData.id_operacion,
+          title: opData.nombre,
+          titulo: opData.nombre,
+          description: opData.descripcion,
+          descripcion: opData.descripcion,
+          fecha_inicio: opData.fecha_inicio ? opData.fecha_inicio.split("T")[0] : "",
+          prioridad: opData.prioridad,
+          estado: opData.estado
+        };
+        writeStorage(STORAGE_OPERACION_ACTUAL, opNorm);
+        storedOp = opNorm;
+      }
+      loadOperacionActualIntoForm();
+      await hydrateAsignacionFromBD(Number(opId));
+    } else {
+      loadOperacionActualIntoForm();
+    }
   } else {
     storedOp = restoreSavedState();
     loadOperacionActualIntoForm();

@@ -14,7 +14,8 @@ import { cartesianToLatLng } from "./dashboard.persistence.js";
 import {
   persistRouteDataToCurrentOperation,
   autoCalcRoute,
-  loadRouteForSelectedVehicle
+  loadRouteForSelectedVehicle,
+  clearRoute
 } from "./dashboard.routes.js";
 
 const providers = {
@@ -422,27 +423,8 @@ function bindMapUiEvents() {
   const clearRouteBtn = document.getElementById("clearRoute");
   if (clearRouteBtn) {
     clearRouteBtn.onclick = () => {
-      const viewer = dashboardState.viewer;
-
-      dashboardState.lastRoute = null;
-      dashboardState.startPoint = null;
-      dashboardState.endPoint = null;
       dashboardState.pickMode = null;
-
-      if (dashboardState.routeEntity && viewer) viewer.entities.remove(dashboardState.routeEntity);
-      if (dashboardState.startEntity && viewer) viewer.entities.remove(dashboardState.startEntity);
-      if (dashboardState.endEntity && viewer) viewer.entities.remove(dashboardState.endEntity);
-
-      dashboardState.routeEntity = null;
-      dashboardState.startEntity = null;
-      dashboardState.endEntity = null;
-
-      if (dom.opLat) dom.opLat.value = "";
-      if (dom.opLng) dom.opLng.value = "";
-
-      persistRouteDataToCurrentOperation();
-
-      setRouteInfo("Ruta y puntos limpiados.");
+      clearRoute(); // elimina de DB + limpia mapa
     };
   }
 

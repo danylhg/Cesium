@@ -62,57 +62,134 @@ export function togglePanel(panel, button) {
   }
 }
 
-export function renderInfoPanel() {
+// bdData puede venir del backend: { operacion, personal, vehiculos, equipos }
+export function renderInfoPanel(bdData = null) {
   const container = document.getElementById("infoPanelContent");
   if (!container) return;
 
-  const operacion = getCurrentOperation();
-  const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
+  const operacion = bdData?.operacion ?? getCurrentOperation();
 
-  const personal = Array.isArray(asignacion.personal) && asignacion.personal.length
-    ? asignacion.personal
-    : (Array.isArray(operacion.personal) ? operacion.personal : []);
-
-  const vehiculos = Array.isArray(asignacion.vehiculos) && asignacion.vehiculos.length
-    ? asignacion.vehiculos
-    : (Array.isArray(operacion.vehiculos) ? operacion.vehiculos : []);
-
-  const equipos = Array.isArray(asignacion.equipos) && asignacion.equipos.length
-    ? asignacion.equipos
-    : (Array.isArray(operacion.equipos) ? operacion.equipos : []);
+  // Si hay datos del backend los usamos directamente, sino fallback a localStorage
+  let personal, vehiculos, equipos;
+  if (bdData) {
+    personal = bdData.personal || [];
+    vehiculos = bdData.vehiculos || [];
+    equipos   = bdData.equipos  || [];
+  } else {
+    const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
+    personal = Array.isArray(asignacion.personal) && asignacion.personal.length
+      ? asignacion.personal
+      : (Array.isArray(operacion.personal) ? operacion.personal : []);
+    vehiculos = Array.isArray(asignacion.vehiculos) && asignacion.vehiculos.length
+      ? asignacion.vehiculos
+      : (Array.isArray(operacion.vehiculos) ? operacion.vehiculos : []);
+    equipos = Array.isArray(asignacion.equipos) && asignacion.equipos.length
+      ? asignacion.equipos
+      : (Array.isArray(operacion.equipos) ? operacion.equipos : []);
+  }
 
   const esActiva = (operacion.phase || operacion.estado?.toLowerCase()) === "activa";
 
-  const titulo = operacion.title || operacion.titulo || operacion.name || "Sin título";
-  const descripcion = operacion.description || operacion.descripcion || "Sin descripción";
+  const titulo = operacion.nombre || operacion.title || operacion.titulo || operacion.name || "Sin título";
+  const descripcion = operacion.descripcion || operacion.description || operacion.desc || "Sin descripción";
   const programada = getOperationDateTime(operacion);
 
   let fechaP = "No definida";
+  let horaP = operacion.hora_inicio || "No definida";
+
   if (operacion.fecha_inicio) {
-    const parts = operacion.fecha_inicio.split("-");
-    if (parts.length === 3) {
-      fechaP = `${parts[2]}-${parts[1]}-${parts[0]}`;
+    const d = new Date(operacion.fecha_inicio);
+    if (!isNaN(d)) {
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const yyyy = d.getUTCFullYear();
+      fechaP = `${dd}-${mm}-${yyyy}`;
+      // Extraer hora del ISO si no viene separada
+      if (horaP === "No definida") {
+        const hh = String(d.getUTCHours()).padStart(2, "0");
+        const min = String(d.getUTCMinutes()).padStart(2, "0");
+        if (hh !== "00" || min !== "00") horaP = `${hh}:${min}`;
+      }
     } else {
       fechaP = operacion.fecha_inicio;
     }
   } else if (programada) {
-    fechaP = programada
-      .toLocaleDateString("es-ES", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric"
-      })
-      .replace(/\//g, "-");
+    fechaP = programada.toLocaleDateString("es-ES", {
+      day: "2-digit", month: "2-digit", year: "numeric"
+    }).replace(/\//g, "-");
   }
 
-  const horaP = operacion.hora_inicio || (programada ? programada.toLocaleTimeString() : "No definida");
-  const fecha = formatDate(operacion.created_at);
+  const fecha = formatDate(operacion.fecha_creacion || operacion.created_at);
+
+  // Normalizar personal: el backend devuelve rol_en_operacion, nombre, apellido, etc.
+  // El localStorage devuelve cargo, nombre (ya formateado), cet, grupo, flotilla.
+  const personalNorm = personal.map(p => {
+    if (p.rol_en_operacion) {
+      // Viene del backend — cet_nombre ya es string "Nombre Apellido"
+      const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ");
+      return {
+        cargo: p.rol_en_operacion,
+        nombre,
+        cet: p.cet_nombre || "",   // string directo, no objeto
+        grupo: p.grupo_hijo_nombre || "",
+        flotilla: p.cet_flotilla || ""
+      };
+    }
+    return p; // Ya está normalizado (localStorage)
+  });
+
+  // Normalizar vehiculos del backend
+  const vehiculosNorm = vehiculos.map(v => {
+    if (v.codigo_interno !== undefined && !v.unidad) {
+      // Viene del backend — agrupar por vehículo
+      return {
+        unidad: [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno,
+        nombre: [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno,
+        cet: v.personal_rol === "CET" ? [v.personal_nombre, v.personal_apellido].filter(Boolean).join(" ") : "",
+        flotilla: "",
+        grupo: v.grupo_nombre || ""
+      };
+    }
+    return v;
+  });
+
+  // Deduplicar vehículos (múltiples custodios → un solo card por vehículo)
+  const vehiculosDedup = [];
+  const vehSeen = new Set();
+  for (const v of vehiculosNorm) {
+    const key = v.unidad || v.nombre;
+    if (!vehSeen.has(key)) {
+      vehSeen.add(key);
+      vehiculosDedup.push(v);
+    }
+  }
+
+  // Normalizar equipos del backend
+  const equiposNorm = equipos.map(e => {
+    if (e.numero_serie !== undefined && !e.nombre_display) {
+      let destino = "";
+      if (e.tipo_destino === "VEHICULO") {
+        destino = [e.vehiculo_alias, e.asignado_a_vehiculo].filter(Boolean).join(" ") || "";
+      } else if (e.tipo_destino === "PERSONAL" && e.asignado_a_personal) {
+        destino = e.asignado_a_personal;
+      } else if (e.tipo_destino === "GRUPO" && e.grupo_asignado) {
+        destino = e.grupo_asignado;
+      }
+      // tipo_destino NULL → sin registro de uso, sin asignación
+      return {
+        nombre: e.nombre,
+        asignadoA: destino,
+        vehiculo: e.tipo_destino === "VEHICULO" ? destino : ""
+      };
+    }
+    return e;
+  });
 
   let personalHtml = "<p>Sin personal asignado.</p>";
-  if (personal.length) {
+  if (personalNorm.length) {
     personalHtml = "";
 
-    const cuts = personal.filter(
+    const cuts = personalNorm.filter(
       p => ["CUT", "Comandante de Unidad de Trabajo"].includes(p.cargo || p.rol)
     );
 
@@ -124,14 +201,14 @@ export function renderInfoPanel() {
       `;
     });
 
-    const cets = personal.filter(
+    const cets = personalNorm.filter(
       p => ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
     );
 
     cets.forEach(cet => {
-      const miembros = personal.filter(
+      const miembros = personalNorm.filter(
         p =>
-          ["Célula", "Celulas", "Células"].includes(p.cargo || p.rol) &&
+          ["Célula", "CELL", "Celulas", "Células"].includes(p.cargo || p.rol) &&
           (p.cet === cet.nombre || p.cet === cet.name)
       );
 
@@ -180,8 +257,8 @@ export function renderInfoPanel() {
   }
 
   let vehiculosHtml = "<p>Sin vehículos asignados.</p>";
-  if (vehiculos.length) {
-    vehiculosHtml = vehiculos.map(v => {
+  if (vehiculosDedup.length) {
+    vehiculosHtml = vehiculosDedup.map(v => {
       const uName = v.unidad || v.nombre || v.alias || "";
       const lines = [];
 
@@ -203,15 +280,13 @@ export function renderInfoPanel() {
   }
 
   let equiposHtml = "<p>Sin equipos asignados.</p>";
-  if (equipos.length) {
-    equiposHtml = equipos.map(e => {
+  if (equiposNorm.length) {
+    equiposHtml = equiposNorm.map(e => {
       const target = e.vehiculo || e.asignadoA || e.destino || "";
-      const isVehiculo = vehiculos.some(v =>
-        [v.unidad, v.nombre, v.alias].includes(target)
-      );
+      const isVehiculo = !!e.vehiculo;
 
       const destinoText = target
-        ? (isVehiculo ? `Asignado a: ${target}` : `Personal: ${target}`)
+        ? (isVehiculo ? `Vehículo: ${target}` : `Personal: ${target}`)
         : "Sin asignación";
 
       return `
@@ -255,13 +330,15 @@ export function renderInfoPanel() {
   const editBtn = document.getElementById("editOpInfoBtn");
   if (editBtn) {
     editBtn.addEventListener("click", () => {
+      const op = getCurrentOperation();
+      if (op?.id) localStorage.setItem("active_operation_id", op.id);
       sessionStorage.setItem("asignacion_entry", "edit");
       window.location.href = "asignacion.html";
     });
   }
 }
 
-export function updateChatAvailability(pushChatMessage) {
+export function updateChatAvailability() {
   const op = getCurrentOperation();
   const phase = op.phase;
   const active = phase === "activa";
@@ -283,25 +360,6 @@ export function updateChatAvailability(pushChatMessage) {
   if (!active) {
     dom.chatPanel?.classList.remove("open");
     dom.toggleChatPanel?.classList.remove("active");
-  } else {
-    const chatKey = `chat_started_${op.id || "op"}`;
-    if (!localStorage.getItem(chatKey)) {
-      localStorage.setItem(chatKey, "true");
-      dom.chatPanel?.classList.add("open");
-      dom.toggleChatPanel?.classList.add("active");
-
-      if (typeof pushChatMessage === "function") {
-        const opNombre = op.title || op.titulo || "Operación";
-        const hora = new Date().toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit"
-        });
-
-        pushChatMessage({
-          text: `🟢 OPERACIÓN "${opNombre}" INICIADA a las ${hora}. Todo el personal en posición.`
-        });
-      }
-    }
   }
 
   if (dom.chatInput) dom.chatInput.disabled = !active;

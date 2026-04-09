@@ -68,19 +68,21 @@ export function getDestinoFormateado(asignacion) {
 
     if (!personaNombre) return "Personal desconocido";
 
-    // 2. Identificar el CET responsable de esa persona
-    let cetResponsable = "CET Desconocido";
+    // Si la persona es CUT
+    if (state.cutSeleccionado === personaNombre) return `CUT: ${personaNombre}`;
+
+    // Si la persona es un CET
+    if (state.cetSeleccionados.includes(personaNombre)) return `CET: ${personaNombre}`;
+
+    // Buscar el CET responsable de esa célula
     for (const cet of state.cetSeleccionados) {
       const celulas = state.asignacionCelulas[cet] || [];
-      if (celulas.includes(personaNombre) || cet === personaNombre) {
-        cetResponsable = cet;
-        break;
+      if (celulas.includes(personaNombre)) {
+        return `${cet} - ${personaNombre}`;
       }
     }
 
-    // Si la persona es el mismo CET, no repetimos el nombre
-    if (cetResponsable === personaNombre) return `CET: ${personaNombre}`;
-    return `CET: ${cetResponsable} - ${personaNombre}`;
+    return personaNombre;
 
   } else if (asignacion.tipo_destino === 'vehiculo') {
     const veh = state.vehiclesList.find(v => v.id === asignacion.id_vehiculo);
