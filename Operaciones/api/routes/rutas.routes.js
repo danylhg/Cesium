@@ -16,6 +16,9 @@ import { sendDbError } from "../utils/dbErrors.js";
 // Helper para validar enteros
 import { isInt } from "../utils/validators.js";
 
+// Emit filtrado de rutas por rol
+import { emitRutaCreada } from "../sockets/index.js";
+
 // Crea la instancia del router
 const router = Router();
 
@@ -207,21 +210,57 @@ router.get("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id inválido" });
 
+  const rol       = (req.user?.rol || "").toUpperCase();
+  const esCell    = rol === "CELL";
+  const id_personal = esCell ? (Number(req.user.sub) || null) : null;
+
   try {
-    const { rows } = await pool.query(
-      `SELECT r.id_ruta, r.id_operacion, r.geojson,
-              r.origen_lat, r.origen_lon, r.destino_lat, r.destino_lon,
-              r.distancia_m, r.duracion_s,
-              r.created_by_tipo, r.id_usuario, r.id_personal,
-              r.fecha_creacion,
-              COALESCE(u.nombre || ' ' || u.apellido, p.nombre || ' ' || p.apellido, 'Sistema') AS creador_nombre
-       FROM ruta_navegacion r
-       LEFT JOIN usuario  u ON u.id_usuario  = r.id_usuario
-       LEFT JOIN personal p ON p.id_personal = r.id_personal
-       WHERE r.id_operacion = $1 AND r.activo = true
-       ORDER BY r.fecha_creacion ASC`,
-      [id_operacion]
-    );
+    let rows;
+
+    if (esCell && id_personal) {
+      // Células: solo rutas generales (sin vehículo) o del vehículo al que están asignadas
+      ({ rows } = await pool.query(
+        `SELECT r.id_ruta, r.id_operacion, r.geojson,
+                r.origen_lat, r.origen_lon, r.destino_lat, r.destino_lon,
+                r.distancia_m, r.duracion_s, r.id_vehiculo,
+                r.created_by_tipo, r.id_usuario, r.id_personal,
+                r.fecha_creacion,
+                COALESCE(u.nombre || ' ' || u.apellido, p.nombre || ' ' || p.apellido, 'Sistema') AS creador_nombre
+         FROM ruta_navegacion r
+         LEFT JOIN usuario  u ON u.id_usuario  = r.id_usuario
+         LEFT JOIN personal p ON p.id_personal = r.id_personal
+         WHERE r.id_operacion = $1
+           AND r.activo = true
+           AND (
+             r.id_vehiculo IS NULL
+             OR r.id_vehiculo IN (
+               SELECT vo.id_vehiculo
+               FROM vehiculo_operacion vo
+               WHERE vo.id_operacion = $1
+                 AND vo.id_personal  = $2
+             )
+           )
+         ORDER BY r.fecha_creacion ASC`,
+        [id_operacion, id_personal]
+      ));
+    } else {
+      // Admin, CUT, CET: todas las rutas
+      ({ rows } = await pool.query(
+        `SELECT r.id_ruta, r.id_operacion, r.geojson,
+                r.origen_lat, r.origen_lon, r.destino_lat, r.destino_lon,
+                r.distancia_m, r.duracion_s, r.id_vehiculo,
+                r.created_by_tipo, r.id_usuario, r.id_personal,
+                r.fecha_creacion,
+                COALESCE(u.nombre || ' ' || u.apellido, p.nombre || ' ' || p.apellido, 'Sistema') AS creador_nombre
+         FROM ruta_navegacion r
+         LEFT JOIN usuario  u ON u.id_usuario  = r.id_usuario
+         LEFT JOIN personal p ON p.id_personal = r.id_personal
+         WHERE r.id_operacion = $1 AND r.activo = true
+         ORDER BY r.fecha_creacion ASC`,
+        [id_operacion]
+      ));
+    }
+
     return res.json({ ok: true, items: rows });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo rutas de navegación");
@@ -268,8 +307,15 @@ router.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
     destino_lat,
     destino_lon,
     distancia_m,
-    duracion_s
+    duracion_s,
+    id_vehiculo
   } = req.body || {};
+
+  // id_vehiculo opcional — si viene debe ser entero positivo
+  const vehiculoId = id_vehiculo != null ? Number(id_vehiculo) : null;
+  if (vehiculoId !== null && (!Number.isInteger(vehiculoId) || vehiculoId <= 0)) {
+    return res.status(400).json({ ok: false, mensaje: "id_vehiculo inválido" });
+  }
 
   // geojson obligatorio y debe ser objeto
   if (!geojson || typeof geojson !== "object") {
@@ -358,13 +404,13 @@ router.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
       `INSERT INTO ruta_navegacion (
          id_operacion, geojson, origen_lat, origen_lon,
          destino_lat, destino_lon, distancia_m, duracion_s,
-         created_by_tipo, id_usuario, id_personal
+         created_by_tipo, id_usuario, id_personal, id_vehiculo
        )
-       VALUES ($1,$2::jsonb,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       VALUES ($1,$2::jsonb,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
        RETURNING
          id_ruta, id_operacion, geojson, origen_lat, origen_lon,
          destino_lat, destino_lon, distancia_m, duracion_s,
-         created_by_tipo, id_usuario, id_personal, fecha_creacion`,
+         created_by_tipo, id_usuario, id_personal, id_vehiculo, fecha_creacion`,
       [
         id_operacion,
         JSON.stringify(geojson),
@@ -376,7 +422,8 @@ router.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
         duracion_s ?? null,
         tipo_creador,
         id_usuario,
-        id_personal
+        id_personal,
+        vehiculoId
       ]
     );
 
@@ -389,8 +436,8 @@ router.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
     // Obtiene socket.io
     const io = req.app.get("io");
 
-    // Emite la ruta nueva al room de la operación
-    io.to(`op_${id_operacion}`).emit("ruta_navegacion_creada", { ruta });
+    // Emite la ruta nueva solo a quienes tienen permiso de verla
+    await emitRutaCreada(io, id_operacion, ruta);
 
     // Respuesta final
     return res.status(201).json({

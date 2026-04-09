@@ -16,12 +16,31 @@ export async function listPersonal(req, res) {
       return res.status(400).json({ ok: false, mensaje: "rol inválido (CUT|CET|CELL)" });
     }
 
+    // Operación a excluir del chequeo de ocupación (modo edición)
+    const excludeOp = req.query.exclude_op ? Number(req.query.exclude_op) : null;
+
     const { rows } = await pool.query(
-      `SELECT id_personal, rol, apodo, nombre, apellido, puesto, username, activo, ultimo_acceso
-       FROM personal
-       WHERE rol = $1
-       ORDER BY apellido, nombre`,
-      [rol]
+      `SELECT
+         p.id_personal, p.rol, p.apodo, p.nombre, p.apellido,
+         p.puesto, p.username, p.activo, p.ultimo_acceso,
+         -- Indica si ya está asignado a otra operación activa/planificada
+         CASE WHEN opa.id_operacion IS NOT NULL THEN TRUE ELSE FALSE END AS en_operacion,
+         opa.nombre AS nombre_operacion
+       FROM personal p
+       LEFT JOIN LATERAL (
+         SELECT a.id_personal, o.id_operacion, o.nombre
+         FROM asignacion_operacion_personal a
+         JOIN operacion o ON o.id_operacion = a.id_operacion
+         WHERE a.id_personal = p.id_personal
+           AND o.estado IN ('ACTIVA', 'PLANIFICADA')
+           AND a.estado_asignacion NOT IN ('LIBERADO')
+           AND ($2::int IS NULL OR o.id_operacion != $2::int)
+         ORDER BY CASE o.estado WHEN 'ACTIVA' THEN 1 WHEN 'PLANIFICADA' THEN 2 ELSE 3 END
+         LIMIT 1
+       ) opa ON TRUE
+       WHERE p.rol = $1
+       ORDER BY p.apellido, p.nombre`,
+      [rol, excludeOp]
     );
 
     return res.json({ ok: true, items: rows });

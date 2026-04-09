@@ -33,6 +33,9 @@ export const initialState = {
   // Mapeos para resolución de IDs (Nombre -> ID)
   personalMap: {}, // { "Nombre Apellido": id_personal }
 
+  // Personal ocupado en otra operación: { "Nombre Apellido": "nombre de la operación" }
+  personalEnOperacion: {},
+
   // Datos derivados o temporales
   flotillaByCet: {},
   searchByCet: {},

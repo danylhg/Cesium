@@ -134,7 +134,7 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
     // personal, grupos, mando y tracking.
     const { rows } = await pool.query(
       `
-      SELECT
+      SELECT DISTINCT ON (p.id_personal)
         -- Identidad base del personal
         p.id_personal,
         p.apodo,
@@ -270,10 +270,11 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
       WHERE a.id_operacion = $1
         AND a.estado_asignacion NOT IN ('LIBERADO')
 
-      -- Ordena agrupando primero por persona
-      -- y luego prefiriendo registros con grupo sobre los nulos
+      -- Ordena agrupando primero por persona (requerido por DISTINCT ON)
+      -- y luego prefiriendo registros con grupo (celula) sobre los nulos o flotillas
       ORDER BY
         p.id_personal,
+        CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
         CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
         go.id_grupo_operacion
       `,
@@ -364,7 +365,9 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         ON t.id_vehiculo = vo.id_vehiculo AND t.id_operacion = vo.id_operacion
       WHERE vo.id_operacion = $1
         AND vo.estado_asignacion != 'LIBERADO'
-      ORDER BY v.tipo, v.codigo_interno, per.nombre
+      ORDER BY v.tipo, v.codigo_interno,
+               CASE aop.rol_en_operacion WHEN 'CET' THEN 0 ELSE 1 END,
+               per.nombre
       `,
       [id_operacion]
     );

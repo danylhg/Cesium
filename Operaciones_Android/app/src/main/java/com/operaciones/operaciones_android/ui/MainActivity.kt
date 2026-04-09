@@ -127,6 +127,8 @@ class MainActivity : AppCompatActivity(),
         if (currentOperation.id > 0) {
             chatSocketManager = ChatSocketManager(
                 operationId = currentOperation.id,
+                idPersonal  = currentUser.id,
+                rol         = currentUser.rol.name,
                 onNewMessage = { item ->
                     runOnUiThread {
                         val incoming = parseChatMessage(item)

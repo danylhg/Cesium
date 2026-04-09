@@ -10,7 +10,9 @@ class ChatSocketManager(
     private val onNewMessage: (JSONObject) -> Unit,
     private val onNavigationRouteEvt: ((event: String, data: JSONObject) -> Unit)? = null,
     private val onTrackingPersonal: ((JSONObject) -> Unit)? = null,
-    private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null
+    private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null,
+    private val idPersonal: Int = -1,
+    private val rol: String = ""
 ) {
 
     private var socket: Socket? = null
@@ -21,7 +23,12 @@ class ChatSocketManager(
         socket = IO.socket(ApiConfig.BASE_URL)
 
         socket?.on(Socket.EVENT_CONNECT) {
-            socket?.emit("join_operacion", operationId)
+            val payload = JSONObject().apply {
+                put("id_operacion", operationId)
+                if (idPersonal > 0) put("id_personal", idPersonal)
+                if (rol.isNotEmpty()) put("rol", rol)
+            }
+            socket?.emit("join_operacion", payload)
         }
 
         socket?.on("chat_message") { args ->

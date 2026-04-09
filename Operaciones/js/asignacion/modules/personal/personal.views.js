@@ -48,14 +48,18 @@ export function renderCUT() {
     data
       .filter(n => !ft || n.toLowerCase().includes(ft))
       .forEach((name) => {
+        const enOp = state.personalEnOperacion?.[name];
         const row = document.createElement("div");
-        row.className = "item" + (state.cutSeleccionado === name ? " selected" : "");
+        row.className = "item"
+          + (state.cutSeleccionado === name ? " selected" : "")
+          + (enOp ? " disabled" : "");
 
         const left = document.createElement("div");
         left.className = "itemName";
         left.textContent = name;
-        left.style.cursor = "pointer";
+        left.style.cursor = enOp ? "not-allowed" : "pointer";
         left.addEventListener("click", () => {
+          if (enOp) return;
           state.cutSeleccionado = name;
           state.cetSeleccionados = [];
           state.cetActivoIndex = 0;
@@ -65,6 +69,14 @@ export function renderCUT() {
         });
 
         row.appendChild(left);
+
+        if (enOp) {
+          const badge = document.createElement("div");
+          badge.className = "badgeRight";
+          badge.textContent = `En op: ${enOp}`;
+          row.appendChild(badge);
+        }
+
         rowsWrap.appendChild(row);
       });
   }
@@ -136,15 +148,19 @@ export function renderCET() {
       .filter(n => !ft || n.toLowerCase().includes(ft))
       .forEach((name) => {
         const isSel = state.cetSeleccionados.includes(name);
+        const enOp = state.personalEnOperacion?.[name];
 
         const row = document.createElement("div");
-        row.className = "item" + (isSel ? " selected" : "");
+        row.className = "item"
+          + (isSel ? " selected" : "")
+          + (enOp ? " disabled" : "");
 
         const left = document.createElement("div");
         left.className = "itemName";
         left.textContent = name;
-        left.style.cursor = "pointer";
+        left.style.cursor = enOp ? "not-allowed" : "pointer";
         left.addEventListener("click", () => {
+          if (enOp) return;
           if (isSel) {
             state.cetSeleccionados = state.cetSeleccionados.filter(n => n !== name);
           } else {
@@ -164,6 +180,14 @@ export function renderCET() {
         });
 
         row.appendChild(left);
+
+        if (enOp) {
+          const badge = document.createElement("div");
+          badge.className = "badgeRight";
+          badge.textContent = `En op: ${enOp}`;
+          row.appendChild(badge);
+        }
+
         rowsWrap.appendChild(row);
       });
   }
@@ -418,19 +442,22 @@ export function renderCelulas() {
       .forEach((cel) => {
         const enEste = asignadas.includes(cel);
         const bloqueada = yaUsadas.has(cel);
+        const enOp = state.personalEnOperacion?.[cel];
+        const disabled = bloqueada || !!enOp;
 
         const row = celulaRow({
           name: cel,
           selected: enEste,
-          disabled: bloqueada,
+          disabled,
           status: (() => {
+            if (enOp) return `En op: ${enOp}`;
             if (bloqueada) return "Asignado";
             if (!enEste) return "Disponible";
             const gName = getGrupoDeCelula(cetActivo, cel);
             return gName ? `Grupo ${gName}` : "Sin grupo";
           })(),
           onToggle: () => {
-            if (bloqueada) return;
+            if (disabled) return;
 
             const grupoInfo = state.gruposByCet[cetActivo];
             const grupoActivo = grupoInfo?.active || null;
@@ -525,6 +552,7 @@ export function renderCelulas() {
         // Si fue una creación (POST) y nos regresó el ID, lo guardamos para futuros PUT
         if (opDB && opDB.id_operacion && !opLoc.id) {
            opLoc.id = opDB.id_operacion;
+           if (opDB.estado) opLoc.estado = opDB.estado;
            writeStorage(STORAGE_OPERACION_ACTUAL, opLoc);
         }
       } catch (e) {

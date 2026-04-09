@@ -127,30 +127,49 @@ function drawRemoteRoute(ruta) {
 
   const originEnt = drawPoint(ruta.origen_lat, ruta.origen_lon, Cesium.Color.LIME,
     `O: ${ruta.creador_nombre || "Externo"}`, 8);
-  if (originEnt) entities.push(originEnt);
+  if (originEnt) {
+    originEnt._routeId = ruta.id_ruta;
+    entities.push(originEnt);
+  }
 
   const destEnt = drawPoint(ruta.destino_lat, ruta.destino_lon, Cesium.Color.YELLOW,
     `D: ${ruta.creador_nombre || "Externo"}`, 8);
-  if (destEnt) entities.push(destEnt);
+  if (destEnt) {
+    destEnt._routeId = ruta.id_ruta;
+    entities.push(destEnt);
+  }
 
   if (geojson?.coordinates?.length) {
     const lineEnt = drawPolyline(geojson.coordinates, color, 3, 0.75);
-    if (lineEnt) entities.push(lineEnt);
+    if (lineEnt) {
+      lineEnt._routeId = ruta.id_ruta;
+      entities.push(lineEnt);
+    }
   }
 
-  dashboardState.remoteRouteEntities.set(ruta.id_ruta, entities);
+  dashboardState.remoteRouteEntities.set(ruta.id_ruta, { ruta, entities });
 }
 
 function removeRemoteRoute(id_ruta) {
-  const entities = dashboardState.remoteRouteEntities.get(id_ruta);
-  if (!entities) return;
-  entities.forEach(removeEntity);
+  const entry = dashboardState.remoteRouteEntities.get(id_ruta);
+  if (!entry) return;
+  entry.entities.forEach(removeEntity);
   dashboardState.remoteRouteEntities.delete(id_ruta);
+  if (dashboardState.selectedRemoteRouteId === id_ruta) {
+    dashboardState.selectedRemoteRouteId = null;
+  }
 }
 
 function clearAllRemoteRoutes() {
-  dashboardState.remoteRouteEntities.forEach(ents => ents.forEach(removeEntity));
+  dashboardState.remoteRouteEntities.forEach(entry => entry.entities.forEach(removeEntity));
   dashboardState.remoteRouteEntities.clear();
+  dashboardState.selectedRemoteRouteId = null;
+}
+
+// Dado un entity de Cesium, devuelve el id_ruta al que pertenece (o null)
+export function getRouteIdForEntity(entity) {
+  if (!entity) return null;
+  return entity._routeId ?? null;
 }
 
 // ── Tracking (posiciones Android en tiempo real) ─────────────
@@ -196,15 +215,19 @@ async function saveRouteToDB(start, end, route) {
   if (!opId) return null;
 
   try {
+    const selectedId = selectedVehicleId();
+    const body = {
+      geojson:     route.geometry,
+      origen_lat:  start.lat,  origen_lon:  start.lng,
+      destino_lat: end.lat,    destino_lon: end.lng,
+      distancia_m: route.distance,
+      duracion_s:  route.duration
+    };
+    if (selectedId !== "global") body.id_vehiculo = Number(selectedId);
+
     const res = await apiFetch(`/ops/${opId}/rutas/navegacion`, {
       method: "POST",
-      body: JSON.stringify({
-        geojson:     route.geometry,
-        origen_lat:  start.lat,  origen_lon:  start.lng,
-        destino_lat: end.lat,    destino_lon: end.lng,
-        distancia_m: route.distance,
-        duracion_s:  route.duration
-      })
+      body: JSON.stringify(body)
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -275,10 +298,18 @@ export async function autoCalcRoute() {
 }
 
 export function clearRoute() {
-  // Solo limpia el mapa — la ruta queda guardada en la base de datos
+  // Si hay una ruta remota seleccionada, eliminarla de DB y del mapa
+  if (dashboardState.selectedRemoteRouteId) {
+    const id_ruta = dashboardState.selectedRemoteRouteId;
+    deleteRoutFromDB(id_ruta);
+    removeRemoteRoute(id_ruta);
+    setRouteInfo("Ruta eliminada.");
+    return;
+  }
+
+  // Si no, limpiar la ruta propia del mapa
   clearSelectedRouteEntities();
   setRouteInfo("Ruta limpiada del mapa.");
-
   if (dom.opLat) dom.opLat.value = "";
   if (dom.opLng) dom.opLng.value = "";
 }
@@ -290,14 +321,18 @@ export function populateRouteVehicleSelect(vehiculos = []) {
   const prevValue = selectEl.value;
   selectEl.innerHTML = '<option value="global">Ruta General</option>';
 
+  const seen = new Set();
   vehiculos.forEach(v => {
     // Acepta formato del backend (id_vehiculo, alias, tipo, codigo_interno)
     // o formato legacy (id, nombre, unidad, alias)
     const id    = v.id_vehiculo ?? v.id ?? v.unidad ?? v.nombre;
     const label = [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno || v.nombre || "Vehículo";
     if (!id) return;
+    const key = String(id);
+    if (seen.has(key)) return;
+    seen.add(key);
     const opt = document.createElement("option");
-    opt.value       = String(id);
+    opt.value       = key;
     opt.textContent = `Vehículo: ${label}`;
     selectEl.appendChild(opt);
   });
@@ -317,6 +352,48 @@ export function loadRouteForSelectedVehicle() {
   setRouteInfo("Selecciona puntos de inicio y destino en el mapa.");
   if (dom.opLat) dom.opLat.value = "";
   if (dom.opLng) dom.opLng.value = "";
+}
+
+// ── Filtro / resaltado de rutas remotas ─────────────────────
+
+export function applyRouteFilter(vehiculoIdStr) {
+  dashboardState.remoteRouteEntities.forEach((entry, id_ruta) => {
+    const { ruta, entities } = entry;
+    const isSelected = dashboardState.selectedRemoteRouteId === id_ruta;
+
+    const matches = vehiculoIdStr === "global"
+      ? true
+      : String(ruta.id_vehiculo ?? "") === vehiculoIdStr;
+
+    const lineEnt  = entities.find(e => e.polyline);
+    const pointEnts = entities.filter(e => e.point);
+
+    if (lineEnt) {
+      const baseColor = Cesium.Color.fromCssColorString(ruta.color || "#1E90FF");
+      if (isSelected) {
+        lineEnt.polyline.width    = new Cesium.ConstantProperty(8);
+        lineEnt.polyline.material = new Cesium.ColorMaterialProperty(Cesium.Color.WHITE.withAlpha(0.97));
+      } else if (matches) {
+        lineEnt.polyline.width    = new Cesium.ConstantProperty(5);
+        lineEnt.polyline.material = new Cesium.ColorMaterialProperty(baseColor.withAlpha(0.95));
+      } else {
+        lineEnt.polyline.width    = new Cesium.ConstantProperty(2);
+        lineEnt.polyline.material = new Cesium.ColorMaterialProperty(baseColor.withAlpha(0.25));
+      }
+    }
+
+    // Puntos de origen/destino: visibles si coincide o está seleccionada
+    pointEnts.forEach(e => { e.show = matches || isSelected; });
+  });
+}
+
+export function selectRemoteRoute(id_ruta) {
+  dashboardState.selectedRemoteRouteId = id_ruta;
+  const vehiculoIdStr = document.getElementById("routeVehicleSelect")?.value || "global";
+  applyRouteFilter(vehiculoIdStr);
+  if (id_ruta) {
+    setRouteInfo(`Ruta seleccionada. Pulsa "Limpiar ruta" para eliminarla del mapa y la base de datos.`);
+  }
 }
 
 // ── Inicialización con Socket.io ──────────────────────────────

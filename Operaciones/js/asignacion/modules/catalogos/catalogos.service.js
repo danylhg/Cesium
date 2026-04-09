@@ -49,7 +49,9 @@ function mapPersonal(data) {
       return {
         id: x.id_personal ?? generateUUID(),
         nombre: nombreBase,
-        rol: (x.rol ?? "").trim()
+        rol: (x.rol ?? "").trim(),
+        en_operacion: !!x.en_operacion,
+        nombre_operacion: x.nombre_operacion ?? null
       };
     })
     .filter(x => x.nombre !== "");
@@ -82,12 +84,14 @@ function mapEquipos(data) {
 
 // --- Función Principal ---
 
-export async function hydrateCatalogsFromControl() {
-  // Ajusta estas rutas según si tu servidor usa "/api" o no antes de "/catalog"
+export async function hydrateCatalogsFromControl(excludeOpId = null) {
+  // excludeOpId: en modo edición, excluye esta operación del chequeo de ocupación
+  const opParam = excludeOpId ? `&exclude_op=${excludeOpId}` : "";
+
   const [rawCuts, rawCets, rawCells, rawVehiculos, rawEquipos] = await Promise.all([
-    apiFetch('/catalog/personal?rol=CUT'),
-    apiFetch('/catalog/personal?rol=CET'),
-    apiFetch('/catalog/personal?rol=CELL'),
+    apiFetch(`/catalog/personal?rol=CUT${opParam}`),
+    apiFetch(`/catalog/personal?rol=CET${opParam}`),
+    apiFetch(`/catalog/personal?rol=CELL${opParam}`),
     apiFetch('/catalog/vehiculos'),
     apiFetch('/catalog/equipos')
   ]);
@@ -101,9 +105,13 @@ export async function hydrateCatalogsFromControl() {
   state.cetList = cets.map(x => x.nombre);
   state.celulasList = cells.map(x => x.nombre);
 
-  // Poblar mapa de búsqueda Nombre -> ID
+  // Poblar mapa de búsqueda Nombre -> ID y mapa de ocupación
+  state.personalEnOperacion = {};
   [...cuts, ...cets, ...cells].forEach(p => {
     state.personalMap[p.nombre] = p.id;
+    if (p.en_operacion && p.nombre_operacion) {
+      state.personalEnOperacion[p.nombre] = p.nombre_operacion;
+    }
   });
 
   // Vehículos

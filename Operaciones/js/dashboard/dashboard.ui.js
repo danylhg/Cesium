@@ -179,7 +179,8 @@ export function renderInfoPanel(bdData = null) {
       return {
         nombre: e.nombre,
         asignadoA: destino,
-        vehiculo: e.tipo_destino === "VEHICULO" ? destino : ""
+        vehiculo: e.tipo_destino === "VEHICULO" ? destino : "",
+        tipo_destino: e.tipo_destino || null
       };
     }
     return e;
@@ -284,9 +285,10 @@ export function renderInfoPanel(bdData = null) {
     equiposHtml = equiposNorm.map(e => {
       const target = e.vehiculo || e.asignadoA || e.destino || "";
       const isVehiculo = !!e.vehiculo;
+      const isGrupo = !isVehiculo && e.tipo_destino === "GRUPO";
 
       const destinoText = target
-        ? (isVehiculo ? `Vehículo: ${target}` : `Personal: ${target}`)
+        ? (isVehiculo ? `Vehículo: ${target}` : isGrupo ? `Grupo: ${target}` : `Personal: ${target}`)
         : "Sin asignación";
 
       return `

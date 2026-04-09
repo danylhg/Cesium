@@ -478,6 +478,7 @@ export function renderVehiculos() {
         
         if (opDB && opDB.id_operacion && !opLoc.id) {
            opLoc.id = opDB.id_operacion;
+           if (opDB.estado) opLoc.estado = opDB.estado;
            writeStorage(STORAGE_OPERACION_ACTUAL, opLoc);
         }
     } catch (e) {

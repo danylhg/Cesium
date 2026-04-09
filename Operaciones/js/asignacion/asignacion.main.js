@@ -154,7 +154,9 @@ async function init() {
     lblUsuario.textContent = user ? `Usuario: ${user}` : "Usuario no identificado";
   }
 
-  await hydrateCatalogsFromControl(); // BACKEND: await Promise.all([GET /catalog/personal?rol=CUT, GET /catalog/personal?rol=CET, GET /catalog/personal?rol=CELL, GET /catalog/vehiculos, GET /catalog/equipos])
+  // En modo edición se excluye la operación actual del chequeo de ocupación
+  const excludeOpId = entry === "edit" ? localStorage.getItem("active_operation_id") : null;
+  await hydrateCatalogsFromControl(excludeOpId); // BACKEND: await Promise.all([GET /catalog/personal?rol=CUT, GET /catalog/personal?rol=CET, GET /catalog/personal?rol=CELL, GET /catalog/vehiculos, GET /catalog/equipos])
 
   let storedOp = {};
   if (entry === "edit") {

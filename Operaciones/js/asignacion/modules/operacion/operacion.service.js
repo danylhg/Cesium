@@ -221,7 +221,6 @@ function getOrCreateErrorDiv(inputEl, msg) {
 export function validarOperacionInfo() {
   const fields = [
     { input: opNombreEl, msg: "El nombre de la operación es obligatorio." },
-    { input: opDescEl, msg: "La descripción de la operación es obligatoria." },
     { input: opInicioEl, msg: "La fecha de inicio es obligatoria." },
     { input: opPrioridadEl, msg: "La prioridad es obligatoria." }
   ];
@@ -368,7 +367,7 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
   }
 
   try {
-    // CUÁNDO: Si NO hay id_operacion en state 
+    // CUÁNDO: Si NO hay id_operacion en state
     // PARA QUÉ: Crear nueva operación
     if (!id_operacion) {
       const payload = {
@@ -378,10 +377,49 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
         hora_inicio: datosFormulario.hora_inicio,
         prioridad: datosFormulario.prioridad
       };
-      
-      const nuevaOperacion = await apiFetch('/ops', 'POST', payload);
-      console.log("Operación creada en BD con éxito:", nuevaOperacion);
-      return nuevaOperacion;
+
+      try {
+        const nuevaOperacion = await apiFetch('/ops', 'POST', payload);
+        console.log("Operación creada en BD con éxito:", nuevaOperacion);
+        if (nuevaOperacion?.id_operacion) {
+          localStorage.setItem("active_operation_id", nuevaOperacion.id_operacion);
+        }
+        return nuevaOperacion;
+      } catch (postErr) {
+        // Si falla por duplicado (nombre ya existe de un intento previo),
+        // busca la operación existente por nombre y la reutiliza
+        const esDuplicado = postErr.message &&
+          (postErr.message.toLowerCase().includes('duplicado') ||
+           postErr.message.toLowerCase().includes('único') ||
+           postErr.message.toLowerCase().includes('unique'));
+
+        if (esDuplicado) {
+          try {
+            const listData = await apiFetch('/ops', 'GET');
+            const nombreBuscado = (payload.nombre || '').trim().toLowerCase();
+            const existing = (listData.items || []).find(op =>
+              op.nombre?.trim().toLowerCase() === nombreBuscado &&
+              !['CERRADA', 'CANCELADA'].includes(op.estado)
+            );
+            if (existing) {
+              console.log("Operación ya existía, reutilizando ID:", existing.id_operacion);
+              // Persistir el ID en localStorage para que los siguientes pasos usen PUT
+              const opLoc = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+              if (!opLoc.id) {
+                opLoc.id = existing.id_operacion;
+                if (existing.estado) opLoc.estado = existing.estado;
+                writeStorage(STORAGE_OPERACION_ACTUAL, opLoc);
+              }
+              localStorage.setItem("active_operation_id", existing.id_operacion);
+              return existing;
+            }
+          } catch (fetchErr) {
+            console.warn("No se pudo recuperar la operación existente:", fetchErr.message);
+          }
+        }
+
+        throw postErr;
+      }
     }
 
     // CUÁNDO: Si YA hay id y el estado === "PLANIFICADA" o no está definido

@@ -198,7 +198,7 @@ router.post("/ops", requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO operacion (codigo, nombre, descripcion, prioridad, fecha_inicio, fecha_fin, creada_por)
        VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id_operacion, codigo, nombre, descripcion, prioridad, fecha_inicio, fecha_fin, fecha_creacion`,
+       RETURNING id_operacion, codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, fecha_creacion`,
       [
         codigo,                                // código generado automáticamente
         nombre.trim(),                         // nombre limpio

@@ -38,7 +38,8 @@ export const dashboardState = {
   audioChunks: [],
 
   // Rutas en tiempo real
-  lastRouteId: null,           // id_ruta guardado en DB para la ruta activa del selector
-  remoteRouteEntities: new Map(), // id_ruta → [cesiumEntity, ...]
+  lastRouteId: null,              // id_ruta guardado en DB para la ruta activa del selector
+  selectedRemoteRouteId: null,    // id_ruta de la ruta remota seleccionada en el mapa
+  remoteRouteEntities: new Map(), // id_ruta → { ruta, entities: [cesiumEntity, ...] }
   trackingEntities: new Map()     // "P:id_personal" | "V:id_vehiculo" → cesiumEntity
 };

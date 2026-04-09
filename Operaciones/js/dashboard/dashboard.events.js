@@ -58,32 +58,80 @@ function bindGlobalClickEvents() {
   });
 }
 
+// Helper local para llamadas autenticadas al backend
+async function apiFetchEstado(opId, nuevoEstado) {
+  const token = localStorage.getItem("token");
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const res = await fetch(`${API_BASE}/ops/${opId}/estado`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ estado: nuevoEstado })
+  });
+  return res;
+}
+
 /**
  * Vincula los eventos de los botones de acción global (Guardar/Cancelar operación).
+ *
+ * Cuando la operación está en PLANIFICADA (los botones solo son visibles en ese estado):
+ *   - Guardar  → PATCH /ops/:id/estado { estado: "ACTIVA" }    → activa la operación
+ *   - Cancelar → PATCH /ops/:id/estado { estado: "CANCELADA" } → libera todo lo asignado
  */
 function bindOperationActionEvents() {
-  // ============================================================
-  // BACKEND: "Guardar operación" hoy solo escribe localStorage.
-  // Con backend:
-  //   PUT /ops/:id  { nombre, descripcion, prioridad, fecha_inicio }
-  // Si la operación está ACTIVA, el botón puede cambiar a
-  //   PATCH /ops/:id/estado  { estado: "TERMINADA" }
-  // para cerrarla formalmente en la BD.
-  // ============================================================
   if (dom.saveOpMapBtn) {
-    dom.saveOpMapBtn.addEventListener("click", () => {
+    dom.saveOpMapBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
-      saveCurrentOperation(op);
-      const opName = op.title || op.titulo || "Operación";
-      alert(`¡Operación "${opName}" guardada con éxito en el sistema!`);
-      window.location.href = "menu_inicial.html";
+      const opId = localStorage.getItem("active_operation_id") || op?.id;
+      const opName = op.nombre || op.title || op.titulo || "Operación";
+
+      if (!opId) {
+        alert("No se encontró la operación activa.");
+        return;
+      }
+
+      if (!confirm(`¿Activar la operación "${opName}"?\nEsta acción iniciará la operación oficialmente.`)) return;
+
+      try {
+        const res = await apiFetchEstado(opId, "ACTIVA");
+        if (res.ok) {
+          alert(`¡Operación "${opName}" activada con éxito!`);
+          window.location.href = "menu_inicial.html";
+        } else {
+          const data = await res.json().catch(() => ({}));
+          alert(`Error al activar: ${data.mensaje || res.statusText}`);
+        }
+      } catch {
+        alert("Error de conexión al intentar activar la operación.");
+      }
     });
   }
 
   if (dom.cancelOpMapBtn) {
-    dom.cancelOpMapBtn.addEventListener("click", () => {
-      if (confirm("¿Estás seguro que deseas cancelar y salir de la operación?")) {
-        window.location.href = "menu_inicial.html";
+    dom.cancelOpMapBtn.addEventListener("click", async () => {
+      const op = getCurrentOperation();
+      const opId = localStorage.getItem("active_operation_id") || op?.id;
+      const opName = op.nombre || op.title || op.titulo || "Operación";
+
+      if (!opId) {
+        alert("No se encontró la operación activa.");
+        return;
+      }
+
+      if (!confirm(`¿Cancelar la operación "${opName}"?\nTodo el personal, vehículos y equipos asignados quedarán liberados.`)) return;
+
+      try {
+        const res = await apiFetchEstado(opId, "CANCELADA");
+        if (res.ok) {
+          window.location.href = "menu_inicial.html";
+        } else {
+          const data = await res.json().catch(() => ({}));
+          alert(`Error al cancelar: ${data.mensaje || res.statusText}`);
+        }
+      } catch {
+        alert("Error de conexión al intentar cancelar la operación.");
       }
     });
   }

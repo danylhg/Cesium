@@ -15,20 +15,19 @@ import {
   persistRouteDataToCurrentOperation,
   autoCalcRoute,
   loadRouteForSelectedVehicle,
-  clearRoute
+  clearRoute,
+  applyRouteFilter,
+  selectRemoteRoute,
+  getRouteIdForEntity
 } from "./dashboard.routes.js";
 
 const providers = {
   osm: new Cesium.OpenStreetMapImageryProvider({
     url: "https://a.tile.openstreetmap.org/"
   }),
-  toner: new Cesium.UrlTemplateImageryProvider({
-    url: "https://stamen-tiles.a.ssl.fastly.net/toner/{z}/{x}/{y}.png",
-    credit: "Map tiles by Stamen Design"
-  }),
-  watercolor: new Cesium.UrlTemplateImageryProvider({
-    url: "https://stamen-tiles.a.ssl.fastly.net/watercolor/{z}/{x}/{y}.jpg",
-    credit: "Map tiles by Stamen Design"
+  satellite: new Cesium.UrlTemplateImageryProvider({
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    credit: "Esri World Imagery"
   })
 };
 
@@ -109,6 +108,13 @@ function handleEntitySelection(clickPosition) {
   const picked = viewer.scene.pick(clickPosition);
 
   if (picked && picked.id) {
+    // Detectar si se clickeó una entidad de ruta remota
+    const routeId = getRouteIdForEntity(picked.id);
+    if (routeId) {
+      selectRemoteRoute(routeId);
+      return;
+    }
+
     dashboardState.selectedEntity = picked.id;
     updateSelectionInfo(dashboardState.selectedEntity);
 
@@ -382,8 +388,9 @@ function bindMapDropEvents() {
 
 function bindMapUiEvents() {
   if (dom.routeVehicleSelect) {
-    dom.routeVehicleSelect.addEventListener("change", () => {
+    dom.routeVehicleSelect.addEventListener("change", (e) => {
       loadRouteForSelectedVehicle();
+      applyRouteFilter(e.target.value);
     });
   }
 
@@ -435,17 +442,6 @@ function bindMapUiEvents() {
     });
   }
 
-  const modeSelect = document.getElementById("modeSelect");
-  if (modeSelect) {
-    modeSelect.addEventListener("change", (e) => {
-      const viewer = dashboardState.viewer;
-      if (!viewer) return;
-      const v = e.target.value;
-      if (v === "3d") viewer.scene.morphTo3D(1.0);
-      if (v === "2d") viewer.scene.morphTo2D(1.0);
-      if (v === "columbus") viewer.scene.morphToColumbusView(1.0);
-    });
-  }
 }
 
 export function initCesium() {

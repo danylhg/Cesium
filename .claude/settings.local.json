@@ -43,7 +43,9 @@
       "Bash(grep -v \"^.*//.*BACKEND\")",
       "Bash(Get-Content \"C:\\\\Users\\\\pedro\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-PC-Desktop-cesium-proyecto\\\\d16d4668-9d6e-4ae8-b5fd-38ce059883c4\\\\tasks\\\\b627mzs5d.output\" -Wait -Tail 30)",
       "Bash(Select-Object -First 30)",
-      "Bash(Start-Sleep -Seconds 3)"
+      "Bash(Start-Sleep -Seconds 3)",
+      "Bash(xargs ls:*)",
+      "Bash(psql -h localhost -p 5433 -U postgres -d ops_db -c ':*)"
     ]
   }
 }

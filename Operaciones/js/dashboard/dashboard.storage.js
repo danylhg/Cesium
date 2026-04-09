@@ -97,7 +97,9 @@ export function ensureOperationPhase(op) {
     return current;
   }
 
-  current.phase = new Date() >= scheduled ? "activa" : "planificada";
+  // La fase activa solo la determina el backend (PATCH /ops/:id/estado).
+  // Si no hay estado en BD disponible, siempre se asume planificada.
+  current.phase = "planificada";
   return current;
 }
 

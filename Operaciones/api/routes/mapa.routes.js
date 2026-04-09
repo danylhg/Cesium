@@ -606,7 +606,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       //      - última posición conocida
       // -------------------------------------------------
       pool.query(
-        `SELECT
+        `SELECT DISTINCT ON (p.id_personal)
             p.id_personal,
             p.apodo,
             p.nombre,
@@ -647,8 +647,9 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
          -- Solo personal no liberado
          WHERE a.id_operacion = $1 AND a.estado_asignacion NOT IN ('LIBERADO')
 
-         -- Ordena por persona y por grupo
+         -- Ordena por persona (requerido por DISTINCT ON) y por grupo
          ORDER BY p.id_personal,
+                  CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
                   CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
                   go.id_grupo_operacion`,
         [id_operacion]
@@ -740,6 +741,14 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             oe.uso_en_operacion,
             oe.estado_asignacion,
             COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+
+            -- Tipo de destino real del equipo
+            CASE
+              WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN 'VEHICULO'
+              WHEN ueo.id_grupo_operacion   IS NOT NULL THEN 'GRUPO'
+              WHEN ueo.id_personal          IS NOT NULL THEN 'PERSONAL'
+              ELSE NULL
+            END AS tipo_destino,
 
             -- Persona responsable (siempre obligatoria)
             COALESCE(p_ueo.apodo,
