@@ -186,27 +186,6 @@ class MapActionController(
                 ).coerceAtLeast(0)
                 val color = COLORES_POI[colorIdx].second
 
-                // Dibujar en el mapa local
-                cesiumWebController.addPoiToMap(
-                    idPoi = (System.currentTimeMillis() % Int.MAX_VALUE).toInt(),
-                    lat = lat,
-                    lon = lon,
-                    nombre = nombre,
-                    tipoPoi = tipoPoi,
-                    color = color
-                )
-
-                // Notificar al chat
-                val coord = "%.5f, %.5f".format(lat, lon)
-                host.addMessage(
-                    ChatMessage(
-                        user = author,
-                        text = "📍 $nombre [$tipoPoi] → $coord",
-                        type = MessageType.NORMAL
-                    )
-                )
-
-                // Guardar en backend
                 host.savePoi(lat, lon, nombre, tipoPoi, color)
             }
             .setNegativeButton("Cancelar", null)

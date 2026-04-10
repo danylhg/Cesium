@@ -326,7 +326,7 @@ SELECT
   latitud,
   longitud,
   NULL::jsonb AS geometria,
-  NULL::text AS color,
+  color,
   activo::text AS estado,
   fecha_creacion
 FROM puntos_interes

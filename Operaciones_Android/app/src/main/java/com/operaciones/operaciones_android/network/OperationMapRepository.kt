@@ -128,17 +128,22 @@ class OperationMapRepository(
                         }
                     }
 
+                    val poisSource = json.optJSONArray("pois") ?: capas
                     val pois = mutableListOf<PoiItem>()
-                    if (capas != null) {
-                        for (i in 0 until capas.length()) {
-                            val c = capas.getJSONObject(i)
-                            if (c.optString("tipo_capa") != "POI") continue
+                    if (poisSource != null) {
+                        for (i in 0 until poisSource.length()) {
+                            val c = poisSource.getJSONObject(i)
+                            val isPoi = c.optString("tipo_capa").isBlank() || c.optString("tipo_capa") == "POI"
+                            if (!isPoi) continue
+
+                            val idPoi = if (c.has("id_poi")) c.optInt("id_poi") else c.optInt("id_elemento")
+                            if (idPoi <= 0) continue
 
                             pois.add(
                                 PoiItem(
-                                    idPoi = c.optInt("id_elemento"),
+                                    idPoi = idPoi,
                                     nombre = c.optString("nombre", "PDI"),
-                                    tipoPoi = c.optString("subtipo", ""),
+                                    tipoPoi = if (c.has("tipo_poi")) c.optString("tipo_poi", "") else c.optString("subtipo", ""),
                                     lat = c.optDouble("latitud"),
                                     lon = c.optDouble("longitud"),
                                     color = c.optString("color", "#FFD700").ifBlank { "#FFD700" }

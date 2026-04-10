@@ -26,9 +26,9 @@ CREATE TABLE IF NOT EXISTS puntos_interes (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_usuario
-  ON puntos_interes(id_usuario, nombre)
-  WHERE id_usuario IS NOT NULL;
+  ON puntos_interes(id_usuario, id_operacion, nombre)
+  WHERE id_usuario IS NOT NULL AND activo = TRUE;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_poi_personal
-  ON puntos_interes(id_personal, nombre)
-  WHERE id_personal IS NOT NULL;
+  ON puntos_interes(id_personal, id_operacion, nombre)
+  WHERE id_personal IS NOT NULL AND activo = TRUE;

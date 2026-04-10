@@ -570,6 +570,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       operacionRes,
       zonaRes,
       capasRes,
+      poisRes,
       personalRes,
       vehiculosRes,
       equiposRes,
@@ -607,6 +608,20 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       // -------------------------------------------------
       pool.query(
         `SELECT * FROM v_capas_mapa_operacion WHERE id_operacion = $1`,
+        [id_operacion]
+      ),
+
+      // -------------------------------------------------
+      // 3b) POIs dedicados
+      //    Se envían aparte para clientes que no deben
+      //    depender del shape de v_capas_mapa_operacion.
+      // -------------------------------------------------
+      pool.query(
+        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color
+           FROM v_poi_detalle
+          WHERE id_operacion = $1
+            AND activo = TRUE
+          ORDER BY fecha_creacion DESC`,
         [id_operacion]
       ),
 
@@ -802,21 +817,54 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       //      - origen/destino
       //      - distancia/duración
       //      - quién la creó y su rol
+      //
+      // Filtro por rol:
+      //   CELL → solo rutas generales (sin vehículo) o del vehículo
+      //          al que están asignados en la operación.
+      //   Otros → todas las rutas activas.
       // -------------------------------------------------
-      pool.query(
-        `SELECT
-            rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
-            rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
-            rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.fecha_creacion,
+      (() => {
+        const esCell   = (req.user?.rol || "").toUpperCase() === "CELL";
+        const idPersonal = esCell ? (Number(req.user.sub) || null) : null;
 
-            -- Intenta resolver el rol del creador desde usuario o personal
-            COALESCE(u.rol::text, p.rol::text) AS rol_creador
-         FROM ruta_navegacion rn
-         LEFT JOIN usuario u ON rn.created_by_tipo = 'USUARIO' AND rn.id_usuario = u.id_usuario
-         LEFT JOIN personal p ON rn.created_by_tipo = 'PERSONAL' AND rn.id_personal = p.id_personal
-         WHERE rn.id_operacion = $1 AND rn.activo = true`,
-        [id_operacion]
-      )
+        if (esCell && idPersonal) {
+          return pool.query(
+            `SELECT
+                rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
+                rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
+                rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.fecha_creacion,
+                COALESCE(u.rol::text, p.rol::text) AS rol_creador
+             FROM ruta_navegacion rn
+             LEFT JOIN usuario  u ON rn.created_by_tipo = 'USUARIO'   AND rn.id_usuario  = u.id_usuario
+             LEFT JOIN personal p ON rn.created_by_tipo = 'PERSONAL'  AND rn.id_personal = p.id_personal
+             WHERE rn.id_operacion = $1
+               AND rn.activo = true
+               AND (
+                 rn.id_vehiculo IS NULL
+                 OR rn.id_vehiculo IN (
+                   SELECT vo.id_vehiculo
+                   FROM vehiculo_operacion vo
+                   WHERE vo.id_operacion = $1
+                     AND vo.id_personal  = $2
+                 )
+               )`,
+            [id_operacion, idPersonal]
+          );
+        }
+
+        return pool.query(
+          `SELECT
+              rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
+              rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
+              rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.fecha_creacion,
+              COALESCE(u.rol::text, p.rol::text) AS rol_creador
+           FROM ruta_navegacion rn
+           LEFT JOIN usuario  u ON rn.created_by_tipo = 'USUARIO'   AND rn.id_usuario  = u.id_usuario
+           LEFT JOIN personal p ON rn.created_by_tipo = 'PERSONAL'  AND rn.id_personal = p.id_personal
+           WHERE rn.id_operacion = $1 AND rn.activo = true`,
+          [id_operacion]
+        );
+      })()
     ]);
 
     // Si la operación no existe, corta con 404
@@ -830,6 +878,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       operacion: operacionRes.rows[0],
       zona_operacion: zonaRes.rows[0] || null,
       capas: capasRes.rows,
+      pois: poisRes.rows,
       personal: personalRes.rows,
       vehiculos: vehiculosRes.rows,
       equipos: equiposRes.rows,

@@ -66,13 +66,26 @@ async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName) {
       body: JSON.stringify(body)
     });
     const data = await res.json();
+    if (!res.ok || !data?.ok) {
+      const mensaje = data?.mensaje || "No se pudo guardar el punto de interés.";
+      if (dom.tbHint) dom.tbHint.textContent = mensaje;
+      alert(mensaje);
+      return null;
+    }
     if (data?.ok && data?.poi?.id_poi) {
       // Marcar como "mío" para no redibujar cuando llegue el socket event
       _mySentPoiIds.add(data.poi.id_poi);
       setTimeout(() => _mySentPoiIds.delete(data.poi.id_poi), 5000);
+      return data.poi;
     }
+    return null;
   } catch (err) {
     console.error("Error guardando POI en backend:", err);
+    if (dom.tbHint) {
+      dom.tbHint.textContent = "Error de conexión al guardar el punto de interés.";
+    }
+    alert("Error de conexión al guardar el punto de interés.");
+    return null;
   }
 }
 
@@ -239,12 +252,17 @@ export function setTacticalUI() {
   }
 }
 
-export function createPoi(lat, lng, iconPath = null) {
+export async function createPoi(lat, lng, iconPath = null) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
   const label = getCurrentLabel() || (dashboardState.toolMode === "building" ? "Edificio" : "Punto de interés");
   const color = getCesiumColor(getCurrentColorName(), 1);
+
+  if (dashboardState.toolMode === "poi") {
+    const savedPoi = await savePoiToBackend(lat, lng, label, "PDI", getCurrentColorName());
+    if (!savedPoi) return;
+  }
 
   const ent = viewer.entities.add({
     name: label,
@@ -280,10 +298,6 @@ export function createPoi(lat, lng, iconPath = null) {
 
   addTacticalEntity(ent);
   if (dom.tbHint) dom.tbHint.textContent = `${label} colocado.`;
-
-  if (dashboardState.toolMode === "poi") {
-    savePoiToBackend(lat, lng, label, "PDI", getCurrentColorName());
-  }
 }
 
 export function createLabel(lat, lng) {

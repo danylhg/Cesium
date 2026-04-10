@@ -125,18 +125,36 @@ export function renderInfoPanel(bdData = null) {
   // El localStorage devuelve cargo, nombre (ya formateado), cet, grupo, flotilla.
   const personalNorm = personal.map(p => {
     if (p.rol_en_operacion) {
-      // Viene del backend — cet_nombre ya es string "Nombre Apellido"
       const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ");
       return {
         cargo: p.rol_en_operacion,
         nombre,
-        cet: p.cet_nombre || "",   // string directo, no objeto
-        grupo: p.grupo_hijo_nombre || "",
-        flotilla: p.cet_flotilla || ""
+        cet: "",                          // se llena en el segundo paso
+        grupo: p.grupo_nombre || "",
+        flotilla: p.grupo_flotilla || "",
+        _grupoNombre: p.grupo_nombre || "",
+        _grupoPadreNombre: p.grupo_padre_nombre || ""
       };
     }
     return p; // Ya está normalizado (localStorage)
   });
+
+  // Segundo paso: asignar CET a cada célula según grupo compartido
+  {
+    const cetsNorm = personalNorm.filter(p =>
+      ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
+    );
+    personalNorm.forEach(p => {
+      if (!["Célula", "CELL", "Celulas", "Células"].includes(p.cargo || p.rol)) return;
+      const matched = cetsNorm.find(c =>
+        c._grupoNombre && (
+          c._grupoNombre === p._grupoNombre ||
+          c._grupoNombre === p._grupoPadreNombre
+        )
+      );
+      if (matched) p.cet = matched.nombre;
+    });
+  }
 
   // Normalizar vehiculos del backend
   const vehiculosNorm = vehiculos.map(v => {

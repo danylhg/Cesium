@@ -756,10 +756,65 @@ class MainActivity : AppCompatActivity(),
         httpClient.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("POI", "Error guardando POI en backend", e)
+                runOnUiThread {
+                    addMessage(ChatMessage(user = "Sistema", text = "Error de conexión al guardar el POI.", type = MessageType.SYSTEM))
+                }
             }
             override fun onResponse(call: Call, response: Response) {
                 val responseBody = response.body?.string().orEmpty()
                 Log.d("POI", "POI guardado: ${response.code} - $responseBody")
+
+                if (response.isSuccessful) {
+                    try {
+                        val json = JSONObject(responseBody)
+                        val poi = json.optJSONObject("poi")
+                        if (json.optBoolean("ok") && poi != null) {
+                            val idPoi = poi.optInt("id_poi")
+                            val poiLat = poi.optDouble("latitud", lat)
+                            val poiLon = poi.optDouble("longitud", lon)
+                            val poiNombre = poi.optString("nombre", nombre)
+                            val poiTipo = poi.optString("tipo_poi", tipoPoi)
+                            val poiColor = poi.optString("color", color).ifBlank { color }
+
+                            runOnUiThread {
+                                if (idPoi > 0) {
+                                    cesiumWebController.addPoiToMap(
+                                        idPoi = idPoi,
+                                        lat = poiLat,
+                                        lon = poiLon,
+                                        nombre = poiNombre,
+                                        tipoPoi = poiTipo,
+                                        color = poiColor
+                                    )
+                                }
+
+                                val coord = "%.5f, %.5f".format(poiLat, poiLon)
+                                addMessage(
+                                    ChatMessage(
+                                        user = currentUser.nombreCompleto,
+                                        text = "📍 $poiNombre [$poiTipo] → $coord",
+                                        type = MessageType.NORMAL
+                                    )
+                                )
+                            }
+                            return
+                        }
+                    } catch (_: Exception) {
+                        // Si no se pudo interpretar la respuesta, cae al mensaje genérico de error.
+                    }
+                }
+
+                if (!response.isSuccessful) {
+                    val mensaje = try {
+                        JSONObject(responseBody).optString("mensaje", "No se pudo guardar el POI.")
+                    } catch (_: Exception) {
+                        "No se pudo guardar el POI."
+                    }
+
+                    runOnUiThread {
+                        addMessage(ChatMessage(user = "Sistema", text = mensaje, type = MessageType.SYSTEM))
+                    }
+                }
             }
         })
     }
