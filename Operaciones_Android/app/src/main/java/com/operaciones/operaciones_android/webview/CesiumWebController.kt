@@ -14,6 +14,8 @@ class CesiumWebController(
     private val opLon: Double,
     private val opZoom: Int
 ) {
+    private var isPageReady: Boolean = false
+    private var pendingMyPosition: Pair<Double, Double>? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     fun setup() {
@@ -48,7 +50,11 @@ class CesiumWebController(
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                isPageReady = true
                 applyOperationView()
+                pendingMyPosition?.let { (lat, lon) ->
+                    updateMyPosition(lat, lon)
+                }
             }
         }
 
@@ -76,6 +82,8 @@ class CesiumWebController(
     }
 
     fun updateMyPosition(latitude: Double, longitude: Double) {
+        pendingMyPosition = latitude to longitude
+        if (!isPageReady) return
         webView.post {
             webView.evaluateJavascript(
                 """
@@ -211,16 +219,21 @@ class CesiumWebController(
         }
     }
 
-    fun addPoiToMap(idPoi: Int, lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String) {
+    fun addPoiToMap(idPoi: Int, lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String, iconoSrc: String? = null) {
         val safeNombre = nombre.replace("'", "\\'")
         val safeTipo = tipoPoi.replace("'", "\\'")
         val safeColor = color.replace("'", "\\'")
+        val iconArg = iconoSrc?.replace("'", "\\'")?.let { "'$it'" } ?: "null"
+        android.util.Log.d(
+            "POI_ANDROID",
+            "addPoiToMap id=$idPoi tipo=$tipoPoi color=$color icono=${iconoSrc ?: "null"} lat=$lat lon=$lon nombre=$nombre"
+        )
         webView.post {
             webView.evaluateJavascript(
                 """
                 (function() {
                     if (typeof addPoiToMap === 'function') {
-                        addPoiToMap($idPoi, $lat, $lon, '$safeNombre', '$safeTipo', '$safeColor');
+                        addPoiToMap($idPoi, $lat, $lon, '$safeNombre', '$safeTipo', '$safeColor', $iconArg);
                         return 'OK';
                     }
                     return 'ERROR:addPoiToMap no existe';

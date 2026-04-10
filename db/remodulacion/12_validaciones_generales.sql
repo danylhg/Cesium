@@ -343,7 +343,9 @@ BEGIN
     'zona_operacion',
     'chat_operacion',
     'aviso_operacion',
-    'novedad_operacion'
+    'novedad_operacion',
+    'tracking_personal',
+    'tracking_vehiculo'
   ) THEN
     v_id_operacion := COALESCE(NEW.id_operacion, OLD.id_operacion);
   END IF;

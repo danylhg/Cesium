@@ -15,6 +15,8 @@ CREATE TABLE IF NOT EXISTS puntos_interes (
   latitud NUMERIC(9,6) NOT NULL,
   longitud NUMERIC(9,6) NOT NULL,
   descripcion TEXT,
+  color TEXT NOT NULL DEFAULT '#FFD700',
+  icono_src TEXT,
   id_operacion INT REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   activo BOOLEAN NOT NULL DEFAULT TRUE,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),

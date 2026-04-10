@@ -18,6 +18,11 @@ class OperationMapRepository(
     private val http: OkHttpClient = OkHttpClient()
 ) {
 
+    private fun normalizedOptionalString(value: String?): String? {
+        val cleaned = value?.trim()
+        return if (cleaned.isNullOrBlank() || cleaned.equals("null", ignoreCase = true)) null else cleaned
+    }
+
     fun fetchMapaData(
         operationId: Int,
         token: String,
@@ -146,7 +151,8 @@ class OperationMapRepository(
                                     tipoPoi = if (c.has("tipo_poi")) c.optString("tipo_poi", "") else c.optString("subtipo", ""),
                                     lat = c.optDouble("latitud"),
                                     lon = c.optDouble("longitud"),
-                                    color = c.optString("color", "#FFD700").ifBlank { "#FFD700" }
+                                    color = c.optString("color", "#FFD700").ifBlank { "#FFD700" },
+                                    iconoSrc = normalizedOptionalString(c.optString("icono_src", null))
                                 )
                             )
                         }

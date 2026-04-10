@@ -7,7 +7,7 @@ import {
   handleTacticalPlacement,
   updateTacticalPreview,
   isDraggableEntity,
-  addTacticalEntity
+  createMilSymbol
 } from "./dashboard.tactical.js";
 import { addAreaVertex, updateAreaPreview } from "./dashboard.area.js";
 import { cartesianToLatLng } from "./dashboard.persistence.js";
@@ -150,7 +150,7 @@ function handleEntitySelection(clickPosition) {
       const currentScale =
         dashboardState.selectedEntity.billboard?.scale?.getValue?.() ||
         dashboardState.selectedEntity.billboard?.scale ||
-        0.2;
+        0.08;
       dom.iconScale.value = currentScale;
     }
   } else {
@@ -344,37 +344,16 @@ function bindMapDropEvents() {
 
     const cartesian = getMapClickPosition(new Cesium.Cartesian2(x, y));
     if (!cartesian) return;
+    const coords = cartesianToLatLng(cartesian);
+    if (!coords) return;
 
-    const ent = viewer.entities.add({
-      name: title,
-      position: cartesian,
-      billboard: {
-        image: src,
-        verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        scale: Number(dom.iconScale ? dom.iconScale.value : 0.2)
-      },
-      label: {
-        text: title,
-        font: "14px sans-serif",
-        pixelOffset: new Cesium.Cartesian2(0, 15),
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-      },
-      properties: {
-        tacticalType: "mil-dropped",
-        draggable: true
-      }
-    });
-
-    addTacticalEntity(ent);
-
-    if (dom.tbHint) {
-      dom.tbHint.textContent = "Icono táctico colocado. Puedes arrastrarlo para moverlo.";
-    }
+    createMilSymbol(
+      coords.lat,
+      coords.lng,
+      title,
+      src,
+      Number(dom.iconScale ? dom.iconScale.value : 0.08)
+    );
   });
 
   document.querySelectorAll(".iconItem").forEach(item => {

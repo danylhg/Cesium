@@ -10,12 +10,22 @@ const opId     = () => localStorage.getItem("active_operation_id");
 const COLOR_PERSONAL = Cesium.Color.fromCssColorString("#00BFFF");
 const COLOR_VEHICULO = Cesium.Color.fromCssColorString("#FFD700");
 
+const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
+
 function makePersonalLabel(item) {
-  return item.apodo || item.nombre || `P-${item.id_personal}`;
+  const fullName = [item.nombre, item.apellido].filter(Boolean).join(" ").trim();
+  return fullName || item.apodo || item.nombre || item.apellido || `P-${item.id_personal}`;
 }
 
 function makeVehiculoLabel(item) {
   return item.alias || item.codigo_interno || `V-${item.id_vehiculo}`;
+}
+
+function getCoords(item) {
+  const lat = item?.latitud ?? item?.lat;
+  const lng = item?.longitud ?? item?.lng ?? item?.lon;
+  if (lat == null || lng == null) return null;
+  return { lat, lng };
 }
 
 // ── Crear o mover una entidad de tracking ────────────────────
@@ -26,9 +36,18 @@ function upsertTrackingEntity(key, lat, lng, label, color) {
   const position = Cesium.Cartesian3.fromDegrees(Number(lng), Number(lat));
 
   if (dashboardState.trackingEntities.has(key)) {
-    // Solo mover
+    // Mover y refrescar estilo/etiqueta si ya existe
     const ent = dashboardState.trackingEntities.get(key);
     ent.position = position;
+    ent.name = label;
+    if (ent.label) {
+      ent.label.text = label;
+      ent.label.backgroundColor = color.withAlpha(0.7);
+    }
+    if (ent.point) {
+      ent.point.color = color.withAlpha(0.18);
+      ent.point.outlineColor = Cesium.Color.BLACK;
+    }
     return;
   }
 
@@ -37,24 +56,27 @@ function upsertTrackingEntity(key, lat, lng, label, color) {
     name: label,
     position,
     point: {
-      pixelSize: 12,
-      color,
+      pixelSize: 10,
+      color: color.withAlpha(0.18),
       outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 2,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      outlineWidth: 3,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
     },
     label: {
       text: label,
-      font: "13px sans-serif",
-      pixelOffset: new Cesium.Cartesian2(0, -22),
+      font: "11px sans-serif",
+      pixelOffset: new Cesium.Cartesian2(0, -18),
       fillColor: Cesium.Color.WHITE,
       outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
+      outlineWidth: 2,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       showBackground: true,
-      backgroundColor: color.withAlpha(0.7),
-      backgroundPadding: new Cesium.Cartesian2(6, 3)
+      backgroundColor: color.withAlpha(0.6),
+      backgroundPadding: new Cesium.Cartesian2(4, 2),
+      scaleByDistance: SCALE_BY_DIST
     }
   });
 
@@ -64,12 +86,14 @@ function upsertTrackingEntity(key, lat, lng, label, color) {
 // ── Carga desde datos de mapa ya obtenidos (sin fetch extra) ─
 export function loadTrackingFromMapaData(mapaData) {
   (mapaData.personal || []).forEach(p => {
-    if (p.latitud == null || p.longitud == null) return;
-    upsertTrackingEntity(`P:${p.id_personal}`, p.latitud, p.longitud, makePersonalLabel(p), COLOR_PERSONAL);
+    const coords = getCoords(p);
+    if (!coords) return;
+    upsertTrackingEntity(`P:${p.id_personal}`, coords.lat, coords.lng, makePersonalLabel(p), COLOR_PERSONAL);
   });
   (mapaData.vehiculos || []).forEach(v => {
-    if (v.latitud == null || v.longitud == null) return;
-    upsertTrackingEntity(`V:${v.id_vehiculo}`, v.latitud, v.longitud, makeVehiculoLabel(v), COLOR_VEHICULO);
+    const coords = getCoords(v);
+    if (!coords) return;
+    upsertTrackingEntity(`V:${v.id_vehiculo}`, coords.lat, coords.lng, makeVehiculoLabel(v), COLOR_VEHICULO);
   });
 }
 
@@ -88,18 +112,20 @@ export async function loadTrackingFromBackend() {
 
     // Personal con posición conocida
     (data.personal || []).forEach(p => {
-      if (p.latitud == null || p.longitud == null) return;
+      const coords = getCoords(p);
+      if (!coords) return;
       const key   = `P:${p.id_personal}`;
       const label = makePersonalLabel(p);
-      upsertTrackingEntity(key, p.latitud, p.longitud, label, COLOR_PERSONAL);
+      upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_PERSONAL);
     });
 
     // Vehículos con posición conocida
     (data.vehiculos || []).forEach(v => {
-      if (v.latitud == null || v.longitud == null) return;
+      const coords = getCoords(v);
+      if (!coords) return;
       const key   = `V:${v.id_vehiculo}`;
       const label = makeVehiculoLabel(v);
-      upsertTrackingEntity(key, v.latitud, v.longitud, label, COLOR_VEHICULO);
+      upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_VEHICULO);
     });
 
   } catch (err) {
@@ -114,8 +140,7 @@ export function initTrackingSocket(socket) {
     if (!id_personal || latitud == null || longitud == null) return;
 
     const key   = `P:${id_personal}`;
-    // Intenta obtener el label del viewer si ya existe, o usa el id
-    const label = dashboardState.trackingEntities.get(key)?.name || `P-${id_personal}`;
+    const label = makePersonalLabel(data);
     upsertTrackingEntity(key, latitud, longitud, label, COLOR_PERSONAL);
   });
 

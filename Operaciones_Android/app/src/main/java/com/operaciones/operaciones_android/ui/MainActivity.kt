@@ -53,6 +53,16 @@ class MainActivity : AppCompatActivity(),
     MapActionController.Host,
     PanelNavigationController.Host {
 
+    private data class PendingPoiAddition(
+        val idPoi: Int,
+        val lat: Double,
+        val lon: Double,
+        val nombre: String,
+        val tipoPoi: String,
+        val color: String,
+        val iconoSrc: String? = null
+    )
+
     private val personalRepository = PersonalRepository()
     private val vehiculoRepository = VehiculoRepository()
     private val equipoRepository = EquipoRepository()
@@ -97,10 +107,14 @@ class MainActivity : AppCompatActivity(),
     private var opZoom = 8000
     private var lastRouteId: Int = -1
 
+    // Última posición conocida del usuario — se emite al socket cuando se conecta
+    private var lastKnownLat: Double? = null
+    private var lastKnownLon: Double? = null
+
     // POIs pendientes de dibujar hasta que Cesium esté listo
     private var pendingPoisJson: String? = null
     private var isCesiumReady = false
-    private val pendingPoiAdditions = mutableListOf<Triple<Int, Pair<Double, Double>, Triple<String, String, String>>>()
+    private val pendingPoiAdditions = mutableListOf<PendingPoiAddition>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -189,15 +203,30 @@ class MainActivity : AppCompatActivity(),
                         val nombre = poi.optString("nombre", "PDI")
                         val tipo   = poi.optString("tipo_poi", "")
                         val color  = poi.optString("color", "#FFD700").ifBlank { "#FFD700" }
+                        val iconoSrc = resolvePoiIconUrl(poi.optString("icono_src", null))
                         if (idPoi > 0) {
                             if (isCesiumReady) {
-                                cesiumWebController.addPoiToMap(idPoi, lat, lon, nombre, tipo, color)
+                                cesiumWebController.addPoiToMap(idPoi, lat, lon, nombre, tipo, color, iconoSrc)
                             } else {
                                 pendingPoiAdditions.add(
-                                    Triple(idPoi, Pair(lat, lon), Triple(nombre, tipo, color))
+                                    PendingPoiAddition(idPoi, lat, lon, nombre, tipo, color, iconoSrc)
                                 )
                             }
                         }
+                    }
+                },
+                onConnected = {
+                    // Socket conectado y unido al room — emitir posición inmediatamente
+                    val lat = lastKnownLat ?: return@ChatSocketManager
+                    val lon = lastKnownLon ?: return@ChatSocketManager
+                    if (::currentUser.isInitialized) {
+                        chatSocketManager?.emitTracking(
+                            idPersonal = currentUser.id,
+                            lat = lat,
+                            lon = lon,
+                            apodo = currentUser.nombreCompleto,
+                            rol = currentUser.rol.name
+                        )
                     }
                 }
             )
@@ -238,6 +267,8 @@ class MainActivity : AppCompatActivity(),
                 cesiumWebController.updateMyPosition(latitude, longitude)
             },
             onEmitLocation = { lat, lon ->
+                lastKnownLat = lat
+                lastKnownLon = lon
                 if (::currentUser.isInitialized) {
                     chatSocketManager?.emitTracking(
                         idPersonal = currentUser.id,
@@ -262,10 +293,11 @@ class MainActivity : AppCompatActivity(),
 
         setupWebView()
         panelNavigationController.setupNavigation()
-        locationHelper.requestLocationPermissionOrStart()
         setupBackPress()
         panelNavigationController.showPanel(Panel.NONE)
+        // Conectar socket primero para que esté listo cuando llegue la primera ubicación
         chatSocketManager?.connect()
+        locationHelper.requestLocationPermissionOrStart()
 
         if (currentOperation.id > 0) {
             fetchMapaData()
@@ -381,6 +413,9 @@ class MainActivity : AppCompatActivity(),
                                 append("\"latitud\":${poi.lat},")
                                 append("\"longitud\":${poi.lon},")
                                 append("\"color\":\"${poi.color}\"")
+                                poi.iconoSrc?.let { icon ->
+                                    append(",\"icono_src\":\"${resolvePoiIconUrl(icon)?.replace("\"", "\\\"")}\"")
+                                }
                                 append("}")
                             }
                             append("]")
@@ -630,6 +665,13 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::locationHelper.isInitialized) {
+            locationHelper.requestLocationPermissionOrStart()
+        }
+    }
+
     override fun onStop() {
         super.onStop()
         if (::locationHelper.isInitialized) {
@@ -653,8 +695,16 @@ class MainActivity : AppCompatActivity(),
 
         // POIs recibidos por socket antes de que Cesium estuviera listo
         if (pendingPoiAdditions.isNotEmpty()) {
-            pendingPoiAdditions.forEach { (idPoi, coords, info) ->
-                cesiumWebController.addPoiToMap(idPoi, coords.first, coords.second, info.first, info.second, info.third)
+            pendingPoiAdditions.forEach { poi ->
+                cesiumWebController.addPoiToMap(
+                    poi.idPoi,
+                    poi.lat,
+                    poi.lon,
+                    poi.nombre,
+                    poi.tipoPoi,
+                    poi.color,
+                    poi.iconoSrc
+                )
             }
             pendingPoiAdditions.clear()
         }
@@ -725,7 +775,14 @@ class MainActivity : AppCompatActivity(),
         })
     }
 
-    override fun savePoi(lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String) {
+    private fun resolvePoiIconUrl(iconoSrc: String?): String? {
+        val cleaned = iconoSrc?.trim()
+        if (cleaned.isNullOrBlank() || cleaned.equals("null", ignoreCase = true)) return null
+        if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned
+        return "${ApiConfig.BASE_URL}/${cleaned.trimStart('/')}"
+    }
+
+    override fun savePoi(lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String, iconoSrc: String?) {
         val operationId = currentOperation.id
         if (operationId <= 0) return
         val token = AuthManager.getToken(this)
@@ -741,6 +798,7 @@ class MainActivity : AppCompatActivity(),
               "latitud": $lat,
               "longitud": $lon,
               "color": "$color",
+              "icono_src": ${iconoSrc?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"},
               "tipo_creador": "$tipoCreador",
               "$idKey": ${currentUser.id}
             }
@@ -775,6 +833,7 @@ class MainActivity : AppCompatActivity(),
                             val poiNombre = poi.optString("nombre", nombre)
                             val poiTipo = poi.optString("tipo_poi", tipoPoi)
                             val poiColor = poi.optString("color", color).ifBlank { color }
+                            val poiIconoSrc = resolvePoiIconUrl(poi.optString("icono_src", iconoSrc))
 
                             runOnUiThread {
                                 if (idPoi > 0) {
@@ -784,7 +843,8 @@ class MainActivity : AppCompatActivity(),
                                         lon = poiLon,
                                         nombre = poiNombre,
                                         tipoPoi = poiTipo,
-                                        color = poiColor
+                                        color = poiColor,
+                                        iconoSrc = poiIconoSrc
                                     )
                                 }
 

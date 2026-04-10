@@ -1,16 +1,11 @@
 -- =========================================================
--- 16_patch_poi_color.sql
--- Agrega campo color a puntos_interes y actualiza vistas
+-- 18_patch_poi_icono_mil.sql
+-- Agrega soporte de iconos persistidos para POIs y MIL
 -- =========================================================
-
--- 1) Agregar color a puntos_interes
-ALTER TABLE puntos_interes
-  ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#FFD700';
 
 ALTER TABLE puntos_interes
   ADD COLUMN IF NOT EXISTS icono_src TEXT;
 
--- 2) Actualizar v_poi_detalle para exponer color
 CREATE OR REPLACE VIEW v_poi_detalle AS
 SELECT
   poi.id_poi,
@@ -42,7 +37,6 @@ FROM puntos_interes poi
 LEFT JOIN usuario u ON u.id_usuario = poi.id_usuario
 LEFT JOIN personal p ON p.id_personal = poi.id_personal;
 
--- 3) Actualizar v_capas_mapa_operacion para incluir color de POI
 CREATE OR REPLACE VIEW v_capas_mapa_operacion AS
 SELECT
   id_operacion,

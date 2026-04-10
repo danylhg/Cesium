@@ -12,6 +12,7 @@ class ChatSocketManager(
     private val onTrackingPersonal: ((JSONObject) -> Unit)? = null,
     private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null,
     private val onPoiCreado: ((JSONObject) -> Unit)? = null,
+    private val onConnected: (() -> Unit)? = null,
     private val idPersonal: Int = -1,
     private val rol: String = ""
 ) {
@@ -30,6 +31,8 @@ class ChatSocketManager(
                 if (rol.isNotEmpty()) put("rol", rol)
             }
             socket?.emit("join_operacion", payload)
+            // Notifica que ya está conectado y unido para que se emita la posición inicial
+            onConnected?.invoke()
         }
 
         socket?.on("chat_message") { args ->

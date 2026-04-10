@@ -97,6 +97,7 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
     longitud,
     descripcion,
     color,
+    icono_src,
     tipo_creador,
     id_usuario,
     id_personal
@@ -128,8 +129,8 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
   try {
     // Inserta el POI en la tabla puntos_interes
     const { rows } = await pool.query(
-      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, color, id_operacion)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, color, icono_src, id_operacion)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [
         tipo,
         id_usuario ? Number(id_usuario) : null,
@@ -140,6 +141,7 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
         Number(longitud),
         descripcion?.toString().trim() || null,
         color?.toString().trim() || '#FFD700',
+        icono_src?.toString().trim() || null,
         id_operacion
       ]
     );
@@ -617,7 +619,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       //    depender del shape de v_capas_mapa_operacion.
       // -------------------------------------------------
       pool.query(
-        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color
+        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color, icono_src
            FROM v_poi_detalle
           WHERE id_operacion = $1
             AND activo = TRUE

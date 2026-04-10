@@ -23,6 +23,31 @@ class LocationHelper(
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
 
+    @SuppressLint("MissingPermission")
+    private fun emitLastKnownLocation() {
+        val manager = locationManager ?: return
+        val providers = listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+            LocationManager.PASSIVE_PROVIDER
+        )
+
+        val bestLocation = providers
+            .mapNotNull { provider ->
+                try {
+                    manager.getLastKnownLocation(provider)
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            .maxByOrNull { it.time }
+
+        bestLocation?.let { loc ->
+            onLocationUpdate(loc.latitude, loc.longitude)
+            onEmitLocation?.invoke(loc.latitude, loc.longitude)
+        }
+    }
+
     fun requestLocationPermissionOrStart() {
         val fineOk = ContextCompat.checkSelfPermission(
             activity,
@@ -73,7 +98,7 @@ class LocationHelper(
             locationManager?.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
                 5000L,
-                5f,
+                0f,
                 locationListener!!
             )
         } catch (_: Exception) {
@@ -83,11 +108,13 @@ class LocationHelper(
             locationManager?.requestLocationUpdates(
                 LocationManager.NETWORK_PROVIDER,
                 5000L,
-                5f,
+                0f,
                 locationListener!!
             )
         } catch (_: Exception) {
         }
+
+        emitLastKnownLocation()
     }
 
     fun stopLocationUpdates() {

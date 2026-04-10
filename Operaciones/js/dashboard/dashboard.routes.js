@@ -16,11 +16,7 @@ const ROUTE_COLORS = [
 // Colores por rol — mismos que la app Android (map.html)
 function getRolColor(rol) {
   switch ((rol || "").toUpperCase()) {
-    case "CUT":
-    case "ADMIN": return Cesium.Color.RED;
-    case "CET":   return Cesium.Color.ORANGE;
-    case "CELL":  return Cesium.Color.DODGERBLUE;
-    default:      return Cesium.Color.PURPLE;
+    default:      return Cesium.Color.fromCssColorString("#00BFFF");
   }
 }
 
@@ -183,7 +179,14 @@ function updateTrackingMarker(key, lat, lon, labelText, color) {
 
   const ent = viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(lon, lat),
-    point:    { pixelSize: 10, color, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+    point: {
+      pixelSize: 10,
+      color: color.withAlpha(0.18),
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
+    },
     label: {
       text: labelText,
       font: "bold 12px sans-serif",
@@ -441,6 +444,8 @@ export function initRoutes(socket) {
   });
 
   // Tracking de personal (Android envía posición GPS)
+  loadExistingRoutes();
+  return;
   socket.on("tracking_personal", (data) => {
     if (!data?.id_personal || data.latitud == null || data.longitud == null) return;
     updateTrackingMarker(

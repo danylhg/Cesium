@@ -133,6 +133,10 @@ export function saveTacticalData() {
   if (!op || !op.id) return;
 
   const serialized = dashboardState.tacticalEntities
+    .filter(ent => {
+      const idPoi = ent.properties?.id_poi?.getValue?.() ?? ent.properties?.id_poi;
+      return !idPoi;
+    })
     .map(ent => {
       try { return serializeEntity(ent); } catch { return null; }
     })
@@ -169,10 +173,10 @@ export function restoreTacticalData() {
   let payload;
   try { payload = JSON.parse(raw); } catch { return; }
 
-  // Restore tactical entities — skip poi/building, those come from the DB now
+  // Restore tactical entities — skip poi/building/mil, those come from the DB now
   if (Array.isArray(payload.tactical)) {
     payload.tactical.forEach(d => {
-      if (d?.type === "poi" || d?.type === "building") return;
+      if (d?.type === "poi" || d?.type === "building" || d?.type === "mil-dropped") return;
       try { restoreOneEntity(d); } catch {}
     });
   }
@@ -236,7 +240,7 @@ export function restoreOneEntity(d) {
         image: d.image,
         verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        scale: d.scale || 0.2
+        scale: d.scale || 0.08
       },
       label: d.labelText ? {
         text: d.labelText,

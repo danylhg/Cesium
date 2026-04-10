@@ -6,7 +6,10 @@ import { setRouteInfo, updateSelectionInfo } from "./dashboard.ui.js";
 import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
+const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
 
+// Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
+// cerca (1 km) → escala normal; lejos (2 000 km) → escala mínima visible.
 const COLOR_HEX_MAP = {
   red:    '#FF4500',
   blue:   '#00BFFF',
@@ -35,7 +38,95 @@ export function getCesiumColor(name, alpha = 1) {
 // IDs de POIs que acabo de enviar yo (evita redibujar lo que ya dibujé localmente)
 const _mySentPoiIds = new Set();
 
-async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName) {
+function buildMilUniqueName(baseName) {
+  const normalizedBase = String(baseName || "Simbolo MIL").trim() || "Simbolo MIL";
+  const now = new Date();
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+    String(now.getHours()).padStart(2, "0"),
+    String(now.getMinutes()).padStart(2, "0"),
+    String(now.getSeconds()).padStart(2, "0"),
+    String(now.getMilliseconds()).padStart(3, "0")
+  ].join("");
+  return `${normalizedBase} ${stamp}`;
+}
+
+function getPoiDisplayLabel(poi) {
+  const rawLabel = String(poi.nombre || poi.name || "PDI");
+  const tipoPoi = String(poi.tipo_poi || poi.tipoPoi || "").toUpperCase();
+  if (tipoPoi === "MIL") {
+    return rawLabel.replace(/\s\d{17}$/, "");
+  }
+  return rawLabel;
+}
+
+function resolvePoiImage(iconSrc) {
+  if (!iconSrc) return null;
+  if (/^(https?:)?\/\//i.test(iconSrc) || iconSrc.startsWith("data:")) return iconSrc;
+  const apiBase = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  return `${apiBase.replace(/\/$/, "")}/${iconSrc.replace(/^\.?\//, "")}`;
+}
+
+function buildPoiEntity(poi, tacticalType = "poi") {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return null;
+
+  const lat = Number(poi.latitud ?? poi.lat);
+  const lng = Number(poi.longitud ?? poi.lon ?? poi.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+  const iconSrc = resolvePoiImage(poi.icono_src || poi.iconSrc || poi.image);
+  const isMil = (poi.tipo_poi || poi.tipoPoi || "").toUpperCase() === "MIL" && !!iconSrc;
+  const hexColor = poi.color || "#FFD700";
+  const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
+  const label = getPoiDisplayLabel(poi);
+  const entityId = poi.id_poi ? `poi_${poi.id_poi}` : undefined;
+
+  if (entityId && viewer.entities.getById(entityId)) {
+    return null;
+  }
+
+  return viewer.entities.add({
+    id: entityId,
+    name: label,
+    position: Cesium.Cartesian3.fromDegrees(lng, lat),
+    billboard: iconSrc ? {
+      image: iconSrc,
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      scale: Number(poi.scale || (isMil ? 0.08 : 0.08))
+    } : undefined,
+    point: !iconSrc ? {
+      pixelSize: 10,
+      color: cesiumColor,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 2,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    } : undefined,
+    label: {
+      text: label,
+      font: "14px sans-serif",
+      pixelOffset: iconSrc ? new Cesium.Cartesian2(0, 15) : new Cesium.Cartesian2(0, -20),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      showBackground: !iconSrc,
+      backgroundColor: !iconSrc ? cesiumColor.withAlpha(0.7) : undefined,
+      backgroundPadding: !iconSrc ? new Cesium.Cartesian2(6, 4) : undefined
+    },
+    properties: {
+      tacticalType: isMil ? "mil-dropped" : tacticalType,
+      draggable: true,
+      id_poi: poi.id_poi ?? null
+    }
+  });
+}
+
+async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc = null) {
   try {
     const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
     const token    = localStorage.getItem("token");
@@ -53,6 +144,7 @@ async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName) {
       latitud:       lat,
       longitud:      lng,
       color:         COLOR_HEX_MAP[colorName] || '#FFD700',
+      icono_src:     iconoSrc,
       tipo_creador:  tabla === "personal" ? "PERSONAL" : "USUARIO",
       [idKey]:       idVal
     };
@@ -201,24 +293,45 @@ export function updateTacticalPreview(currentLat, currentLng) {
 }
 
 export function setTacticalUI() {
+  const currentOperation = getCurrentOperation();
   const isMil = dashboardState.toolMode === "mil";
+  const isPoi = dashboardState.toolMode === "poi";
+  const isPlanningOperation = (currentOperation?.phase || "").toLowerCase() === "planificada";
   const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter", "building"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
   const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
+  const showCancelButton = !isMil && !isPoi;
+  const showFinishButton = isMultiPoint || dashboardState.areaDrawing;
+  const showLabelInput = needsLabel && !isMil;
+  const showColorInput = !isMil;
+  const showOpacityInput = !isMil && !isPoi;
+  const showWidthInput = !isMil && !isPoi;
 
   const milTitle = document.getElementById("milSymbolTitle");
   if (milTitle) milTitle.style.display = isMil ? "block" : "none";
 
   if (dom.iconPallet) dom.iconPallet.style.display = isMil ? "flex" : "none";
-  if (dom.iconSettings) dom.iconSettings.style.display = isMil ? "block" : "none";
+  if (dom.iconSettings) dom.iconSettings.style.display = "none";
 
-  if (dom.symLabel) dom.symLabel.disabled = !needsLabel;
+  if (dom.symLabelContainer) dom.symLabelContainer.style.display = showLabelInput ? "block" : "none";
+  if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
+  if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
+  if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
+  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = isMil ? "none" : "grid";
+  if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
+  if (dom.finishShape) dom.finishShape.style.display = showFinishButton ? "" : "none";
+  if (dom.clearTactical) dom.clearTactical.style.display = isPlanningOperation ? "" : "none";
+
+  if (dom.symLabel) dom.symLabel.disabled = !showLabelInput;
   if (dom.radiusInput) dom.radiusInput.disabled = !needsRadius;
   if (dom.radiusContainer) {
     dom.radiusContainer.style.display = needsRadius ? "block" : "none";
   }
 
-  if (dom.placeBtn) dom.placeBtn.disabled = dashboardState.toolMode === "none" || isMil;
+  if (dom.placeBtn) {
+    dom.placeBtn.disabled = dashboardState.toolMode === "none" || isMil;
+    dom.placeBtn.style.display = isMil ? "none" : "";
+  }
   if (dom.finishShape) dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
 
   if (!dom.tbHint) return;
@@ -262,6 +375,13 @@ export async function createPoi(lat, lng, iconPath = null) {
   if (dashboardState.toolMode === "poi") {
     const savedPoi = await savePoiToBackend(lat, lng, label, "PDI", getCurrentColorName());
     if (!savedPoi) return;
+
+    const ent = buildPoiEntity(savedPoi, "poi");
+    if (ent) {
+      addTacticalEntity(ent);
+      if (dom.tbHint) dom.tbHint.textContent = `${label} colocado.`;
+    }
+    return;
   }
 
   const ent = viewer.entities.add({
@@ -271,14 +391,16 @@ export async function createPoi(lat, lng, iconPath = null) {
       image: iconPath,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      scale: 0.08
+      scale: 0.08,
+      scaleByDistance: SCALE_BY_DIST
     } : undefined,
     point: !iconPath ? {
       pixelSize: 10,
       color,
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 2,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      scaleByDistance: SCALE_BY_DIST
     } : undefined,
     label: {
       text: label,
@@ -288,7 +410,8 @@ export async function createPoi(lat, lng, iconPath = null) {
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 3,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      scaleByDistance: SCALE_BY_DIST
     },
     properties: {
       tacticalType: dashboardState.toolMode,
@@ -298,6 +421,18 @@ export async function createPoi(lat, lng, iconPath = null) {
 
   addTacticalEntity(ent);
   if (dom.tbHint) dom.tbHint.textContent = `${label} colocado.`;
+}
+
+export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08) {
+  const uniqueName = buildMilUniqueName(nombre);
+  const savedPoi = await savePoiToBackend(lat, lng, uniqueName, "MIL", "red", iconPath);
+  if (!savedPoi) return;
+
+  const ent = buildPoiEntity({ ...savedPoi, scale }, "poi");
+  if (ent) {
+    addTacticalEntity(ent);
+    if (dom.tbHint) dom.tbHint.textContent = `${nombre} colocado.`;
+  }
 }
 
 export function createLabel(lat, lng) {
@@ -317,7 +452,8 @@ export function createLabel(lat, lng) {
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 4,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      scaleByDistance: SCALE_BY_DIST
     },
     properties: {
       tacticalType: "label",
@@ -414,7 +550,8 @@ export function finishPolygon() {
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        scaleByDistance: SCALE_BY_DIST
       },
       properties: {
         tacticalType: "label",
@@ -470,7 +607,8 @@ export function finishPolyline() {
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        scaleByDistance: SCALE_BY_DIST
       },
       properties: {
         tacticalType: "label",
@@ -530,7 +668,8 @@ export function finishPerimeter() {
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 3,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        scaleByDistance: SCALE_BY_DIST
       },
       properties: {
         tacticalType: "label",
@@ -655,37 +794,8 @@ export async function loadPoisFromBackend() {
 
     pois.forEach(poi => {
       if (!poi?.id_poi) return;
-      const hexColor   = poi.color || "#FFD700";
-      const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
-      const label      = poi.nombre || "PDI";
-
-      const ent = viewer.entities.add({
-        name: label,
-        position: Cesium.Cartesian3.fromDegrees(Number(poi.longitud), Number(poi.latitud)),
-        point: {
-          pixelSize: 10,
-          color: cesiumColor,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 2,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-        },
-        label: {
-          text: label,
-          font: "14px sans-serif",
-          pixelOffset: new Cesium.Cartesian2(0, -20),
-          fillColor: Cesium.Color.WHITE,
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 3,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          showBackground: true,
-          backgroundColor: cesiumColor.withAlpha(0.7),
-          backgroundPadding: new Cesium.Cartesian2(6, 4)
-        },
-        properties: { tacticalType: "poi", draggable: true }
-      });
-
-      addTacticalEntity(ent);
+      const ent = buildPoiEntity(poi, "poi");
+      if (ent) addTacticalEntity(ent);
     });
   } catch (err) {
     console.error("[POI] Error cargando POIs desde backend:", err);
@@ -701,37 +811,8 @@ export function initPoiSocket(socket) {
     const viewer = dashboardState.viewer;
     if (!viewer) return;
 
-    const hexColor = poi.color || "#FFD700";
-    const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
-    const label = poi.nombre || "PDI";
-
-    const ent = viewer.entities.add({
-      name: label,
-      position: Cesium.Cartesian3.fromDegrees(Number(poi.longitud), Number(poi.latitud)),
-      point: {
-        pixelSize: 10,
-        color: cesiumColor,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-      },
-      label: {
-        text: label,
-        font: "14px sans-serif",
-        pixelOffset: new Cesium.Cartesian2(0, -20),
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        showBackground: true,
-        backgroundColor: cesiumColor.withAlpha(0.7),
-        backgroundPadding: new Cesium.Cartesian2(6, 4)
-      },
-      properties: { tacticalType: "poi", draggable: true }
-    });
-
-    addTacticalEntity(ent);
+    const ent = buildPoiEntity(poi, "poi");
+    if (ent) addTacticalEntity(ent);
   });
 
   socket.on("poi_eliminado", ({ id_poi }) => {
