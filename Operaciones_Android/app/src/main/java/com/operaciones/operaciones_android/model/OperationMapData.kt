@@ -4,5 +4,6 @@ data class OperationMapData(
     val personal: List<PersonalItem>,
     val vehiculos: List<VehiculoItem>,
     val equipos: List<EquipoItem>,
-    val rutasNavegacion: String? = null
+    val rutasNavegacion: String? = null,
+    val pois: List<PoiItem> = emptyList()
 )

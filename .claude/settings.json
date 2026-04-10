@@ -10,7 +10,10 @@
       "Bash(PGPASSWORD='pollito' psql -U postgres -d ops_db -p 5433 -P pager=off -c \"\\\\d uso_equipo_operacion\")",
       "Bash(psql -U postgres -d ops_db -p 5433 -P pager=off -c ':*)",
       "Bash(grep -E \"\\\\.\\(sql|js\\)$\")",
-      "Bash(find \"/c/Users/PC/Desktop/cesium-proyecto\" -type f \\\\\\( -name \"*.sql\" -o -name \"*.js\" \\\\\\) -exec grep -l \"ruta_navegacion\" {} \\\\;)"
+      "Bash(find \"/c/Users/PC/Desktop/cesium-proyecto\" -type f \\\\\\( -name \"*.sql\" -o -name \"*.js\" \\\\\\) -exec grep -l \"ruta_navegacion\" {} \\\\;)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -r \"localStorage.setItem\" c:/Users/PC/Desktop/cesium-proyecto/Operaciones --include=\"*.js\" --include=\"*.html\" ! -path \"*/node_modules/*\")",
+      "Bash(grep -r \"id_usuario\\\\|id_personal\\\\|tipo_creador\\\\|user_id\" c:/Users/PC/Desktop/cesium-proyecto/Operaciones --include=\"*.js\" --include=\"*.html\" ! -path \"*/node_modules/*\")"
     ]
   }
 }

@@ -95,6 +95,17 @@ export function initSocket(server) {
   return io;
 }
 
+// ── Emit poi_creado ───────────────────────────────────────────
+// Emite el nuevo POI a todos los clientes en el room de la operación.
+export function emitPoiCreado(io, idOperacion, poi) {
+  io.to(`op_${idOperacion}`).emit("poi_creado", { poi });
+}
+
+// ── Emit poi_eliminado ────────────────────────────────────────
+export function emitPoiEliminado(io, idOperacion, idPoi) {
+  io.to(`op_${idOperacion}`).emit("poi_eliminado", { id_poi: idPoi });
+}
+
 // ── Emit filtrado de ruta_navegacion_creada ───────────────────
 // Emite la ruta solo a sockets que tienen permiso de verla:
 //   - Admin / CUT / CET / sin rol registrado → ven todo

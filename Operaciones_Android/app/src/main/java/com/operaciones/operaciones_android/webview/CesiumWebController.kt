@@ -194,6 +194,43 @@ class CesiumWebController(
         }
     }
 
+    fun loadPois(poisJson: String) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof loadPois === 'function') {
+                        loadPois($poisJson);
+                        return 'OK';
+                    }
+                    return 'ERROR:loadPois no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun addPoiToMap(idPoi: Int, lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String) {
+        val safeNombre = nombre.replace("'", "\\'")
+        val safeTipo = tipoPoi.replace("'", "\\'")
+        val safeColor = color.replace("'", "\\'")
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof addPoiToMap === 'function') {
+                        addPoiToMap($idPoi, $lat, $lon, '$safeNombre', '$safeTipo', '$safeColor');
+                        return 'OK';
+                    }
+                    return 'ERROR:addPoiToMap no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
     fun evaluate(js: String) {
         webView.post {
             webView.evaluateJavascript(js, null)

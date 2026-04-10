@@ -97,6 +97,11 @@ class MainActivity : AppCompatActivity(),
     private var opZoom = 8000
     private var lastRouteId: Int = -1
 
+    // POIs pendientes de dibujar hasta que Cesium esté listo
+    private var pendingPoisJson: String? = null
+    private var isCesiumReady = false
+    private val pendingPoiAdditions = mutableListOf<Triple<Int, Pair<Double, Double>, Triple<String, String, String>>>()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -172,6 +177,26 @@ class MainActivity : AppCompatActivity(),
                         val lon = data.optDouble("longitud")
                         if (id > 0) {
                             cesiumWebController.evaluate("if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon)")
+                        }
+                    }
+                },
+                onPoiCreado = { data ->
+                    runOnUiThread {
+                        val poi = data.optJSONObject("poi") ?: return@runOnUiThread
+                        val idPoi  = poi.optInt("id_poi")
+                        val lat    = poi.optDouble("latitud")
+                        val lon    = poi.optDouble("longitud")
+                        val nombre = poi.optString("nombre", "PDI")
+                        val tipo   = poi.optString("tipo_poi", "")
+                        val color  = poi.optString("color", "#FFD700").ifBlank { "#FFD700" }
+                        if (idPoi > 0) {
+                            if (isCesiumReady) {
+                                cesiumWebController.addPoiToMap(idPoi, lat, lon, nombre, tipo, color)
+                            } else {
+                                pendingPoiAdditions.add(
+                                    Triple(idPoi, Pair(lat, lon), Triple(nombre, tipo, color))
+                                )
+                            }
                         }
                     }
                 }
@@ -342,6 +367,29 @@ class MainActivity : AppCompatActivity(),
                         findViewById<WebView>(R.id.cesiumWebView)?.postDelayed({
                             cesiumWebController.evaluate("if(typeof loadRemoteRoutes === 'function') loadRemoteRoutes($jsonString)")
                         }, 2600)
+                    }
+
+                    if (data.pois.isNotEmpty()) {
+                        val poisJson = buildString {
+                            append("[")
+                            data.pois.forEachIndexed { i, poi ->
+                                if (i > 0) append(",")
+                                append("{")
+                                append("\"id_poi\":${poi.idPoi},")
+                                append("\"nombre\":\"${poi.nombre.replace("\"", "\\\"")}\",")
+                                append("\"tipo_poi\":\"${poi.tipoPoi}\",")
+                                append("\"latitud\":${poi.lat},")
+                                append("\"longitud\":${poi.lon},")
+                                append("\"color\":\"${poi.color}\"")
+                                append("}")
+                            }
+                            append("]")
+                        }
+                        if (isCesiumReady) {
+                            cesiumWebController.loadPois(poisJson)
+                        } else {
+                            pendingPoisJson = poisJson
+                        }
                     }
                 }
             },
@@ -594,7 +642,22 @@ class MainActivity : AppCompatActivity(),
     }
 
     fun applyOperationViewFromBridge() {
+        isCesiumReady = true
         cesiumWebController.applyOperationView()
+
+        // POIs del batch inicial (GET /mapa)
+        pendingPoisJson?.let { json ->
+            pendingPoisJson = null
+            cesiumWebController.loadPois(json)
+        }
+
+        // POIs recibidos por socket antes de que Cesium estuviera listo
+        if (pendingPoiAdditions.isNotEmpty()) {
+            pendingPoiAdditions.forEach { (idPoi, coords, info) ->
+                cesiumWebController.addPoiToMap(idPoi, coords.first, coords.second, info.first, info.second, info.third)
+            }
+            pendingPoiAdditions.clear()
+        }
     }
 
     fun getCurrentUserRoleForBridge(): String = currentUser.rol.name
@@ -658,6 +721,45 @@ class MainActivity : AppCompatActivity(),
                 } else {
                     Log.e("RUTA_ANDROID", "Backend rechazó la ruta: $body")
                 }
+            }
+        })
+    }
+
+    override fun savePoi(lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String) {
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        val tipoCreador = if (currentUser.tabla == "personal") "PERSONAL" else "USUARIO"
+        val idKey = if (currentUser.tabla == "personal") "id_personal" else "id_usuario"
+
+        val body = """
+            {
+              "nombre": "${nombre.replace("\"", "\\\"")}",
+              "tipo_poi": "$tipoPoi",
+              "latitud": $lat,
+              "longitud": $lon,
+              "color": "$color",
+              "tipo_creador": "$tipoCreador",
+              "$idKey": ${currentUser.id}
+            }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/pois")
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Content-Type", "application/json")
+            .post(body.toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("POI", "Error guardando POI en backend", e)
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val responseBody = response.body?.string().orEmpty()
+                Log.d("POI", "POI guardado: ${response.code} - $responseBody")
             }
         })
     }

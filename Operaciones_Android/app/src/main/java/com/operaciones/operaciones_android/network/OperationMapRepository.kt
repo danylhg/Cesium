@@ -4,6 +4,7 @@ import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.OperationMapData
 import com.operaciones.operaciones_android.model.PersonalItem
+import com.operaciones.operaciones_android.model.PoiItem
 import com.operaciones.operaciones_android.model.VehiculoItem
 import okhttp3.Call
 import okhttp3.Callback
@@ -127,6 +128,25 @@ class OperationMapRepository(
                         }
                     }
 
+                    val pois = mutableListOf<PoiItem>()
+                    if (capas != null) {
+                        for (i in 0 until capas.length()) {
+                            val c = capas.getJSONObject(i)
+                            if (c.optString("tipo_capa") != "POI") continue
+
+                            pois.add(
+                                PoiItem(
+                                    idPoi = c.optInt("id_elemento"),
+                                    nombre = c.optString("nombre", "PDI"),
+                                    tipoPoi = c.optString("subtipo", ""),
+                                    lat = c.optDouble("latitud"),
+                                    lon = c.optDouble("longitud"),
+                                    color = c.optString("color", "#FFD700").ifBlank { "#FFD700" }
+                                )
+                            )
+                        }
+                    }
+
                     val rutasNav = json.optJSONArray("rutas_navegacion")?.toString()
 
                     onSuccess(
@@ -134,7 +154,8 @@ class OperationMapRepository(
                             personal = personal,
                             vehiculos = vehiculos,
                             equipos = equipos,
-                            rutasNavegacion = rutasNav
+                            rutasNavegacion = rutasNav,
+                            pois = pois
                         )
                     )
 

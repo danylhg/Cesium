@@ -530,9 +530,84 @@
       }
     };
 
-    // TODO después:
-    // window.renderOperationalData = function(dataJson) { ... }
-    // window.addPointOfInterest = function(lat, lon, label, color) { ... }
+    // =========================
+    // Puntos de Interés (POI)
+    // =========================
+    const poiEntities = new Map(); // id_poi → entity
+
+    window.addPoiToMap = function (id, lat, lon, nombre, tipoPoi, color) {
+      try {
+        if (!viewer) return;
+
+        const hexColor = (color && color.startsWith('#')) ? color : '#FFD700';
+        const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
+        const label = tipoPoi ? nombre + ' [' + tipoPoi + ']' : nombre;
+        const entityId = 'poi_' + id;
+
+        // Si ya existe, no duplicar
+        if (poiEntities.has(entityId)) return;
+
+        const entity = viewer.entities.add({
+          id: entityId,
+          position: Cesium.Cartesian3.fromDegrees(lon, lat),
+          point: {
+            pixelSize: 14,
+            color: cesiumColor,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          },
+          label: {
+            text: label,
+            font: '13px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -26),
+            showBackground: true,
+            backgroundColor: cesiumColor.withAlpha(0.75),
+            backgroundPadding: new Cesium.Cartesian2(6, 4),
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          }
+        });
+
+        poiEntities.set(entityId, entity);
+      } catch (e) {
+        console.error('Error addPoiToMap: ' + e.message);
+      }
+    };
+
+    window.loadPois = function (poisArray) {
+      try {
+        if (!Array.isArray(poisArray)) return;
+        poisArray.forEach(function (poi) {
+          addPoiToMap(
+            poi.id_poi,
+            parseFloat(poi.latitud),
+            parseFloat(poi.longitud),
+            poi.nombre || 'PDI',
+            poi.tipo_poi || '',
+            poi.color || '#FFD700'
+          );
+        });
+      } catch (e) {
+        console.error('Error loadPois: ' + e.message);
+      }
+    };
+
+    window.removePoiFromMap = function (id) {
+      try {
+        const entityId = 'poi_' + id;
+        const entity = poiEntities.get(entityId);
+        if (entity) {
+          viewer.entities.remove(entity);
+          poiEntities.delete(entityId);
+        }
+      } catch (e) {
+        console.error('Error removePoiFromMap: ' + e.message);
+      }
+    };
   </script>
 </body>
 

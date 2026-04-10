@@ -11,6 +11,7 @@ class ChatSocketManager(
     private val onNavigationRouteEvt: ((event: String, data: JSONObject) -> Unit)? = null,
     private val onTrackingPersonal: ((JSONObject) -> Unit)? = null,
     private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null,
+    private val onPoiCreado: ((JSONObject) -> Unit)? = null,
     private val idPersonal: Int = -1,
     private val rol: String = ""
 ) {
@@ -54,6 +55,11 @@ class ChatSocketManager(
         socket?.on("tracking_vehiculo") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onTrackingVehiculo?.invoke(data)
+        }
+
+        socket?.on("poi_creado") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onPoiCreado?.invoke(data)
         }
 
         socket?.connect()

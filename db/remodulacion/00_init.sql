@@ -19,3 +19,4 @@
 \ir 13_triggers_operativos.sql
 \ir 14_vistas.sql
 \ir 15_seed.sql
+\ir 16_patch_poi_color.sql

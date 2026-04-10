@@ -14,7 +14,9 @@ import { bindDashboardEvents } from "./dashboard.events.js";
 import { initChat, bindChatEvents } from "./dashboard.chat.js";
 import {
   setTacticalUI,
-  bindTacticalEvents
+  bindTacticalEvents,
+  initPoiSocket,
+  loadPoisFromBackend
 } from "./dashboard.tactical.js";
 import { initCesium } from "./dashboard.map.js";
 import { bindAreaEvents } from "./dashboard.area.js";
@@ -24,6 +26,7 @@ import {
   loadRouteForSelectedVehicle,
   initRoutes
 } from "./dashboard.routes.js";
+import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket } from "./dashboard.tracking.js";
 
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
@@ -47,15 +50,24 @@ async function loadDashboardFromBD() {
   const opId = localStorage.getItem("active_operation_id");
   if (!opId) return null;
 
-  const [operacion, personal, vehiculos, equipos] = await Promise.all([
-    apiFetch(`/ops/${opId}`),
-    apiFetch(`/ops/${opId}/personal`),
-    apiFetch(`/ops/${opId}/vehiculos-asignados`),
-    apiFetch(`/ops/${opId}/equipos-asignados`)
-  ]);
-
-  if (!operacion) return null;
-  return { operacion, personal: personal || [], vehiculos: vehiculos || [], equipos: equipos || [] };
+  const token = localStorage.getItem("token");
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/mapa`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data.ok) return null;
+    return {
+      operacion: data.operacion,
+      personal: data.personal || [],
+      vehiculos: data.vehiculos || [],
+      equipos: data.equipos || [],
+      _mapaData: data   // para tracking
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ── User info bar ────────────────────────────────────────────
@@ -145,6 +157,16 @@ window.addEventListener("load", async () => {
   }
   updateChatAvailability();
 
+  // Cargar POIs existentes desde la BD
+  await loadPoisFromBackend();
+
+  // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)
+  if (bdData?._mapaData) {
+    loadTrackingFromMapaData(bdData._mapaData);
+  } else {
+    await loadTrackingFromBackend();
+  }
+
   // Conectar Socket.io — chat y rutas en tiempo real
   const opId = localStorage.getItem("active_operation_id");
   if (opId) {
@@ -152,6 +174,8 @@ window.addEventListener("load", async () => {
     if (socket) {
       initChat(opId, socket);
       initRoutes(socket);
+      initPoiSocket(socket);
+      initTrackingSocket(socket);
     }
   }
 

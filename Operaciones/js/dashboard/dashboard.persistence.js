@@ -169,9 +169,10 @@ export function restoreTacticalData() {
   let payload;
   try { payload = JSON.parse(raw); } catch { return; }
 
-  // Restore tactical entities
+  // Restore tactical entities — skip poi/building, those come from the DB now
   if (Array.isArray(payload.tactical)) {
     payload.tactical.forEach(d => {
+      if (d?.type === "poi" || d?.type === "building") return;
       try { restoreOneEntity(d); } catch {}
     });
   }

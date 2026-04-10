@@ -7,6 +7,16 @@ import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
 
+const COLOR_HEX_MAP = {
+  red:    '#FF4500',
+  blue:   '#00BFFF',
+  black:  '#222222',
+  yellow: '#FFD700',
+  green:  '#00FF88',
+  orange: '#FF8C00',
+  white:  '#FFFFFF'
+};
+
 export function getCesiumColor(name, alpha = 1) {
   const map = {
     red: Cesium.Color.RED,
@@ -20,6 +30,50 @@ export function getCesiumColor(name, alpha = 1) {
 
   const base = map[name] || Cesium.Color.WHITE;
   return base.withAlpha(alpha);
+}
+
+// IDs de POIs que acabo de enviar yo (evita redibujar lo que ya dibujé localmente)
+const _mySentPoiIds = new Set();
+
+async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName) {
+  try {
+    const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+    const token    = localStorage.getItem("token");
+    const opId     = localStorage.getItem("active_operation_id");
+    if (!token || !opId) return;
+
+    const userData = JSON.parse(localStorage.getItem("userData") || "{}");
+    const tabla    = userData.tabla || "usuario";
+    const idKey    = tabla === "personal" ? "id_personal" : "id_usuario";
+    const idVal    = tabla === "personal" ? userData.id_personal : userData.id_usuario;
+
+    const body = {
+      nombre,
+      tipo_poi:      tipoPoi,
+      latitud:       lat,
+      longitud:      lng,
+      color:         COLOR_HEX_MAP[colorName] || '#FFD700',
+      tipo_creador:  tabla === "personal" ? "PERSONAL" : "USUARIO",
+      [idKey]:       idVal
+    };
+
+    const res  = await fetch(`${API_BASE}/ops/${opId}/pois`, {
+      method:  "POST",
+      headers: {
+        "Content-Type":  "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (data?.ok && data?.poi?.id_poi) {
+      // Marcar como "mío" para no redibujar cuando llegue el socket event
+      _mySentPoiIds.add(data.poi.id_poi);
+      setTimeout(() => _mySentPoiIds.delete(data.poi.id_poi), 5000);
+    }
+  } catch (err) {
+    console.error("Error guardando POI en backend:", err);
+  }
 }
 
 export function getLineWidth() {
@@ -226,6 +280,10 @@ export function createPoi(lat, lng, iconPath = null) {
 
   addTacticalEntity(ent);
   if (dom.tbHint) dom.tbHint.textContent = `${label} colocado.`;
+
+  if (dashboardState.toolMode === "poi") {
+    savePoiToBackend(lat, lng, label, "PDI", getCurrentColorName());
+  }
 }
 
 export function createLabel(lat, lng) {
@@ -564,6 +622,108 @@ export function deleteSelectedEntity() {
   if (dom.entityPopup) {
     dom.entityPopup.style.display = "none";
   }
+}
+
+export async function loadPoisFromBackend() {
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token    = localStorage.getItem("token");
+  const opId     = localStorage.getItem("active_operation_id");
+  const viewer   = dashboardState.viewer;
+  if (!token || !opId || !viewer) return;
+
+  try {
+    const res  = await fetch(`${API_BASE}/ops/${opId}/pois`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const pois = data.items || [];
+
+    pois.forEach(poi => {
+      if (!poi?.id_poi) return;
+      const hexColor   = poi.color || "#FFD700";
+      const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
+      const label      = poi.nombre || "PDI";
+
+      const ent = viewer.entities.add({
+        name: label,
+        position: Cesium.Cartesian3.fromDegrees(Number(poi.longitud), Number(poi.latitud)),
+        point: {
+          pixelSize: 10,
+          color: cesiumColor,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 2,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        label: {
+          text: label,
+          font: "14px sans-serif",
+          pixelOffset: new Cesium.Cartesian2(0, -20),
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          showBackground: true,
+          backgroundColor: cesiumColor.withAlpha(0.7),
+          backgroundPadding: new Cesium.Cartesian2(6, 4)
+        },
+        properties: { tacticalType: "poi", draggable: true }
+      });
+
+      addTacticalEntity(ent);
+    });
+  } catch (err) {
+    console.error("[POI] Error cargando POIs desde backend:", err);
+  }
+}
+
+export function initPoiSocket(socket) {
+  socket.on("poi_creado", ({ poi }) => {
+    if (!poi?.id_poi) return;
+    // Saltar si soy yo quien lo creó (ya lo dibujé localmente)
+    if (_mySentPoiIds.has(poi.id_poi)) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const hexColor = poi.color || "#FFD700";
+    const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
+    const label = poi.nombre || "PDI";
+
+    const ent = viewer.entities.add({
+      name: label,
+      position: Cesium.Cartesian3.fromDegrees(Number(poi.longitud), Number(poi.latitud)),
+      point: {
+        pixelSize: 10,
+        color: cesiumColor,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      },
+      label: {
+        text: label,
+        font: "14px sans-serif",
+        pixelOffset: new Cesium.Cartesian2(0, -20),
+        fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        showBackground: true,
+        backgroundColor: cesiumColor.withAlpha(0.7),
+        backgroundPadding: new Cesium.Cartesian2(6, 4)
+      },
+      properties: { tacticalType: "poi", draggable: true }
+    });
+
+    addTacticalEntity(ent);
+  });
+
+  socket.on("poi_eliminado", ({ id_poi }) => {
+    // Busca y elimina la entidad del viewer si fue marcada con ese ID
+    // (solo aplica si en el futuro se guarda el id_poi en la entidad)
+  });
 }
 
 export function bindTacticalEvents() {

@@ -7,6 +7,9 @@ import { pool } from "../db.js";
 // Middleware que exige autenticación antes de acceder a estas rutas
 import { requireAuth } from "../middlewares/auth.js";
 
+// Emitters de socket para tiempo real
+import { emitPoiCreado, emitPoiEliminado } from "../sockets/index.js";
+
 // Helper para responder errores de BD/backend de forma uniforme
 import { sendDbError } from "../utils/dbErrors.js";
 
@@ -93,6 +96,7 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
     latitud,
     longitud,
     descripcion,
+    color,
     tipo_creador,
     id_usuario,
     id_personal
@@ -124,8 +128,8 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
   try {
     // Inserta el POI en la tabla puntos_interes
     const { rows } = await pool.query(
-      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, id_operacion)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, color, id_operacion)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [
         tipo,
         id_usuario ? Number(id_usuario) : null,
@@ -135,12 +139,19 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
         Number(latitud),
         Number(longitud),
         descripcion?.toString().trim() || null,
+        color?.toString().trim() || '#FFD700',
         id_operacion
       ]
     );
 
+    const poi = rows[0];
+
+    // Emite en tiempo real a todos los clientes de la operación
+    const io = req.app.get("io");
+    if (io) emitPoiCreado(io, id_operacion, poi);
+
     // Devuelve el POI creado
-    res.json({ ok: true, poi: rows[0] });
+    res.json({ ok: true, poi });
   } catch (err) {
     // Manejo uniforme de error
     sendDbError(res, err, "Error creando POI");
@@ -179,6 +190,9 @@ router.delete("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
     if (!rows[0]) {
       return res.status(404).json({ ok: false, mensaje: "POI no existe" });
     }
+
+    const io = req.app.get("io");
+    if (io) emitPoiEliminado(io, Number(req.params.id), id_poi);
 
     // Respuesta final
     res.json({ ok: true, item: rows[0] });
