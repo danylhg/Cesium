@@ -470,9 +470,13 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
         m.contenido,
         m.tipo_mensaje,
         m.fecha_envio,
+        m.destinatario_rol,
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
+
+        -- Rol del autor (para filtrado y coloreado en UI)
+        COALESCE(u.rol::text, p.rol::text) AS autor_rol,
 
         -- Resuelve nombre del autor:
         -- primero usuario, luego personal, y si no hay, "Sistema"
@@ -597,7 +601,7 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       `
       INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
       VALUES ($1, $2, $3, $4)
-      RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio
+      RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio, destinatario_rol
       `,
       [id_chat, id_participante, contenido, tipo_mensaje]
     );
@@ -609,6 +613,7 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
+        COALESCE(u.rol::text, p.rol::text) AS autor_rol,
         COALESCE(
           u.nombre || ' ' || u.apellido,
           p.nombre || ' ' || p.apellido,

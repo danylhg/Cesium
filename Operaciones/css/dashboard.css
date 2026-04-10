@@ -457,6 +457,31 @@ body {
   border: 1px solid rgba(0, 255, 170, 0.14);
 }
 
+/* ── Colores por rol del autor ─────────────────────── */
+.chatBubble.rol-admin {
+  background: rgba(0, 60, 20, 0.75);
+  border-color: rgba(0, 180, 70, 0.45);
+}
+.chatBubble.rol-admin .chatBubbleHeader { color: #4ade80; }
+
+.chatBubble.rol-cut {
+  background: rgba(0, 100, 40, 0.50);
+  border-color: rgba(0, 220, 100, 0.30);
+}
+.chatBubble.rol-cut .chatBubbleHeader { color: #86efac; }
+
+.chatBubble.rol-cet {
+  background: rgba(0, 200, 100, 0.10);
+  border-color: rgba(0, 255, 170, 0.18);
+}
+.chatBubble.rol-cet .chatBubbleHeader { color: #9fd9cb; }
+
+.chatBubble.rol-cell {
+  background: transparent;
+  border-color: rgba(0, 255, 170, 0.07);
+}
+.chatBubble.rol-cell .chatBubbleHeader { color: #6b9e92; }
+
 .chatBubble.mine {
   background: rgba(0, 195, 255, 0.12);
   border-color: rgba(0, 195, 255, 0.18);

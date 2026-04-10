@@ -600,13 +600,15 @@ class MainActivity : AppCompatActivity(),
         }
 
         val destinatarioRol = item.optString("destinatario_rol", "GLOBAL")
-        
+        val autorRol = item.optString("autor_rol", "").uppercase().ifBlank { null }
+
         return ChatMessage(
             id = id,
             user = autor,
             text = contenido,
             type = messageType,
-            destinatarioRol = destinatarioRol
+            destinatarioRol = destinatarioRol,
+            autorRol = autorRol
         )
     }
 

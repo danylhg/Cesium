@@ -5,7 +5,8 @@ data class ChatMessage(
     val user: String,
     val text: String,
     val type: MessageType = MessageType.NORMAL,
-    val destinatarioRol: String? = null
+    val destinatarioRol: String? = null,
+    val autorRol: String? = null   // "ADMIN" | "CUT" | "CET" | "CELL"
 )
 
 enum class MessageType { NORMAL, SYSTEM, ALERT }
