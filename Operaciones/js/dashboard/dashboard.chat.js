@@ -128,7 +128,11 @@ async function sendMessage() {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ contenido: text, tipo_mensaje: "NORMAL" })
+      body: JSON.stringify({
+        contenido: text,
+        tipo_mensaje: "NORMAL",
+        destinatario_rol: _activeTab === "cet" ? "CET" : "GLOBAL"
+      })
     });
     if (!res.ok) {
       console.error("[CHAT] Error al enviar:", res.status);

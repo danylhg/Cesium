@@ -214,11 +214,11 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
     // Obtiene instancia de socket.io guardada en la app
     const io = req.app.get("io");
 
-    // Emite el evento al room de la operación
-    io.to(`op_${id_operacion}`).emit("chat_message", messageToBroadcast);
+    // Emite el evento al room de la operación (agrega autor_rol para que el dashboard filtre por tab)
+    io.to(`op_${id_operacion}`).emit("chat_message", { ...messageToBroadcast, autor_rol: req.user.rol });
 
     // Devuelve el mensaje enviado
-    res.json({ ok: true, mensaje: messageToBroadcast });
+    res.json({ ok: true, mensaje: { ...messageToBroadcast, autor_rol: req.user.rol } });
   } catch (err) {
     // Revierte si algo falla
     await client.query("ROLLBACK");
@@ -518,8 +518,6 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
 //   5. inserta mensaje_chat
 //   6. resuelve datos del autor
 //   7. emite socket "chat_message"
-// Nota:
-//   Esta versión no maneja destinatario_rol.
 // =========================================================
 router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
   // Convierte id_operacion
@@ -536,6 +534,9 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
 
     // Tipo de mensaje normalizado
     const tipo_mensaje = String(req.body?.tipo_mensaje || "NORMAL").toUpperCase();
+
+    // Destinatario del mensaje (tab activo del dashboard)
+    const destinatario_rol = String(req.body?.destinatario_rol || "GLOBAL").toUpperCase();
 
     // contenido obligatorio
     if (!contenido) {
@@ -599,11 +600,11 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     // Inserta mensaje en mensaje_chat
     const ins = await pool.query(
       `
-      INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
-      VALUES ($1, $2, $3, $4)
+      INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol)
+      VALUES ($1, $2, $3, $4, $5)
       RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio, destinatario_rol
       `,
-      [id_chat, id_participante, contenido, tipo_mensaje]
+      [id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol]
     );
 
     // Consulta información del autor
