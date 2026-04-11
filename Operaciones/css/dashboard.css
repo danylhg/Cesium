@@ -86,6 +86,33 @@ body {
   height: 100%;
 }
 
+.mapTopRightActions {
+  position: fixed;
+  top: 16px;
+  right: 360px;
+  z-index: 1205;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mapTopActionBtn {
+  border: 1px solid rgba(239, 68, 68, 0.55);
+  padding: 10px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  font-weight: 700;
+  background: rgba(40, 7, 7, 0.88);
+  color: #ffd6d6;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, .28);
+}
+
+.mapTopActionBtn:hover {
+  background: rgba(75, 12, 12, 0.92);
+}
+
 .floatingTools {
   position: fixed;
   top: 92px;

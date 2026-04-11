@@ -362,16 +362,19 @@ export function updateChatAvailability() {
   const op = getCurrentOperation();
   const phase = op.phase;
   const active = phase === "activa";
+  const closed = phase === "cerrada" || phase === "cancelada";
 
   const badge = document.getElementById("opStatusBadge");
   const title = document.getElementById("topbarTitle");
   const dot = document.getElementById("brandDot");
   const actionBtns = document.getElementById("mapActionButtons");
+  const closeActiveBtn = document.getElementById("closeActiveOpBtn");
 
   if (badge) badge.style.display = active ? "inline-block" : "none";
   if (title) title.textContent = active ? (op.title || op.titulo || "Operación") : "Panorama táctico";
   if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
-  if (actionBtns) actionBtns.style.display = active ? "none" : "flex";
+  if (actionBtns) actionBtns.style.display = active || closed ? "none" : "flex";
+  if (closeActiveBtn) closeActiveBtn.style.display = active ? "inline-flex" : "none";
 
   if (dom.toggleChatPanel) {
     dom.toggleChatPanel.style.display = active ? "flex" : "none";

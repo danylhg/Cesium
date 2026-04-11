@@ -98,7 +98,8 @@ function bindOperationActionEvents() {
         const res = await apiFetchEstado(opId, "ACTIVA");
         if (res.ok) {
           alert(`¡Operación "${opName}" activada con éxito!`);
-          window.location.href = "menu_inicial.html";
+          saveCurrentOperation({ ...op, estado: "ACTIVA", phase: "activa" });
+          window.location.reload();
         } else {
           const data = await res.json().catch(() => ({}));
           alert(`Error al activar: ${data.mensaje || res.statusText}`);
@@ -132,6 +133,34 @@ function bindOperationActionEvents() {
         }
       } catch {
         alert("Error de conexión al intentar cancelar la operación.");
+      }
+    });
+  }
+
+  const closeActiveBtn = document.getElementById("closeActiveOpBtn");
+  if (closeActiveBtn) {
+    closeActiveBtn.addEventListener("click", async () => {
+      const op = getCurrentOperation();
+      const opId = localStorage.getItem("active_operation_id") || op?.id;
+      const opName = op.nombre || op.title || op.titulo || "OperaciÃ³n";
+
+      if (!opId) {
+        alert("No se encontrÃ³ la operaciÃ³n activa.");
+        return;
+      }
+
+      if (!confirm(`Â¿Cerrar la operaciÃ³n "${opName}"?\nEsta acciÃ³n finalizarÃ¡ la operaciÃ³n activa.`)) return;
+
+      try {
+        const res = await apiFetchEstado(opId, "CERRADA");
+        if (res.ok) {
+          window.location.href = "menu_inicial.html";
+        } else {
+          const data = await res.json().catch(() => ({}));
+          alert(`Error al cerrar: ${data.mensaje || res.statusText}`);
+        }
+      } catch {
+        alert("Error de conexiÃ³n al intentar cerrar la operaciÃ³n.");
       }
     });
   }
