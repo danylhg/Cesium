@@ -16,9 +16,12 @@ import {
   setTacticalUI,
   bindTacticalEvents,
   initPoiSocket,
-  loadPoisFromBackend
+  loadPoisFromBackend,
+  loadAreasFromBackend,
+  loadStructuresFromBackend,
+  loadOperationZoneFromBackend
 } from "./dashboard.tactical.js";
-import { initCesium } from "./dashboard.map.js";
+import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
 import { bindAreaEvents } from "./dashboard.area.js";
 import { restoreTacticalData } from "./dashboard.persistence.js";
 import {
@@ -60,6 +63,7 @@ async function loadDashboardFromBD() {
     if (!data.ok) return null;
     return {
       operacion: data.operacion,
+      zona_operacion: data.zona_operacion || null,
       personal: data.personal || [],
       vehiculos: data.vehiculos || [],
       equipos: data.equipos || [],
@@ -150,8 +154,16 @@ window.addEventListener("load", async () => {
   // Cargar datos de la operación desde BD
   const bdData = await loadDashboardFromBD();
   if (bdData) {
-    saveCurrentOperation({ ...bdData.operacion, id: bdData.operacion.id_operacion });
+    saveCurrentOperation({
+      ...bdData.operacion,
+      id: bdData.operacion.id_operacion,
+      zona_operacion: bdData.zona_operacion || null
+    });
     renderInfoPanel(bdData);
+    setTacticalUI();
+    if (bdData.zona_operacion) {
+      centerMapOnOperationZone(bdData.zona_operacion);
+    }
   } else {
     renderInfoPanel();
   }
@@ -159,6 +171,9 @@ window.addEventListener("load", async () => {
 
   // Cargar POIs existentes desde la BD
   await loadPoisFromBackend();
+  await loadAreasFromBackend();
+  await loadStructuresFromBackend();
+  await loadOperationZoneFromBackend();
 
   // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)
   if (bdData?._mapaData) {
@@ -188,8 +203,13 @@ window.addEventListener("load", async () => {
   setInterval(async () => {
     const fresh = await loadDashboardFromBD();
     if (fresh) {
-      saveCurrentOperation({ ...fresh.operacion, id: fresh.operacion.id_operacion });
+      saveCurrentOperation({
+        ...fresh.operacion,
+        id: fresh.operacion.id_operacion,
+        zona_operacion: fresh.zona_operacion || null
+      });
       renderInfoPanel(fresh);
+      setTacticalUI();
     }
     updateChatAvailability();
   }, 30000);

@@ -20,6 +20,8 @@ export const dashboardState = {
   planningAreaFill: null,
   planningAreaBorder: null,
   planningAreaLabel: null,
+  operationZoneBorder: null,
+  currentOperationZone: null,
 
   selectedEntity: null,
   draggingEntity: null,

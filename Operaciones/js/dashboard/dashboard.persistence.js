@@ -135,7 +135,9 @@ export function saveTacticalData() {
   const serialized = dashboardState.tacticalEntities
     .filter(ent => {
       const idPoi = ent.properties?.id_poi?.getValue?.() ?? ent.properties?.id_poi;
-      return !idPoi;
+      const idArea = ent.properties?.id_area?.getValue?.() ?? ent.properties?.id_area;
+      const idMarca = ent.properties?.id_marca?.getValue?.() ?? ent.properties?.id_marca;
+      return !idPoi && !idArea && !idMarca;
     })
     .map(ent => {
       try { return serializeEntity(ent); } catch { return null; }
@@ -176,7 +178,7 @@ export function restoreTacticalData() {
   // Restore tactical entities — skip poi/building/mil, those come from the DB now
   if (Array.isArray(payload.tactical)) {
     payload.tactical.forEach(d => {
-      if (d?.type === "poi" || d?.type === "building" || d?.type === "mil-dropped") return;
+      if (d?.type === "poi" || d?.type === "building" || d?.type === "label" || d?.type === "mil-dropped" || d?.type === "perimeter") return;
       try { restoreOneEntity(d); } catch {}
     });
   }

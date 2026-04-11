@@ -33,9 +33,9 @@ function isMine(msg) {
 // Tab CET  → solo mensajes de ADMIN, CUT y CET
 // Tab Global → todos
 function isVisibleInTab(msg) {
-  if (_activeTab === "global") return true;
-  const rol = (msg.autor_rol || "").toUpperCase();
-  return ["ADMIN", "CUT", "CET"].includes(rol);
+  const destinatario = (msg.destinatario_rol || "GLOBAL").toUpperCase();
+  if (_activeTab === "global") return destinatario === "GLOBAL";
+  return destinatario === "CET" || destinatario === "CUT";
 }
 
 // ── Build a single chat bubble ──────────────────────────────

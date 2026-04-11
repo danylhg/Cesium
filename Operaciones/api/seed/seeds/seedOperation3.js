@@ -183,11 +183,9 @@ export async function seedOperation3(client) {
 
     if ((msgCount3.rows[0]?.total ?? 0) === 0) {
       const mensajes3 = [
-        { contenido: "OPERACION ACTIVADA automáticamente por trigger de BD.", tipo: "SISTEMA" },
         { contenido: "Todos los elementos en posición. Iniciando fase de reconocimiento.", tipo: "NORMAL" },
         { contenido: "Sector norte asegurado. Sin novedades.", tipo: "NORMAL" },
         { contenido: "Objetivos cumplidos. Retirando unidades.", tipo: "NORMAL" },
-        { contenido: "OPERACION CERRADA automáticamente por trigger de BD.", tipo: "SISTEMA" },
       ];
 
       for (const msg of mensajes3) {
@@ -284,3 +282,4 @@ export async function seedOperation3(client) {
     personalAsignado: personalAsignado3.length,
   };
 }
+

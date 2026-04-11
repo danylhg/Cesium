@@ -8,7 +8,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../middlewares/auth.js";
 
 // Emitters de socket para tiempo real
-import { emitPoiCreado, emitPoiEliminado } from "../sockets/index.js";
+import { emitPoiCreado, emitPoiEliminado, emitAreaCreada, emitAreaEliminada, emitEstructuraCreada, emitEstructuraEliminada } from "../sockets/index.js";
 
 // Helper para responder errores de BD/backend de forma uniforme
 import { sendDbError } from "../utils/dbErrors.js";
@@ -317,7 +317,10 @@ router.post("/ops/:id/areas", requireAuth, async (req, res) => {
     );
 
     // Devuelve el área creada
-    res.json({ ok: true, area: rows[0] });
+    const area = rows[0];
+    const io = req.app.get("io");
+    if (io) emitAreaCreada(io, id_operacion, area);
+    res.json({ ok: true, area });
   } catch (err) {
     sendDbError(res, err, "Error creando area");
   }
@@ -357,6 +360,8 @@ router.delete("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
     }
 
     // Respuesta final
+    const io = req.app.get("io");
+    if (io) emitAreaEliminada(io, Number(req.params.id), id_area);
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
     sendDbError(res, err, "Error eliminando area");
@@ -487,7 +492,10 @@ router.post("/ops/:id/edificios", requireAuth, async (req, res) => {
     );
 
     // Devuelve el edificio creado
-    res.json({ ok: true, edificio: rows[0] });
+    const edificio = rows[0];
+    const io = req.app.get("io");
+    if (io) emitEstructuraCreada(io, id_operacion, edificio);
+    res.json({ ok: true, edificio });
   } catch (err) {
     sendDbError(res, err, "Error creando edificio");
   }
@@ -527,6 +535,8 @@ router.delete("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
     }
 
     // Respuesta final
+    const io = req.app.get("io");
+    if (io) emitEstructuraEliminada(io, Number(req.params.id), id_marca);
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
     sendDbError(res, err, "Error eliminando edificio");

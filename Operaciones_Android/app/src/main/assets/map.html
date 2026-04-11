@@ -37,7 +37,7 @@
 
     // Escala íconos/etiquetas con la distancia de la cámara:
     // cerca (1 km) → ×1.5 ; lejos (2 000 km) → ×0.1
-    const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
+    const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
     // =========================
     // Estado de rutas
@@ -544,6 +544,9 @@
     // Puntos de Interés (POI)
     // =========================
     const poiEntities = new Map(); // id_poi → entity
+    const structureEntities = new Map();
+    const areaEntities = new Map();
+    let operationZoneEntity = null;
 
     window.addPoiToMap = function (id, lat, lon, nombre, tipoPoi, color, iconoSrc) {
       try {
@@ -571,33 +574,37 @@
 
         const entity = viewer.entities.add({
           id: entityId,
-          position: Cesium.Cartesian3.fromDegrees(lon, lat, useBillboard ? 0 : 8),
+          position: Cesium.Cartesian3.fromDegrees(lon, lat),
           billboard: useBillboard ? {
             image: normalizedIconoSrc,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            scale: 0.08,
+            scale: 0.05,
+            scaleByDistance: SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           } : undefined,
           point: !useBillboard ? {
-            pixelSize: 12,
+            pixelSize: 10,
             color: cesiumColor,
             outlineColor: Cesium.Color.BLACK,
             outlineWidth: 2,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            scaleByDistance: SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           } : undefined,
           label: {
             text: label,
-            font: '12px sans-serif',
+            font: '14px sans-serif',
             fillColor: Cesium.Color.WHITE,
             outlineColor: Cesium.Color.BLACK,
             outlineWidth: 3,
             style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-            pixelOffset: useBillboard ? new Cesium.Cartesian2(0, 15) : new Cesium.Cartesian2(0, -18),
+            pixelOffset: useBillboard ? new Cesium.Cartesian2(0, 15) : new Cesium.Cartesian2(0, -20),
             showBackground: !useBillboard,
-            backgroundColor: !useBillboard ? cesiumColor.withAlpha(0.75) : undefined,
+            backgroundColor: !useBillboard ? cesiumColor.withAlpha(0.7) : undefined,
             backgroundPadding: !useBillboard ? new Cesium.Cartesian2(6, 4) : undefined,
-            heightReference: useBillboard ? Cesium.HeightReference.CLAMP_TO_GROUND : Cesium.HeightReference.NONE,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            scaleByDistance: SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         });
@@ -646,6 +653,271 @@
       } catch (e) {
         console.error('Error removePoiFromMap: ' + e.message);
       }
+    };
+
+    window.addStructureToMap = function (id, lat, lon, nombre, tipoEstructura, iconoSrc) {
+      try {
+        if (!viewer) return;
+
+        const entityId = 'estructura_' + id;
+        if (structureEntities.has(entityId)) return;
+
+        const tipo = String(tipoEstructura || '').toUpperCase();
+        const isLabel = tipo === 'ETIQUETA';
+        const normalizedIconoSrc = (typeof iconoSrc === 'string') ? iconoSrc.trim() : iconoSrc;
+        const useBillboard = !isLabel && !!normalizedIconoSrc && normalizedIconoSrc !== 'null' && !normalizedIconoSrc.endsWith('/null');
+
+        const entity = viewer.entities.add({
+          id: entityId,
+          position: Cesium.Cartesian3.fromDegrees(lon, lat, isLabel ? 8 : 0),
+          billboard: useBillboard ? {
+            image: normalizedIconoSrc,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            scale: 0.05,
+            scaleByDistance: SCALE_BY_DIST,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          } : undefined,
+          point: (!isLabel && !useBillboard) ? {
+            pixelSize: 12,
+            color: Cesium.Color.YELLOW,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 2,
+            scaleByDistance: SCALE_BY_DIST,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          } : undefined,
+          label: {
+            text: nombre || (isLabel ? 'Etiqueta' : 'Estructura'),
+            font: '12px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: isLabel ? new Cesium.Cartesian2(0, -18) : new Cesium.Cartesian2(0, 8),
+            showBackground: isLabel,
+            backgroundColor: isLabel ? Cesium.Color.BLACK.withAlpha(0.75) : undefined,
+            backgroundPadding: isLabel ? new Cesium.Cartesian2(6, 4) : undefined,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            scaleByDistance: SCALE_BY_DIST,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY
+          }
+        });
+
+        structureEntities.set(entityId, entity);
+      } catch (e) {
+        console.error('Error addStructureToMap: ' + e.message);
+      }
+    };
+
+    window.loadStructures = function (structuresArray) {
+      try {
+        if (!Array.isArray(structuresArray)) return;
+        structuresArray.forEach(function (structure) {
+          addStructureToMap(
+            structure.id_marca,
+            parseFloat(structure.latitud),
+            parseFloat(structure.longitud),
+            structure.nombre || 'Estructura',
+            structure.tipo_estructura || 'EDIFICIO',
+            structure.icono_src || null
+          );
+        });
+      } catch (e) {
+        console.error('Error loadStructures: ' + e.message);
+      }
+    };
+
+    window.removeStructureFromMap = function (id) {
+      try {
+        const entityId = 'estructura_' + id;
+        const entity = structureEntities.get(entityId);
+        if (entity) {
+          viewer.entities.remove(entity);
+          structureEntities.delete(entityId);
+        }
+      } catch (e) {
+        console.error('Error removeStructureFromMap: ' + e.message);
+      }
+    };
+
+    window.loadOperationZone = function (zoneObj) {
+      try {
+        if (!viewer || !zoneObj || !Array.isArray(zoneObj.points) || zoneObj.points.length < 3) return;
+
+        if (operationZoneEntity) {
+          viewer.entities.remove(operationZoneEntity);
+          operationZoneEntity = null;
+        }
+
+        const hexColor = (zoneObj.color && String(zoneObj.color).startsWith('#')) ? zoneObj.color : '#3b82f6';
+        const outline = Cesium.Color.fromCssColorString(hexColor);
+        const closedPoints = [...zoneObj.points, zoneObj.points[0]];
+        const positions = closedPoints.map(point =>
+          Cesium.Cartesian3.fromDegrees(Number(point.lon), Number(point.lat))
+        );
+
+        operationZoneEntity = viewer.entities.add({
+          id: 'zona_operacion_' + (zoneObj.id_zona || 'actual'),
+          polyline: {
+            positions,
+            width: 3,
+            material: new Cesium.PolylineDashMaterialProperty({
+              color: outline,
+              dashLength: 16
+            }),
+            clampToGround: true
+          }
+        });
+      } catch (e) {
+        console.error('Error loadOperationZone: ' + e.message);
+      }
+    };
+
+    window.addCoverageCircleToMap = function (id, centerLat, centerLon, radiusM, nombre, color, opacity, outlineWidth) {
+      try {
+        if (!viewer) return;
+
+        const entityId = 'area_' + id;
+        if (areaEntities.has(entityId)) return;
+
+        const hexColor = (color && color.startsWith('#')) ? color : '#FF4500';
+        const outline = Cesium.Color.fromCssColorString(hexColor);
+        const fill = outline.withAlpha(Number.isFinite(opacity) ? opacity : 0.35);
+
+        const entity = viewer.entities.add({
+          id: entityId,
+          position: Cesium.Cartesian3.fromDegrees(centerLon, centerLat),
+          ellipse: {
+            semiMajorAxis: radiusM,
+            semiMinorAxis: radiusM,
+            material: fill,
+            outline: true,
+            outlineColor: outline,
+            outlineWidth: Number.isFinite(outlineWidth) ? outlineWidth : 3,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          },
+          label: nombre ? {
+            text: nombre,
+            font: '12px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          } : undefined
+        });
+
+        areaEntities.set(entityId, entity);
+      } catch (e) {
+        console.error('Error addCoverageCircleToMap: ' + e.message);
+      }
+    };
+
+    window.loadCoverageCircles = function (circlesArray) {
+      try {
+        if (!Array.isArray(circlesArray)) return;
+        circlesArray.forEach(function (circle) {
+          addCoverageCircleToMap(
+            circle.id_area,
+            parseFloat(circle.center_lat),
+            parseFloat(circle.center_lon),
+            parseFloat(circle.radius_m),
+            circle.nombre || 'Círculo de cobertura',
+            circle.color || '#FF4500',
+            Number(circle.opacity ?? 0.35),
+            Number(circle.outline_width ?? 3)
+          );
+        });
+      } catch (e) {
+        console.error('Error loadCoverageCircles: ' + e.message);
+      }
+    };
+
+    window.removeCoverageCircleFromMap = function (id) {
+      try {
+        const entityId = 'area_' + id;
+        const entity = areaEntities.get(entityId);
+        if (entity) {
+          viewer.entities.remove(entity);
+          areaEntities.delete(entityId);
+        }
+      } catch (e) {
+        console.error('Error removeCoverageCircleFromMap: ' + e.message);
+      }
+    };
+
+    window.addAreaPolygonToMap = function (id, nombre, points, color, opacity, outlineWidth) {
+      try {
+        if (!viewer) return;
+
+        const entityId = 'area_' + id;
+        if (areaEntities.has(entityId)) return;
+        if (!Array.isArray(points) || points.length < 3) return;
+
+        const coords = points.map(function (point) {
+          return Cesium.Cartesian3.fromDegrees(Number(point.lon), Number(point.lat));
+        });
+        const hexColor = (color && color.startsWith('#')) ? color : '#FFD700';
+        const outline = Cesium.Color.fromCssColorString(hexColor);
+
+        let sumLat = 0;
+        let sumLon = 0;
+        points.forEach(function (point) {
+          sumLat += Number(point.lat) || 0;
+          sumLon += Number(point.lon) || 0;
+        });
+
+        const entity = viewer.entities.add({
+          id: entityId,
+          position: Cesium.Cartesian3.fromDegrees(sumLon / points.length, sumLat / points.length),
+          polygon: {
+            hierarchy: coords,
+            material: outline.withAlpha(Number.isFinite(opacity) ? opacity : 0.35),
+            outline: true,
+            outlineColor: outline,
+            outlineWidth: Number.isFinite(outlineWidth) ? outlineWidth : 3,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            perPositionHeight: false
+          },
+          label: nombre ? {
+            text: nombre,
+            font: '12px sans-serif',
+            fillColor: Cesium.Color.WHITE,
+            outlineColor: Cesium.Color.BLACK,
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: new Cesium.Cartesian2(0, -18),
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+          } : undefined
+        });
+
+        areaEntities.set(entityId, entity);
+      } catch (e) {
+        console.error('Error addAreaPolygonToMap: ' + e.message);
+      }
+    };
+
+    window.loadAreaPolygons = function (polygonsArray) {
+      try {
+        if (!Array.isArray(polygonsArray)) return;
+        polygonsArray.forEach(function (polygon) {
+          addAreaPolygonToMap(
+            polygon.id_area,
+            polygon.nombre || 'Polígono / Zona',
+            polygon.points || [],
+            polygon.color || '#FFD700',
+            Number(polygon.opacity ?? 0.35),
+            Number(polygon.outline_width ?? 3)
+          );
+        });
+      } catch (e) {
+        console.error('Error loadAreaPolygons: ' + e.message);
+      }
+    };
+
+    window.removeAreaFromMap = function (id) {
+      removeCoverageCircleFromMap(id);
     };
   </script>
 </body>

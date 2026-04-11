@@ -1,10 +1,14 @@
 package com.operaciones.operaciones_android.network
 
 import com.operaciones.operaciones_android.config.ApiConfig
+import com.operaciones.operaciones_android.model.AreaPolygonItem
+import com.operaciones.operaciones_android.model.CoverageCircleItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.OperationMapData
+import com.operaciones.operaciones_android.model.OperationZoneItem
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.PoiItem
+import com.operaciones.operaciones_android.model.StructureItem
 import com.operaciones.operaciones_android.model.VehiculoItem
 import okhttp3.Call
 import okhttp3.Callback
@@ -158,7 +162,136 @@ class OperationMapRepository(
                         }
                     }
 
+                    val structures = mutableListOf<StructureItem>()
+                    if (capas != null) {
+                        for (i in 0 until capas.length()) {
+                            val c = capas.getJSONObject(i)
+                            val tipoCapa = c.optString("tipo_capa")
+                            val tipoEstructuraRaw = c.optString("tipo_estructura", "").ifBlank {
+                                if (tipoCapa == "EDIFICIO") c.optString("subtipo", "") else ""
+                            }
+                            val tipoEstructura = tipoEstructuraRaw.trim().uppercase()
+                            val isStructure =
+                                tipoCapa == "EDIFICIO" ||
+                                tipoEstructura == "EDIFICIO" ||
+                                tipoEstructura == "ETIQUETA"
+                            if (!isStructure) continue
+
+                            val idMarca = if (c.has("id_marca")) c.optInt("id_marca") else c.optInt("id_elemento")
+                            if (idMarca <= 0) continue
+
+                            structures.add(
+                                StructureItem(
+                                    idMarca = idMarca,
+                                    nombre = c.optString("nombre", "Estructura"),
+                                    tipoEstructura = if (tipoEstructura.isNotBlank()) tipoEstructura else "EDIFICIO",
+                                    lat = c.optDouble("latitud"),
+                                    lon = c.optDouble("longitud"),
+                                    iconoSrc = if (tipoEstructura == "ETIQUETA") null else "${ApiConfig.BASE_URL}/img/estructuras/casa.png"
+                                )
+                            )
+                        }
+                    }
+
+                    val coverageCircles = mutableListOf<CoverageCircleItem>()
+                    val areaPolygons = mutableListOf<AreaPolygonItem>()
+                    if (capas != null) {
+                        for (i in 0 until capas.length()) {
+                            val c = capas.getJSONObject(i)
+                            if (c.optString("tipo_capa") != "AREA") continue
+
+                            val geometria = c.optJSONObject("geometria") ?: continue
+                            val metaAny = geometria.optJSONObject("meta") ?: JSONObject()
+                            val shape = metaAny.optString("shape", "").lowercase()
+
+                            if (shape == "polygon") {
+                                val rings = geometria.optJSONArray("coordinates") ?: continue
+                                val outerRing = rings.optJSONArray(0) ?: continue
+                                if (outerRing.length() < 4) continue
+
+                                val points = mutableListOf<Pair<Double, Double>>()
+                                for (j in 0 until outerRing.length() - 1) {
+                                    val point = outerRing.optJSONArray(j) ?: continue
+                                    val lon = point.optDouble(0, Double.NaN)
+                                    val lat = point.optDouble(1, Double.NaN)
+                                    if (lat.isNaN() || lon.isNaN()) continue
+                                    points.add(lat to lon)
+                                }
+
+                                if (points.size < 3) continue
+
+                                areaPolygons.add(
+                                    AreaPolygonItem(
+                                        idArea = c.optInt("id_elemento"),
+                                        nombre = c.optString("nombre", "PolÃ­gono / Zona"),
+                                        points = points,
+                                        color = c.optString("color", "#FFD700").ifBlank { "#FFD700" },
+                                        opacity = metaAny.optDouble("opacity", 0.35),
+                                        outlineWidth = metaAny.optDouble("outline_width", 3.0)
+                                    )
+                                )
+                                continue
+                            }
+                            val meta = geometria.optJSONObject("meta") ?: continue
+                            if (!meta.optString("shape").equals("circle", ignoreCase = true)) continue
+
+                            val center = meta.optJSONArray("center") ?: continue
+                            if (center.length() < 2) continue
+
+                            val centerLon = center.optDouble(0, Double.NaN)
+                            val centerLat = center.optDouble(1, Double.NaN)
+                            val radiusM = meta.optDouble("radius_m", Double.NaN)
+                            if (centerLat.isNaN() || centerLon.isNaN() || radiusM.isNaN() || radiusM <= 0.0) continue
+
+                            coverageCircles.add(
+                                CoverageCircleItem(
+                                    idArea = c.optInt("id_elemento"),
+                                    nombre = c.optString("nombre", "Círculo de cobertura"),
+                                    centerLat = centerLat,
+                                    centerLon = centerLon,
+                                    radiusM = radiusM,
+                                    color = c.optString("color", "#FF4500").ifBlank { "#FF4500" },
+                                    opacity = meta.optDouble("opacity", 0.35),
+                                    outlineWidth = meta.optDouble("outline_width", 3.0)
+                                )
+                            )
+                        }
+                    }
+
                     val rutasNav = json.optJSONArray("rutas_navegacion")?.toString()
+                    val operationZone = json.optJSONObject("zona_operacion")?.let { zona ->
+                        val centerLat = zona.optDouble("centroide_lat", Double.NaN)
+                        val centerLon = zona.optDouble("centroide_lon", Double.NaN)
+                        val zoomInicial = zona.optInt("zoom_inicial", 1000)
+                        val geometria = zona.optJSONObject("geometria")
+                        val outerRing = geometria?.optJSONArray("coordinates")?.optJSONArray(0)
+                        if (centerLat.isNaN() || centerLon.isNaN() || outerRing == null || outerRing.length() < 4) {
+                            null
+                        } else {
+                            val points = mutableListOf<Pair<Double, Double>>()
+                            for (i in 0 until outerRing.length() - 1) {
+                                val point = outerRing.optJSONArray(i) ?: continue
+                                val lon = point.optDouble(0, Double.NaN)
+                                val lat = point.optDouble(1, Double.NaN)
+                                if (lat.isNaN() || lon.isNaN()) continue
+                                points.add(lat to lon)
+                            }
+
+                            if (points.size < 3) {
+                                null
+                            } else {
+                                OperationZoneItem(
+                                    idZona = zona.optInt("id_zona"),
+                                    nombre = zona.optString("nombre", "Zona de operación"),
+                                    centerLat = centerLat,
+                                    centerLon = centerLon,
+                                    zoomInicial = if (zoomInicial > 0) zoomInicial else 1000,
+                                    color = zona.optString("color", "#3b82f6").ifBlank { "#3b82f6" },
+                                    points = points
+                                )
+                            }
+                        }
+                    }
 
                     onSuccess(
                         OperationMapData(
@@ -166,7 +299,11 @@ class OperationMapRepository(
                             vehiculos = vehiculos,
                             equipos = equipos,
                             rutasNavegacion = rutasNav,
-                            pois = pois
+                            operationZone = operationZone,
+                            pois = pois,
+                            coverageCircles = coverageCircles,
+                            areaPolygons = areaPolygons,
+                            structures = structures
                         )
                     )
 

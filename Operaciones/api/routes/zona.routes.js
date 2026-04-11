@@ -3,7 +3,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
 import { isInt } from "../utils/validators.js";
-import { calcularCentroide, calcularZoom } from "../utils/geo.js";
+import { calcularCentroide } from "../utils/geo.js";
 
 const router = Router();
 
@@ -45,7 +45,7 @@ router.post("/ops/:id/zona", requireAuth, async (req, res) => {
   if (!centroide)
     return res.status(400).json({ ok: false, mensaje: "No se pudo calcular el centroide" });
 
-  const zoom = calcularZoom(geometria);
+  const zoom = 1000;
 
   try {
     const { rows } = await pool.query(

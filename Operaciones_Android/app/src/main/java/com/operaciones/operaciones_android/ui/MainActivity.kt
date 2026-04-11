@@ -63,6 +63,35 @@ class MainActivity : AppCompatActivity(),
         val iconoSrc: String? = null
     )
 
+    private data class PendingCoverageCircleAddition(
+        val idArea: Int,
+        val centerLat: Double,
+        val centerLon: Double,
+        val radiusM: Double,
+        val nombre: String,
+        val color: String,
+        val opacity: Double,
+        val outlineWidth: Double
+    )
+
+    private data class PendingAreaPolygonAddition(
+        val idArea: Int,
+        val nombre: String,
+        val pointsJson: String,
+        val color: String,
+        val opacity: Double,
+        val outlineWidth: Double
+    )
+
+    private data class PendingStructureAddition(
+        val idMarca: Int,
+        val lat: Double,
+        val lon: Double,
+        val nombre: String,
+        val tipoEstructura: String,
+        val iconoSrc: String? = null
+    )
+
     private val personalRepository = PersonalRepository()
     private val vehiculoRepository = VehiculoRepository()
     private val equipoRepository = EquipoRepository()
@@ -113,8 +142,34 @@ class MainActivity : AppCompatActivity(),
 
     // POIs pendientes de dibujar hasta que Cesium esté listo
     private var pendingPoisJson: String? = null
+    private var pendingOperationZoneJson: String? = null
+    private var pendingCoverageCirclesJson: String? = null
+    private var pendingAreaPolygonsJson: String? = null
+    private var pendingStructuresJson: String? = null
     private var isCesiumReady = false
     private val pendingPoiAdditions = mutableListOf<PendingPoiAddition>()
+    private val pendingCoverageCircleAdditions = mutableListOf<PendingCoverageCircleAddition>()
+    private val pendingAreaPolygonAdditions = mutableListOf<PendingAreaPolygonAddition>()
+    private val pendingStructureAdditions = mutableListOf<PendingStructureAddition>()
+
+    private fun buildPolygonPointsJson(points: List<Pair<Double, Double>>): String {
+        return buildString {
+            append("[")
+            points.forEachIndexed { i, point ->
+                if (i > 0) append(",")
+                append("{")
+                append("\"lat\":${point.first},")
+                append("\"lon\":${point.second}")
+                append("}")
+            }
+            append("]")
+        }
+    }
+
+    private fun resolveStructureIconUrl(tipoEstructura: String?): String? {
+        val tipo = tipoEstructura?.trim()?.uppercase().orEmpty()
+        return if (tipo == "ETIQUETA") null else "${ApiConfig.BASE_URL}/img/estructuras/casa.png"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -212,6 +267,128 @@ class MainActivity : AppCompatActivity(),
                                     PendingPoiAddition(idPoi, lat, lon, nombre, tipo, color, iconoSrc)
                                 )
                             }
+                        }
+                    }
+                },
+                onPoiEliminado = { data ->
+                    runOnUiThread {
+                        val idPoi = data.optInt("id_poi", -1)
+                        if (idPoi > 0 && isCesiumReady) {
+                            cesiumWebController.removePoiFromMap(idPoi)
+                        }
+                    }
+                },
+                onAreaCreada = { data ->
+                    runOnUiThread {
+                        val area = data.optJSONObject("area") ?: return@runOnUiThread
+                        val geometria = area.optJSONObject("geometria") ?: return@runOnUiThread
+                        val metaAny = geometria.optJSONObject("meta") ?: JSONObject()
+                        val shape = metaAny.optString("shape", "").lowercase()
+
+                        if (shape == "polygon") {
+                            val idArea = area.optInt("id_area", -1)
+                            if (idArea <= 0) return@runOnUiThread
+
+                            val rings = geometria.optJSONArray("coordinates") ?: return@runOnUiThread
+                            val outerRing = rings.optJSONArray(0) ?: return@runOnUiThread
+                            if (outerRing.length() < 4) return@runOnUiThread
+
+                            val points = mutableListOf<Pair<Double, Double>>()
+                            for (i in 0 until outerRing.length() - 1) {
+                                val point = outerRing.optJSONArray(i) ?: continue
+                                val lon = point.optDouble(0, Double.NaN)
+                                val lat = point.optDouble(1, Double.NaN)
+                                if (lat.isNaN() || lon.isNaN()) continue
+                                points.add(lat to lon)
+                            }
+
+                            if (points.size < 3) return@runOnUiThread
+
+                            val nombre = area.optString("nombre", "PolÃ­gono / Zona")
+                            val color = area.optString("color", "#FFD700").ifBlank { "#FFD700" }
+                            val opacity = metaAny.optDouble("opacity", 0.35)
+                            val outlineWidth = metaAny.optDouble("outline_width", 3.0)
+                            val pointsJson = buildPolygonPointsJson(points)
+
+                            if (isCesiumReady) {
+                                cesiumWebController.addAreaPolygonToMap(
+                                    idArea, nombre, pointsJson, color, opacity, outlineWidth
+                                )
+                            } else {
+                                pendingAreaPolygonAdditions.add(
+                                    PendingAreaPolygonAddition(
+                                        idArea, nombre, pointsJson, color, opacity, outlineWidth
+                                    )
+                                )
+                            }
+                            return@runOnUiThread
+                        }
+
+                        val meta = geometria.optJSONObject("meta") ?: return@runOnUiThread
+                        if (!meta.optString("shape").equals("circle", ignoreCase = true)) return@runOnUiThread
+
+                        val center = meta.optJSONArray("center") ?: return@runOnUiThread
+                        if (center.length() < 2) return@runOnUiThread
+
+                        val idArea = area.optInt("id_area", -1)
+                        val centerLon = center.optDouble(0, Double.NaN)
+                        val centerLat = center.optDouble(1, Double.NaN)
+                        val radiusM = meta.optDouble("radius_m", Double.NaN)
+                        val nombre = area.optString("nombre", "Círculo de cobertura")
+                        val color = area.optString("color", "#FF4500").ifBlank { "#FF4500" }
+                        val opacity = meta.optDouble("opacity", 0.35)
+                        val outlineWidth = meta.optDouble("outline_width", 3.0)
+
+                        if (idArea <= 0 || centerLat.isNaN() || centerLon.isNaN() || radiusM.isNaN()) {
+                            return@runOnUiThread
+                        }
+
+                        if (isCesiumReady) {
+                            cesiumWebController.addCoverageCircleToMap(
+                                idArea, centerLat, centerLon, radiusM, nombre, color, opacity, outlineWidth
+                            )
+                        } else {
+                            pendingCoverageCircleAdditions.add(
+                                PendingCoverageCircleAddition(
+                                    idArea, centerLat, centerLon, radiusM, nombre, color, opacity, outlineWidth
+                                )
+                            )
+                        }
+                    }
+                },
+                onAreaEliminada = { data ->
+                    runOnUiThread {
+                        val idArea = data.optInt("id_area", -1)
+                        if (idArea > 0 && isCesiumReady) {
+                            cesiumWebController.removeAreaFromMap(idArea)
+                        }
+                    }
+                },
+                onStructureCreada = { data ->
+                    runOnUiThread {
+                        val structure = data.optJSONObject("estructura") ?: return@runOnUiThread
+                        val idMarca = structure.optInt("id_marca", -1)
+                        val lat = structure.optDouble("latitud", Double.NaN)
+                        val lon = structure.optDouble("longitud", Double.NaN)
+                        val nombre = structure.optString("nombre", "Estructura")
+                        val tipoEstructura = structure.optString("tipo_estructura", "EDIFICIO")
+                        val iconoSrc = resolveStructureIconUrl(tipoEstructura)
+                        if (idMarca <= 0 || lat.isNaN() || lon.isNaN()) return@runOnUiThread
+
+                        if (isCesiumReady) {
+                            cesiumWebController.addStructureToMap(idMarca, lat, lon, nombre, tipoEstructura, iconoSrc)
+                        } else {
+                            pendingStructureAdditions.add(
+                                PendingStructureAddition(idMarca, lat, lon, nombre, tipoEstructura, iconoSrc)
+                            )
+                        }
+                    }
+                },
+                onStructureEliminada = { data ->
+                    runOnUiThread {
+                        val idMarca = data.optInt("id_marca", -1)
+                        if (idMarca > 0 && isCesiumReady) {
+                            cesiumWebController.removeStructureFromMap(idMarca)
                         }
                     }
                 },
@@ -392,7 +569,29 @@ class MainActivity : AppCompatActivity(),
                         )
                     )
 
-                    cesiumWebController.applyOperationView()
+                    data.operationZone?.let { zone ->
+                        opLat = zone.centerLat
+                        opLon = zone.centerLon
+                        opZoom = zone.zoomInicial
+                        cesiumWebController.setOperationView(opLat, opLon, opZoom)
+
+                        val zoneJson = buildString {
+                            append("{")
+                            append("\"id_zona\":${zone.idZona},")
+                            append("\"nombre\":\"${zone.nombre.replace("\"", "\\\"")}\",")
+                            append("\"centroide_lat\":${zone.centerLat},")
+                            append("\"centroide_lon\":${zone.centerLon},")
+                            append("\"zoom_inicial\":${zone.zoomInicial},")
+                            append("\"color\":\"${zone.color}\",")
+                            append("\"points\":${buildPolygonPointsJson(zone.points)}")
+                            append("}")
+                        }
+                        if (isCesiumReady) {
+                            cesiumWebController.loadOperationZone(zoneJson)
+                        } else {
+                            pendingOperationZoneJson = zoneJson
+                        }
+                    } ?: cesiumWebController.applyOperationView()
                     
                     data.rutasNavegacion?.let { jsonString ->
                         // Pequeño delay adicional para asegurar que Cesium y las funciones JS ya están listas
@@ -424,6 +623,79 @@ class MainActivity : AppCompatActivity(),
                             cesiumWebController.loadPois(poisJson)
                         } else {
                             pendingPoisJson = poisJson
+                        }
+                    }
+
+                    if (data.coverageCircles.isNotEmpty()) {
+                        val circlesJson = buildString {
+                            append("[")
+                            data.coverageCircles.forEachIndexed { i, circle ->
+                                if (i > 0) append(",")
+                                append("{")
+                                append("\"id_area\":${circle.idArea},")
+                                append("\"nombre\":\"${circle.nombre.replace("\"", "\\\"")}\",")
+                                append("\"center_lat\":${circle.centerLat},")
+                                append("\"center_lon\":${circle.centerLon},")
+                                append("\"radius_m\":${circle.radiusM},")
+                                append("\"color\":\"${circle.color}\",")
+                                append("\"opacity\":${circle.opacity},")
+                                append("\"outline_width\":${circle.outlineWidth}")
+                                append("}")
+                            }
+                            append("]")
+                        }
+                        if (isCesiumReady) {
+                            cesiumWebController.loadCoverageCircles(circlesJson)
+                        } else {
+                            pendingCoverageCirclesJson = circlesJson
+                        }
+                    }
+
+                    if (data.areaPolygons.isNotEmpty()) {
+                        val polygonsJson = buildString {
+                            append("[")
+                            data.areaPolygons.forEachIndexed { i, polygon ->
+                                if (i > 0) append(",")
+                                append("{")
+                                append("\"id_area\":${polygon.idArea},")
+                                append("\"nombre\":\"${polygon.nombre.replace("\"", "\\\"")}\",")
+                                append("\"color\":\"${polygon.color}\",")
+                                append("\"opacity\":${polygon.opacity},")
+                                append("\"outline_width\":${polygon.outlineWidth},")
+                                append("\"points\":${buildPolygonPointsJson(polygon.points)}")
+                                append("}")
+                            }
+                            append("]")
+                        }
+                        if (isCesiumReady) {
+                            cesiumWebController.loadAreaPolygons(polygonsJson)
+                        } else {
+                            pendingAreaPolygonsJson = polygonsJson
+                        }
+                    }
+
+                    if (data.structures.isNotEmpty()) {
+                        val structuresJson = buildString {
+                            append("[")
+                            data.structures.forEachIndexed { i, structure ->
+                                if (i > 0) append(",")
+                                append("{")
+                                append("\"id_marca\":${structure.idMarca},")
+                                append("\"nombre\":\"${structure.nombre.replace("\"", "\\\"")}\",")
+                                append("\"tipo_estructura\":\"${structure.tipoEstructura.replace("\"", "\\\"")}\",")
+                                append("\"latitud\":${structure.lat},")
+                                append("\"longitud\":${structure.lon}")
+                                structure.iconoSrc?.let { icon ->
+                                    append(",\"icono_src\":\"${icon.replace("\"", "\\\"")}\"")
+                                }
+                                append("}")
+                            }
+                            append("]")
+                        }
+                        if (isCesiumReady) {
+                            cesiumWebController.loadStructures(structuresJson)
+                        } else {
+                            pendingStructuresJson = structuresJson
                         }
                     }
                 }
@@ -690,9 +962,73 @@ class MainActivity : AppCompatActivity(),
         cesiumWebController.applyOperationView()
 
         // POIs del batch inicial (GET /mapa)
+        pendingOperationZoneJson?.let { json ->
+            pendingOperationZoneJson = null
+            cesiumWebController.loadOperationZone(json)
+        }
+
         pendingPoisJson?.let { json ->
             pendingPoisJson = null
             cesiumWebController.loadPois(json)
+        }
+
+        pendingCoverageCirclesJson?.let { json ->
+            pendingCoverageCirclesJson = null
+            cesiumWebController.loadCoverageCircles(json)
+        }
+
+        pendingAreaPolygonsJson?.let { json ->
+            pendingAreaPolygonsJson = null
+            cesiumWebController.loadAreaPolygons(json)
+        }
+
+        pendingStructuresJson?.let { json ->
+            pendingStructuresJson = null
+            cesiumWebController.loadStructures(json)
+        }
+
+        if (pendingCoverageCircleAdditions.isNotEmpty()) {
+            pendingCoverageCircleAdditions.forEach { circle ->
+                cesiumWebController.addCoverageCircleToMap(
+                    circle.idArea,
+                    circle.centerLat,
+                    circle.centerLon,
+                    circle.radiusM,
+                    circle.nombre,
+                    circle.color,
+                    circle.opacity,
+                    circle.outlineWidth
+                )
+            }
+            pendingCoverageCircleAdditions.clear()
+        }
+
+        if (pendingAreaPolygonAdditions.isNotEmpty()) {
+            pendingAreaPolygonAdditions.forEach { polygon ->
+                cesiumWebController.addAreaPolygonToMap(
+                    polygon.idArea,
+                    polygon.nombre,
+                    polygon.pointsJson,
+                    polygon.color,
+                    polygon.opacity,
+                    polygon.outlineWidth
+                )
+            }
+            pendingAreaPolygonAdditions.clear()
+        }
+
+        if (pendingStructureAdditions.isNotEmpty()) {
+            pendingStructureAdditions.forEach { structure ->
+                cesiumWebController.addStructureToMap(
+                    structure.idMarca,
+                    structure.lat,
+                    structure.lon,
+                    structure.nombre,
+                    structure.tipoEstructura,
+                    structure.iconoSrc
+                )
+            }
+            pendingStructureAdditions.clear()
         }
 
         // POIs recibidos por socket antes de que Cesium estuviera listo

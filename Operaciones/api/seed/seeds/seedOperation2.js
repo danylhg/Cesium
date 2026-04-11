@@ -262,10 +262,10 @@ export async function seedOperation2(client) {
        zoom_inicial=$6, color=$7, creado_por=$8, fecha_creacion=NOW()`,
     [idOp, "Zona Puerto Veracruz",
      JSON.stringify({ type: "Polygon", coordinates: [[
-       [-96.9600,19.5600],[-96.8900,19.5600],[-96.8900,19.5100],
-       [-96.9600,19.5100],[-96.9600,19.5600]
+       [-96.93175,19.54125],[-96.92225,19.54125],[-96.92225,19.53675],
+       [-96.93175,19.53675],[-96.93175,19.54125]
      ]]}),
-     19.5390, -96.9270, 1500, "#f97316", creadoPor]
+     19.5390, -96.9270, 1000, "#f97316", creadoPor]
   );
 
   return { codigo: OP_CODIGO, estado: "PLANIFICADA", idOp };

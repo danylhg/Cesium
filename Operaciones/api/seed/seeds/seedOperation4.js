@@ -166,7 +166,6 @@ export async function seedOperation4(client) {
       const mensajes4 = [
         { contenido: "Chat de OP-CANCELADA-004 inicializado. Operacion en fase de planeacion.", tipo: "SISTEMA" },
         { contenido: "Planeación inicial completada. Esperando autorización para activar.", tipo: "NORMAL" },
-        { contenido: "OPERACION CANCELADA automáticamente por trigger de BD.", tipo: "SISTEMA" },
       ];
 
       for (const msg of mensajes4) {
@@ -256,3 +255,4 @@ export async function seedOperation4(client) {
     personalAsignado: personalAsignado4.length,
   };
 }
+

@@ -493,6 +493,8 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       LEFT JOIN personal p
         ON p.id_personal = pc.id_personal
       WHERE m.id_chat = $1
+        AND m.contenido NOT ILIKE 'OPERACION % automáticamente por trigger de BD.'
+        AND m.contenido NOT ILIKE 'OPERACION % automÃ¡ticamente por trigger de BD.'
       ORDER BY m.fecha_envio ASC, m.id_mensaje ASC
       `,
       [id_chat]

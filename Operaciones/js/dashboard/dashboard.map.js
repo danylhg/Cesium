@@ -455,3 +455,33 @@ export function initCesium() {
   bindMapDropEvents();
   bindMapUiEvents();
 }
+
+export function centerMapOnOperationZone(zona) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !zona) return;
+
+  const lat = Number(zona.centroide_lat);
+  const lng = Number(zona.centroide_lon);
+  const zoom = Number(zona.zoom_inicial || 1000) || 1000;
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(lng, lat, zoom)
+    });
+    return;
+  }
+
+  const ring = zona.geometria?.coordinates?.[0];
+  if (!Array.isArray(ring) || ring.length < 3) return;
+
+  const lons = ring.map(point => Number(point?.[0])).filter(Number.isFinite);
+  const lats = ring.map(point => Number(point?.[1])).filter(Number.isFinite);
+  if (!lons.length || !lats.length) return;
+
+  const centerLon = lons.reduce((sum, value) => sum + value, 0) / lons.length;
+  const centerLat = lats.reduce((sum, value) => sum + value, 0) / lats.length;
+
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(centerLon, centerLat, zoom)
+  });
+}

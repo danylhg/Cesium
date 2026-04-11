@@ -12,6 +12,11 @@ class ChatSocketManager(
     private val onTrackingPersonal: ((JSONObject) -> Unit)? = null,
     private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null,
     private val onPoiCreado: ((JSONObject) -> Unit)? = null,
+    private val onPoiEliminado: ((JSONObject) -> Unit)? = null,
+    private val onAreaCreada: ((JSONObject) -> Unit)? = null,
+    private val onAreaEliminada: ((JSONObject) -> Unit)? = null,
+    private val onStructureCreada: ((JSONObject) -> Unit)? = null,
+    private val onStructureEliminada: ((JSONObject) -> Unit)? = null,
     private val onConnected: (() -> Unit)? = null,
     private val idPersonal: Int = -1,
     private val rol: String = ""
@@ -63,6 +68,31 @@ class ChatSocketManager(
         socket?.on("poi_creado") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onPoiCreado?.invoke(data)
+        }
+
+        socket?.on("poi_eliminado") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onPoiEliminado?.invoke(data)
+        }
+
+        socket?.on("area_creada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onAreaCreada?.invoke(data)
+        }
+
+        socket?.on("area_eliminada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onAreaEliminada?.invoke(data)
+        }
+
+        socket?.on("estructura_creada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onStructureCreada?.invoke(data)
+        }
+
+        socket?.on("estructura_eliminada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onStructureEliminada?.invoke(data)
         }
 
         socket?.connect()

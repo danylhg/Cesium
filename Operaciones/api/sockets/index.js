@@ -106,6 +106,22 @@ export function emitPoiEliminado(io, idOperacion, idPoi) {
   io.to(`op_${idOperacion}`).emit("poi_eliminado", { id_poi: idPoi });
 }
 
+export function emitAreaCreada(io, idOperacion, area) {
+  io.to(`op_${idOperacion}`).emit("area_creada", { area });
+}
+
+export function emitAreaEliminada(io, idOperacion, idArea) {
+  io.to(`op_${idOperacion}`).emit("area_eliminada", { id_area: idArea });
+}
+
+export function emitEstructuraCreada(io, idOperacion, estructura) {
+  io.to(`op_${idOperacion}`).emit("estructura_creada", { estructura });
+}
+
+export function emitEstructuraEliminada(io, idOperacion, idMarca) {
+  io.to(`op_${idOperacion}`).emit("estructura_eliminada", { id_marca: idMarca });
+}
+
 // ── Emit filtrado de ruta_navegacion_creada ───────────────────
 // Emite la ruta solo a sockets que tienen permiso de verla:
 //   - Admin / CUT / CET / sin rol registrado → ven todo

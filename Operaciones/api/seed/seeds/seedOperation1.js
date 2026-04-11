@@ -230,10 +230,10 @@ export async function seedOperation1(client) {
        zoom_inicial=$6, color=$7, creado_por=$8, fecha_creacion=NOW()`,
     [idOp, "Zona Anton Lizardo",
      JSON.stringify({ type: "Polygon", coordinates: [[
-       [-95.9950,19.0750],[-95.9350,19.0750],[-95.9350,19.0250],
-       [-95.9950,19.0250],[-95.9950,19.0750]
+       [-95.97565,19.05175],[-95.96850,19.05175],[-95.96850,19.04325],
+       [-95.97565,19.04325],[-95.97565,19.05175]
      ]]}),
-     19.0460, -95.9709, 1000, "#3b82f6", creadoPor]
+     19.0475, -95.972075, 1000, "#3b82f6", creadoPor]
   );
 
   return { codigo: OP_CODIGO, estado: "ACTIVA", idOp };
