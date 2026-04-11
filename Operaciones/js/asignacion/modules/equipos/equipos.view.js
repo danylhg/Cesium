@@ -282,10 +282,14 @@ export function renderEquipoAsignacion() {
     renderEquipoAsignacion();
   });
 
+  const footer = document.createElement("div");
+  footer.className = "rightFooter";
+  footer.appendChild(assignBtn);
+
   listBox.appendChild(equipTitle);
   listBox.appendChild(eqWrap);
-  listBox.appendChild(assignBtn);
   panel.appendChild(listBox);
+  panel.appendChild(footer);
 
   btnAccion.onclick = async () => {
     state.categoria = null;

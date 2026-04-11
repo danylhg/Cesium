@@ -161,26 +161,30 @@ export async function seedOperation2(client) {
   const respAg1 = personalAsignado.find(p => p.username === "drios");
   const respAg2 = personalAsignado.find(p => p.username === "pmendoza");
 
-  await client.query(
-    `INSERT INTO vehiculo_operacion
-       (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
-     VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
-     ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO NOTHING`,
-    [idOp, vh4.id_vehiculo, respAg1.id_personal, idAg1, creadoPor]
-  );
+  for (const integrante of ag1) {
+    await client.query(
+      `INSERT INTO vehiculo_operacion
+         (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
+       VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+       ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO NOTHING`,
+      [idOp, vh4.id_vehiculo, integrante.id_personal, idAg1, creadoPor]
+    );
+  }
   await client.query(
     `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, id_personal, asignado_por)
      VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
     [idAg1, idOp, vh4.id_vehiculo, respAg1.id_personal, creadoPor]
   );
 
-  await client.query(
-    `INSERT INTO vehiculo_operacion
-       (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
-     VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
-     ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO NOTHING`,
-    [idOp, vh5.id_vehiculo, respAg2.id_personal, idAg2, creadoPor]
-  );
+  for (const integrante of ag2) {
+    await client.query(
+      `INSERT INTO vehiculo_operacion
+         (id_operacion, id_vehiculo, id_personal, id_grupo_operacion, nivel_asignacion, estado_asignacion, asignado_por)
+       VALUES ($1,$2,$3,$4,'GRUPO','ASIGNADO',$5)
+       ON CONFLICT (id_operacion, id_vehiculo, id_personal) DO NOTHING`,
+      [idOp, vh5.id_vehiculo, integrante.id_personal, idAg2, creadoPor]
+    );
+  }
   await client.query(
     `INSERT INTO grupo_vehiculo (id_grupo_operacion, id_operacion, id_vehiculo, id_personal, asignado_por)
      VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,

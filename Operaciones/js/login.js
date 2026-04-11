@@ -1,13 +1,17 @@
 const API = `http://${window.location.hostname}:3001`;
 
-document.getElementById("btnLogin").addEventListener("click", async () => {
-  const u = document.getElementById("username").value.trim();
-  const p = document.getElementById("password").value;
-  const msg = document.getElementById("msg");
+const usernameInput = document.getElementById("username");
+const passwordInput = document.getElementById("password");
+const loginButton = document.getElementById("btnLogin");
+const msg = document.getElementById("msg");
+
+async function attemptLogin() {
+  const u = usernameInput.value.trim();
+  const p = passwordInput.value;
   msg.textContent = "";
 
   if (!u || !p) {
-    msg.textContent = "Ingresa usuario y contraseña.";
+    msg.textContent = "Ingresa usuario y contraseÃ±a.";
     return;
   }
 
@@ -21,7 +25,7 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
     const data = await res.json();
 
     if (!res.ok || !data.ok) {
-      msg.textContent = data.mensaje ?? "Usuario o contraseña incorrectos.";
+      msg.textContent = data.mensaje ?? "Usuario o contraseÃ±a incorrectos.";
       return;
     }
 
@@ -34,4 +38,18 @@ document.getElementById("btnLogin").addEventListener("click", async () => {
   } catch {
     msg.textContent = "No se pudo conectar con el servidor.";
   }
+}
+
+usernameInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  passwordInput.focus();
 });
+
+passwordInput.addEventListener("keydown", (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  attemptLogin();
+});
+
+loginButton.addEventListener("click", attemptLogin);

@@ -9,7 +9,7 @@ const io = initSocket(server);
 app.set("io", io);
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.100.12:${PORT}`);
+  console.log(`API + WS en http://192.168.88.4:${PORT}`);
   // http://192.168.202.103 SEDAM
   // http://192.168.100.12:3001 mi casa de vera
   // http://192.168.1.83:3001 mi casa de lerdo
