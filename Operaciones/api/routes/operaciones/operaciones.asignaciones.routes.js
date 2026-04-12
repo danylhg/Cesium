@@ -248,6 +248,19 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
   // Extrae los grupos, mando directo extra y el usuario que asigna
   const { grupos, directos, asignado_por } = req.body ?? {};
 
+  console.log("[POST /grupos] payload recibido →", {
+    id_operacion,
+    grupos,
+    directos,
+    asignado_por
+  });
+  console.log("[POST /grupos] payload recibido JSON →", JSON.stringify({
+    id_operacion,
+    grupos,
+    directos,
+    asignado_por
+  }, null, 2));
+
   // grupos debe venir como arreglo
   if (!Array.isArray(grupos)) {
     return res.status(400).json({ ok: false, mensaje: "grupos inválido" });
@@ -283,9 +296,26 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
       });
     }
 
-    // Borra asignaciones de vehículos a grupos de esta operación
+    // El rebuild de grupos rehace por completo la jerarquía y su contexto.
+    // Limpiamos primero todos los recursos dependientes de grupos de esta operación
+    // para evitar referencias colgantes a grupos previos.
     await client.query(
       `DELETE FROM grupo_vehiculo WHERE id_operacion = $1`,
+      [id_operacion]
+    );
+
+    await client.query(
+      `DELETE FROM grupo_equipo WHERE id_operacion = $1`,
+      [id_operacion]
+    );
+
+    await client.query(
+      `DELETE FROM uso_equipo_operacion WHERE id_operacion = $1`,
+      [id_operacion]
+    );
+
+    await client.query(
+      `DELETE FROM vehiculo_operacion WHERE id_operacion = $1`,
       [id_operacion]
     );
 
@@ -400,6 +430,16 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
 
       // Guarda referencia nombre -> id
       celulaGroupIds.set(nombre, id_grupo);
+
+      // El CET también debe pertenecer al subgrupo cuando ese grupo tendrá
+      // relaciones de mando/vehículos que lo referencian como custodio.
+      if (isInt(id_cet)) {
+        await client.query(
+          `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por)
+           VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+          [id_grupo, id_cet, who]
+        );
+      }
 
       // Si vienen integrantes, los asigna a este subgrupo
       if (Array.isArray(integrantes)) {
@@ -524,6 +564,7 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
   } catch (err) {
     // Si algo falla, revierte todo
     await client.query("ROLLBACK");
+    console.error("[POST /grupos] PG error:", err.code, err.message, err.detail, err.hint);
     return sendDbError(res, err, "Error guardando grupos");
   } finally {
     // Libera conexión

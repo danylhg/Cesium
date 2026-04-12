@@ -141,6 +141,12 @@ function buildNombre(row) {
  * Se llama cuando entry === "edit", después de hydrateCatalogsFromControl().
  */
 export async function hydrateAsignacionFromBD(idOperacion) {
+  state.equiposLiberadosLocalmente = [];
+  state.vehiculosLiberadosLocalmente = [];
+  state.vehiculosGridScrollTop = 0;
+  state.equiposLeftScrollTop = 0;
+  state.equiposRightScrollTop = 0;
+
   const [personalRows, vehiculosRows, equiposRows] = await Promise.all([
     apiFetch(`/ops/${idOperacion}/personal`),
     apiFetch(`/ops/${idOperacion}/vehiculos-asignados`),
@@ -204,6 +210,23 @@ export async function hydrateAsignacionFromBD(idOperacion) {
       }
       // Si grupoNombre es null → va a "sin grupo" (mando directo), no se agrega a ningún subgrupo
     });
+
+    if (ginfo.idx === undefined) ginfo.idx = 0;
+    if (ginfo.vehActive === undefined) ginfo.vehActive = null;
+
+    if (ginfo.names.length > 0) {
+      ginfo.idx = Math.max(0, Math.min(ginfo.idx, ginfo.names.length - 1));
+      if (!ginfo.active || !ginfo.names.includes(ginfo.active)) {
+        ginfo.active = ginfo.names[ginfo.idx];
+      }
+      if (!ginfo.vehActive || !ginfo.names.includes(ginfo.vehActive)) {
+        ginfo.vehActive = ginfo.active;
+      }
+    } else {
+      ginfo.active = null;
+      ginfo.idx = 0;
+      ginfo.vehActive = null;
+    }
   });
 
   console.log("[HYDRATE] cutSeleccionado →", state.cutSeleccionado);
@@ -224,9 +247,12 @@ export async function hydrateAsignacionFromBD(idOperacion) {
     .filter(r => r.id_vehiculo && r.id_personal)
     .map(r => ({
       id_vehiculo: r.id_vehiculo,
-      tipo_destino: "personal",
+      tipo_destino: (r.tipo_destino || r.nivel_asignacion || "OPERACION").toUpperCase() === "GRUPO"
+        ? "grupo"
+        : "personal",
       id_personal: r.id_personal,
-      id_grupo_operacion: r.id_grupo_operacion ?? null
+      // En frontend la referencia de grupo se maneja por nombre; al sincronizar se remapea a ID real.
+      id_grupo_operacion: r.grupo_nombre ?? null
     }));
 
   console.log("[HYDRATE] asignacionVehiculos →", JSON.stringify(state.asignacionVehiculos, null, 2));
@@ -235,7 +261,10 @@ export async function hydrateAsignacionFromBD(idOperacion) {
   state.asignacionEquipos = equiposRows
     .filter(r => r.ueo_id_personal != null)
     .map(r => {
-      const tipoDestino = (r.tipo_destino || "PERSONAL").toLowerCase();
+      // Si el backend trae GRUPO pero además hay custodio personal, la UI de asignación
+      // lo opera como equipo asignado a personal dentro de ese grupo.
+      const rawTipoDestino = (r.tipo_destino || "PERSONAL").toLowerCase();
+      const tipoDestino = rawTipoDestino === "grupo" ? "personal" : rawTipoDestino;
       const categoria = normalizeEquipoCategoria(r.categoria);
       return {
         id_equipo: r.id_equipo,

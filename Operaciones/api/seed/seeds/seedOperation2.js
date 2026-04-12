@@ -9,9 +9,9 @@ export async function seedOperation2(client) {
 
   const personalOpUsernames = [
     "atorres",                          // CUT
-    "mlopez",                           // CET → Flotilla Alfa
+    "lhernandez",                       // CET → Flotilla Alfa
     "rvega",                            // CET → Flotilla Norte
-    "drios", "fsilva", "anavarro",      // CELL → Aguila 1 (bajo mlopez)
+    "drios", "fsilva", "anavarro",      // CELL → Aguila 1 (bajo lhernandez)
     "pmendoza", "hcastillo", "eruiz",   // CELL → Aguila 2 (bajo rvega)
   ];
 
@@ -28,7 +28,7 @@ export async function seedOperation2(client) {
        creada_por=$4, id_cut=$5`,
     [OP_CODIGO,
      "Operacion Norte 002",
-     "Segunda operacion de prueba. CUT: atorres. CET mlopez lidera Flotilla Alfa (Aguila 1). CET rvega lidera Flotilla Norte (Aguila 2).",
+     "Segunda operacion de prueba. CUT: atorres. CET lhernandez lidera Flotilla Alfa (Aguila 1). CET rvega lidera Flotilla Norte (Aguila 2).",
      creadoPor, cutOp2]
   );
 
@@ -53,12 +53,12 @@ export async function seedOperation2(client) {
     );
   }
 
-  const cet2a  = personalAsignado.find(p => p.username === "mlopez");
+  const cet2a  = personalAsignado.find(p => p.username === "lhernandez");
   const cet2b  = personalAsignado.find(p => p.username === "rvega");
   const ag1    = personalAsignado.filter(p => ["drios","fsilva","anavarro"].includes(p.username));
   const ag2    = personalAsignado.filter(p => ["pmendoza","hcastillo","eruiz"].includes(p.username));
 
-  if (!cet2a) throw new Error(`CET mlopez no encontrado en OP-NORTE-002`);
+  if (!cet2a) throw new Error(`CET lhernandez no encontrado en OP-NORTE-002`);
   if (!cet2b) throw new Error(`CET rvega no encontrado en OP-NORTE-002`);
 
   // ── Mando CET → CELL ──────────────────────────────────────
@@ -87,10 +87,10 @@ export async function seedOperation2(client) {
   );
   const idRaiz = await getGrupoId(client, idOp, "Mando Operativo");
 
-  // Flotilla Alfa (CET mlopez)
+  // Flotilla Alfa (CET lhernandez)
   await client.query(
     `INSERT INTO grupo_operacion (id_operacion, nombre, apodo, descripcion, creado_por, id_grupo_padre)
-     VALUES ($1,'Flotilla Alfa','FLOTILLA','Flotilla del CET mlopez',$2,$3)
+     VALUES ($1,'Flotilla Alfa','FLOTILLA','Flotilla del CET lhernandez',$2,$3)
      ON CONFLICT (id_operacion, nombre) DO NOTHING`,
     [idOp, creadoPor, idRaiz]
   );
@@ -107,7 +107,7 @@ export async function seedOperation2(client) {
 
   if (!idFlotillaAlfa || !idFlotillaNorte) throw new Error(`Flotillas OP2 no encontradas`);
 
-  // CET mlopez en Flotilla Alfa
+  // CET lhernandez en Flotilla Alfa
   await client.query(
     `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por)
      VALUES ($1,$2,$3) ON CONFLICT (id_grupo_operacion, id_personal) DO NOTHING`,

@@ -438,10 +438,10 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
           ELSE NULL
         END AS tipo_destino,
 
-        -- Si el destino es PERSONAL, devuelve apodo o nombre completo
+        -- Si el destino es PERSONAL, devuelve nombre completo legible
         CASE
           WHEN ueo.id_vehiculo_contexto IS NULL AND ueo.id_grupo_operacion IS NULL
-          THEN COALESCE(p_ueo.apodo, NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), ''))
+          THEN NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), '')
           ELSE NULL
         END AS asignado_a_personal,
 

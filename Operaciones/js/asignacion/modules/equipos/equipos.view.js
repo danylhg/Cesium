@@ -8,7 +8,8 @@ import {
   showVehiculosLeftPanel,
   setHeader,
   setAccion,
-  showDashboardButton
+  showDashboardButton,
+  restoreScrollTop
 } from "../../core/ui.js";
 import { renderHome } from "../../views/home.view.js";
 import {
@@ -16,7 +17,7 @@ import {
   getEquipoListByCategoria as getList,
   formatEquipoAsignado
 } from "./equipos.helpers.js";
-import { asignarEquipo } from "./equipos.service.js";
+import { asignarEquipo, removerAsignacionEquipo } from "./equipos.service.js";
 import {
   getResumenVehiculoDetallado,
   getVehiclesUsedInAssignments
@@ -24,6 +25,140 @@ import {
 import { saveOperacionActual, syncOperacionCompleta } from "../operacion/operacion.service.js";
 import { readObjectStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL } from "../../core/constants.js";
+
+function getNombrePersonalById(idPersonal) {
+  for (const [nombre, id] of Object.entries(state.personalMap)) {
+    if (id === idPersonal) return nombre;
+  }
+  return null;
+}
+
+function enfocarDestinoAsignado(asignacion) {
+  if (!asignacion) return;
+
+  if (asignacion.tipo_destino === "vehiculo") {
+    const veh = state.vehiclesList.find(v => v.id === asignacion.id_vehiculo);
+    if (!veh) return;
+
+    state.equipoDestino = "vehiculo";
+    state.equipoSelectedCet = null;
+    state.equipoSelectedGrupo = null;
+    state.equipoSelectedResource = veh.name;
+    return;
+  }
+
+  if (asignacion.tipo_destino !== "personal") return;
+
+  const personaNombre = getNombrePersonalById(asignacion.id_personal);
+  if (!personaNombre) return;
+
+  if (state.cetSeleccionados.includes(personaNombre)) {
+    state.equipoDestino = "personal";
+    state.equipoSelectedCet = personaNombre;
+    state.equipoSelectedGrupo = null;
+    state.equipoSelectedResource = `${personaNombre} - CET: ${personaNombre}`;
+    return;
+  }
+
+  for (const cet of state.cetSeleccionados) {
+    const celulas = state.asignacionCelulas[cet] || [];
+    if (!celulas.includes(personaNombre)) continue;
+
+    state.equipoDestino = "personal";
+    state.equipoSelectedCet = cet;
+    state.equipoSelectedGrupo = getGrupoDeCelula(cet, personaNombre) || null;
+    state.equipoSelectedResource = `${cet} - ${personaNombre}`;
+    return;
+  }
+}
+
+function destinoActualCoincide(asignacion) {
+  if (!asignacion || !state.equipoSelectedResource) return false;
+
+  if (asignacion.tipo_destino === "vehiculo") {
+    if (state.equipoDestino !== "vehiculo") return false;
+    const veh = state.vehiclesList.find(v => v.id === asignacion.id_vehiculo);
+    return !!veh && veh.name === state.equipoSelectedResource;
+  }
+
+  if (asignacion.tipo_destino !== "personal" || state.equipoDestino !== "personal") {
+    return false;
+  }
+
+  const personaNombre = getNombrePersonalById(asignacion.id_personal);
+  if (!personaNombre) return false;
+
+  if (state.cetSeleccionados.includes(personaNombre)) {
+    return state.equipoSelectedResource === `${personaNombre} - CET: ${personaNombre}`;
+  }
+
+  for (const cet of state.cetSeleccionados) {
+    const celulas = state.asignacionCelulas[cet] || [];
+    if (celulas.includes(personaNombre)) {
+      return state.equipoSelectedResource === `${cet} - ${personaNombre}`;
+    }
+  }
+
+  return false;
+}
+
+function assignmentMatchesResource(asignacion, tipoDestino, resourceKey) {
+  if (!asignacion || !resourceKey) return false;
+
+  if (tipoDestino === "vehiculo") {
+    if (asignacion.tipo_destino !== "vehiculo") return false;
+    const veh = state.vehiclesList.find(v => v.id === asignacion.id_vehiculo);
+    return !!veh && veh.name === resourceKey;
+  }
+
+  if (tipoDestino !== "personal" || asignacion.tipo_destino !== "personal") {
+    return false;
+  }
+
+  const personaNombre = getNombrePersonalById(asignacion.id_personal);
+  if (!personaNombre) return false;
+
+  if (state.cetSeleccionados.includes(personaNombre)) {
+    return resourceKey === `${personaNombre} - CET: ${personaNombre}`;
+  }
+
+  for (const cet of state.cetSeleccionados) {
+    const celulas = state.asignacionCelulas[cet] || [];
+    if (celulas.includes(personaNombre)) {
+      return resourceKey === `${cet} - ${personaNombre}`;
+    }
+  }
+
+  return false;
+}
+
+function removerAsignacionActualDeEquipo(eqId) {
+  const asignacion = state.asignacionEquipos.find(a => a.id_equipo === eqId);
+  if (!asignacion) return false;
+
+  removerAsignacionEquipo(
+    eqId,
+    asignacion.tipo_destino,
+    asignacion.id_personal ?? null,
+    asignacion.id_vehiculo ?? null
+  );
+  if (!state.equiposLiberadosLocalmente.includes(eqId)) {
+    state.equiposLiberadosLocalmente.push(eqId);
+  }
+  return true;
+}
+
+function removerAsignacionDeSeleccionActual(tipoDestino, resourceKey) {
+  let removioAlgo = false;
+
+  state.equipoSelectedItems.forEach(eqId => {
+    const asignacion = state.asignacionEquipos.find(a => a.id_equipo === eqId);
+    if (!assignmentMatchesResource(asignacion, tipoDestino, resourceKey)) return;
+    removioAlgo = removerAsignacionActualDeEquipo(eqId) || removioAlgo;
+  });
+
+  return removioAlgo;
+}
 
 async function finalizarAsignacionCompleta() {
   saveOperacionActual(); 
@@ -136,6 +271,11 @@ export function renderEquipoAsignacion() {
   eqWrap.style.display = "flex";
   eqWrap.style.flexDirection = "column";
   eqWrap.style.gap = "10px";
+  eqWrap.style.maxHeight = "360px";
+  eqWrap.style.overflowY = "auto";
+  eqWrap.addEventListener("scroll", () => {
+    state.equiposRightScrollTop = eqWrap.scrollTop;
+  });
 
   const bucket = getBucket(state.equipoCategoria);
   console.log("[EQUIPOS VIEW] asignacionEquipos en state:", JSON.stringify(state.asignacionEquipos, null, 2));
@@ -146,13 +286,14 @@ export function renderEquipoAsignacion() {
     const asigActual = state.asignacionEquipos.find(a => a.id_equipo === eqId);
     const assignedInFlow = formatEquipoAsignado(eqId);
     const isAssignedInFlow = !!asigActual;
+    const fueLiberadoLocalmente = state.equiposLiberadosLocalmente.includes(eqId);
     // Si NO está en esta op pero el catálogo lo marca como no disponible → otra operación
-    const isEnOtraOperacion = !isAssignedInFlow && eq.estado && eq.estado !== "DISPONIBLE";
-    const isDisabled = isAssignedInFlow || isEnOtraOperacion;
+    const isEnOtraOperacion = !isAssignedInFlow && !fueLiberadoLocalmente && eq.estado && eq.estado !== "DISPONIBLE";
+    const isDisabled = isEnOtraOperacion;
     const badgeText = isAssignedInFlow
       ? assignedInFlow
       : (isEnOtraOperacion ? "En otra operación" : "Disponible");
-    const isSelected = !isDisabled && state.equipoSelectedItems.includes(eqId);
+    const isSelected = state.equipoSelectedItems.includes(eqId);
 
     const row = document.createElement("div");
     row.className = "item" + (isSelected ? " selected" : "");
@@ -217,8 +358,15 @@ export function renderEquipoAsignacion() {
 
       if (isSelected) {
         state.equipoSelectedItems = state.equipoSelectedItems.filter(x => x !== eqId);
+        if (asigActual) {
+          removerAsignacionActualDeEquipo(eqId);
+          if (state.equipoSelectedItems.length === 0) {
+            state.equipoSelectedResource = null;
+          }
+        }
       } else {
         state.equipoSelectedItems.push(eqId);
+        if (asigActual) enfocarDestinoAsignado(asigActual);
       }
       renderEquipoAsignacion();
     });
@@ -231,7 +379,13 @@ export function renderEquipoAsignacion() {
   assignBtn.textContent = "Asignarle";
   assignBtn.style.marginTop = "12px";
 
-  const canAssign = !!state.equipoSelectedResource && state.equipoSelectedItems.length > 0;
+  const canAssign =
+    !!state.equipoSelectedResource &&
+    state.equipoSelectedItems.length > 0 &&
+    state.equipoSelectedItems.some(eqId => {
+      const asigActual = state.asignacionEquipos.find(a => a.id_equipo === eqId);
+      return !destinoActualCoincide(asigActual);
+    });
   assignBtn.disabled = !canAssign;
 
   assignBtn.addEventListener("click", () => {
@@ -272,7 +426,9 @@ export function renderEquipoAsignacion() {
     // Asignar usando el service
     state.equipoSelectedItems.forEach(eqId => {
       try {
+        removerAsignacionActualDeEquipo(eqId);
         asignarEquipo(eqId, tipoDestino, idPersonal, idVehiculo, state.equipoCategoria);
+        state.equiposLiberadosLocalmente = state.equiposLiberadosLocalmente.filter(id => id !== eqId);
       } catch (e) {
         alert(`Error asignando equipo: ${e.message}`);
       }
@@ -290,6 +446,7 @@ export function renderEquipoAsignacion() {
   listBox.appendChild(eqWrap);
   panel.appendChild(listBox);
   panel.appendChild(footer);
+  restoreScrollTop(eqWrap, state.equiposRightScrollTop || 0);
 
   btnAccion.onclick = async () => {
     state.categoria = null;
@@ -405,6 +562,9 @@ export function renderEquipoLeftPersonal() {
   personasWrap.style.gap = "10px";
   personasWrap.style.maxHeight = "340px";
   personasWrap.style.overflowY = "auto";
+  personasWrap.addEventListener("scroll", () => {
+    state.equiposLeftScrollTop = personasWrap.scrollTop;
+  });
 
   let personas = [];
 
@@ -442,7 +602,12 @@ export function renderEquipoLeftPersonal() {
       row.appendChild(left);
 
       row.addEventListener("click", () => {
-        state.equipoSelectedResource = key;
+        if (state.equipoSelectedResource === key) {
+          removerAsignacionDeSeleccionActual("personal", key);
+          state.equipoSelectedResource = null;
+        } else {
+          state.equipoSelectedResource = key;
+        }
         saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
         renderEquipoAsignacion();
       });
@@ -453,11 +618,17 @@ export function renderEquipoLeftPersonal() {
 
   box.appendChild(personasWrap);
   vehiculosLeftEl.appendChild(box);
+  restoreScrollTop(personasWrap, state.equiposLeftScrollTop || 0);
 }
 
 export function renderEquipoLeftVehiculo() {
   const box = document.createElement("div");
   box.className = "listBox";
+  box.style.maxHeight = "520px";
+  box.style.overflowY = "auto";
+  box.addEventListener("scroll", () => {
+    state.equiposLeftScrollTop = box.scrollTop;
+  });
 
   const usados = getVehiclesUsedInAssignments();
 
@@ -528,7 +699,12 @@ export function renderEquipoLeftVehiculo() {
     card.appendChild(content);
 
     card.addEventListener("click", () => {
-      state.equipoSelectedResource = v.name;
+      if (state.equipoSelectedResource === v.name) {
+        removerAsignacionDeSeleccionActual("vehiculo", v.name);
+        state.equipoSelectedResource = null;
+      } else {
+        state.equipoSelectedResource = v.name;
+      }
       saveAsignacionActual();
       renderEquipoAsignacion();
     });
@@ -537,4 +713,5 @@ export function renderEquipoLeftVehiculo() {
   });
 
   vehiculosLeftEl.appendChild(box);
+  restoreScrollTop(box, state.equiposLeftScrollTop || 0);
 }

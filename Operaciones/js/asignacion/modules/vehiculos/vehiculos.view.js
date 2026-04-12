@@ -7,13 +7,96 @@ import {
   showBack,
   showVehiculosLeftPanel,
   setHeader,
-  setAccion
+  setAccion,
+  restoreScrollTop
 } from "../../core/ui.js";
 import { getGrupoDeCelula } from "../personal/personal.helpers.js";
 import { saveAsignacionActual } from "../asignacion/asignacion.service.js";
 import { asignarVehiculo, removerAsignacionVehiculo, getNombreVehiculoAsignado } from "./vehiculos.service.js";
 import { renderEquipoAsignacion } from "../equipos/equipos.view.js";
 import { guardarOperacionBaseDatos, collectOperacionActual } from "../operacion/operacion.service.js";
+
+function getNombrePersonalById(idPersonal) {
+  for (const [nombre, id] of Object.entries(state.personalMap)) {
+    if (id === idPersonal) return nombre;
+  }
+  return null;
+}
+
+function getSelectedVehicleId() {
+  return state.vehiclesList.find(v => v.name === state.selectedVehicle)?.id || null;
+}
+
+function syncSelectedCellsWithVehicleSelection() {
+  const idVehiculo = getSelectedVehicleId();
+  state.selectedCells = idVehiculo ? getKeysAsignadosAVehiculo(idVehiculo) : [];
+}
+
+function getKeysAsignadosAVehiculo(idVehiculo) {
+  if (!idVehiculo) return [];
+
+  const keys = [];
+  state.asignacionVehiculos
+    .filter(a => a.id_vehiculo === idVehiculo && a.id_personal)
+    .forEach(asig => {
+      const nombre = getNombrePersonalById(asig.id_personal);
+      if (!nombre) return;
+
+      if (state.cetSeleccionados.includes(nombre)) {
+        keys.push(nombre);
+        return;
+      }
+
+      for (const cet of state.cetSeleccionados) {
+        const cells = state.asignacionCelulas[cet] || [];
+        if (cells.includes(nombre)) {
+          keys.push(`${cet}-${nombre}`);
+          return;
+        }
+      }
+    });
+
+  return keys;
+}
+
+function removerAsignacionPorKey(key) {
+  const separador = key.indexOf('-');
+  const cet = separador === -1 ? key : key.slice(0, separador);
+  const celula = separador === -1 ? null : key.slice(separador + 1);
+  const nombre = celula || cet;
+  const idPersonal = state.personalMap[nombre];
+  if (!idPersonal) return false;
+
+  const asignacion = state.asignacionVehiculos.find(a => a.id_personal === idPersonal);
+  if (!asignacion) return false;
+
+  removerAsignacionVehiculo(
+    asignacion.id_vehiculo,
+    asignacion.tipo_destino,
+    idPersonal,
+    asignacion.id_grupo_operacion ?? null
+  );
+
+  const quedanAsignacionesVeh = state.asignacionVehiculos.some(a => a.id_vehiculo === asignacion.id_vehiculo);
+  if (!quedanAsignacionesVeh && !state.vehiculosLiberadosLocalmente.includes(asignacion.id_vehiculo)) {
+    state.vehiculosLiberadosLocalmente.push(asignacion.id_vehiculo);
+  }
+
+  if (!quedanAsignacionesVeh) {
+    const equiposLiberados = state.asignacionEquipos
+      .filter(a => a.id_vehiculo === asignacion.id_vehiculo)
+      .map(a => a.id_equipo);
+
+    state.asignacionEquipos = state.asignacionEquipos.filter(a => a.id_vehiculo !== asignacion.id_vehiculo);
+    equiposLiberados.forEach(idEquipo => {
+      if (!state.equiposLiberadosLocalmente.includes(idEquipo)) {
+        state.equiposLiberadosLocalmente.push(idEquipo);
+      }
+    });
+  }
+
+  return true;
+}
 
 export function renderVehiculos() {
   clearPanel();
@@ -28,6 +111,9 @@ export function renderVehiculos() {
       vehCount[veh.name] = (vehCount[veh.name] || 0) + 1;
     }
   });
+
+  const selectedVehicleId = getSelectedVehicleId();
+  const keysAsignadosAlVehiculoSeleccionado = new Set(getKeysAsignadosAVehiculo(selectedVehicleId));
 
   const cet = state.cetSeleccionados[state.cetActivoIndexVeh];
 
@@ -67,8 +153,7 @@ export function renderVehiculos() {
     btn.style.cursor = "pointer";
     btn.addEventListener("click", () => {
       state.cetActivoIndexVeh = i;
-      state.selectedCells = [];
-      state.selectedVehicle = null;
+      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
       renderVehiculos();
     });
@@ -119,8 +204,7 @@ export function renderVehiculos() {
     chip.textContent = gName;
     chip.addEventListener("click", () => {
       ginfo.vehActive = gName;
-      state.selectedVehicle = null;
-      state.selectedCells = [];
+      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual();
       renderVehiculos();
     });
@@ -133,8 +217,7 @@ export function renderVehiculos() {
   sinGrupoBtn.textContent = "Sin grupo";
   sinGrupoBtn.addEventListener("click", () => {
     ginfo.vehActive = null;
-    state.selectedVehicle = null;
-    state.selectedCells = [];
+    syncSelectedCellsWithVehicleSelection();
     saveAsignacionActual();
     renderVehiculos();
   });
@@ -198,15 +281,23 @@ export function renderVehiculos() {
 
   if (!ginfo.vehActive) {
     const cetAssigned = getNombreVehiculoAsignado(cetKey);
-    const cetLocked = !!cetAssigned;
+    const cetAssignedToSelectedVehicle = keysAsignadosAlVehiculoSeleccionado.has(cetKey);
+    const cetLocked = !!cetAssigned && !cetAssignedToSelectedVehicle;
 
     cellulasList.appendChild(
       mkCheckRow({
         labelText: cetLocked ? `CET: ${cet} (Asignado: ${cetAssigned})` : `CET: ${cet}`,
         valueKey: cetKey,
         disabled: cetLocked,
-        checked: (state.selectedCells || []).includes(cetKey),
+        checked: cetAssignedToSelectedVehicle || (state.selectedCells || []).includes(cetKey),
         onChange: (checked) => {
+          if (!checked && cetAssignedToSelectedVehicle) {
+            removerAsignacionPorKey(cetKey);
+            toggleSelectedKey(cetKey, false);
+            saveAsignacionActual();
+            renderVehiculos();
+            return;
+          }
           toggleSelectedKey(cetKey, checked);
           renderVehiculos();
         }
@@ -248,7 +339,8 @@ export function renderVehiculos() {
   cellsToShow.forEach(cell => {
     const key = `${cet}-${cell}`;
     const assignedVehicle = getNombreVehiculoAsignado(key);
-    const isLocked = !!assignedVehicle;
+    const assignedToSelectedVehicle = keysAsignadosAlVehiculoSeleccionado.has(key);
+    const isLocked = !!assignedVehicle && !assignedToSelectedVehicle;
 
     // Obtener etiqueta de grupo
     const gName = getGrupoDeCelula(cet, cell);
@@ -261,8 +353,15 @@ export function renderVehiculos() {
           : cell,
         valueKey: key,
         disabled: isLocked,
-        checked: (state.selectedCells || []).includes(key),
+        checked: assignedToSelectedVehicle || (state.selectedCells || []).includes(key),
         onChange: (checked) => {
+          if (!checked && assignedToSelectedVehicle) {
+            removerAsignacionPorKey(key);
+            toggleSelectedKey(key, false);
+            saveAsignacionActual();
+            renderVehiculos();
+            return;
+          }
           toggleSelectedKey(key, checked);
           renderVehiculos();
         }
@@ -280,6 +379,9 @@ export function renderVehiculos() {
   vehicleGrid.className = "vehicleGrid";
   vehicleGrid.style.maxHeight = "300px";
   vehicleGrid.style.overflowY = "auto";
+  vehicleGrid.addEventListener("scroll", () => {
+    state.vehiculosGridScrollTop = vehicleGrid.scrollTop;
+  });
 
   state.vehiclesList.forEach((vehicle) => {
     const card = document.createElement("div");
@@ -289,8 +391,10 @@ export function renderVehiculos() {
     const used = vehCount[vehicle.name] || 0;
     const cap = Number(vehicle.capacity || 0);
     const isFull = cap > 0 && used >= cap;
-    const isEnOperacion = vehicle.status && vehicle.status !== "DISPONIBLE";
-    const isDisabled = isFull || isEnOperacion;
+    const isAssignedInCurrentOp = state.asignacionVehiculos.some(a => a.id_vehiculo === vehicle.id);
+    const fueLiberadoLocalmente = state.vehiculosLiberadosLocalmente.includes(vehicle.id);
+    const isEnOperacion = !isAssignedInCurrentOp && !fueLiberadoLocalmente && vehicle.status && vehicle.status !== "DISPONIBLE";
+    const isDisabled = isEnOperacion;
 
     const isSelected = state.selectedVehicle === vehicle.name;
     if (isSelected) card.classList.add("selected");
@@ -325,7 +429,13 @@ export function renderVehiculos() {
 
     card.addEventListener("click", () => {
       if (isDisabled) return;
-      state.selectedVehicle = state.selectedVehicle === vehicle.name ? null : vehicle.name;
+      if (state.selectedVehicle === vehicle.name) {
+        state.selectedVehicle = null;
+        state.selectedCells = [];
+      } else {
+        state.selectedVehicle = vehicle.name;
+        state.selectedCells = getKeysAsignadosAVehiculo(vehicle.id);
+      }
       renderVehiculos();
     });
 
@@ -334,6 +444,7 @@ export function renderVehiculos() {
 
   vehiclesWrap.appendChild(vehicleGrid);
   panel.appendChild(vehiclesWrap);
+  restoreScrollTop(vehicleGrid, state.vehiculosGridScrollTop || 0);
 
   const assignBtn = document.createElement("button");
   assignBtn.className = "btnPrimary";
@@ -353,13 +464,14 @@ export function renderVehiculos() {
     return false;
   });
 
-  const lockedSelected = selectedAssignable.filter(k => !!getNombreVehiculoAsignado(k));
+  const selectedNuevos = selectedAssignable.filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
+  const lockedSelected = selectedNuevos.filter(k => !!getNombreVehiculoAsignado(k));
 
   const canAssign =
     !!state.selectedVehicle &&
-    selectedAssignable.length > 0 &&
+    selectedNuevos.length > 0 &&
     lockedSelected.length === 0 &&
-    remaining >= selectedAssignable.length;
+    remaining >= selectedNuevos.length;
 
   assignBtn.disabled = !canAssign;
 
@@ -374,7 +486,7 @@ export function renderVehiculos() {
       if (state.cetSeleccionados.includes(k)) return true;
       if (k.includes("-")) return true;
       return false;
-    });
+    }).filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
 
     if (selected.length === 0) {
       alert("Selecciona al menos una persona/célula o el CET");
@@ -413,12 +525,14 @@ export function renderVehiculos() {
         const idPersonal = state.personalMap[celula];
         if (idPersonal) {
           asignarVehiculo(vehObj.id, 'personal', idPersonal);
+          state.vehiculosLiberadosLocalmente = state.vehiculosLiberadosLocalmente.filter(id => id !== vehObj.id);
         }
       } else {
         // CET sin grupo — asignar directamente por nombre de CET
         const idCet = state.personalMap[cet];
         if (idCet) {
           asignarVehiculo(vehObj.id, 'personal', idCet);
+          state.vehiculosLiberadosLocalmente = state.vehiculosLiberadosLocalmente.filter(id => id !== vehObj.id);
         }
       }
     });
@@ -433,8 +547,7 @@ export function renderVehiculos() {
   btnAccion.onclick = async () => {
     if (hasGroups && groupIndex < lastGroupIndex) {
       ginfo.vehActive = ginfo.names[groupIndex + 1];
-      state.selectedVehicle = null;
-      state.selectedCells = [];
+      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual();
       renderVehiculos();
       return;
@@ -459,8 +572,7 @@ export function renderVehiculos() {
         ngi.vehActive = null;
       }
 
-      state.selectedVehicle = null;
-      state.selectedCells = [];
+      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual();
       renderVehiculos();
       return;

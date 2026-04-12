@@ -21,6 +21,11 @@ export const initialState = {
   equipoSelectedResource: null,
   equipoSelectedCet: null,
   equipoSelectedGrupo: null,
+  equiposLiberadosLocalmente: [],
+  vehiculosLiberadosLocalmente: [],
+  vehiculosGridScrollTop: 0,
+  equiposLeftScrollTop: 0,
+  equiposRightScrollTop: 0,
 
   // Datos de catálogo (cargados desde API/storage)
   cutList: [],

@@ -129,9 +129,9 @@ export function renderInfoPanel(bdData = null) {
       return {
         cargo: p.rol_en_operacion,
         nombre,
-        cet: "",                          // se llena en el segundo paso
-        grupo: p.grupo_nombre || "",
-        flotilla: p.grupo_flotilla || "",
+        cet: p.rol_en_operacion === "CELL" ? (p.cet_nombre || "") : "",
+        grupo: p.grupo_hijo_nombre || "",
+        flotilla: p.cet_flotilla || (p.rol_en_operacion === "CET" ? (p.grupo_nombre || "") : ""),
         _grupoNombre: p.grupo_nombre || "",
         _grupoPadreNombre: p.grupo_padre_nombre || ""
       };
@@ -164,8 +164,9 @@ export function renderInfoPanel(bdData = null) {
         unidad: [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno,
         nombre: [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno,
         cet: v.personal_rol === "CET" ? [v.personal_nombre, v.personal_apellido].filter(Boolean).join(" ") : "",
-        flotilla: "",
-        grupo: v.grupo_nombre || ""
+        flotilla: v.grupo_padre_nombre || "",
+        grupo: v.grupo_nombre || "",
+        personas: [v.personal_nombre, v.personal_apellido].filter(Boolean).length ? 1 : 0
       };
     }
     return v;
@@ -173,13 +174,33 @@ export function renderInfoPanel(bdData = null) {
 
   // Deduplicar vehículos (múltiples custodios → un solo card por vehículo)
   const vehiculosDedup = [];
-  const vehSeen = new Set();
+  const vehByKey = new Map();
   for (const v of vehiculosNorm) {
     const key = v.unidad || v.nombre;
-    if (!vehSeen.has(key)) {
-      vehSeen.add(key);
-      vehiculosDedup.push(v);
+    if (!vehByKey.has(key)) {
+      vehByKey.set(key, {
+        ...v,
+        _cets: new Set(v.cet ? [v.cet] : []),
+        _grupos: new Set(v.grupo ? [v.grupo] : []),
+        _flotillas: new Set(v.flotilla ? [v.flotilla] : []),
+        personas: Number(v.personas || 0)
+      });
+      continue;
     }
+
+    const acc = vehByKey.get(key);
+    if (v.cet) acc._cets.add(v.cet);
+    if (v.grupo) acc._grupos.add(v.grupo);
+    if (v.flotilla) acc._flotillas.add(v.flotilla);
+    acc.personas += Number(v.personas || 0);
+  }
+  for (const v of vehByKey.values()) {
+    vehiculosDedup.push({
+      ...v,
+      cet: Array.from(v._cets).join(", "),
+      grupo: Array.from(v._grupos).join(", "),
+      flotilla: Array.from(v._flotillas).join(", ")
+    });
   }
 
   // Normalizar equipos del backend

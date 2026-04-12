@@ -29,7 +29,14 @@ async function apiFetch(path, method = "GET", body = null) {
     const response = await fetch(`${API_BASE}${path}`, options);
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.mensaje || `Error ${response.status}: ${response.statusText}`);
+      console.error(`[API ERROR DETAIL] ${method} ${path}`, {
+        status: response.status,
+        mensaje: errorData.mensaje,
+        detalle: errorData.detalle,
+        pg_code: errorData.pg_code
+      });
+      const detailSuffix = errorData.detalle ? ` | ${errorData.detalle}` : "";
+      throw new Error((errorData.mensaje || `Error ${response.status}: ${response.statusText}`) + detailSuffix);
     }
     return await response.json();
   } catch (error) {
@@ -43,6 +50,16 @@ export async function savePersonalAsignacion(idOperacion, items) {
 }
 
 export async function saveGruposAsignacion(idOperacion, grupos, directos = {}) {
+  console.log("[SYNC] saveGruposAsignacion payload →", {
+    id_operacion: idOperacion,
+    grupos,
+    directos
+  });
+  console.log("[SYNC] saveGruposAsignacion payload JSON →", JSON.stringify({
+    id_operacion: idOperacion,
+    grupos,
+    directos
+  }, null, 2));
   return apiFetch(`/ops/${idOperacion}/grupos`, "POST", { grupos, directos });
 }
 
@@ -148,8 +165,22 @@ export async function syncOperacionCompleta(idOperacion) {
   });
 
   try {
+    console.log("[SYNC] payload base asignacion →", payload);
+    console.log("[SYNC] payload base asignacion JSON →", JSON.stringify(payload, null, 2));
+    console.log("[SYNC] personalItems →", personalItems);
+    console.log("[SYNC] personalItems JSON →", JSON.stringify(personalItems, null, 2));
+    console.log("[SYNC] gruposData →", gruposData);
+    console.log("[SYNC] gruposData JSON →", JSON.stringify(gruposData, null, 2));
+    console.log("[SYNC] directosData →", directosData);
+    console.log("[SYNC] directosData JSON →", JSON.stringify(directosData, null, 2));
+
     // A. Guardar Personal
     await savePersonalAsignacion(idOperacion, personalItems);
+
+    // A.1 Limpiar recursos dependientes antes de reconstruir grupos.
+    // Esto evita que /grupos choque con referencias previas todavía vivas.
+    await saveEquiposAsignacion(idOperacion, []);
+    await saveVehiculosAsignacion(idOperacion, []);
 
     // B. Guardar Grupos y obtener IDs reales
     const resGrupos = await saveGruposAsignacion(idOperacion, gruposData, directosData);

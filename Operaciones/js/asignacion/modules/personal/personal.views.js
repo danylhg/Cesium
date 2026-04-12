@@ -15,7 +15,38 @@ import { celulaRow, getGrupoDeCelula } from "./personal.helpers.js";
 import { saveAsignacionActual } from "../asignacion/asignacion.service.js";
 import { abrirModalCrearGrupo } from "./grupos.modal.js";
 import { renderVehiculos } from "../vehiculos/vehiculos.view.js";
-import { guardarOperacionBaseDatos, collectOperacionActual, validarOperacionInfo } from "../operacion/operacion.service.js";
+import { guardarOperacionBaseDatos, collectOperacionActual, validarOperacionInfo, syncOperacionCompleta } from "../operacion/operacion.service.js";
+
+function limpiarAsignacionesDependientesDePersonal(nombrePersonal) {
+  const idPersonal = state.personalMap[nombrePersonal];
+  if (!idPersonal) return;
+
+  const vehiculosLiberados = new Set();
+  state.asignacionVehiculos
+    .filter(a => a.id_personal === idPersonal)
+    .forEach(a => {
+      const quedan = state.asignacionVehiculos.some(other => other !== a && other.id_vehiculo === a.id_vehiculo);
+      if (!quedan) vehiculosLiberados.add(a.id_vehiculo);
+    });
+
+  state.asignacionVehiculos = state.asignacionVehiculos.filter(a => a.id_personal !== idPersonal);
+  vehiculosLiberados.forEach(idVehiculo => {
+    if (!state.vehiculosLiberadosLocalmente.includes(idVehiculo)) {
+      state.vehiculosLiberadosLocalmente.push(idVehiculo);
+    }
+  });
+
+  const equiposLiberados = state.asignacionEquipos
+    .filter(a => a.id_personal === idPersonal)
+    .map(a => a.id_equipo);
+
+  state.asignacionEquipos = state.asignacionEquipos.filter(a => a.id_personal !== idPersonal);
+  equiposLiberados.forEach(idEquipo => {
+    if (!state.equiposLiberadosLocalmente.includes(idEquipo)) {
+      state.equiposLiberadosLocalmente.push(idEquipo);
+    }
+  });
+}
 
 export function renderCUT() {
   showOperacionInfo();
@@ -162,7 +193,13 @@ export function renderCET() {
         left.addEventListener("click", () => {
           if (enOp) return;
           if (isSel) {
+            limpiarAsignacionesDependientesDePersonal(name);
+            (state.asignacionCelulas[name] || []).forEach(cel => limpiarAsignacionesDependientesDePersonal(cel));
             state.cetSeleccionados = state.cetSeleccionados.filter(n => n !== name);
+            delete state.asignacionCelulas[name];
+            delete state.flotillaByCet[name];
+            delete state.searchByCet[name];
+            delete state.gruposByCet[name];
           } else {
             state.cetSeleccionados.push(name);
 
@@ -315,7 +352,7 @@ export function renderCelulas() {
     info.vehActive = null;
   }
 
-  setHeader("Asignación de Personal", "");
+  setHeader("Célula", "");
 
   const lastCet = state.cetActivoIndex === state.cetSeleccionados.length - 1;
   const lastGroup = !hasGroups ? true : (info.idx === info.names.length - 1);
@@ -469,6 +506,7 @@ export function renderCelulas() {
                 // Si el modo actual coincide con donde está: DESASIGNAR
                 state.asignacionCelulas[cetActivo] = asignadas.filter(x => x !== cel);
                 Object.keys(grupoInfo.map).forEach(g => grupoInfo.map[g]?.delete(cel));
+                limpiarAsignacionesDependientesDePersonal(cel);
               } else {
                 // Si el modo es distinto: MOVER (Primero quitamos de todos los grupos)
                 Object.keys(grupoInfo.map).forEach(g => grupoInfo.map[g]?.delete(cel));
@@ -554,6 +592,11 @@ export function renderCelulas() {
            opLoc.id = opDB.id_operacion;
            if (opDB.estado) opLoc.estado = opDB.estado;
            writeStorage(STORAGE_OPERACION_ACTUAL, opLoc);
+        }
+
+        const finalOpId = opDB?.id_operacion || opLoc.id || null;
+        if (finalOpId) {
+          await syncOperacionCompleta(finalOpId);
         }
       } catch (e) {
         console.error("Fallo auto-guardado de operación en BD:", e);
