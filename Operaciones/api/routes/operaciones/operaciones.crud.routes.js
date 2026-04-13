@@ -49,6 +49,18 @@ router.get("/ops", requireAuth, async (req, res) => {
     // Respuesta con arreglo de operaciones
     res.json({ ok: true, items: rows });
   } catch (err) {
+    if (err?.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Ya existe una operación con ese nombre."
+      });
+    }
+    if (err?.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Ya existe una operación con ese nombre."
+      });
+    }
     // Manejo uniforme de error
     sendDbError(res, err, "Error listando ops");
   }

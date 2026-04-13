@@ -27,11 +27,6 @@ function getSelectedVehicleId() {
   return state.vehiclesList.find(v => v.name === state.selectedVehicle)?.id || null;
 }
 
-function syncSelectedCellsWithVehicleSelection() {
-  const idVehiculo = getSelectedVehicleId();
-  state.selectedCells = idVehiculo ? getKeysAsignadosAVehiculo(idVehiculo) : [];
-}
-
 function getKeysAsignadosAVehiculo(idVehiculo) {
   if (!idVehiculo) return [];
 
@@ -153,7 +148,6 @@ export function renderVehiculos() {
     btn.style.cursor = "pointer";
     btn.addEventListener("click", () => {
       state.cetActivoIndexVeh = i;
-      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
       renderVehiculos();
     });
@@ -204,7 +198,6 @@ export function renderVehiculos() {
     chip.textContent = gName;
     chip.addEventListener("click", () => {
       ginfo.vehActive = gName;
-      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual();
       renderVehiculos();
     });
@@ -217,7 +210,6 @@ export function renderVehiculos() {
   sinGrupoBtn.textContent = "Sin grupo";
   sinGrupoBtn.addEventListener("click", () => {
     ginfo.vehActive = null;
-    syncSelectedCellsWithVehicleSelection();
     saveAsignacionActual();
     renderVehiculos();
   });
@@ -431,10 +423,8 @@ export function renderVehiculos() {
       if (isDisabled) return;
       if (state.selectedVehicle === vehicle.name) {
         state.selectedVehicle = null;
-        state.selectedCells = [];
       } else {
         state.selectedVehicle = vehicle.name;
-        state.selectedCells = getKeysAsignadosAVehiculo(vehicle.id);
       }
       renderVehiculos();
     });
@@ -547,7 +537,6 @@ export function renderVehiculos() {
   btnAccion.onclick = async () => {
     if (hasGroups && groupIndex < lastGroupIndex) {
       ginfo.vehActive = ginfo.names[groupIndex + 1];
-      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual();
       renderVehiculos();
       return;
@@ -572,7 +561,6 @@ export function renderVehiculos() {
         ngi.vehActive = null;
       }
 
-      syncSelectedCellsWithVehicleSelection();
       saveAsignacionActual();
       renderVehiculos();
       return;

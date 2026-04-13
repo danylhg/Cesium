@@ -6,16 +6,11 @@ import {
   getCurrentOperation,
   getOperationDateTime,
   getJsonStorage,
-  isOperationActive,
-  getChatMessages,
-  saveChatMessages,
   ASIGNACION_ACTUAL_KEY
 } from "./dashboard.storage.js";
 
 export function setRouteInfo(text) {
-  if (dom.routeInfo) {
-    dom.routeInfo.textContent = text;
-  }
+  if (dom.routeInfo) dom.routeInfo.textContent = text;
 }
 
 export function formatDate(value) {
@@ -62,19 +57,242 @@ export function togglePanel(panel, button) {
   }
 }
 
-// bdData puede venir del backend: { operacion, personal, vehiculos, equipos }
+function normalizePersonal(personal) {
+  return personal.map((p) => {
+    if (!p?.rol_en_operacion) return p;
+
+    const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ").trim();
+    const grupoDirecto = p.grupo_nombre || "";
+    const grupoPadre = p.grupo_padre_nombre || "";
+    const padreEsRaiz = grupoPadre.trim().toLowerCase() === "mando operativo";
+    const tieneSubgrupo = Boolean(grupoPadre && !padreEsRaiz);
+
+    return {
+      cargo: p.rol_en_operacion,
+      nombre,
+      grupo: tieneSubgrupo ? grupoDirecto : "",
+      flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || "")
+    };
+  });
+}
+
+// Evita duplicar prefijos como "Flotilla Flotilla Alfa" o "Grupo Grupo Alpha"
+function labelConPrefijo(prefijo, nombre) {
+  if (!nombre) return prefijo;
+  if (nombre.trim().toLowerCase().startsWith(prefijo.toLowerCase())) return nombre.trim();
+  return `${prefijo} ${nombre.trim()}`;
+}
+
+function renderPersonalHtml(personalNorm) {
+  if (!personalNorm.length) return "<p>Sin personal asignado.</p>";
+
+  let html = "";
+
+  const cuts = personalNorm.filter(
+    (p) => ["CUT", "Comandante de Unidad de Trabajo"].includes(p.cargo || p.rol)
+  );
+  const cets = personalNorm.filter(
+    (p) => ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
+  );
+  const cells = personalNorm.filter(
+    (p) => ["CÃ©lula", "CELL", "Celulas", "CÃ©lulas"].includes(p.cargo || p.rol)
+  );
+
+  cuts.forEach((cut) => {
+    html += `
+      <div class="miniCard" style="border-left: 3px solid #10b981;">
+        <p><strong>CUT:</strong> ${escapeHtml(cut.nombre || cut.name)}</p>
+      </div>
+    `;
+  });
+
+  cets.forEach((cet) => {
+    const flotillaNombre = cet.flotilla || "Sin flotilla";
+    const directos = [];
+    const grupos = new Map();
+
+    cells.forEach((cell) => {
+      if (cell.flotilla !== flotillaNombre) return;
+
+      if (cell.grupo) {
+        if (!grupos.has(cell.grupo)) grupos.set(cell.grupo, []);
+        grupos.get(cell.grupo).push(cell.nombre);
+      } else {
+        directos.push(cell.nombre);
+      }
+    });
+
+    html += `
+      <div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:8px;">
+        <p><strong>${escapeHtml(cet.nombre)} (CET)</strong></p>
+        <p style="margin-top:8px;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flotillaNombre))}</strong></p>
+    `;
+
+    directos.forEach((nombre) => {
+      html += `
+        <p style="padding-left:20px; margin:2px 0;">-- ${escapeHtml(nombre)}</p>
+      `;
+    });
+
+    Array.from(grupos.entries()).forEach(([grupoNombre, integrantes]) => {
+      html += `
+        <p style="margin-top:12px;"><strong>${escapeHtml(labelConPrefijo("Grupo", grupoNombre))}</strong></p>
+      `;
+
+      integrantes.forEach((nombre) => {
+        html += `
+          <p style="padding-left:20px; margin:2px 0;">-- ${escapeHtml(nombre)}</p>
+        `;
+      });
+    });
+
+    html += "</div>";
+  });
+
+  return html || "<p>Sin personal asignado.</p>";
+}
+
+function buildVehiculoTree(vehiculos) {
+  const byVehiculo = new Map();
+
+  for (const v of vehiculos) {
+    const key = v.id_vehiculo ?? v.codigo_interno;
+    if (!byVehiculo.has(key)) {
+      byVehiculo.set(key, {
+        codigo_interno: v.codigo_interno || "",
+        alias: v.alias || "",
+        tipo: v.tipo || "",
+        rows: []
+      });
+    }
+    byVehiculo.get(key).rows.push(v);
+  }
+
+  return byVehiculo;
+}
+
+function renderVehiculosHierarchyHtml(vehiculos) {
+  if (!vehiculos.length) return "<p>Sin vehiculos asignados.</p>";
+
+  const byVehiculo = buildVehiculoTree(vehiculos);
+  let html = "";
+
+  for (const [, veh] of byVehiculo) {
+    const nombre = veh.codigo_interno && veh.alias
+      ? `${veh.codigo_interno} - ${veh.alias}`
+      : (veh.codigo_interno || veh.alias || "Vehiculo");
+
+    html += `<div class="miniCard"><p><strong>${escapeHtml(nombre)}</strong></p>`;
+
+    // flotilla_nombre → { directos: [], grupos: Map<string, []> }
+    const flotillas = new Map();
+    const sinContexto = [];
+
+    for (const row of veh.rows) {
+      const personal =
+        row.asignado_a_apodo ||
+        [row.asignado_a_nombre || row.personal_nombre,
+         row.asignado_a_apellido || row.personal_apellido]
+          .filter(Boolean).join(" ") || "";
+
+      // Campos nuevos del endpoint mapa (con fallback al endpoint vehiculos-asignados)
+      const grupoDirecto = row.grupo_directo_nombre || row.grupo_nombre || "";
+      const grupoPadre  = row.grupo_padre_nombre || "";
+      const nivel       = (row.nivel_asignacion || "").toUpperCase();
+
+      let flotillaNombre, grupoNombre;
+
+      if (grupoPadre) {
+        flotillaNombre = grupoPadre;
+        grupoNombre    = grupoDirecto;
+      } else if (grupoDirecto) {
+        if (nivel === "FLOTILLA") {
+          flotillaNombre = grupoDirecto;
+          grupoNombre    = "";
+        } else {
+          flotillaNombre = "";
+          grupoNombre    = grupoDirecto;
+        }
+      } else {
+        if (personal) sinContexto.push(personal);
+        continue;
+      }
+
+      const fKey = flotillaNombre || "__sin_flotilla__";
+      if (!flotillas.has(fKey)) {
+        flotillas.set(fKey, { nombre: flotillaNombre, directos: [], grupos: new Map() });
+      }
+      const flt = flotillas.get(fKey);
+
+      if (grupoNombre) {
+        if (!flt.grupos.has(grupoNombre)) flt.grupos.set(grupoNombre, []);
+        if (personal) flt.grupos.get(grupoNombre).push(personal);
+      } else {
+        if (personal) flt.directos.push(personal);
+      }
+    }
+
+    for (const [, flt] of flotillas) {
+      if (flt.nombre) {
+        html += `<p style="margin-top:8px; font-size:12px; color:#94a3b8;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flt.nombre))}</strong></p>`;
+      }
+      flt.directos.forEach((p) => {
+        html += `<p style="padding-left:12px; margin:2px 0; font-size:12px;">- ${escapeHtml(p)}</p>`;
+      });
+      for (const [grupoNom, integrantes] of flt.grupos) {
+        html += `<p style="padding-left:12px; margin-top:6px; font-size:12px; color:#64748b;"><strong>${escapeHtml(labelConPrefijo("Grupo", grupoNom))}</strong></p>`;
+        integrantes.forEach((p) => {
+          html += `<p style="padding-left:24px; margin:2px 0; font-size:12px;">- ${escapeHtml(p)}</p>`;
+        });
+      }
+    }
+
+    sinContexto.forEach((p) => {
+      html += `<p style="padding-left:12px; margin:2px 0; font-size:12px;">- ${escapeHtml(p)}</p>`;
+    });
+
+    html += "</div>";
+  }
+
+  return html;
+}
+
+function normalizeEquipos(equipos) {
+  return equipos.map((e) => {
+    if (e.numero_serie !== undefined && !e.nombre_display) {
+      let destino = "";
+      if (e.tipo_destino === "VEHICULO") {
+        destino = [e.vehiculo_alias, e.asignado_a_vehiculo].filter(Boolean).join(" ") || "";
+      } else if (e.tipo_destino === "PERSONAL" && e.asignado_a_personal) {
+        destino = e.asignado_a_personal;
+      } else if (e.tipo_destino === "GRUPO" && e.grupo_asignado) {
+        destino = e.grupo_asignado;
+      }
+
+      return {
+        nombre: e.nombre,
+        asignadoA: destino,
+        vehiculo: e.tipo_destino === "VEHICULO" ? destino : "",
+        tipo_destino: e.tipo_destino || null
+      };
+    }
+    return e;
+  });
+}
+
 export function renderInfoPanel(bdData = null) {
   const container = document.getElementById("infoPanelContent");
   if (!container) return;
 
   const operacion = bdData?.operacion ?? getCurrentOperation();
 
-  // Si hay datos del backend los usamos directamente, sino fallback a localStorage
-  let personal, vehiculos, equipos;
+  let personal;
+  let vehiculos;
+  let equipos;
   if (bdData) {
     personal = bdData.personal || [];
     vehiculos = bdData.vehiculos || [];
-    equipos   = bdData.equipos  || [];
+    equipos = bdData.equipos || [];
   } else {
     const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
     personal = Array.isArray(asignacion.personal) && asignacion.personal.length
@@ -90,8 +308,8 @@ export function renderInfoPanel(bdData = null) {
 
   const esActiva = (operacion.phase || operacion.estado?.toLowerCase()) === "activa";
 
-  const titulo = operacion.nombre || operacion.title || operacion.titulo || operacion.name || "Sin título";
-  const descripcion = operacion.descripcion || operacion.description || operacion.desc || "Sin descripción";
+  const titulo = operacion.nombre || operacion.title || operacion.titulo || operacion.name || "Sin titulo";
+  const descripcion = operacion.descripcion || operacion.description || operacion.desc || "Sin descripcion";
   const programada = getOperationDateTime(operacion);
 
   let fechaP = "No definida";
@@ -104,7 +322,6 @@ export function renderInfoPanel(bdData = null) {
       const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
       const yyyy = d.getUTCFullYear();
       fechaP = `${dd}-${mm}-${yyyy}`;
-      // Extraer hora del ISO si no viene separada
       if (horaP === "No definida") {
         const hh = String(d.getUTCHours()).padStart(2, "0");
         const min = String(d.getUTCMinutes()).padStart(2, "0");
@@ -115,220 +332,30 @@ export function renderInfoPanel(bdData = null) {
     }
   } else if (programada) {
     fechaP = programada.toLocaleDateString("es-ES", {
-      day: "2-digit", month: "2-digit", year: "numeric"
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric"
     }).replace(/\//g, "-");
   }
 
   const fecha = formatDate(operacion.fecha_creacion || operacion.created_at);
 
-  // Normalizar personal: el backend devuelve rol_en_operacion, nombre, apellido, etc.
-  // El localStorage devuelve cargo, nombre (ya formateado), cet, grupo, flotilla.
-  const personalNorm = personal.map(p => {
-    if (p.rol_en_operacion) {
-      const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ");
-      return {
-        cargo: p.rol_en_operacion,
-        nombre,
-        cet: p.rol_en_operacion === "CELL" ? (p.cet_nombre || "") : "",
-        grupo: p.grupo_hijo_nombre || "",
-        flotilla: p.cet_flotilla || (p.rol_en_operacion === "CET" ? (p.grupo_nombre || "") : ""),
-        _grupoNombre: p.grupo_nombre || "",
-        _grupoPadreNombre: p.grupo_padre_nombre || ""
-      };
-    }
-    return p; // Ya está normalizado (localStorage)
-  });
+  const personalNorm = normalizePersonal(personal);
+  const personalHtml = renderPersonalHtml(personalNorm);
 
-  // Segundo paso: asignar CET a cada célula según grupo compartido
-  {
-    const cetsNorm = personalNorm.filter(p =>
-      ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
-    );
-    personalNorm.forEach(p => {
-      if (!["Célula", "CELL", "Celulas", "Células"].includes(p.cargo || p.rol)) return;
-      const matched = cetsNorm.find(c =>
-        c._grupoNombre && (
-          c._grupoNombre === p._grupoNombre ||
-          c._grupoNombre === p._grupoPadreNombre
-        )
-      );
-      if (matched) p.cet = matched.nombre;
-    });
-  }
+  const vehiculosHtml = renderVehiculosHierarchyHtml(vehiculos);
 
-  // Normalizar vehiculos del backend
-  const vehiculosNorm = vehiculos.map(v => {
-    if (v.codigo_interno !== undefined && !v.unidad) {
-      // Viene del backend — agrupar por vehículo
-      return {
-        unidad: [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno,
-        nombre: [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno,
-        cet: v.personal_rol === "CET" ? [v.personal_nombre, v.personal_apellido].filter(Boolean).join(" ") : "",
-        flotilla: v.grupo_padre_nombre || "",
-        grupo: v.grupo_nombre || "",
-        personas: [v.personal_nombre, v.personal_apellido].filter(Boolean).length ? 1 : 0
-      };
-    }
-    return v;
-  });
-
-  // Deduplicar vehículos (múltiples custodios → un solo card por vehículo)
-  const vehiculosDedup = [];
-  const vehByKey = new Map();
-  for (const v of vehiculosNorm) {
-    const key = v.unidad || v.nombre;
-    if (!vehByKey.has(key)) {
-      vehByKey.set(key, {
-        ...v,
-        _cets: new Set(v.cet ? [v.cet] : []),
-        _grupos: new Set(v.grupo ? [v.grupo] : []),
-        _flotillas: new Set(v.flotilla ? [v.flotilla] : []),
-        personas: Number(v.personas || 0)
-      });
-      continue;
-    }
-
-    const acc = vehByKey.get(key);
-    if (v.cet) acc._cets.add(v.cet);
-    if (v.grupo) acc._grupos.add(v.grupo);
-    if (v.flotilla) acc._flotillas.add(v.flotilla);
-    acc.personas += Number(v.personas || 0);
-  }
-  for (const v of vehByKey.values()) {
-    vehiculosDedup.push({
-      ...v,
-      cet: Array.from(v._cets).join(", "),
-      grupo: Array.from(v._grupos).join(", "),
-      flotilla: Array.from(v._flotillas).join(", ")
-    });
-  }
-
-  // Normalizar equipos del backend
-  const equiposNorm = equipos.map(e => {
-    if (e.numero_serie !== undefined && !e.nombre_display) {
-      let destino = "";
-      if (e.tipo_destino === "VEHICULO") {
-        destino = [e.vehiculo_alias, e.asignado_a_vehiculo].filter(Boolean).join(" ") || "";
-      } else if (e.tipo_destino === "PERSONAL" && e.asignado_a_personal) {
-        destino = e.asignado_a_personal;
-      } else if (e.tipo_destino === "GRUPO" && e.grupo_asignado) {
-        destino = e.grupo_asignado;
-      }
-      // tipo_destino NULL → sin registro de uso, sin asignación
-      return {
-        nombre: e.nombre,
-        asignadoA: destino,
-        vehiculo: e.tipo_destino === "VEHICULO" ? destino : "",
-        tipo_destino: e.tipo_destino || null
-      };
-    }
-    return e;
-  });
-
-  let personalHtml = "<p>Sin personal asignado.</p>";
-  if (personalNorm.length) {
-    personalHtml = "";
-
-    const cuts = personalNorm.filter(
-      p => ["CUT", "Comandante de Unidad de Trabajo"].includes(p.cargo || p.rol)
-    );
-
-    cuts.forEach(c => {
-      personalHtml += `
-        <div class="miniCard" style="border-left: 3px solid #10b981;">
-          <p><strong>CUT:</strong> ${escapeHtml(c.nombre || c.name)}</p>
-        </div>
-      `;
-    });
-
-    const cets = personalNorm.filter(
-      p => ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
-    );
-
-    cets.forEach(cet => {
-      const miembros = personalNorm.filter(
-        p =>
-          ["Célula", "CELL", "Celulas", "Células"].includes(p.cargo || p.rol) &&
-          (p.cet === cet.nombre || p.cet === cet.name)
-      );
-
-      const flotExt = cet.flotilla && cet.flotilla !== "—"
-        ? ` | <strong>Flotilla:</strong> ${escapeHtml(cet.flotilla)}`
-        : "";
-
-      personalHtml += `
-        <div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:8px;">
-          <p><strong>CET:</strong> ${escapeHtml(cet.nombre || cet.name)}${flotExt}</p>
-      `;
-
-      const groups = {};
-      miembros.forEach(m => {
-        const gName = m.grupo || "Sin grupo";
-        if (!groups[gName]) groups[gName] = [];
-        groups[gName].push(m);
-      });
-
-      Object.entries(groups).forEach(([gName, persons]) => {
-        if (gName !== "Sin grupo") {
-          personalHtml += `
-            <p style="margin-top:6px; font-weight:bold; font-size:12px; color:#d7e3ff;">
-              Grupo: ${escapeHtml(gName)}
-            </p>
-          `;
-        } else if (Object.keys(groups).length > 1) {
-          personalHtml += `
-            <p style="margin-top:6px; font-weight:bold; font-size:12px; color:#d7e3ff;">
-              Sin grupo
-            </p>
-          `;
-        }
-
-        persons.forEach(p => {
-          personalHtml += `
-            <p style="padding-left:10px; margin:2px 0;">
-              • ${escapeHtml(p.nombre || p.name)}
-            </p>
-          `;
-        });
-      });
-
-      personalHtml += `</div>`;
-    });
-  }
-
-  let vehiculosHtml = "<p>Sin vehículos asignados.</p>";
-  if (vehiculosDedup.length) {
-    vehiculosHtml = vehiculosDedup.map(v => {
-      const uName = v.unidad || v.nombre || v.alias || "";
-      const lines = [];
-
-      if (v.cet && v.cet !== "—") lines.push(`CET: ${v.cet}`);
-      if (v.flotilla && v.flotilla !== "—") lines.push(`Flotilla: ${v.flotilla}`);
-      if (v.grupo && v.grupo !== "—") lines.push(`Grupo: ${v.grupo}`);
-
-      const subInfo = lines.length
-        ? `<p>${escapeHtml(lines.join(" | "))}</p>`
-        : "";
-
-      return `
-        <div class="miniCard">
-          <p><strong>Unidad:</strong> ${escapeHtml(uName)}</p>
-          ${subInfo}
-        </div>
-      `;
-    }).join("");
-  }
-
+  const equiposNorm = normalizeEquipos(equipos);
   let equiposHtml = "<p>Sin equipos asignados.</p>";
   if (equiposNorm.length) {
-    equiposHtml = equiposNorm.map(e => {
+    equiposHtml = equiposNorm.map((e) => {
       const target = e.vehiculo || e.asignadoA || e.destino || "";
       const isVehiculo = !!e.vehiculo;
       const isGrupo = !isVehiculo && e.tipo_destino === "GRUPO";
 
       const destinoText = target
-        ? (isVehiculo ? `Vehículo: ${target}` : isGrupo ? `Grupo: ${target}` : `Personal: ${target}`)
-        : "Sin asignación";
+        ? (isVehiculo ? `Vehiculo: ${target}` : isGrupo ? `Grupo: ${target}` : `Personal: ${target}`)
+        : "Sin asignacion";
 
       return `
         <div class="miniCard">
@@ -342,11 +369,11 @@ export function renderInfoPanel(bdData = null) {
   container.innerHTML = `
     <div class="infoBlock">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <h3 style="margin:0;">Operación</h3>
-        ${!esActiva ? `<button id="editOpInfoBtn" style="padding:4px 12px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid #00ffa6; background:rgba(0,255,170,0.12); color:#00ffa6; cursor:pointer;">Editar ✏️</button>` : ""}
+        <h3 style="margin:0;">Operacion</h3>
+        ${!esActiva ? `<button id="editOpInfoBtn" style="padding:4px 12px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid #00ffa6; background:rgba(0,255,170,0.12); color:#00ffa6; cursor:pointer;">Editar</button>` : ""}
       </div>
-      <p><strong>Título:</strong> ${escapeHtml(titulo)}</p>
-      <p><strong>Descripción:</strong> ${escapeHtml(descripcion)}</p>
+      <p><strong>Titulo:</strong> ${escapeHtml(titulo)}</p>
+      <p><strong>Descripcion:</strong> ${escapeHtml(descripcion)}</p>
       <p><strong>Fecha programada:</strong> ${escapeHtml(fechaP)}</p>
       <p><strong>Hora programada:</strong> ${escapeHtml(horaP)}</p>
       <p><strong>Creada:</strong> ${escapeHtml(fecha)}</p>
@@ -358,7 +385,7 @@ export function renderInfoPanel(bdData = null) {
     </div>
 
     <div class="infoBlock">
-      <h3>Vehículos asignados</h3>
+      <h3>Vehiculos asignados</h3>
       ${vehiculosHtml}
     </div>
 
@@ -392,7 +419,7 @@ export function updateChatAvailability() {
   const closeActiveBtn = document.getElementById("closeActiveOpBtn");
 
   if (badge) badge.style.display = active ? "inline-block" : "none";
-  if (title) title.textContent = active ? (op.title || op.titulo || "Operación") : "Panorama táctico";
+  if (title) title.textContent = active ? (op.title || op.titulo || "Operacion") : "Panorama tactico";
   if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
   if (actionBtns) actionBtns.style.display = active || closed ? "none" : "flex";
   if (closeActiveBtn) closeActiveBtn.style.display = active ? "inline-flex" : "none";
@@ -420,7 +447,7 @@ export function updateSelectionInfo(selectedEntity) {
     return;
   }
 
-  const name = selectedEntity.name || "Elemento táctico";
+  const name = selectedEntity.name || "Elemento tactico";
   const type =
     selectedEntity.properties?.tacticalType?.getValue?.() ||
     selectedEntity.properties?.tacticalType ||

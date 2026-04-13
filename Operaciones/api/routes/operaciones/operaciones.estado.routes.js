@@ -250,12 +250,17 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
     //   - fuerza fecha_fin = NOW()
     // =========================================================
     let q = `UPDATE operacion SET estado = $1`;
+    const params = [nuevoEstado, id_operacion];
 
     if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
     if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
+    if (nuevoEstado === "CANCELADA") {
+      q += `, nombre = $3`;
+      params.push(`${nombreOp} - CANCELADA`);
+    }
 
     // Ejecuta el cambio de estado
-    await client.query(q + ` WHERE id_operacion = $2`, [nuevoEstado, id_operacion]);
+    await client.query(q + ` WHERE id_operacion = $2`, params);
 
     // =========================================================
     // Si la operación pasa a ACTIVA:

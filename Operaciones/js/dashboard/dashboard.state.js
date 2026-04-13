@@ -25,6 +25,7 @@ export const dashboardState = {
 
   selectedEntity: null,
   draggingEntity: null,
+  dragStartPosition: null,
   isDragging: false,
 
   tacticalEntities: [],

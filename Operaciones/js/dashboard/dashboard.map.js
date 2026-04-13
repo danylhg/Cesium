@@ -7,7 +7,8 @@ import {
   handleTacticalPlacement,
   updateTacticalPreview,
   isDraggableEntity,
-  createMilSymbol
+  createMilSymbol,
+  persistDraggedEntity
 } from "./dashboard.tactical.js";
 import { addAreaVertex, updateAreaPreview } from "./dashboard.area.js";
 import { cartesianToLatLng } from "./dashboard.persistence.js";
@@ -279,6 +280,8 @@ function bindCesiumPointerEvents(handler) {
 
     if (isDraggableEntity(picked.id)) {
       dashboardState.draggingEntity = picked.id;
+      dashboardState.dragStartPosition =
+        picked.id.position?.getValue?.(Cesium.JulianDate.now()) ?? picked.id.position ?? null;
       dashboardState.selectedEntity = picked.id;
       dashboardState.isDragging = true;
       updateSelectionInfo(dashboardState.selectedEntity);
@@ -315,10 +318,21 @@ function bindCesiumPointerEvents(handler) {
     dashboardState.draggingEntity.position = cartesian;
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-  handler.setInputAction(() => {
+  handler.setInputAction(async () => {
+    const draggedEntity = dashboardState.draggingEntity;
+    const dragStartPosition = dashboardState.dragStartPosition;
+
     dashboardState.isDragging = false;
     dashboardState.draggingEntity = null;
+    dashboardState.dragStartPosition = null;
     viewer.scene.screenSpaceCameraController.enableRotate = true;
+
+    if (!draggedEntity) return;
+
+    const saved = await persistDraggedEntity(draggedEntity);
+    if (!saved && dragStartPosition) {
+      draggedEntity.position = dragStartPosition;
+    }
   }, Cesium.ScreenSpaceEventType.LEFT_UP);
 }
 

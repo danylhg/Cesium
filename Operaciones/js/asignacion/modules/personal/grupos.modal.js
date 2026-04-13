@@ -117,6 +117,23 @@ export function abrirModalCrearGrupo(cetActivo) {
       return;
     }
 
+    const normalizedNewNames = names.map(name => name.toLowerCase());
+    const hasDuplicateInModal = normalizedNewNames.some((name, index) => normalizedNewNames.indexOf(name) !== index);
+    if (hasDuplicateInModal) {
+      alert("No puede haber más de un grupo con el mismo nombre.");
+      return;
+    }
+
+    const existingGroupNames = Object.values(state.gruposByCet || {})
+      .flatMap(groupInfo => Array.isArray(groupInfo?.names) ? groupInfo.names : [])
+      .map(name => String(name).trim().toLowerCase());
+
+    const alreadyExists = normalizedNewNames.some(name => existingGroupNames.includes(name));
+    if (alreadyExists) {
+      alert("No puede haber más de un grupo con el mismo nombre.");
+      return;
+    }
+
     const info = state.gruposByCet[cetActivo] || {
       names: [],
       active: null,

@@ -41,6 +41,12 @@ async function apiFetch(path, method = "GET", body = null) {
     return await response.json();
   } catch (error) {
     console.error(`Fallo en petición [${method} ${path}]:`, error.message);
+    if (
+      String(error?.message || "").toLowerCase().includes("ya existe una operacion con ese nombre") ||
+      String(error?.message || "").toLowerCase().includes("ya existe una operaciÃ³n con ese nombre")
+    ) {
+      showNombreOperacionError("Ya existe una operación con ese nombre.");
+    }
     throw error;
   }
 }
@@ -249,6 +255,16 @@ function getOrCreateErrorDiv(inputEl, msg) {
   return errDiv;
 }
 
+function showNombreOperacionError(message) {
+  if (!opNombreEl) return;
+  const errorDiv = getOrCreateErrorDiv(opNombreEl, message);
+  if (!errorDiv) return;
+  opNombreEl.style.borderColor = "#dc2626";
+  errorDiv.textContent = message;
+  errorDiv.style.display = "block";
+  opNombreEl.focus();
+}
+
 export function validarOperacionInfo() {
   const fields = [
     { input: opNombreEl, msg: "El nombre de la operación es obligatorio." },
@@ -424,7 +440,15 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
            postErr.message.toLowerCase().includes('único') ||
            postErr.message.toLowerCase().includes('unique'));
 
+        if (String(postErr?.message || "").toLowerCase().includes("ya existe una operacion con ese nombre") ||
+            String(postErr?.message || "").toLowerCase().includes("ya existe una operación con ese nombre")) {
+          showNombreOperacionError("Ya existe una operación con ese nombre.");
+          throw postErr;
+        }
+
         if (esDuplicado) {
+          showNombreOperacionError("Ya existe una operación con ese nombre.");
+          throw postErr;
           try {
             const listData = await apiFetch('/ops', 'GET');
             const nombreBuscado = (payload.nombre || '').trim().toLowerCase();

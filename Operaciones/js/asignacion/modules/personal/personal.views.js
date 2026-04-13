@@ -17,6 +17,14 @@ import { abrirModalCrearGrupo } from "./grupos.modal.js";
 import { renderVehiculos } from "../vehiculos/vehiculos.view.js";
 import { guardarOperacionBaseDatos, collectOperacionActual, validarOperacionInfo, syncOperacionCompleta } from "../operacion/operacion.service.js";
 
+function clearFlotillaValidation() {
+  delete state.flotillaErrorByCet;
+}
+
+function setFlotillaValidation(cetNombre, message) {
+  state.flotillaErrorByCet = { cet: cetNombre, message };
+}
+
 function limpiarAsignacionesDependientesDePersonal(nombrePersonal) {
   const idPersonal = state.personalMap[nombrePersonal];
   if (!idPersonal) return;
@@ -423,8 +431,15 @@ export function renderCelulas() {
   flotError.style.cssText = "color:#dc2626;font-size:12px;margin-top:4px;display:none;";
   flotError.textContent = "El nombre de la flotilla es obligatorio.";
 
+  if (state.flotillaErrorByCet?.cet === cetActivo && state.flotillaErrorByCet?.message) {
+    flotInp.style.borderColor = "#dc2626";
+    flotError.textContent = state.flotillaErrorByCet.message;
+    flotError.style.display = "block";
+  }
+
   flotInp.addEventListener("input", () => {
     state.flotillaByCet[cetActivo] = flotInp.value;
+    if (state.flotillaErrorByCet?.cet === cetActivo) clearFlotillaValidation();
     if (flotInp.value.trim()) {
       flotInp.style.borderColor = "";
       flotError.style.display = "none";
@@ -551,15 +566,30 @@ export function renderCelulas() {
 
     // Validación estricta: Busca el primer CET que tenga su flotilla vacía
     const cetFaltanteIndex = state.cetSeleccionados.findIndex(n => !state.flotillaByCet[n] || !state.flotillaByCet[n].trim());
+
+    const flotillasNormalizadas = state.cetSeleccionados
+      .map(n => ({
+        cet: n,
+        flotilla: String(state.flotillaByCet[n] || "").trim()
+      }))
+      .filter(item => item.flotilla)
+      .map(item => ({
+        ...item,
+        flotillaKey: item.flotilla.toLowerCase()
+      }));
+
+    const duplicateFlotilla = flotillasNormalizadas.find((item, index, arr) =>
+      arr.findIndex(other => other.flotillaKey === item.flotillaKey) !== index
+    );
     
     // Si hay un CET sin flotilla "Y" el usuario trata de irse o ese CET es el actual, bloqueamos
     if (cetFaltanteIndex !== -1) {
       // Si el faltante no es el activo, lo forzamos a navegar allá para avisarle
       if (cetFaltanteIndex !== state.cetActivoIndex) {
         state.cetActivoIndex = cetFaltanteIndex;
+        setFlotillaValidation(state.cetSeleccionados[cetFaltanteIndex], "El nombre de la flotilla es obligatorio.");
         saveAsignacionActual();
         renderCelulas();
-        setTimeout(() => alert(`Falta la flotilla para el CET: ${state.cetSeleccionados[cetFaltanteIndex]}`), 50);
         return;
       }
       
@@ -569,6 +599,31 @@ export function renderCelulas() {
       flotInp.focus();
       return;
     }
+
+    if (duplicateFlotilla) {
+      const duplicateCetIndex = state.cetSeleccionados.findIndex(n =>
+        String(state.flotillaByCet[n] || "").trim().toLowerCase() === duplicateFlotilla.flotillaKey
+      );
+
+      if (duplicateCetIndex !== -1) {
+        state.cetActivoIndex = duplicateCetIndex;
+        setFlotillaValidation(state.cetSeleccionados[duplicateCetIndex], "No puede haber dos flotillas con el mismo nombre.");
+        renderCelulas();
+        return;
+      }
+
+      setFlotillaValidation(cetActivo, "No puede haber dos flotillas con el mismo nombre.");
+      flotInp.style.borderColor = "#dc2626";
+      flotError.textContent = "No puede haber dos flotillas con el mismo nombre.";
+      flotError.style.display = "block";
+      flotInp.focus();
+      return;
+    }
+
+    clearFlotillaValidation();
+    flotError.textContent = "El nombre de la flotilla es obligatorio.";
+    flotError.style.display = "none";
+    flotInp.style.borderColor = "";
 
     const gi = state.gruposByCet[cetActivo] || { names: [], active: null, map: {}, idx: 0, vehActive: null };
     const has = (gi.names || []).length > 0;

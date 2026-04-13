@@ -12,5 +12,7 @@ data class PersonalItem(
     val grupoNombre: String = "",
     val grupoApodo: String = "",
     val grupoPadreNombre: String = "",
-    val grupoPadreApodo: String = ""
+    val grupoPadreApodo: String = "",
+    val cetNombre: String = "",
+    val cetFlotilla: String = ""
 )

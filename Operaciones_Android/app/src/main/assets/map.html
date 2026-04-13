@@ -566,10 +566,9 @@
           id, lat, lon, nombre, tipoPoi, color, iconoSrc: normalizedIconoSrc, useBillboard
         }));
 
-        // Si ya existe, no duplicar
         if (poiEntities.has(entityId)) {
-          console.log('[POI][WEB] skip duplicate', entityId);
-          return;
+          viewer.entities.remove(poiEntities.get(entityId));
+          poiEntities.delete(entityId);
         }
 
         const entity = viewer.entities.add({
@@ -660,7 +659,10 @@
         if (!viewer) return;
 
         const entityId = 'estructura_' + id;
-        if (structureEntities.has(entityId)) return;
+        if (structureEntities.has(entityId)) {
+          viewer.entities.remove(structureEntities.get(entityId));
+          structureEntities.delete(entityId);
+        }
 
         const tipo = String(tipoEstructura || '').toUpperCase();
         const isLabel = tipo === 'ETIQUETA';
@@ -778,7 +780,10 @@
         if (!viewer) return;
 
         const entityId = 'area_' + id;
-        if (areaEntities.has(entityId)) return;
+        if (areaEntities.has(entityId)) {
+          viewer.entities.remove(areaEntities.get(entityId));
+          areaEntities.delete(entityId);
+        }
 
         const hexColor = (color && color.startsWith('#')) ? color : '#FF4500';
         const outline = Cesium.Color.fromCssColorString(hexColor);
@@ -852,7 +857,10 @@
         if (!viewer) return;
 
         const entityId = 'area_' + id;
-        if (areaEntities.has(entityId)) return;
+        if (areaEntities.has(entityId)) {
+          viewer.entities.remove(areaEntities.get(entityId));
+          areaEntities.delete(entityId);
+        }
         if (!Array.isArray(points) || points.length < 3) return;
 
         const coords = points.map(function (point) {

@@ -4,6 +4,20 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0a0f1e">
+    <TextView
+        android:id="@+id/connectionBanner"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="#B71C1C"
+        android:elevation="12dp"
+        android:gravity="center"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="10dp"
+        android:text="Se perdio la conexion con el servidor."
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:visibility="gone" />
 
     <!-- Mapa Cesium — pantalla completa -->
     <WebView

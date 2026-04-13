@@ -101,6 +101,11 @@ export function emitPoiCreado(io, idOperacion, poi) {
   io.to(`op_${idOperacion}`).emit("poi_creado", { poi });
 }
 
+export function emitPoiActualizado(io, idOperacion, poi) {
+  io.to(`op_${idOperacion}`).emit("poi_actualizado", { poi });
+  io.to(`op_${idOperacion}`).emit("poi_creado", { poi });
+}
+
 // ── Emit poi_eliminado ────────────────────────────────────────
 export function emitPoiEliminado(io, idOperacion, idPoi) {
   io.to(`op_${idOperacion}`).emit("poi_eliminado", { id_poi: idPoi });
@@ -110,11 +115,21 @@ export function emitAreaCreada(io, idOperacion, area) {
   io.to(`op_${idOperacion}`).emit("area_creada", { area });
 }
 
+export function emitAreaActualizada(io, idOperacion, area) {
+  io.to(`op_${idOperacion}`).emit("area_actualizada", { area });
+  io.to(`op_${idOperacion}`).emit("area_creada", { area });
+}
+
 export function emitAreaEliminada(io, idOperacion, idArea) {
   io.to(`op_${idOperacion}`).emit("area_eliminada", { id_area: idArea });
 }
 
 export function emitEstructuraCreada(io, idOperacion, estructura) {
+  io.to(`op_${idOperacion}`).emit("estructura_creada", { estructura });
+}
+
+export function emitEstructuraActualizada(io, idOperacion, estructura) {
+  io.to(`op_${idOperacion}`).emit("estructura_actualizada", { estructura });
   io.to(`op_${idOperacion}`).emit("estructura_creada", { estructura });
 }
 

@@ -64,7 +64,9 @@ class PersonalRepository(
                                 grupoNombre = p.safeString("grupo_nombre"),
                                 grupoApodo = p.safeString("grupo_apodo"),
                                 grupoPadreNombre = p.safeString("grupo_padre_nombre"),
-                                grupoPadreApodo = p.safeString("grupo_padre_apodo")
+                                grupoPadreApodo = p.safeString("grupo_padre_apodo"),
+                                cetNombre = p.safeString("cet_nombre"),
+                                cetFlotilla = p.safeString("cet_flotilla")
                             )
                         )
                     }

@@ -34,6 +34,53 @@ import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket }
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";
+let connectionBanner = null;
+let operationClosedHandled = false;
+
+function ensureConnectionBanner() {
+  if (connectionBanner) return connectionBanner;
+
+  connectionBanner = document.createElement("div");
+  connectionBanner.id = "serverConnectionBanner";
+  connectionBanner.textContent = CONNECTION_LOST_MESSAGE;
+  Object.assign(connectionBanner.style, {
+    position: "fixed",
+    top: "18px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    zIndex: "99999",
+    display: "none",
+    padding: "10px 16px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.15)",
+    background: "rgba(127,29,29,0.94)",
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: "14px",
+    boxShadow: "0 10px 28px rgba(0,0,0,0.28)"
+  });
+
+  document.body.appendChild(connectionBanner);
+  return connectionBanner;
+}
+
+function setServerConnectionState(isConnected, message = CONNECTION_LOST_MESSAGE) {
+  const banner = ensureConnectionBanner();
+  banner.textContent = message;
+  banner.style.display = isConnected ? "none" : "block";
+}
+
+function handleClosedOperation(operacion) {
+  if (operationClosedHandled || !operacion) return;
+
+  const estado = String(operacion.estado || operacion.phase || "").toLowerCase();
+  if (!["cerrada", "cancelada"].includes(estado)) return;
+
+  operationClosedHandled = true;
+  alert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
+  window.location.href = "menu_inicial.html";
+}
 
 async function apiFetch(path) {
   const token = localStorage.getItem("token");
@@ -71,6 +118,20 @@ async function loadDashboardFromBD() {
     };
   } catch {
     return null;
+  }
+}
+
+async function checkServerHealth() {
+  try {
+    const res = await fetch(`${API_BASE}/health`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const ok = data?.ok !== false;
+    setServerConnectionState(ok);
+    return ok;
+  } catch {
+    setServerConnectionState(false);
+    return false;
   }
 }
 
@@ -123,15 +184,18 @@ async function connectSocket(opId) {
 
   socket.on("connect", () => {
     console.log("[SOCKET] conectado:", socket.id);
+    setServerConnectionState(true);
     socket.emit("join_operacion", { id_operacion: Number(opId) });
   });
 
   socket.on("connect_error", (err) => {
+    setServerConnectionState(false);
     console.error("[SOCKET] error de conexión:", err.message);
   });
 
   socket.on("disconnect", (reason) => {
     console.log("[SOCKET] desconectado:", reason);
+    setServerConnectionState(false);
   });
 
   return socket;
@@ -139,6 +203,7 @@ async function connectSocket(opId) {
 
 // ── Main init ────────────────────────────────────────────────
 window.addEventListener("load", async () => {
+  ensureConnectionBanner();
   initCesium();
   bindChatEvents();
   bindTacticalEvents();
@@ -154,6 +219,7 @@ window.addEventListener("load", async () => {
   // Cargar datos de la operación desde BD
   const bdData = await loadDashboardFromBD();
   if (bdData) {
+    handleClosedOperation(bdData.operacion);
     saveCurrentOperation({
       ...bdData.operacion,
       id: bdData.operacion.id_operacion,
@@ -203,6 +269,7 @@ window.addEventListener("load", async () => {
   setInterval(async () => {
     const fresh = await loadDashboardFromBD();
     if (fresh) {
+      handleClosedOperation(fresh.operacion);
       saveCurrentOperation({
         ...fresh.operacion,
         id: fresh.operacion.id_operacion,
@@ -213,4 +280,7 @@ window.addEventListener("load", async () => {
     }
     updateChatAvailability();
   }, 30000);
+
+  checkServerHealth();
+  setInterval(checkServerHealth, 10000);
 });

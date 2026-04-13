@@ -3,11 +3,15 @@ package com.operaciones.operaciones_android.ui
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.view.View
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.RecyclerView
@@ -29,6 +33,7 @@ import com.operaciones.operaciones_android.network.ChatRepository
 import com.operaciones.operaciones_android.network.ChatSocketManager
 import com.operaciones.operaciones_android.network.EquipoRepository
 import com.operaciones.operaciones_android.network.OperationMapRepository
+import com.operaciones.operaciones_android.network.OperationStatusRepository
 import com.operaciones.operaciones_android.network.PersonalRepository
 import com.operaciones.operaciones_android.network.VehiculoRepository
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
@@ -98,6 +103,7 @@ class MainActivity : AppCompatActivity(),
 
     private lateinit var webView: WebView
     private lateinit var panelContent: FrameLayout
+    private lateinit var connectionBanner: TextView
     private lateinit var btnNavOperation: LinearLayout
     private lateinit var btnNavChat: LinearLayout
     private lateinit var btnNavPersonal: LinearLayout
@@ -111,6 +117,7 @@ class MainActivity : AppCompatActivity(),
     private var chatLoaded = false
 
     private val operationMapRepository = OperationMapRepository()
+    private val operationStatusRepository = OperationStatusRepository()
     private val httpClient = OkHttpClient()
 
     private lateinit var panelRenderer: MainPanelRenderer
@@ -151,6 +158,14 @@ class MainActivity : AppCompatActivity(),
     private val pendingCoverageCircleAdditions = mutableListOf<PendingCoverageCircleAddition>()
     private val pendingAreaPolygonAdditions = mutableListOf<PendingAreaPolygonAddition>()
     private val pendingStructureAdditions = mutableListOf<PendingStructureAddition>()
+    private val connectionMonitorHandler = Handler(Looper.getMainLooper())
+    private val connectionMonitorRunnable = object : Runnable {
+        override fun run() {
+            checkServerConnection()
+            checkAssignedOperationStatus()
+            connectionMonitorHandler.postDelayed(this, 10000)
+        }
+    }
 
     private fun buildPolygonPointsJson(points: List<Pair<Double, Double>>): String {
         return buildString {
@@ -393,6 +408,9 @@ class MainActivity : AppCompatActivity(),
                     }
                 },
                 onConnected = {
+                    runOnUiThread {
+                        setServerConnectionBanner(false)
+                    }
                     // Socket conectado y unido al room — emitir posición inmediatamente
                     val lat = lastKnownLat ?: return@ChatSocketManager
                     val lon = lastKnownLon ?: return@ChatSocketManager
@@ -405,6 +423,16 @@ class MainActivity : AppCompatActivity(),
                             rol = currentUser.rol.name
                         )
                     }
+                },
+                onDisconnected = {
+                    runOnUiThread {
+                        setServerConnectionBanner(true)
+                    }
+                },
+                onConnectionError = {
+                    runOnUiThread {
+                        setServerConnectionBanner(true)
+                    }
                 }
             )
         }
@@ -412,6 +440,7 @@ class MainActivity : AppCompatActivity(),
         setContentView(R.layout.activity_main)
 
         panelContent = findViewById(R.id.panelContent)
+        connectionBanner = findViewById(R.id.connectionBanner)
         btnNavOperation = findViewById(R.id.btnNavOperation)
         btnNavChat = findViewById(R.id.btnNavChat)
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
@@ -474,6 +503,7 @@ class MainActivity : AppCompatActivity(),
         panelNavigationController.showPanel(Panel.NONE)
         // Conectar socket primero para que esté listo cuando llegue la primera ubicación
         chatSocketManager?.connect()
+        startServerConnectionMonitor()
         locationHelper.requestLocationPermissionOrStart()
 
         if (currentOperation.id > 0) {
@@ -487,11 +517,98 @@ class MainActivity : AppCompatActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        stopServerConnectionMonitor()
         chatSocketManager?.disconnect()
         stopEmergencyService()
     }
 
     // ── EmergencyMonitorService ──────────────────────────────────────────────
+
+    private fun startServerConnectionMonitor() {
+        checkServerConnection()
+        checkAssignedOperationStatus()
+        connectionMonitorHandler.removeCallbacks(connectionMonitorRunnable)
+        connectionMonitorHandler.postDelayed(connectionMonitorRunnable, 10000)
+    }
+
+    private fun stopServerConnectionMonitor() {
+        connectionMonitorHandler.removeCallbacks(connectionMonitorRunnable)
+    }
+
+    private fun setServerConnectionBanner(show: Boolean) {
+        if (!::connectionBanner.isInitialized) return
+        connectionBanner.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    private fun checkServerConnection() {
+        val request = Request.Builder()
+            .url("${ApiConfig.BASE_URL}/health")
+            .get()
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread {
+                    setServerConnectionBanner(true)
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val body = it.body?.string().orEmpty()
+                    val isConnected = try {
+                        it.isSuccessful && JSONObject(body).optBoolean("ok", false)
+                    } catch (_: Exception) {
+                        false
+                    }
+
+                    runOnUiThread {
+                        setServerConnectionBanner(!isConnected)
+                    }
+                }
+            }
+        })
+    }
+
+    private fun checkAssignedOperationStatus() {
+        if (!::currentUser.isInitialized || currentOperation.id <= 0) return
+
+        operationStatusRepository.fetchAssignedOperation(
+            userId = currentUser.id,
+            token = AuthManager.getToken(this),
+            onSuccess = { operation ->
+                if (operation == null) {
+                    runOnUiThread {
+                        leaveClosedOperation(null)
+                    }
+                    return@fetchAssignedOperation
+                }
+
+                if (operation.id != currentOperation.id || operation.status != OperationStatus.ACTIVA) {
+                    runOnUiThread {
+                        leaveClosedOperation(operation)
+                    }
+                }
+            },
+            onError = { }
+        )
+    }
+
+    private fun leaveClosedOperation(operation: Operation?) {
+        stopServerConnectionMonitor()
+        chatSocketManager?.disconnect()
+        stopEmergencyService()
+
+        val intent = Intent(this, OperationStatusActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("USER_ID", currentUser.id)
+            putExtra("OPERATION_ID", operation?.id ?: currentOperation.id)
+            putExtra("OP_ESTADO", operation?.status?.name ?: "CERRADA")
+        }
+
+        startActivity(intent)
+        finish()
+    }
 
     private fun buildEmergencyServiceIntent(): Intent =
         Intent(this, EmergencyMonitorService::class.java).apply {

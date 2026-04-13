@@ -360,6 +360,7 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
 
     // Map para guardar qué flotilla ya fue creada: nombre -> id
     const flotillaGroupIds = new Map();
+    const flotillaGroupIdByCet = new Map();
 
     // Map para guardar qué célula/subgrupo fue creada: nombre -> id
     const celulaGroupIds = new Map();
@@ -371,6 +372,33 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
       return res.status(400).json({
         ok: false,
         mensaje: "El nombre de la flotilla es obligatorio para todos los grupos."
+      });
+    }
+
+    const flotillasPorCet = new Map();
+
+    for (const grupo of grupos) {
+      const flotillaNormalizada = String(grupo.flotilla || "").trim().toLowerCase();
+      if (!flotillaNormalizada) continue;
+
+      const cetKey = String(grupo.id_cet || grupo.cet_nombre || "").trim().toLowerCase();
+      const uniqueKey = cetKey ? `${cetKey}::${flotillaNormalizada}` : flotillaNormalizada;
+
+      if (!flotillasPorCet.has(uniqueKey)) {
+        flotillasPorCet.set(uniqueKey, flotillaNormalizada);
+      }
+    }
+
+    const flotillasNormalizadas = Array.from(flotillasPorCet.values());
+    const hayFlotillasDuplicadas = flotillasNormalizadas.some(
+      (nombre, index) => flotillasNormalizadas.indexOf(nombre) !== index
+    );
+
+    if (hayFlotillasDuplicadas) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: "No puede haber dos flotillas con el mismo nombre."
       });
     }
 
@@ -404,6 +432,9 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
 
       // Recupera el id de la flotilla actual
       id_padre_flotilla = flotillaGroupIds.get(nombreFlotilla);
+      if (isInt(id_cet)) {
+        flotillaGroupIdByCet.set(id_cet, id_padre_flotilla);
+      }
 
       // Si hay CET válido, lo mete como miembro de la flotilla
       if (isInt(id_cet)) {
@@ -524,12 +555,21 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
     if (directos && typeof directos === "object") {
       for (const [cetIdStr, arrCells] of Object.entries(directos)) {
         const id_cet = Number(cetIdStr);
+        const id_flotilla = flotillaGroupIdByCet.get(id_cet);
 
         if (isInt(id_cet) && Array.isArray(arrCells)) {
           for (const cellId of arrCells) {
             const id_cell = Number(cellId);
 
             if (isInt(id_cell)) {
+              if (isInt(id_flotilla)) {
+                await client.query(
+                  `INSERT INTO grupo_personal (id_grupo_operacion, id_personal, asignado_por)
+                   VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+                  [id_flotilla, id_cell, who]
+                );
+              }
+
               await client.query(
                 `INSERT INTO mando_operacion (id_operacion, id_cet, id_cell, asignado_por)
                  VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING`,

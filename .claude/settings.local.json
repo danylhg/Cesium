@@ -48,7 +48,10 @@
       "Bash(psql -h localhost -p 5433 -U postgres -d ops_db -c ':*)",
       "Bash(mkdir -p Operaciones/js/libs)",
       "Bash(curl -L \"https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.min.js\" -o Operaciones/js/libs/milsymbol.min.js)",
-      "Bash(curl -L \"https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.js\" -o Operaciones/js/libs/milsymbol.min.js)"
+      "Bash(curl -L \"https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.js\" -o Operaciones/js/libs/milsymbol.min.js)",
+      "Bash(./gradlew --stop)",
+      "Bash(handle64 \"R.jar\")",
+      "Bash(handle \"R.jar\")"
     ]
   }
 }

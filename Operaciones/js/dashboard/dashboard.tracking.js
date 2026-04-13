@@ -18,7 +18,10 @@ function makePersonalLabel(item) {
 }
 
 function makeVehiculoLabel(item) {
-  return item.alias || item.codigo_interno || `V-${item.id_vehiculo}`;
+  const codigo = item.codigo_interno || "";
+  const alias  = item.alias || "";
+  if (codigo && alias) return `${codigo} - ${alias}`;
+  return codigo || alias || `V-${item.id_vehiculo}`;
 }
 
 function getCoords(item) {

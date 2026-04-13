@@ -5,7 +5,7 @@ import { dom } from "./dashboard.dom.js";
 import { setRouteInfo, updateSelectionInfo } from "./dashboard.ui.js";
 import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
-import { saveTacticalData } from "./dashboard.persistence.js";
+import { cartesianToLatLng, saveTacticalData } from "./dashboard.persistence.js";
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
 // Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
@@ -1383,6 +1383,106 @@ export function isDraggableEntity(entity) {
   return Boolean(draggable && entity.position);
 }
 
+function getEntityCurrentLatLng(entity) {
+  const position = entity?.position?.getValue?.(Cesium.JulianDate.now()) ?? entity?.position;
+  if (!position) return null;
+  return cartesianToLatLng(position);
+}
+
+function applyPoiUpdateToEntity(entity, poi) {
+  const lat = Number(poi.latitud ?? poi.lat);
+  const lng = Number(poi.longitud ?? poi.lon ?? poi.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  entity.position = Cesium.Cartesian3.fromDegrees(lng, lat);
+}
+
+function applyStructureUpdateToEntity(entity, estructura) {
+  const lat = Number(estructura.latitud ?? estructura.lat);
+  const lng = Number(estructura.longitud ?? estructura.lon ?? estructura.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  entity.position = Cesium.Cartesian3.fromDegrees(lng, lat);
+}
+
+function applyAreaUpdateToEntity(entity, area) {
+  const geometry = area?.geometria;
+  const meta = geometry?.meta || {};
+  if (meta?.shape !== "circle") return;
+
+  const center = Array.isArray(meta.center) ? meta.center : null;
+  const radius = Number(meta.radius_m);
+  if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) return;
+
+  const [lng, lat] = center;
+  entity.position = Cesium.Cartesian3.fromDegrees(lng, lat);
+}
+
+export async function persistDraggedEntity(entity) {
+  const tacticalType =
+    entity?.properties?.tacticalType?.getValue?.() ||
+    entity?.properties?.tacticalType ||
+    "";
+
+  const coords = getEntityCurrentLatLng(entity);
+  if (!coords) return false;
+
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId) return false;
+
+  let path = null;
+  let body = { latitud: coords.lat, longitud: coords.lng };
+
+  const idPoi = entity.properties?.id_poi?.getValue?.() ?? entity.properties?.id_poi;
+  const idArea = entity.properties?.id_area?.getValue?.() ?? entity.properties?.id_area;
+  const idMarca = entity.properties?.id_marca?.getValue?.() ?? entity.properties?.id_marca;
+
+  if (idPoi && ["poi", "mil-dropped"].includes(String(tacticalType))) {
+    path = `/ops/${opId}/pois/${idPoi}`;
+  } else if (idArea && String(tacticalType) === "circle") {
+    path = `/ops/${opId}/areas/${idArea}`;
+  } else if (idMarca && ["building", "label"].includes(String(tacticalType))) {
+    path = `/ops/${opId}/edificios/${idMarca}`;
+  } else {
+    saveTacticalData();
+    return true;
+  }
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(body)
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      const mensaje = data?.mensaje || "No se pudo actualizar el objeto táctico.";
+      if (dom.tbHint) dom.tbHint.textContent = mensaje;
+      alert(mensaje);
+      return false;
+    }
+
+    if (data?.poi) applyPoiUpdateToEntity(entity, data.poi);
+    if (data?.area) applyAreaUpdateToEntity(entity, data.area);
+    if (data?.edificio) applyStructureUpdateToEntity(entity, data.edificio);
+
+    saveTacticalData();
+    if (dom.tbHint) dom.tbHint.textContent = "Objeto táctico actualizado.";
+    return true;
+  } catch (err) {
+    console.error("[TACTICAL] Error actualizando objeto arrastrado:", err);
+    if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al actualizar el objeto táctico.";
+    alert("Error de conexión al actualizar el objeto táctico.");
+    return false;
+  }
+}
+
 async function deletePoiFromBackend(idPoi) {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
@@ -1663,6 +1763,23 @@ export function initPoiSocket(socket) {
     if (ent) addTacticalEntity(ent);
   });
 
+  socket.on("poi_actualizado", ({ poi }) => {
+    if (!poi?.id_poi) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const entity = viewer.entities.getById(`poi_${poi.id_poi}`);
+    if (entity) {
+      applyPoiUpdateToEntity(entity, poi);
+      saveTacticalData();
+      return;
+    }
+
+    const ent = buildPoiEntity(poi, "poi");
+    if (ent) addTacticalEntity(ent);
+  });
+
   socket.on("poi_eliminado", ({ id_poi }) => {
     if (!id_poi) return;
 
@@ -1688,6 +1805,23 @@ export function initPoiSocket(socket) {
     if (ent) addTacticalEntity(ent);
   });
 
+  socket.on("area_actualizada", ({ area }) => {
+    if (!area?.id_area) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const entity = viewer.entities.getById(`area_${area.id_area}`);
+    if (entity) {
+      applyAreaUpdateToEntity(entity, area);
+      saveTacticalData();
+      return;
+    }
+
+    const ent = buildAreaEntity(area);
+    if (ent) addTacticalEntity(ent);
+  });
+
   socket.on("area_eliminada", ({ id_area }) => {
     if (!id_area) return;
 
@@ -1708,6 +1842,23 @@ export function initPoiSocket(socket) {
 
     const viewer = dashboardState.viewer;
     if (!viewer) return;
+
+    const ent = buildStructureEntity(estructura);
+    if (ent) addTacticalEntity(ent);
+  });
+
+  socket.on("estructura_actualizada", ({ estructura }) => {
+    if (!estructura?.id_marca) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const entity = viewer.entities.getById(`estructura_${estructura.id_marca}`);
+    if (entity) {
+      applyStructureUpdateToEntity(entity, estructura);
+      saveTacticalData();
+      return;
+    }
 
     const ent = buildStructureEntity(estructura);
     if (ent) addTacticalEntity(ent);

@@ -82,6 +82,7 @@ class VehiculoRepository(
                                 tipoDestino = tipoDestino,
                                 asignadoAApodo = asignadoAApodo,
                                 grupoNombre = grupoNombre,
+                                grupoPadreNombre = v.safeString("grupo_padre_nombre"),
                                 lat = if (v.isNull("latitud")) null else v.optDouble("latitud"),
                                 lon = if (v.isNull("longitud")) null else v.optDouble("longitud")
                             )

@@ -8,7 +8,17 @@ import { pool } from "../db.js";
 import { requireAuth } from "../middlewares/auth.js";
 
 // Emitters de socket para tiempo real
-import { emitPoiCreado, emitPoiEliminado, emitAreaCreada, emitAreaEliminada, emitEstructuraCreada, emitEstructuraEliminada } from "../sockets/index.js";
+import {
+  emitPoiCreado,
+  emitPoiActualizado,
+  emitPoiEliminado,
+  emitAreaCreada,
+  emitAreaActualizada,
+  emitAreaEliminada,
+  emitEstructuraCreada,
+  emitEstructuraActualizada,
+  emitEstructuraEliminada
+} from "../sockets/index.js";
 
 // Helper para responder errores de BD/backend de forma uniforme
 import { sendDbError } from "../utils/dbErrors.js";
@@ -18,6 +28,37 @@ import { isInt } from "../utils/validators.js";
 
 // Crea la instancia del router
 const router = Router();
+
+function circleToPolygonCoordinates(lat, lng, radiusMeters, segments = 48) {
+  const earthRadius = 6378137;
+  const latRad = (Number(lat) * Math.PI) / 180;
+  const lonRad = (Number(lng) * Math.PI) / 180;
+  const angularDistance = Number(radiusMeters) / earthRadius;
+  const coords = [];
+
+  for (let i = 0; i <= segments; i += 1) {
+    const bearing = (2 * Math.PI * i) / segments;
+    const sinLat = Math.sin(latRad);
+    const cosLat = Math.cos(latRad);
+    const sinAd = Math.sin(angularDistance);
+    const cosAd = Math.cos(angularDistance);
+
+    const pointLat = Math.asin(
+      sinLat * cosAd + cosLat * sinAd * Math.cos(bearing)
+    );
+    const pointLon = lonRad + Math.atan2(
+      Math.sin(bearing) * sinAd * cosLat,
+      cosAd - sinLat * Math.sin(pointLat)
+    );
+
+    coords.push([
+      (pointLon * 180) / Math.PI,
+      (pointLat * 180) / Math.PI
+    ]);
+  }
+
+  return [coords];
+}
 
 
 // ===============================
@@ -157,6 +198,44 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
   } catch (err) {
     // Manejo uniforme de error
     sendDbError(res, err, "Error creando POI");
+  }
+});
+
+router.put("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_poi = Number(req.params.id_poi);
+
+  if (!isInt(id_operacion) || !isInt(id_poi)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  const { latitud, longitud } = req.body ?? {};
+  if (latitud == null || longitud == null) {
+    return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE puntos_interes
+          SET latitud = $1,
+              longitud = $2
+        WHERE id_poi = $3
+          AND id_operacion = $4
+          AND activo = TRUE
+      RETURNING *`,
+      [Number(latitud), Number(longitud), id_poi, id_operacion]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "POI no existe" });
+    }
+
+    const io = req.app.get("io");
+    if (io) emitPoiActualizado(io, id_operacion, rows[0]);
+
+    res.json({ ok: true, poi: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error actualizando POI");
   }
 });
 
@@ -323,6 +402,70 @@ router.post("/ops/:id/areas", requireAuth, async (req, res) => {
     res.json({ ok: true, area });
   } catch (err) {
     sendDbError(res, err, "Error creando area");
+  }
+});
+
+router.put("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_area = Number(req.params.id_area);
+
+  if (!isInt(id_operacion) || !isInt(id_area)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  const { latitud, longitud } = req.body ?? {};
+  if (latitud == null || longitud == null) {
+    return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+  }
+
+  try {
+    const currentRes = await pool.query(
+      `SELECT * FROM area_interes
+        WHERE id_area = $1
+          AND id_operacion = $2
+          AND estado = 'ACTIVA'
+        LIMIT 1`,
+      [id_area, id_operacion]
+    );
+
+    const current = currentRes.rows[0];
+    if (!current) {
+      return res.status(404).json({ ok: false, mensaje: "Area no existe" });
+    }
+
+    const geometria = current.geometria || {};
+    const meta = geometria.meta || {};
+    const radius = Number(meta.radius_m);
+    if (meta.shape !== "circle" || !Number.isFinite(radius) || radius <= 0) {
+      return res.status(400).json({ ok: false, mensaje: "Solo se pueden mover areas circulares" });
+    }
+
+    const lat = Number(latitud);
+    const lng = Number(longitud);
+    const geometriaActualizada = {
+      ...geometria,
+      coordinates: circleToPolygonCoordinates(lat, lng, radius),
+      meta: {
+        ...meta,
+        center: [lng, lat]
+      }
+    };
+
+    const { rows } = await pool.query(
+      `UPDATE area_interes
+          SET geometria = $1
+        WHERE id_area = $2
+          AND id_operacion = $3
+      RETURNING *`,
+      [JSON.stringify(geometriaActualizada), id_area, id_operacion]
+    );
+
+    const io = req.app.get("io");
+    if (io) emitAreaActualizada(io, id_operacion, rows[0]);
+
+    res.json({ ok: true, area: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error actualizando area");
   }
 });
 
@@ -498,6 +641,44 @@ router.post("/ops/:id/edificios", requireAuth, async (req, res) => {
     res.json({ ok: true, edificio });
   } catch (err) {
     sendDbError(res, err, "Error creando edificio");
+  }
+});
+
+router.put("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_marca = Number(req.params.id_marca);
+
+  if (!isInt(id_operacion) || !isInt(id_marca)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  const { latitud, longitud } = req.body ?? {};
+  if (latitud == null || longitud == null) {
+    return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE marca_edificio
+          SET latitud = $1,
+              longitud = $2
+        WHERE id_marca = $3
+          AND id_operacion = $4
+          AND estado = 'ACTIVO'
+      RETURNING *`,
+      [Number(latitud), Number(longitud), id_marca, id_operacion]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Edificio no existe" });
+    }
+
+    const io = req.app.get("io");
+    if (io) emitEstructuraActualizada(io, id_operacion, rows[0]);
+
+    res.json({ ok: true, edificio: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error actualizando edificio");
   }
 });
 
@@ -713,6 +894,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             v.alias,
             v.alias AS nombre,
             vo.estado_asignacion,
+            vo.nivel_asignacion,
 
             -- Datos de persona asignada directamente al vehículo
             p.apodo AS asignado_a_apodo,
@@ -722,6 +904,10 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             -- Nombre/apodo del grupo resuelto ya sea directo o por pasajero
             STRING_AGG(DISTINCT COALESCE(go_direct.nombre, go_pasajero.nombre), ', ') AS grupo_nombre,
             STRING_AGG(DISTINCT COALESCE(go_direct.apodo, go_pasajero.apodo), ', ') AS grupo_apodo,
+
+            -- Grupo directo del vehículo (via grupo_vehiculo) y su flotilla padre
+            MIN(go_direct.nombre)        AS grupo_directo_nombre,
+            MIN(go_direct_padre.nombre)  AS grupo_padre_nombre,
 
             -- Última posición conocida del vehículo
             tv.latitud,
@@ -751,6 +937,10 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
          LEFT JOIN grupo_vehiculo gv ON gv.id_vehiculo = v.id_vehiculo AND gv.id_operacion = $1
          LEFT JOIN grupo_operacion go_direct ON go_direct.id_grupo_operacion = gv.id_grupo_operacion
 
+         -- Flotilla (padre del grupo directo)
+         LEFT JOIN grupo_operacion go_direct_padre
+           ON go_direct_padre.id_grupo_operacion = go_direct.id_grupo_padre
+
          -- Última posición conocida
          LEFT JOIN v_ultima_posicion_vehiculo tv
            ON tv.id_vehiculo = vo.id_vehiculo AND tv.id_operacion = vo.id_operacion
@@ -758,6 +948,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
          WHERE vo.id_operacion = $1
 
          GROUP BY v.id_vehiculo, v.codigo_interno, v.tipo, v.alias, vo.estado_asignacion,
+                  vo.nivel_asignacion,
                   p.id_personal, p.apodo, p.nombre, p.apellido,
                   tv.latitud, tv.longitud, tv.ultima_actualizacion`,
         [id_operacion]

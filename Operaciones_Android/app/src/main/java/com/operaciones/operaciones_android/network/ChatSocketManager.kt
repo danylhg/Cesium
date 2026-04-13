@@ -18,6 +18,8 @@ class ChatSocketManager(
     private val onStructureCreada: ((JSONObject) -> Unit)? = null,
     private val onStructureEliminada: ((JSONObject) -> Unit)? = null,
     private val onConnected: (() -> Unit)? = null,
+    private val onDisconnected: ((String) -> Unit)? = null,
+    private val onConnectionError: ((String) -> Unit)? = null,
     private val idPersonal: Int = -1,
     private val rol: String = ""
 ) {
@@ -38,6 +40,16 @@ class ChatSocketManager(
             socket?.emit("join_operacion", payload)
             // Notifica que ya está conectado y unido para que se emita la posición inicial
             onConnected?.invoke()
+        }
+
+        socket?.on(Socket.EVENT_DISCONNECT) { args ->
+            val reason = args.firstOrNull()?.toString().orEmpty()
+            onDisconnected?.invoke(reason.ifBlank { "socket disconnect" })
+        }
+
+        socket?.on(Socket.EVENT_CONNECT_ERROR) { args ->
+            val reason = args.firstOrNull()?.toString().orEmpty()
+            onConnectionError?.invoke(reason.ifBlank { "connect error" })
         }
 
         socket?.on("chat_message") { args ->
