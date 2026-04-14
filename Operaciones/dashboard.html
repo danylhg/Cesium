@@ -31,6 +31,19 @@
     </div>
   </header>
 
+  <div id="planningExitModal" class="planningExitModal hidden" aria-hidden="true">
+    <div id="planningExitBackdrop" class="planningExitBackdrop"></div>
+    <div class="planningExitCard" role="dialog" aria-modal="true" aria-labelledby="planningExitTitle">
+      <h3 id="planningExitTitle">¿Seguro que quieres salir?</h3>
+      <p>Elige si quieres conservar la operación planificada o salir sin guardar.</p>
+      <div class="planningExitActions">
+        <button id="planningExitSaveBtn" class="planningExitBtn planningExitBtnPrimary">Guardar y salir</button>
+        <button id="planningExitDiscardBtn" class="planningExitBtn planningExitBtnDanger">Salir sin guardar</button>
+        <button id="planningExitCancelBtn" class="planningExitBtn planningExitBtnGhost">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="floatingTools">
     <button id="toggleInfoPanel" class="toolFab active" title="Información">📋</button>
     <button id="toggleRoutePanel" class="toolFab" title="Rutas">🗺️</button>

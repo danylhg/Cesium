@@ -171,6 +171,21 @@ function buildVehiculoTree(vehiculos) {
   return byVehiculo;
 }
 
+function getVehiculoPersonalNombre(row) {
+  const nombreCompleto = [
+    row.personal_nombre || row.asignado_a_nombre || "",
+    row.personal_apellido || row.asignado_a_apellido || ""
+  ].filter(Boolean).join(" ").trim();
+
+  if (nombreCompleto) {
+    return row.personal_puesto
+      ? `${row.personal_puesto} ${nombreCompleto}`.trim()
+      : nombreCompleto;
+  }
+
+  return row.asignado_a_apodo || "";
+}
+
 function renderVehiculosHierarchyHtml(vehiculos) {
   if (!vehiculos.length) return "<p>Sin vehiculos asignados.</p>";
 
@@ -185,15 +200,12 @@ function renderVehiculosHierarchyHtml(vehiculos) {
     html += `<div class="miniCard"><p><strong>${escapeHtml(nombre)}</strong></p>`;
 
     // flotilla_nombre → { directos: [], grupos: Map<string, []> }
-    const flotillas = new Map();
+    const cets = new Map();
     const sinContexto = [];
 
     for (const row of veh.rows) {
-      const personal =
-        row.asignado_a_apodo ||
-        [row.asignado_a_nombre || row.personal_nombre,
-         row.asignado_a_apellido || row.personal_apellido]
-          .filter(Boolean).join(" ") || "";
+      const personal = getVehiculoPersonalNombre(row);
+      const cetNombre = row.cet_nombre || row.cet_apodo || "Sin CET";
 
       // Campos nuevos del endpoint mapa (con fallback al endpoint vehiculos-asignados)
       const grupoDirecto = row.grupo_directo_nombre || row.grupo_nombre || "";
@@ -206,18 +218,22 @@ function renderVehiculosHierarchyHtml(vehiculos) {
         flotillaNombre = grupoPadre;
         grupoNombre    = grupoDirecto;
       } else if (grupoDirecto) {
-        if (nivel === "FLOTILLA") {
-          flotillaNombre = grupoDirecto;
-          grupoNombre    = "";
-        } else {
+        if (nivel === "GRUPO") {
           flotillaNombre = "";
           grupoNombre    = grupoDirecto;
+        } else {
+          flotillaNombre = grupoDirecto;
+          grupoNombre    = "";
         }
       } else {
         if (personal) sinContexto.push(personal);
         continue;
       }
 
+      if (!cets.has(cetNombre)) {
+        cets.set(cetNombre, new Map());
+      }
+      const flotillas = cets.get(cetNombre);
       const fKey = flotillaNombre || "__sin_flotilla__";
       if (!flotillas.has(fKey)) {
         flotillas.set(fKey, { nombre: flotillaNombre, directos: [], grupos: new Map() });
@@ -232,23 +248,26 @@ function renderVehiculosHierarchyHtml(vehiculos) {
       }
     }
 
-    for (const [, flt] of flotillas) {
-      if (flt.nombre) {
-        html += `<p style="margin-top:8px; font-size:12px; color:#94a3b8;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flt.nombre))}</strong></p>`;
-      }
-      flt.directos.forEach((p) => {
-        html += `<p style="padding-left:12px; margin:2px 0; font-size:12px;">- ${escapeHtml(p)}</p>`;
-      });
-      for (const [grupoNom, integrantes] of flt.grupos) {
-        html += `<p style="padding-left:12px; margin-top:6px; font-size:12px; color:#64748b;"><strong>${escapeHtml(labelConPrefijo("Grupo", grupoNom))}</strong></p>`;
-        integrantes.forEach((p) => {
-          html += `<p style="padding-left:24px; margin:2px 0; font-size:12px;">- ${escapeHtml(p)}</p>`;
+    for (const [cetNombre, flotillas] of cets) {
+      html += `<p style="margin-top:8px;"><strong>${escapeHtml(cetNombre)} (CET)</strong></p>`;
+      for (const [, flt] of flotillas) {
+        if (flt.nombre) {
+          html += `<p style="margin-top:8px; padding-left:12px; font-size:12px; color:#94a3b8;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flt.nombre))}</strong></p>`;
+        }
+        flt.directos.forEach((p) => {
+          html += `<p style="padding-left:24px; margin:2px 0; font-size:12px;">-- ${escapeHtml(p)}</p>`;
         });
+        for (const [grupoNom, integrantes] of flt.grupos) {
+          html += `<p style="padding-left:24px; margin-top:6px; font-size:12px; color:#64748b;"><strong>${escapeHtml(labelConPrefijo("Grupo", grupoNom))}</strong></p>`;
+          integrantes.forEach((p) => {
+            html += `<p style="padding-left:36px; margin:2px 0; font-size:12px;">-- ${escapeHtml(p)}</p>`;
+          });
+        }
       }
     }
 
     sinContexto.forEach((p) => {
-      html += `<p style="padding-left:12px; margin:2px 0; font-size:12px;">- ${escapeHtml(p)}</p>`;
+      html += `<p style="padding-left:12px; margin:2px 0; font-size:12px;">-- ${escapeHtml(p)}</p>`;
     });
 
     html += "</div>";

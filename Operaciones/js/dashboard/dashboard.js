@@ -71,6 +71,67 @@ function setServerConnectionState(isConnected, message = CONNECTION_LOST_MESSAGE
   banner.style.display = isConnected ? "none" : "block";
 }
 
+async function apiFetchEstado(opId, nuevoEstado) {
+  const token = localStorage.getItem("token");
+  try {
+    return await fetch(`${API_BASE}/ops/${opId}/estado`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({ estado: nuevoEstado })
+    });
+  } catch {
+    return null;
+  }
+}
+
+function showPlanningExitModal() {
+  const modal = document.getElementById("planningExitModal");
+  const backdrop = document.getElementById("planningExitBackdrop");
+  const saveBtn = document.getElementById("planningExitSaveBtn");
+  const discardBtn = document.getElementById("planningExitDiscardBtn");
+  const cancelBtn = document.getElementById("planningExitCancelBtn");
+
+  if (!modal || !saveBtn || !discardBtn || !cancelBtn) {
+    return Promise.resolve("save");
+  }
+
+  modal.classList.remove("hidden");
+  modal.setAttribute("aria-hidden", "false");
+
+  return new Promise((resolve) => {
+    let settled = false;
+
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      modal.classList.add("hidden");
+      modal.setAttribute("aria-hidden", "true");
+      saveBtn.removeEventListener("click", onSave);
+      discardBtn.removeEventListener("click", onDiscard);
+      cancelBtn.removeEventListener("click", onCancel);
+      backdrop?.removeEventListener("click", onCancel);
+      document.removeEventListener("keydown", onKeyDown);
+      resolve(value);
+    };
+
+    const onSave = () => finish("save");
+    const onDiscard = () => finish("discard");
+    const onCancel = () => finish("cancel");
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") finish("cancel");
+    };
+
+    saveBtn.addEventListener("click", onSave);
+    discardBtn.addEventListener("click", onDiscard);
+    cancelBtn.addEventListener("click", onCancel);
+    backdrop?.addEventListener("click", onCancel);
+    document.addEventListener("keydown", onKeyDown);
+  });
+}
+
 function handleClosedOperation(operacion) {
   if (operationClosedHandled || !operacion) return;
 
@@ -140,7 +201,7 @@ const username = localStorage.getItem("username") || "admin";
 if (dom.who) dom.who.textContent = `(${username})`;
 
 if (dom.logout) {
-  dom.logout.onclick = () => {
+  dom.logout.onclick = async () => {
     const op = getCurrentOperation();
     const esPlanificada = (op.phase || "planificada") === "planificada";
     if (esPlanificada) {
@@ -202,8 +263,45 @@ async function connectSocket(opId) {
 }
 
 // ── Main init ────────────────────────────────────────────────
+function bindPlanningLogoutChoice() {
+  if (!dom.logout) return;
+
+  dom.logout.onclick = async () => {
+    const op = getCurrentOperation();
+    const esPlanificada = (op.phase || "planificada") === "planificada";
+
+    if (esPlanificada) {
+      const decision = await showPlanningExitModal();
+      if (decision === "cancel") return;
+
+      if (decision === "discard") {
+        const opId = localStorage.getItem("active_operation_id") || op?.id;
+        if (!opId) {
+          alert("No se encontro la operacion planificada.");
+          return;
+        }
+
+        const res = await apiFetchEstado(opId, "CANCELADA");
+        if (!res) {
+          alert("Error de conexion al intentar salir sin guardar.");
+          return;
+        }
+
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(`Error al salir sin guardar: ${data.mensaje || res.statusText}`);
+          return;
+        }
+      }
+    }
+
+    window.location.href = "menu_inicial.html";
+  };
+}
+
 window.addEventListener("load", async () => {
   ensureConnectionBanner();
+  bindPlanningLogoutChoice();
   initCesium();
   bindChatEvents();
   bindTacticalEvents();

@@ -19,6 +19,10 @@ data class VehiculoItem(
     // Jerarquía real del backend (tipo_destino / nivel_asignacion)
     val tipoDestino: String = "",       // "PERSONAL" | "GRUPO" | "FLOTILLA" | ""
     val asignadoAApodo: String = "",    // persona custodio
+    val personalNombre: String = "",
+    val personalApellido: String = "",
+    val personalPuesto: String = "",
+    val cetNombre: String = "",
     val grupoNombre: String = "",       // grupo directo del vehículo
     val grupoPadreNombre: String = "",  // flotilla (padre del grupo)
 

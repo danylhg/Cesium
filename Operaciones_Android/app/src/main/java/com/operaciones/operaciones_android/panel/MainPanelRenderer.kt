@@ -407,11 +407,26 @@ class MainPanelRenderer(
                 val grupos: LinkedHashMap<String, MutableList<String>> = LinkedHashMap()
             )
 
-            val flotillas = LinkedHashMap<String, FlotillaNode>()
+            fun displayName(item: VehiculoItem): String {
+                val nombreCompleto = listOf(item.personalNombre, item.personalApellido)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                    .trim()
+
+                return when {
+                    nombreCompleto.isNotBlank() && item.personalPuesto.isNotBlank() ->
+                        "${item.personalPuesto} $nombreCompleto".trim()
+                    nombreCompleto.isNotBlank() -> nombreCompleto
+                    else -> item.asignadoAApodo
+                }
+            }
+
+            val cets = LinkedHashMap<String, LinkedHashMap<String, FlotillaNode>>()
             val sinContexto = mutableListOf<String>()
 
             for (item in items) {
-                val personal = item.asignadoAApodo.ifBlank { "" }
+                val personal = displayName(item).ifBlank { "" }
+                val cetNombre = item.cetNombre.ifBlank { "Sin CET" }
 
                 val flotillaNombre: String
                 val grupoNombre: String
@@ -422,12 +437,12 @@ class MainPanelRenderer(
                         grupoNombre    = item.grupoNombre
                     }
                     item.grupoNombre.isNotBlank() -> {
-                        if (item.tipoDestino == "FLOTILLA") {
-                            flotillaNombre = item.grupoNombre
-                            grupoNombre    = ""
-                        } else {
+                        if (item.tipoDestino == "GRUPO") {
                             flotillaNombre = ""
                             grupoNombre    = item.grupoNombre
+                        } else {
+                            flotillaNombre = item.grupoNombre
+                            grupoNombre    = ""
                         }
                     }
                     else -> {
@@ -436,6 +451,7 @@ class MainPanelRenderer(
                     }
                 }
 
+                val flotillas = cets.getOrPut(cetNombre) { LinkedHashMap() }
                 val flt = flotillas.getOrPut(flotillaNombre) { FlotillaNode() }
                 if (grupoNombre.isNotBlank()) {
                     flt.grupos.getOrPut(grupoNombre) { mutableListOf() }
@@ -450,18 +466,21 @@ class MainPanelRenderer(
                 return if (n.lowercase().startsWith(prefijo.lowercase())) n else "$prefijo $n"
             }
 
-            for ((flotillaNom, flt) in flotillas) {
-                if (flotillaNom.isNotBlank()) {
-                    addLabel(prefijo("Flotilla", flotillaNom), "#94a3b8", leftPad = 8f, topPad = 8f)
-                }
-                flt.directos.forEach { p -> addLabel("- $p", "#cbd5e1", leftPad = 16f, topPad = 2f) }
-                for ((grupoNom, personas) in flt.grupos) {
-                    addLabel(prefijo("Grupo", grupoNom), "#64748b", leftPad = 16f, topPad = 6f)
-                    personas.forEach { p -> addLabel("- $p", "#cbd5e1", leftPad = 28f, topPad = 2f) }
+            for ((cetNombre, flotillas) in cets) {
+                addLabel("$cetNombre (CET)", "#e2e8f0", leftPad = 8f, topPad = 8f)
+                for ((flotillaNom, flt) in flotillas) {
+                    if (flotillaNom.isNotBlank()) {
+                        addLabel(prefijo("Flotilla", flotillaNom), "#94a3b8", leftPad = 16f, topPad = 8f)
+                    }
+                    flt.directos.forEach { p -> addLabel("-- $p", "#cbd5e1", leftPad = 28f, topPad = 2f) }
+                    for ((grupoNom, personas) in flt.grupos) {
+                        addLabel(prefijo("Grupo", grupoNom), "#64748b", leftPad = 28f, topPad = 6f)
+                        personas.forEach { p -> addLabel("-- $p", "#cbd5e1", leftPad = 40f, topPad = 2f) }
+                    }
                 }
             }
 
-            sinContexto.forEach { p -> addLabel("- $p", "#cbd5e1", leftPad = 12f, topPad = 2f) }
+            sinContexto.forEach { p -> addLabel("-- $p", "#cbd5e1", leftPad = 12f, topPad = 2f) }
 
             // Separador entre vehículos
             list.addView(View(view.context).apply {

@@ -1582,6 +1582,104 @@ async function deleteCurrentOperationZoneFromBackend() {
   return deleteOperationZoneFromBackend();
 }
 
+function removeTacticalEntityLocally(entity) {
+  const viewer = dashboardState.viewer;
+  if (viewer && entity) {
+    viewer.entities.remove(entity);
+  }
+
+  dashboardState.tacticalEntities = dashboardState.tacticalEntities.filter(
+    ent => ent !== entity
+  );
+}
+
+function clearTacticalStorageSnapshot() {
+  const opId = getCurrentOperation()?.id || localStorage.getItem("active_operation_id");
+  if (!opId) return;
+  localStorage.removeItem(`tactical_data_${opId}`);
+}
+
+async function clearTacticalPersistedData() {
+  const entities = [...dashboardState.tacticalEntities];
+  const deletedPois = new Set();
+  const deletedAreas = new Set();
+  const deletedStructures = new Set();
+  const failures = [];
+
+  for (const entity of entities) {
+    const tacticalType =
+      entity.properties?.tacticalType?.getValue?.() ||
+      entity.properties?.tacticalType ||
+      "";
+    const idPoi = entity.properties?.id_poi?.getValue?.() ?? entity.properties?.id_poi;
+    const idArea = entity.properties?.id_area?.getValue?.() ?? entity.properties?.id_area;
+    const idMarca = entity.properties?.id_marca?.getValue?.() ?? entity.properties?.id_marca;
+    const idZona = entity.properties?.id_zona?.getValue?.() ?? entity.properties?.id_zona;
+
+    // La zona de operacion/perimetro persistido no se toca desde este boton.
+    if (idZona || ["operation-zone", "perimeter"].includes(String(tacticalType))) {
+      continue;
+    }
+
+    if (idPoi && ["poi", "mil-dropped"].includes(String(tacticalType))) {
+      if (!deletedPois.has(Number(idPoi))) {
+        const deleted = await deletePoiFromBackend(idPoi);
+        if (!deleted) {
+          failures.push(`POI ${idPoi}`);
+          continue;
+        }
+        deletedPois.add(Number(idPoi));
+      }
+      removeTacticalEntityLocally(entity);
+      continue;
+    }
+
+    if (idArea && ["circle", "polygon"].includes(String(tacticalType))) {
+      if (!deletedAreas.has(Number(idArea))) {
+        const deleted = await deleteAreaFromBackend(idArea);
+        if (!deleted) {
+          failures.push(`Area ${idArea}`);
+          continue;
+        }
+        deletedAreas.add(Number(idArea));
+      }
+      removeTacticalEntityLocally(entity);
+      continue;
+    }
+
+    if (idMarca && ["building", "label"].includes(String(tacticalType))) {
+      if (!deletedStructures.has(Number(idMarca))) {
+        const deleted = await deleteStructureFromBackend(idMarca);
+        if (!deleted) {
+          failures.push(`Estructura ${idMarca}`);
+          continue;
+        }
+        deletedStructures.add(Number(idMarca));
+      }
+      removeTacticalEntityLocally(entity);
+      continue;
+    }
+
+    // Todo lo no persistido en backend se limpia localmente.
+    removeTacticalEntityLocally(entity);
+  }
+
+  if (
+    dashboardState.selectedEntity &&
+    !dashboardState.tacticalEntities.includes(dashboardState.selectedEntity)
+  ) {
+    dashboardState.selectedEntity = null;
+  }
+
+  clearPlanningArea();
+  clearTacticalStorageSnapshot();
+
+  return {
+    ok: failures.length === 0,
+    failures
+  };
+}
+
 export async function deleteSelectedEntity() {
   const viewer = dashboardState.viewer;
   if (!dashboardState.selectedEntity || !viewer) return;
@@ -1927,20 +2025,25 @@ export function bindTacticalEvents() {
   }
 
   if (dom.clearTactical) {
-    dom.clearTactical.addEventListener("click", () => {
+    dom.clearTactical.addEventListener("click", async () => {
       const viewer = dashboardState.viewer;
       if (!viewer) return;
 
-      dashboardState.tacticalEntities.forEach(ent => viewer.entities.remove(ent));
-      dashboardState.tacticalEntities = [];
+      const result = await clearTacticalPersistedData();
       dashboardState.selectedEntity = null;
 
       updateSelectionInfo(dashboardState.selectedEntity);
       resetDrawingState();
 
-      saveTacticalData();
+      if (dom.entityPopup) {
+        dom.entityPopup.style.display = "none";
+      }
 
-      if (dom.tbHint) dom.tbHint.textContent = "Elementos tácticos limpiados.";
+      if (result.ok) {
+        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos limpiados. La zona de operacion se conservo.";
+      } else if (dom.tbHint) {
+        dom.tbHint.textContent = `Se limpiaron elementos tacticos, pero fallaron algunos borrados: ${result.failures.join(", ")}.`;
+      }
     });
   }
 

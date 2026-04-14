@@ -30,7 +30,8 @@ const router = Router();
 // Además:
 //   - valida transiciones permitidas
 //   - si pasa a ACTIVA, abre/activa chat y genera mensaje automático
-//   - si pasa a CERRADA o CANCELADA, libera recursos/asignaciones
+//   - si pasa a CANCELADA, libera recursos/asignaciones
+//   - si pasa a CERRADA, conserva asignaciones para historial
 //   - si pasa a CERRADA, genera mensaje automático de cierre
 //   - si cierra/cancela, desactiva el chat
 //
@@ -167,42 +168,41 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
 
     // =========================================================
     // Si la operación se va a CERRADA o CANCELADA:
-    //   - libera personal
-    //   - libera vehículos
-    //   - libera equipo
     //   - cierra chat
-    //   - si es CERRADA, agrega mensaje automático de cierre
+    //   - si es CERRADA, conserva asignaciones y agrega mensaje de cierre
+    //   - si es CANCELADA, libera recursos/asignaciones
     // =========================================================
     if (nuevoEstado === "CERRADA" || nuevoEstado === "CANCELADA") {
-      // Timestamp actual en formato ISO
-      const ahora = new Date().toISOString();
+      if (nuevoEstado === "CANCELADA") {
+        // Timestamp actual en formato ISO
+        const ahora = new Date().toISOString();
 
-      // Libera a todo el personal asignado a la operación
-      // y marca fecha_fin_asignacion
-      await client.query(
-        `UPDATE asignacion_operacion_personal
-         SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
-         WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
-        [ahora, id_operacion]
-      );
+        // Libera a todo el personal asignado a la operación
+        // y marca fecha_fin_asignacion
+        await client.query(
+          `UPDATE asignacion_operacion_personal
+           SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+           WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
+          [ahora, id_operacion]
+        );
 
-      // Libera todos los vehículos asignados a la operación
-      // y marca fecha_fin_asignacion
-      await client.query(
-        `UPDATE vehiculo_operacion
-         SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
-         WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
-        [ahora, id_operacion]
-      );
+        // Libera todos los vehículos asignados a la operación
+        // y marca fecha_fin_asignacion
+        await client.query(
+          `UPDATE vehiculo_operacion
+           SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+           WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
+          [ahora, id_operacion]
+        );
 
-      // Libera todos los equipos reservados/asignados a la operación
-      // Ojo: aquí no se guarda fecha_fin_asignacion, solo estado
-      await client.query(
-        `UPDATE operacion_equipo
-         SET estado_asignacion = 'LIBERADO'
-         WHERE id_operacion = $1 AND estado_asignacion != 'LIBERADO'`,
-        [id_operacion]
-      );
+        // Libera todos los equipos reservados/asignados a la operación
+        await client.query(
+          `UPDATE operacion_equipo
+           SET estado_asignacion = 'LIBERADO'
+           WHERE id_operacion = $1 AND estado_asignacion != 'LIBERADO'`,
+          [id_operacion]
+        );
+      }
 
       // Busca el chat activo actual de la operación
       const { rows: cr } = await client.query(

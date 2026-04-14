@@ -86,13 +86,87 @@ body {
   height: 100%;
 }
 
+.planningExitModal.hidden {
+  display: none;
+}
+
+.planningExitModal {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+
+.planningExitBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(3, 8, 20, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.planningExitCard {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  padding: 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(14, 23, 37, 0.96);
+  color: #e5eefc;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
+}
+
+.planningExitCard h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.planningExitCard p {
+  margin: 0;
+  color: #bfd0e6;
+  line-height: 1.45;
+}
+
+.planningExitActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.planningExitBtn {
+  border: none;
+  border-radius: 12px;
+  padding: 11px 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.planningExitBtnPrimary {
+  background: #00ffa6;
+  color: #032019;
+}
+
+.planningExitBtnDanger {
+  background: #7f1d1d;
+  color: #ffe0e0;
+}
+
+.planningExitBtnGhost {
+  background: rgba(255, 255, 255, 0.08);
+  color: #dbeafe;
+}
+
 .mapTopRightActions {
   position: fixed;
-  top: 16px;
-  right: 360px;
+  top: 58px;
+  right: 10px;
   z-index: 1205;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  flex-direction: column;
   gap: 10px;
 }
 
@@ -111,6 +185,13 @@ body {
 
 .mapTopActionBtn:hover {
   background: rgba(75, 12, 12, 0.92);
+}
+
+@media (max-width: 768px) {
+  .mapTopRightActions {
+    top: 56px;
+    right: 10px;
+  }
 }
 
 .floatingTools {

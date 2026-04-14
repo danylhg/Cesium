@@ -318,6 +318,59 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
     // Query para obtener vehículos con su contexto de grupo y tracking
     const { rows } = await pool.query(
       `
+      WITH personal_ctx AS (
+        SELECT DISTINCT ON (p.id_personal)
+          p.id_personal,
+          p.apodo,
+          p.nombre,
+          p.apellido,
+          p.puesto,
+          aop.rol_en_operacion AS personal_rol,
+          go.id_grupo_operacion AS grupo_personal_id,
+          go.nombre AS grupo_personal_nombre,
+          go.apodo AS grupo_personal_apodo,
+          gp_padre.nombre AS grupo_personal_padre_nombre,
+          gp_padre.apodo AS grupo_personal_padre_apodo,
+          CASE
+            WHEN p.rol = 'CET' THEN p.id_personal
+            ELSE mo.id_cet
+          END AS id_cet_ref,
+          CASE
+            WHEN p.rol = 'CET' THEN p.apodo
+            ELSE cet.apodo
+          END AS cet_apodo,
+          CASE
+            WHEN p.rol = 'CET' THEN CONCAT_WS(' ', p.nombre, p.apellido)
+            ELSE CONCAT_WS(' ', cet.nombre, cet.apellido)
+          END AS cet_nombre
+        FROM asignacion_operacion_personal aop
+        JOIN personal p
+          ON p.id_personal = aop.id_personal
+        LEFT JOIN grupo_personal gper
+          ON gper.id_personal = p.id_personal
+         AND EXISTS (
+           SELECT 1
+           FROM grupo_operacion gox
+           WHERE gox.id_grupo_operacion = gper.id_grupo_operacion
+             AND gox.id_operacion = aop.id_operacion
+         )
+        LEFT JOIN grupo_operacion go
+          ON go.id_grupo_operacion = gper.id_grupo_operacion
+        LEFT JOIN grupo_operacion gp_padre
+          ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+        LEFT JOIN mando_operacion mo
+          ON mo.id_operacion = aop.id_operacion
+         AND mo.id_cell = aop.id_personal
+        LEFT JOIN personal cet
+          ON cet.id_personal = mo.id_cet
+        WHERE aop.id_operacion = $1
+          AND aop.estado_asignacion NOT IN ('LIBERADO')
+        ORDER BY
+          p.id_personal,
+          CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
+          CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
+          go.id_grupo_operacion
+      )
       SELECT
         -- Datos base del vehículo
         v.id_vehiculo,
@@ -328,11 +381,14 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
 
         -- Custodio de esta fila (id_personal NOT NULL en vehiculo_operacion)
         vo.id_personal,
-        per.apodo       AS asignado_a_apodo,
-        per.nombre      AS personal_nombre,
-        per.apellido    AS personal_apellido,
-        per.puesto      AS personal_puesto,
-        aop.rol_en_operacion AS personal_rol,
+        per_ctx.apodo    AS asignado_a_apodo,
+        per_ctx.nombre   AS personal_nombre,
+        per_ctx.apellido AS personal_apellido,
+        per_ctx.puesto   AS personal_puesto,
+        per_ctx.personal_rol,
+        per_ctx.id_cet_ref,
+        per_ctx.cet_apodo,
+        per_ctx.cet_nombre,
 
         -- Datos de asignación
         vo.nivel_asignacion,
@@ -341,33 +397,41 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         vo.estado_asignacion,
         vo.id_grupo_operacion,
 
-        -- Grupo del vehículo si aplica
-        go.nombre      AS grupo_nombre,
-        go.apodo       AS grupo_apodo,
-        gp_padre.nombre AS grupo_padre_nombre,
+        -- Grupo efectivo del vehículo: si tiene grupo explícito se usa ese;
+        -- si no, se hereda del custodio.
+        COALESCE(go_dest.nombre, per_ctx.grupo_personal_nombre, '') AS grupo_nombre,
+        COALESCE(go_dest.apodo, per_ctx.grupo_personal_apodo, '') AS grupo_apodo,
+        CASE
+          WHEN go_dest.id_grupo_operacion IS NOT NULL THEN go_dest.nombre
+          ELSE COALESCE(per_ctx.grupo_personal_nombre, '')
+        END AS grupo_directo_nombre,
+        CASE
+          WHEN go_dest.id_grupo_operacion IS NOT NULL THEN COALESCE(gp_dest.nombre, '')
+          ELSE COALESCE(per_ctx.grupo_personal_padre_nombre, '')
+        END AS grupo_padre_nombre,
 
         -- Última posición conocida del vehículo
         t.latitud,
         t.longitud,
         t.ultima_actualizacion
       FROM vehiculo_operacion vo
-      JOIN vehiculo v   ON v.id_vehiculo  = vo.id_vehiculo
-      JOIN personal per ON per.id_personal = vo.id_personal
-      LEFT JOIN asignacion_operacion_personal aop
-        ON aop.id_personal = vo.id_personal AND aop.id_operacion = vo.id_operacion
-      LEFT JOIN grupo_vehiculo gv
-        ON gv.id_vehiculo = v.id_vehiculo AND gv.id_operacion = vo.id_operacion
-      LEFT JOIN grupo_operacion go
-        ON go.id_grupo_operacion = gv.id_grupo_operacion
-      LEFT JOIN grupo_operacion gp_padre
-        ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+      JOIN vehiculo v
+        ON v.id_vehiculo = vo.id_vehiculo
+      LEFT JOIN personal_ctx per_ctx
+        ON per_ctx.id_personal = vo.id_personal
+      LEFT JOIN grupo_operacion go_dest
+        ON go_dest.id_grupo_operacion = vo.id_grupo_operacion
+      LEFT JOIN grupo_operacion gp_dest
+        ON gp_dest.id_grupo_operacion = go_dest.id_grupo_padre
       LEFT JOIN v_ultima_posicion_vehiculo t
         ON t.id_vehiculo = vo.id_vehiculo AND t.id_operacion = vo.id_operacion
       WHERE vo.id_operacion = $1
         AND vo.estado_asignacion != 'LIBERADO'
       ORDER BY v.tipo, v.codigo_interno,
-               CASE aop.rol_en_operacion WHEN 'CET' THEN 0 ELSE 1 END,
-               per.nombre
+               CASE per_ctx.personal_rol WHEN 'CET' THEN 0 ELSE 1 END,
+               per_ctx.cet_nombre,
+               per_ctx.nombre,
+               per_ctx.apellido
       `,
       [id_operacion]
     );
