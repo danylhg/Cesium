@@ -6,6 +6,7 @@ import { setRouteInfo, updateSelectionInfo } from "./dashboard.ui.js";
 import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { cartesianToLatLng, saveTacticalData } from "./dashboard.persistence.js";
+import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes } from "./dashboard.drawing.js";
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
 // Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
@@ -192,7 +193,102 @@ function buildOperationZoneEntity(zona) {
 
   dashboardState.operationZoneBorder = entity;
   dashboardState.currentOperationZone = zona;
+
+  // Integrated Wind Rose (Radar) inside the zone
+  renderIntegratedWindRose(zona, closedPoints);
+
   return entity;
+}
+
+function calculateCentroid(points) {
+  if (!points || points.length === 0) return null;
+  let sumLat = 0, sumLng = 0;
+  points.forEach(p => {
+    sumLat += Number(p.lat);
+    sumLng += Number(p.lng);
+  });
+  return { lat: sumLat / points.length, lng: sumLng / points.length };
+}
+
+function getHullRadius(center, points) {
+  if (!center || !points) return 5000;
+  const centerCart = Cesium.Cartesian3.fromDegrees(center.lng, center.lat);
+  let maxDist = 1000;
+  points.forEach(p => {
+    const pCart = Cesium.Cartesian3.fromDegrees(p.lng, p.lat);
+    const d = Cesium.Cartesian3.distance(centerCart, pCart);
+    if (d > maxDist) maxDist = d;
+  });
+  return maxDist;
+}
+
+export function renderIntegratedWindRose(zona, points) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
+
+  const center = calculateCentroid(points);
+  if (!center) return;
+  const radius = getHullRadius(center, points);
+  const color = Cesium.Color.fromCssColorString(zona.color || "#3b82f6");
+  const opacityColor = color.withAlpha(0.2);
+  const centerCart = Cesium.Cartesian3.fromDegrees(center.lng, center.lat);
+
+  // concentric rings
+  for (let i = 1; i <= 3; i++) {
+    const r = (radius / 3) * i;
+    viewer.entities.add({
+      position: centerCart,
+      name: `Anillo Zona ${i}`,
+      ellipse: {
+        semiMajorAxis: r,
+        semiMinorAxis: r,
+        material: opacityColor,
+        outline: true,
+        outlineColor: color,
+        outlineWidth: 2,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      },
+      properties: {
+        tacticalType: "operation-zone-part",
+        id_zona: zona.id_zona
+      }
+    });
+  }
+
+  // cardinal lines and labels
+  const offset = radius * 1.05;
+  const cardinals = [
+    { txt: "N", lat: center.lat + (offset / 111320), lng: center.lng },
+    { txt: "S", lat: center.lat - (offset / 111320), lng: center.lng },
+    { txt: "E", lat: center.lat, lng: center.lng + (offset / (111320 * Math.cos(center.lat * Math.PI / 180))) },
+    { txt: "W", lat: center.lat, lng: center.lng - (offset / (111320 * Math.cos(center.lat * Math.PI / 180))) }
+  ];
+
+  cardinals.forEach(c => {
+    const pCart = Cesium.Cartesian3.fromDegrees(c.lng, c.lat);
+    viewer.entities.add({
+      polyline: {
+        positions: [centerCart, pCart],
+        width: 2,
+        material: color,
+        clampToGround: true
+      },
+      properties: { tacticalType: "operation-zone-part", id_zona: zona.id_zona }
+    });
+    viewer.entities.add({
+      position: pCart,
+      label: {
+        text: c.txt,
+        font: "bold 14px sans-serif",
+        fillColor: color,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 2,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      },
+      properties: { tacticalType: "operation-zone-part", id_zona: zona.id_zona }
+    });
+  });
 }
 
 function buildMilUniqueName(baseName) {
@@ -234,8 +330,21 @@ function buildPoiEntity(poi, tacticalType = "poi") {
   const lng = Number(poi.longitud ?? poi.lon ?? poi.lng);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
-  const iconSrc = resolvePoiImage(poi.icono_src || poi.iconSrc || poi.image);
-  const isMil = (poi.tipo_poi || poi.tipoPoi || "").toUpperCase() === "MIL" && !!iconSrc;
+  const sidc = poi.sidc || (poi.icono_src?.startsWith("S") ? poi.icono_src : null);
+  let iconSrc = resolvePoiImage(poi.icono_src || poi.iconSrc || poi.image);
+  
+  // Si hay SIDC, generamos el icono dinámicamente con milsymbol
+  if (sidc && typeof ms !== "undefined") {
+    const sym = new ms.Symbol(sidc, { size: 40 });
+    iconSrc = sym.asCanvas();
+  }
+
+  const tipo_poi_raw = (poi.tipo_poi || poi.tipoPoi || "").toUpperCase();
+  const isMil = tipo_poi_raw === "MIL" || !!sidc;
+
+  // Si es tipo RADAR, no lo dibujamos como un POI simple, ya que renderRadarEntities se encarga
+  if (tipo_poi_raw === "RADAR") return null;
+
   const hexColor = poi.color || "#FFD700";
   const cesiumColor = Cesium.Color.fromCssColorString(hexColor);
   const label = getPoiDisplayLabel(poi);
@@ -253,7 +362,7 @@ function buildPoiEntity(poi, tacticalType = "poi") {
       image: iconSrc,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      scale: Number(poi.scale || (isMil ? 0.08 : 0.08))
+      scale: Number(poi.scale || (isMil ? 0.8 : 0.8)) // Ajuste de escala para milsymbol
     } : undefined,
     point: !iconSrc ? {
       pixelSize: 10,
@@ -278,7 +387,8 @@ function buildPoiEntity(poi, tacticalType = "poi") {
     properties: {
       tacticalType: isMil ? "mil-dropped" : tacticalType,
       draggable: true,
-      id_poi: poi.id_poi ?? null
+      id_poi: poi.id_poi ?? null,
+      sidc: sidc
     }
   });
 }
@@ -302,6 +412,7 @@ async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc =
       longitud:      lng,
       color:         COLOR_HEX_MAP[colorName] || '#FFD700',
       icono_src:     iconoSrc,
+      sidc:          arguments[6] || null, // Capturamos sidc si se pasa como 7mo argumento
       tipo_creador:  tabla === "personal" ? "PERSONAL" : "USUARIO",
       [idKey]:       idVal
     };
@@ -881,14 +992,6 @@ function syncTacticalToolAvailability(currentOperation = getCurrentOperation()) 
     operationZoneGroup.style.display = isActiveOperation ? "none" : "";
   }
 
-  if (isActiveOperation && dashboardState.toolMode === "perimeter") {
-    dashboardState.toolMode = "none";
-    dashboardState.placingMode = false;
-    dashboardState.drawingPoints = [];
-    if (dom.toolSelect) dom.toolSelect.value = "none";
-    resetDrawingState();
-  }
-
   return { isActiveOperation };
 }
 
@@ -897,29 +1000,32 @@ export function setTacticalUI() {
   const { isActiveOperation } = syncTacticalToolAvailability(currentOperation);
   const isMil = dashboardState.toolMode === "mil";
   const isPoi = dashboardState.toolMode === "poi";
+  const isPencil = dashboardState.toolMode === "pencil";
+  const isEraser = dashboardState.toolMode === "eraser";
+  const isDrawingTool = isPencil || isEraser;
   const usesPlaceOnly = ["poi", "mil", "circle", "label", "building"].includes(dashboardState.toolMode);
   const isPlanningOperation = !isActiveOperation && String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase() === "planificada";
   const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter", "building"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
   const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
-  const showCancelButton = !isMil && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
+  const showCancelButton = !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
   const showFinishButton = isMultiPoint || dashboardState.areaDrawing;
-  const showLabelInput = needsLabel && !isMil;
-  const showColorInput = !isMil;
-  const showOpacityInput = !isMil && !isPoi;
-  const showWidthInput = !isMil && !isPoi;
+  const showLabelInput = needsLabel && !isMil && !isDrawingTool;
+  const showColorInput = !isMil && !isEraser;
+  const showOpacityInput = !isMil && !isPoi && !isDrawingTool;
+  const showWidthInput = !isMil && !isPoi && !isEraser;
 
   const milTitle = document.getElementById("milSymbolTitle");
   if (milTitle) milTitle.style.display = isMil ? "block" : "none";
 
-  if (dom.iconPallet) dom.iconPallet.style.display = isMil ? "flex" : "none";
-  if (dom.iconSettings) dom.iconSettings.style.display = "none";
+  if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = isMil ? "block" : "none";
+  if (dom.iconSettings) dom.iconSettings.style.display = isMil ? "block" : "none";
 
   if (dom.symLabelContainer) dom.symLabelContainer.style.display = showLabelInput ? "block" : "none";
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
-  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = isMil ? "none" : "grid";
+  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = (isMil || isDrawingTool) ? "none" : "grid";
   if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
   if (dom.finishShape) dom.finishShape.style.display = showFinishButton ? "" : "none";
   if (dom.clearTactical) dom.clearTactical.style.display = isPlanningOperation ? "" : "none";
@@ -930,43 +1036,23 @@ export function setTacticalUI() {
     dom.radiusContainer.style.display = needsRadius ? "block" : "none";
   }
 
+  if (isMil) updateMilSymbolPreview();
+
   if (dom.placeBtn) {
-    dom.placeBtn.disabled = dashboardState.toolMode === "none" || isMil;
-    dom.placeBtn.style.display = isMil ? "none" : "";
+    dom.placeBtn.disabled = dashboardState.toolMode === "none" || isMil || isDrawingTool;
+    dom.placeBtn.style.display = (isMil || isDrawingTool) ? "none" : "";
     dom.placeBtn.textContent = usesPlaceOnly
       ? "Colocar"
       : "Colocar / iniciar";
   }
   if (dom.finishShape) dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
 
-  if (!dom.tbHint) return;
-
-  if (dashboardState.toolMode === "none" && !dashboardState.areaDrawing) {
-    dom.tbHint.textContent = "Selecciona una herramienta para comenzar.";
-  }
-  if (dashboardState.toolMode === "mil") {
-    dom.tbHint.textContent = "Herramienta MIL: Arrastra el símbolo que desees desde el panel superior hacia el mapa.";
-  }
-  if (dashboardState.toolMode === "poi") {
-    dom.tbHint.textContent = "Presiona 'Colocar' y haz clic para poner un punto de interes.";
-  }
-  if (dashboardState.toolMode === "building") {
-    dom.tbHint.textContent = "Presiona 'Colocar' y haz clic para poner un edificio.";
-  }
-  if (dashboardState.toolMode === "label") {
-    dom.tbHint.textContent = "Presiona 'Colocar' y haz clic para poner una etiqueta. Se puede mover.";
-  }
-  if (dashboardState.toolMode === "circle") {
-    dom.tbHint.textContent = "Presiona 'Colocar' y haz clic en el centro del circulo. Se puede mover.";
-  }
-  if (dashboardState.toolMode === "polygon") {
-    dom.tbHint.textContent = "Presiona 'Colocar / iniciar', da varios clics y luego 'Terminar figura'.";
-  }
-  if (dashboardState.toolMode === "polyline") {
-    dom.tbHint.textContent = "Presiona 'Colocar / iniciar', da varios clics y luego 'Terminar figura'.";
-  }
-  if (dashboardState.toolMode === "perimeter") {
-    dom.tbHint.textContent = "Presiona 'Colocar / iniciar', marca el perímetro y luego 'Terminar figura'.";
+  // Manage cursor for draw modes
+  const mapEl = document.getElementById("map");
+  if (mapEl) {
+    mapEl.classList.remove("pencil-cursor", "eraser-cursor");
+    if (isPencil) mapEl.classList.add("pencil-cursor");
+    if (isEraser) mapEl.classList.add("eraser-cursor");
   }
 }
 
@@ -1040,9 +1126,10 @@ export async function createPoi(lat, lng, iconPath = null) {
   if (dom.tbHint) dom.tbHint.textContent = `${label} colocado.`;
 }
 
-export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08) {
+export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08, sidc = null) {
   const uniqueName = buildMilUniqueName(nombre);
-  const savedPoi = await savePoiToBackend(lat, lng, uniqueName, "MIL", "red", iconPath);
+  // Pasamos el SIDC como 7mo argumento a savePoiToBackend
+  const savedPoi = await savePoiToBackend(lat, lng, uniqueName, "MIL", "red", iconPath, sidc);
   if (!savedPoi) return;
 
   const ent = buildPoiEntity({ ...savedPoi, scale }, "poi");
@@ -1694,9 +1781,13 @@ export async function deleteSelectedEntity() {
   const idMarca = selected.properties?.id_marca?.getValue?.() ?? selected.properties?.id_marca;
   const idZona = selected.properties?.id_zona?.getValue?.() ?? selected.properties?.id_zona;
 
-  if (idPoi && ["poi", "mil-dropped"].includes(String(tacticalType))) {
+  if (idPoi && ["poi", "mil-dropped", "radar-part"].includes(String(tacticalType))) {
     const deleted = await deletePoiFromBackend(idPoi);
     if (!deleted) return;
+    deleteLocalPoiEntities(idPoi);
+    dashboardState.selectedEntity = null;
+    if (dom.entityPopup) dom.entityPopup.style.display = "none";
+    return;
   }
 
   if (idArea && ["circle", "polygon"].includes(String(tacticalType))) {
@@ -1757,8 +1848,12 @@ export async function loadPoisFromBackend() {
 
     pois.forEach(poi => {
       if (!poi?.id_poi) return;
-      const ent = buildPoiEntity(poi, "poi");
-      if (ent) addTacticalEntity(ent);
+      if (poi.tipo_poi === "RADAR") {
+        renderRadarEntities(poi);
+      } else {
+        const ent = buildPoiEntity(poi, "poi");
+        if (ent) addTacticalEntity(ent);
+      }
     });
   } catch (err) {
     console.error("[POI] Error cargando POIs desde backend:", err);
@@ -1857,8 +1952,12 @@ export function initPoiSocket(socket) {
     const viewer = dashboardState.viewer;
     if (!viewer) return;
 
-    const ent = buildPoiEntity(poi, "poi");
-    if (ent) addTacticalEntity(ent);
+    if (poi.tipo_poi === "RADAR") {
+      renderRadarEntities(poi);
+    } else {
+      const ent = buildPoiEntity(poi, "poi");
+      if (ent) addTacticalEntity(ent);
+    }
   });
 
   socket.on("poi_actualizado", ({ poi }) => {
@@ -1981,8 +2080,21 @@ export function initPoiSocket(socket) {
 export function bindTacticalEvents() {
   if (dom.toolSelect) {
     dom.toolSelect.addEventListener("change", (e) => {
-      dashboardState.toolMode = e.target.value;
+      const newMode = e.target.value;
+
+      // Stop any active drawing/eraser mode when switching tools
+      stopAllDrawingModes();
+
+      dashboardState.toolMode = newMode;
       resetDrawingState();
+
+      // Activate pencil or eraser mode
+      if (newMode === "pencil") {
+        startPencilMode();
+      } else if (newMode === "eraser") {
+        startEraserMode();
+      }
+
       setTacticalUI();
     });
   }
@@ -2084,8 +2196,51 @@ export function bindTacticalEvents() {
       }
 
       if (dashboardState.toolMode === "perimeter") {
-        void finishOperationZonePerimeter();
+        finishOperationZonePerimeter();
       }
     });
   }
+
+  if (dom.milIdentity) dom.milIdentity.addEventListener("change", updateMilSymbolPreview);
+  if (dom.milDimension) dom.milDimension.addEventListener("change", updateMilSymbolPreview);
+  if (dom.milIcon) dom.milIcon.addEventListener("change", updateMilSymbolPreview);
+
+  if (dom.milPreviewContainer) {
+    dom.milPreviewContainer.addEventListener("dragstart", (e) => {
+      const container = e.target.closest("#milPreviewContainer");
+      if (!container) return;
+      const sidc = container.dataset.sidc;
+      const title = container.dataset.title;
+      if (!sidc) return;
+
+      e.dataTransfer.setData("application/sidc", sidc);
+      e.dataTransfer.setData("application/title", title);
+      e.dataTransfer.effectAllowed = "copy";
+    });
+  }
 }
+
+/* ── Generador MILSymbol ───────────────────────────── */
+
+export function updateMilSymbolPreview() {
+  if (!dom.milPreviewContainer) return;
+
+  const identity = dom.milIdentity.value;
+  const dimension = dom.milDimension.value;
+  const icon = dom.milIcon.value;
+
+  // SIDC de 15 caracteres (MIL-STD-2525B/C simple)
+  const sidc = `S${identity}${dimension}P${icon}---`;
+
+  if (!sidc) return;
+
+  const canvas = ms.asCanvas(sidc, {
+    size: Number(dom.iconScale?.value || 0.1) * 300,
+  });
+
+  dom.milPreviewContainer.innerHTML = "";
+  dom.milPreviewContainer.appendChild(canvas);
+  dom.milPreviewContainer.dataset.sidc = sidc;
+  dom.milPreviewContainer.dataset.title = dom.milIcon.options[dom.milIcon.selectedIndex].text;
+}
+

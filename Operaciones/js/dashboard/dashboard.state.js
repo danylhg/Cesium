@@ -36,6 +36,10 @@ export const dashboardState = {
   tacticalPreviewLine: null,
   tacticalPreviewFill: null,
 
+  // Freehand drawing
+  drawingMode: null,        // "pencil" | "eraser" | null
+  drawingEntities: [],      // freehand polyline entities
+
   currentChatChannel: "cet",
   mediaRecorder: null,
   audioChunks: [],

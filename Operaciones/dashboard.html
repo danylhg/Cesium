@@ -27,6 +27,8 @@
     </div>
 
     <div class="topbarRight">
+      <button id="undoBtn" class="topHistoryBtn" title="Deshacer (Ctrl+Z)" disabled>↩</button>
+      <button id="redoBtn" class="topHistoryBtn" title="Rehacer (Ctrl+Y)" disabled>↪</button>
       <button id="logout" class="topBtn">Salir</button>
     </div>
   </header>
@@ -135,59 +137,87 @@
     <div class="groupTitle">Herramienta</div>
     <select id="toolSelect">
       <option value="none" hidden disabled selected>Selecciona herramienta...</option>
+      <optgroup label="DIBUJO LIBRE">
+        <option value="pencil">✏️ Lápiz (dibujo libre)</option>
+        <option value="eraser">🧹 Goma de borrar</option>
+      </optgroup>
+
       <optgroup label="PUNTOS DE INTERÉS">
         <option value="mil">Símbolo Militar (MIL)</option>
         <option value="poi">Puntos de Interés</option>
       </optgroup>
 
       <optgroup label="ÁREAS DE INTERÉS">
-        <option value="circle">Círculos de Cobertura</option>
-        <option value="polygon">Polígono / Zona</option>
+        <option value="perimeter">Línea de Perímetro (Zona Op)</option>
+        <option value="polygon">Polígono Táctico</option>
+        <option value="circle">Área Circular / Radio</option>
+        <option value="polyline">Línea Táctica (Ruta)</option>
       </optgroup>
 
-      <optgroup label="ESTRUCTURA">
-        <option value="label">Etiqueta</option>
-        <option value="building">Edificio / Estructura</option>
-      </optgroup>
-
-      <optgroup label="ZONA DE OPERACIÓN">
-        <option value="perimeter">Perímetro Punteado</option>
+      <optgroup label="OTROS">
+        <option value="building">🏠 Edificio / Estructura</option>
+        <option value="label">🏷️ Etiqueta</option>
       </optgroup>
     </select>
 
     <div class="groupTitle" id="milSymbolTitle" style="display:none;">Símbolos MIL</div>
 
-    <div class="iconPallet" id="iconPallet" style="display:none;">
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png"
-        data-title="Unidad Blindada">
-        <img src="img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png">
-        <span>Unidad Blindada</span>
+    <div id="milSymbolGenerator" style="display:none; margin-bottom: 20px; background: rgba(0,255,166,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(0,255,166,0.15);">
+      <div class="fieldRow">
+        <div class="fieldCol">
+          <label class="fieldLabel">Identidad</label>
+          <select id="milIdentity" class="opsInput">
+            <option value="F">Amigo (Friend)</option>
+            <option value="H">Hostil (Hostile)</option>
+            <option value="N">Neutral</option>
+            <option value="U">Desconocido</option>
+          </select>
+        </div>
+        <div class="fieldCol">
+          <label class="fieldLabel">Dimensión</label>
+          <select id="milDimension" class="opsInput">
+            <option value="G">Tierra (Unidades)</option>
+            <option value="E">Tierra (Equipo)</option>
+            <option value="A">Aire</option>
+            <option value="S">Mar</option>
+            <option value="H">Subsuperficie</option>
+          </select>
+        </div>
       </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png"
-        data-title="Punto de Control">
-        <img src="img/simbolos_militares/Checkpoint_MGRS-Mapper.png">
-        <span>Punto de Control</span>
+
+      <div style="margin-top: 10px;">
+        <label class="fieldLabel">Tipo de Unidad / Función</label>
+        <select id="milIcon" class="opsInput">
+          <optgroup label="TIERRA">
+            <option value="UCI---">Infantería</option>
+            <option value="UCD---">Blindada / Tanques</option>
+            <option value="UCA---">Artillería</option>
+            <option value="UCR---">Reconocimiento / Exploración</option>
+            <option value="UCJ---">Ingenieros</option>
+            <option value="UCM---">Médica</option>
+            <option value="UCM---">Comunicaciones</option>
+          </optgroup>
+          <optgroup label="INSTALACIONES">
+            <option value="IP----">Punto de Control</option>
+            <option value="IB----">Base / Cuartel</option>
+            <option value="IR----">Radar</option>
+          </optgroup>
+          <optgroup label="OTROS">
+            <option value="UCL---">Abastecimiento / Logística</option>
+            <option value="UCP---">Policía / Seguridad</option>
+            <option value="---">Genérico</option>
+          </optgroup>
+        </select>
       </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png"
-        data-title="Artillería de Campo">
-        <img src="img/simbolos_militares/Field-Artillery_MGRS-Mapper.png">
-        <span>Artillería de Campo</span>
-      </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Infantry_MGRS-Mapper.png"
-        data-title="Infantería">
-        <img src="img/simbolos_militares/Infantry_MGRS-Mapper.png">
-        <span>Infantería</span>
-      </div>
-      <div class="iconItem" draggable="true"
-        data-src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png"
-        data-title="Infantería Mecanizada">
-        <img src="img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png">
-        <span>Infantería Mecanizada</span>
-      </div>
-      <div class="iconItem" draggable="true" data-src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png"
-        data-title="Punto de Referencia">
-        <img src="img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png">
-        <span>Punto de Referencia</span>
+
+      <div style="margin-top: 15px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <div id="milPreviewContainer" 
+             class="milPreviewBox" 
+             draggable="true"
+             title="Arrastra este icono al mapa">
+          <!-- Canvas se insertará aquí -->
+        </div>
+        <span style="font-size: 10px; color: #a0c4ff; font-weight: 600;">ARRASTRA EL ICONO AL MAPA</span>
       </div>
     </div>
 
@@ -237,10 +267,6 @@
       <button id="clearTactical" class="btnBeige historyBtn">Limpiar táctico</button>
     </div>
 
-    <div class="routeInfo" id="tbHint">
-      Selecciona una herramienta para comenzar.
-    </div>
-
     <div class="groupTitle">Elemento seleccionado</div>
     <div class="btnGrid">
       <button id="deleteSelectedBtn" class="btnBeige">Eliminar seleccionado</button>
@@ -260,15 +286,10 @@
       <button id="chatTabCells" class="chatTab">Global</button>
     </div>
 
-
-
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
       <textarea id="chatInput" placeholder="Escribe un mensaje táctico..."></textarea>
-
-
-
       <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
     </div>
   </aside>

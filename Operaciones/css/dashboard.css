@@ -883,3 +883,84 @@ body {
   font-weight: 500;
   padding: 8px;
 }
+
+/* ── Historia (Deshacer/Rehacer) en Topbar ─────────── */
+
+.topbarRight {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topHistoryBtn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #00ffa6;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.topHistoryBtn:hover:not(:disabled) {
+  background: rgba(0, 255, 170, 0.15);
+  transform: scale(1.1);
+}
+
+.topHistoryBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  color: #4b5563;
+}
+
+/* ── Generador Símbolos MIL ───────────────────────────── */
+
+.milPreviewBox {
+  width: 80px;
+  height: 80px;
+  background: rgba(0, 255, 166, 0.08);
+  border: 2px dashed rgba(0, 255, 166, 0.3);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: grab;
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.milPreviewBox:hover {
+  background: rgba(0, 255, 166, 0.15);
+  border-color: rgba(0, 255, 166, 0.6);
+  box-shadow: 0 0 15px rgba(0, 255, 166, 0.2);
+  transform: scale(1.05);
+}
+
+.milPreviewBox:active {
+  cursor: grabbing;
+}
+
+.fieldRow {
+  display: flex;
+  gap: 10px;
+}
+
+.fieldCol {
+  flex: 1;
+}
+
+.fieldLabel {
+  display: block;
+  font-size: 11px;
+  color: #a0c4ff;
+  font-weight: 700;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}

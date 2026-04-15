@@ -30,6 +30,7 @@ import {
   initRoutes
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket } from "./dashboard.tracking.js";
+import { bindDrawingEvents } from "./dashboard.drawing.js";
 
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
@@ -307,6 +308,7 @@ window.addEventListener("load", async () => {
   bindTacticalEvents();
   bindAreaEvents();
   bindDashboardEvents();
+  bindDrawingEvents();
   setTacticalUI();
   loadCurrentOperationOnMap();
 

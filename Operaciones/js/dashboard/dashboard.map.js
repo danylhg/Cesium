@@ -108,8 +108,10 @@ function handleEntitySelection(clickPosition) {
 
   const picked = viewer.scene.pick(clickPosition);
 
+  const isDraw = (dashboardState.toolMode === "pencil" || dashboardState.toolMode === "eraser");
+  if (isDraw) { if (dom.entityPopup) dom.entityPopup.style.display = "none"; return; }
+
   if (picked && picked.id) {
-    // Detectar si se clickeó una entidad de ruta remota
     const routeId = getRouteIdForEntity(picked.id);
     if (routeId) {
       selectRemoteRoute(routeId);
@@ -349,8 +351,11 @@ function bindMapDropEvents() {
     e.preventDefault();
 
     const src = e.dataTransfer.getData("text/plain");
+    const sidc = e.dataTransfer.getData("application/sidc");
     const title = e.dataTransfer.getData("application/title");
-    if (!src || !title) return;
+
+    if (!src && !sidc) return;
+    if (!title) return;
 
     const rect = dom.map.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -365,17 +370,10 @@ function bindMapDropEvents() {
       coords.lat,
       coords.lng,
       title,
-      src,
-      Number(dom.iconScale ? dom.iconScale.value : 0.08)
+      src || null,
+      Number(dom.iconScale ? dom.iconScale.value : 0.08),
+      sidc || null
     );
-  });
-
-  document.querySelectorAll(".iconItem").forEach(item => {
-    item.addEventListener("dragstart", (e) => {
-      e.dataTransfer.setData("text/plain", item.dataset.src);
-      e.dataTransfer.setData("application/title", item.dataset.title);
-      e.dataTransfer.effectAllowed = "copy";
-    });
   });
 }
 
@@ -413,18 +411,11 @@ function bindMapUiEvents() {
     };
   }
 
-  // ============================================================
-  // BACKEND: "Limpiar ruta" borra ruta de localStorage hoy.
-  // Con backend: se necesita el id_ruta devuelto al guardarla.
-  //   DELETE /ops/:id/rutas/:id_ruta
-  // O bien PATCH para marcarla inactiva:
-  //   PATCH /ops/:id/rutas/:id_ruta  { estado: "CANCELADA" }
-  // ============================================================
   const clearRouteBtn = document.getElementById("clearRoute");
   if (clearRouteBtn) {
     clearRouteBtn.onclick = () => {
       dashboardState.pickMode = null;
-      clearRoute(); // elimina de DB + limpia mapa
+      clearRoute(); 
     };
   }
 
@@ -434,7 +425,6 @@ function bindMapUiEvents() {
       setBaseLayer(e.target.value);
     });
   }
-
 }
 
 export function initCesium() {

@@ -1,4 +1,5 @@
 // js/dashboard/dashboard.dom.js
+// js/dashboard/dashboard.dom.js
 
 export const dom = {
   // Header / sesión
@@ -7,6 +8,11 @@ export const dom = {
 
   // Herramientas tácticas
   toolSelect: document.getElementById("toolSelect"),
+  milSymbolGenerator: document.getElementById("milSymbolGenerator"),
+  milIdentity: document.getElementById("milIdentity"),
+  milDimension: document.getElementById("milDimension"),
+  milIcon: document.getElementById("milIcon"),
+  milPreviewContainer: document.getElementById("milPreviewContainer"),
   iconPallet: document.getElementById("iconPallet"),
   iconScale: document.getElementById("iconScale"),
   iconSettings: document.getElementById("iconSettings"),
@@ -17,7 +23,6 @@ export const dom = {
   cancelPlace: document.getElementById("cancelPlace"),
   tacticalActionButtons: document.getElementById("tacticalActionButtons"),
   clearTactical: document.getElementById("clearTactical"),
-  tbHint: document.getElementById("tbHint"),
   colorContainer: document.getElementById("colorContainer"),
   colorSelect: document.getElementById("colorSelect"),
   opacityContainer: document.getElementById("opacityContainer"),
