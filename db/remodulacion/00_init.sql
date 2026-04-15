@@ -22,3 +22,4 @@
 \ir 16_patch_poi_color.sql
 \ir 17_patch_poi_nombre_unico.sql
 \ir 18_patch_poi_icono_mil.sql
+\ir 19_patch_poi_sidc.sql

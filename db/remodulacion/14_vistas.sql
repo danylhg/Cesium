@@ -274,6 +274,7 @@ SELECT
   poi.longitud,
   poi.descripcion,
   poi.icono_src,
+  poi.sidc,
   poi.id_operacion,
   poi.activo,
   poi.fecha_creacion
@@ -329,6 +330,7 @@ SELECT
   NULL::jsonb AS geometria,
   color,
   icono_src,
+  sidc,
   activo::text AS estado,
   fecha_creacion
 FROM puntos_interes
@@ -345,6 +347,7 @@ SELECT
   NULL, NULL,
   geometria,
   color,
+  NULL::text,
   NULL::text,
   estado::text,
   fecha_creacion
@@ -363,6 +366,7 @@ SELECT
   geometria,
   color,
   NULL::text,
+  NULL::text,
   estado::text,
   fecha_creacion
 FROM ruta_operacion
@@ -379,6 +383,7 @@ SELECT
   latitud,
   longitud,
   NULL::jsonb,
+  NULL::text,
   NULL::text,
   NULL::text,
   estado::text,

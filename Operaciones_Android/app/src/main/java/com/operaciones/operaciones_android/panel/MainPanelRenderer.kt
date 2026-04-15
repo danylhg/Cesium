@@ -511,30 +511,81 @@ class MainPanelRenderer(
             return
         }
 
-        equiposList.forEach { item ->
-            val row = host.getLayoutInflater().inflate(R.layout.item_equipo, list, false)
+        val density = view.context.resources.displayMetrics.density
+        fun dp(f: Float) = (f * density + 0.5f).toInt()
 
-            row.findViewById<TextView>(R.id.equipoIcon).text = when (item.categoria.uppercase()) {
-                "COMUNICACION" -> "COM"
-                "TACTICO" -> "TAC"
-                else -> "EQP"
+        fun addSectionHeader(text: String) {
+            list.addView(TextView(view.context).apply {
+                this.text = text
+                setTextColor(Color.parseColor("#a0c4ff"))
+                textSize = 13f
+                setPadding(0, dp(8f), 0, dp(8f))
+            })
+        }
+
+        fun uniqueNonBlank(values: List<String>): List<String> =
+            values.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+
+        fun destinationText(item: EquipoItem): String = when {
+            item.vehiculoAsignado.isNotBlank() -> item.vehiculoAsignado
+            item.personalAsignado.isNotBlank() -> item.personalAsignado
+            item.asignadoA.isNotBlank() -> item.asignadoA
+            else -> "Sin destino"
+        }
+
+        val groups = listOf(
+            "Equipos de Comunicacion" to equiposList.filter { it.categoria.equals("COMUNICACION", ignoreCase = true) },
+            "Equipos Tacticos" to equiposList.filter { it.categoria.equals("TACTICO", ignoreCase = true) },
+            "Otros equipos" to equiposList.filter {
+                !it.categoria.equals("COMUNICACION", ignoreCase = true) &&
+                    !it.categoria.equals("TACTICO", ignoreCase = true)
             }
+        ).filter { it.second.isNotEmpty() }
 
-            row.findViewById<TextView>(R.id.equipoNombre).text =
-                if (item.nombre.isNotBlank()) item.nombre else "Equipo"
+        groups.forEach { (title, items) ->
+            addSectionHeader(title)
 
-            row.findViewById<TextView>(R.id.equipoDetalle).text =
-                when {
-                    item.asignadoA.isNotBlank() -> item.asignadoA
-                    item.detalle.isNotBlank() -> item.detalle
-                    item.numeroSerie.isNotBlank() -> "S/N: ${item.numeroSerie}"
-                    else -> "Sin asignacion"
+            items.forEach { item ->
+                val row = host.getLayoutInflater().inflate(R.layout.item_equipo, list, false)
+
+                row.findViewById<TextView>(R.id.equipoIcon).text = when (item.categoria.uppercase()) {
+                    "COMUNICACION" -> "COM"
+                    "TACTICO" -> "TAC"
+                    else -> "EQP"
                 }
 
-            row.findViewById<TextView>(R.id.equipoTipo).text =
-                if (item.categoria.isNotBlank()) item.categoria.uppercase() else "EQUIPO"
+                row.findViewById<TextView>(R.id.equipoNombre).text =
+                    "Nombre de equipo: ${if (item.nombre.isNotBlank()) item.nombre else "Equipo"}"
 
-            list.addView(row)
+                val flotillas = uniqueNonBlank(item.flotillasVinculadas)
+                val grupos = uniqueNonBlank(item.gruposVinculados)
+                val contextValues = (flotillas + grupos).map { it.trim().lowercase() }.toSet()
+                val destino = destinationText(item)
+                val showDestino = destino.isNotBlank() &&
+                    !destino.equals("Sin destino", ignoreCase = true) &&
+                    !contextValues.contains(destino.trim().lowercase())
+
+                row.findViewById<TextView>(R.id.equipoDetalle).text = buildString {
+                    append("Numero: ")
+                    append(if (item.numeroSerie.isNotBlank()) item.numeroSerie else "Sin numero")
+                    if (flotillas.isNotEmpty()) {
+                        append("\n\n")
+                        append(flotillas.joinToString(", "))
+                    }
+                    if (grupos.isNotEmpty()) {
+                        append("\n\n")
+                        append(grupos.joinToString(", "))
+                    }
+                    if (showDestino) {
+                        append("\n\n-- ")
+                        append(destino)
+                    }
+                }
+
+                row.findViewById<TextView>(R.id.equipoTipo).text = ""
+
+                list.addView(row)
+            }
         }
     }
 }

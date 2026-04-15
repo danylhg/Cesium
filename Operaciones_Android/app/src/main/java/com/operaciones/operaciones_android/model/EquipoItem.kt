@@ -14,6 +14,7 @@ data class EquipoItem(
     val numeroSerie: String,
     val nombre: String,
     val categoria: String,
+    val tipoEquipo: String = "",
     val detalle: String = "",
     val asignadoA: String = "", // Texto descriptivo formateado (e.g., "Asignado a grupo: Alfa")
     
@@ -22,5 +23,7 @@ data class EquipoItem(
     val personalAsignado: String = "",
     val vehiculoAsignado: String = "",
     val grupoAsignado: String = "",
-    val flotillaAsignada: String = ""
+    val flotillaAsignada: String = "",
+    val gruposVinculados: List<String> = emptyList(),
+    val flotillasVinculadas: List<String> = emptyList()
 )

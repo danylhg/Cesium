@@ -5,6 +5,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Cesium.js"></script>
+  <script src="milsymbol.min.js"></script>
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.114/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <style>
     * {
@@ -548,7 +549,17 @@
     const areaEntities = new Map();
     let operationZoneEntity = null;
 
-    window.addPoiToMap = function (id, lat, lon, nombre, tipoPoi, color, iconoSrc) {
+    function getMilSymbolCanvas(sidc) {
+      try {
+        if (!sidc || typeof ms === 'undefined' || typeof ms.Symbol !== 'function') return null;
+        return new ms.Symbol(sidc, { size: 130, colorMode: 'Light' }).asCanvas();
+      } catch (e) {
+        console.error('[POI][WEB] Error creando milsymbol: ' + e.message);
+        return null;
+      }
+    }
+
+    window.addPoiToMap = function (id, lat, lon, nombre, tipoPoi, color, iconoSrc, sidc) {
       try {
         if (!viewer) return;
 
@@ -558,12 +569,17 @@
         const label = String((tipoPoi || '').toUpperCase() === 'MIL' ? rawLabel.replace(/\s\d{17}$/, '') : rawLabel);
         const entityId = 'poi_' + id;
         const normalizedIconoSrc = (typeof iconoSrc === 'string') ? iconoSrc.trim() : iconoSrc;
-        const useBillboard = !!normalizedIconoSrc &&
+        const normalizedSidc = (typeof sidc === 'string') ? sidc.trim() : sidc;
+        const milCanvas = getMilSymbolCanvas(normalizedSidc || (normalizedIconoSrc && normalizedIconoSrc.startsWith('S') ? normalizedIconoSrc : null));
+        const useImageSrc = !!normalizedIconoSrc &&
           normalizedIconoSrc !== 'null' &&
           !normalizedIconoSrc.endsWith('/null');
+        const billboardImage = milCanvas || (useImageSrc ? normalizedIconoSrc : null);
+        const useBillboard = !!billboardImage;
+        const billboardScale = milCanvas ? 0.28 : 0.05;
 
         console.log('[POI][WEB] addPoiToMap in', JSON.stringify({
-          id, lat, lon, nombre, tipoPoi, color, iconoSrc: normalizedIconoSrc, useBillboard
+          id, lat, lon, nombre, tipoPoi, color, iconoSrc: normalizedIconoSrc, sidc: normalizedSidc, useBillboard
         }));
 
         if (poiEntities.has(entityId)) {
@@ -575,10 +591,10 @@
           id: entityId,
           position: Cesium.Cartesian3.fromDegrees(lon, lat),
           billboard: useBillboard ? {
-            image: normalizedIconoSrc,
+            image: billboardImage,
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            scale: 0.05,
+            scale: billboardScale,
             scaleByDistance: SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           } : undefined,
@@ -633,7 +649,8 @@
             poi.nombre || 'PDI',
             poi.tipo_poi || '',
             poi.color || '#FFD700',
-            poi.icono_src || null
+            poi.icono_src || null,
+            poi.sidc || null
           );
         });
       } catch (e) {

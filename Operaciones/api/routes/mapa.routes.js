@@ -139,6 +139,7 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
     descripcion,
     color,
     icono_src,
+    sidc,
     tipo_creador,
     id_usuario,
     id_personal
@@ -170,8 +171,8 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
   try {
     // Inserta el POI en la tabla puntos_interes
     const { rows } = await pool.query(
-      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, color, icono_src, id_operacion)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+      `INSERT INTO puntos_interes (tipo_creador, id_usuario, id_personal, nombre, tipo_poi, latitud, longitud, descripcion, color, icono_src, sidc, id_operacion)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
       [
         tipo,
         id_usuario ? Number(id_usuario) : null,
@@ -183,6 +184,7 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
         descripcion?.toString().trim() || null,
         color?.toString().trim() || '#FFD700',
         icono_src?.toString().trim() || null,
+        sidc?.toString().trim() || null,
         id_operacion
       ]
     );
@@ -810,7 +812,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       //    depender del shape de v_capas_mapa_operacion.
       // -------------------------------------------------
       pool.query(
-        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color, icono_src
+        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color, icono_src, sidc
            FROM v_poi_detalle
           WHERE id_operacion = $1
             AND activo = TRUE
@@ -1003,7 +1005,32 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       //      - destino real resuelto desde uso_equipo_operacion
       // -------------------------------------------------
       pool.query(
-        `SELECT
+        `WITH personal_ctx AS (
+            SELECT DISTINCT ON (p.id_personal)
+              p.id_personal,
+              go.nombre AS grupo_nombre,
+              gp_padre.nombre AS grupo_padre_nombre
+            FROM asignacion_operacion_personal aop
+            JOIN personal p ON p.id_personal = aop.id_personal
+            LEFT JOIN grupo_personal gper
+              ON gper.id_personal = p.id_personal
+             AND EXISTS (
+               SELECT 1
+               FROM grupo_operacion gox
+               WHERE gox.id_grupo_operacion = gper.id_grupo_operacion
+                 AND gox.id_operacion = aop.id_operacion
+             )
+            LEFT JOIN grupo_operacion go ON go.id_grupo_operacion = gper.id_grupo_operacion
+            LEFT JOIN grupo_operacion gp_padre ON gp_padre.id_grupo_operacion = go.id_grupo_padre
+            WHERE aop.id_operacion = $1
+              AND aop.estado_asignacion NOT IN ('LIBERADO')
+            ORDER BY
+              p.id_personal,
+              CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
+              CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
+              go.id_grupo_operacion
+          )
+          SELECT
             e.id_equipo,
             e.numero_serie,
             e.nombre,
@@ -1013,6 +1040,16 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             oe.uso_en_operacion,
             oe.estado_asignacion,
             COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
+            ec.marca,
+            ec.modelo,
+            et.tipo_tactico,
+            CASE
+              WHEN UPPER(COALESCE(e.categoria, '')) = 'COMUNICACION'
+                THEN COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ec.marca, ec.modelo)), ''), 'Equipo de comunicacion')
+              WHEN UPPER(COALESCE(e.categoria, '')) = 'TACTICO'
+                THEN COALESCE(NULLIF(TRIM(et.tipo_tactico), ''), 'Equipo tactico')
+              ELSE COALESCE(NULLIF(TRIM(e.categoria), ''), 'Equipo')
+            END AS tipo_equipo,
 
             -- Tipo de destino real del equipo
             CASE
@@ -1023,15 +1060,22 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             END AS tipo_destino,
 
             -- Persona responsable (siempre obligatoria)
-            COALESCE(p_ueo.apodo,
-              NULLIF(TRIM(CONCAT_WS(' ', p_ueo.nombre, p_ueo.apellido)), '')) AS asignado_a_personal,
+            COALESCE(
+              NULLIF(TRIM(CONCAT_WS(' ', p_ueo.puesto, p_ueo.nombre, p_ueo.apellido)), ''),
+              p_ueo.apodo
+            ) AS asignado_a_personal,
 
             -- Vehículo contexto si aplica
             v_ueo.codigo_interno AS asignado_a_vehiculo,
             v_ueo.alias          AS vehiculo_alias,
 
             -- Grupo si aplica
-            go_ueo.nombre AS grupo_asignado
+            go_ueo.nombre AS grupo_asignado,
+            gp_ueo.nombre AS flotilla_asignada,
+            per_ctx.grupo_nombre AS personal_grupo_nombre,
+            per_ctx.grupo_padre_nombre AS personal_flotilla_nombre,
+            veh_ctx.flotillas_vinculadas,
+            veh_ctx.grupos_vinculados
           FROM operacion_equipo oe
           JOIN equipo e ON e.id_equipo = oe.id_equipo
           LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
@@ -1047,9 +1091,31 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
           LEFT JOIN personal        p_ueo  ON p_ueo.id_personal          = ueo.id_personal
           LEFT JOIN vehiculo        v_ueo  ON v_ueo.id_vehiculo           = ueo.id_vehiculo_contexto
           LEFT JOIN grupo_operacion go_ueo ON go_ueo.id_grupo_operacion   = ueo.id_grupo_operacion
+          LEFT JOIN grupo_operacion gp_ueo ON gp_ueo.id_grupo_operacion   = go_ueo.id_grupo_padre
+          LEFT JOIN personal_ctx per_ctx   ON per_ctx.id_personal         = ueo.id_personal
+          LEFT JOIN LATERAL (
+            SELECT
+              STRING_AGG(DISTINCT COALESCE(pc.grupo_padre_nombre, pc.grupo_nombre), ', ')
+                FILTER (WHERE COALESCE(pc.grupo_padre_nombre, pc.grupo_nombre) IS NOT NULL) AS flotillas_vinculadas,
+              STRING_AGG(DISTINCT pc.grupo_nombre, ', ')
+                FILTER (WHERE pc.grupo_nombre IS NOT NULL) AS grupos_vinculados
+            FROM vehiculo_operacion vo2
+            LEFT JOIN personal_ctx pc ON pc.id_personal = vo2.id_personal
+            WHERE vo2.id_operacion = oe.id_operacion
+              AND vo2.id_vehiculo = ueo.id_vehiculo_contexto
+              AND vo2.estado_asignacion NOT IN ('LIBERADO')
+          ) veh_ctx ON TRUE
 
           -- Solo equipo no liberado
-          WHERE oe.id_operacion = $1 AND oe.estado_asignacion != 'LIBERADO'`,
+          WHERE oe.id_operacion = $1 AND oe.estado_asignacion != 'LIBERADO'
+          ORDER BY
+            CASE
+              WHEN UPPER(COALESCE(e.categoria, '')) = 'COMUNICACION' THEN 0
+              WHEN UPPER(COALESCE(e.categoria, '')) = 'TACTICO' THEN 1
+              ELSE 2
+            END,
+            e.nombre,
+            e.numero_serie`,
         [id_operacion]
       ),
 

@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS puntos_interes (
   descripcion TEXT,
   color TEXT NOT NULL DEFAULT '#FFD700',
   icono_src TEXT,
+  sidc TEXT,
   id_operacion INT REFERENCES operacion(id_operacion) ON DELETE CASCADE,
   activo BOOLEAN NOT NULL DEFAULT TRUE,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),

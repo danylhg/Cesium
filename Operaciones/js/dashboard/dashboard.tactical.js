@@ -322,6 +322,39 @@ function resolvePoiImage(iconSrc) {
   return `${apiBase.replace(/\/$/, "")}/${iconSrc.replace(/^\.?\//, "")}`;
 }
 
+function getMilSymbolInstance(sidc, size = 40) {
+  if (!sidc || typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
+
+  try {
+    return new ms.Symbol(sidc, {
+      size,
+      colorMode: "Light"
+    });
+  } catch (err) {
+    console.warn("[MIL] SIDC invalido para milsymbol:", sidc, err);
+    return null;
+  }
+}
+
+function renderMilSymbolImage(sidc, size = 40) {
+  const symbol = getMilSymbolInstance(sidc, size);
+  return symbol ? symbol.asCanvas() : null;
+}
+
+function normalizeMilBillboardScale(rawScale) {
+  const parsed = Number(rawScale);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0.3;
+  return Math.max(parsed * 2.1, 0.3);
+}
+
+function buildMilSidc() {
+  const identity = dom.milIdentity?.value || "F";
+  const dimension = dom.milDimension?.value || "G";
+  const icon = String(dom.milIcon?.value || "UCI---").padEnd(6, "-").slice(0, 6);
+
+  return `S${identity}${dimension}P${icon}-----`;
+}
+
 function buildPoiEntity(poi, tacticalType = "poi") {
   const viewer = dashboardState.viewer;
   if (!viewer) return null;
@@ -334,9 +367,8 @@ function buildPoiEntity(poi, tacticalType = "poi") {
   let iconSrc = resolvePoiImage(poi.icono_src || poi.iconSrc || poi.image);
   
   // Si hay SIDC, generamos el icono dinámicamente con milsymbol
-  if (sidc && typeof ms !== "undefined") {
-    const sym = new ms.Symbol(sidc, { size: 40 });
-    iconSrc = sym.asCanvas();
+  if (sidc) {
+    iconSrc = renderMilSymbolImage(sidc, 90) || iconSrc;
   }
 
   const tipo_poi_raw = (poi.tipo_poi || poi.tipoPoi || "").toUpperCase();
@@ -362,7 +394,10 @@ function buildPoiEntity(poi, tacticalType = "poi") {
       image: iconSrc,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      scale: Number(poi.scale || (isMil ? 0.8 : 0.8)) // Ajuste de escala para milsymbol
+      scale: isMil
+        ? normalizeMilBillboardScale(poi.scale)
+        : Number(poi.scale || 0.08),
+      scaleByDistance: SCALE_BY_DIST
     } : undefined,
     point: !iconSrc ? {
       pixelSize: 10,
@@ -393,7 +428,7 @@ function buildPoiEntity(poi, tacticalType = "poi") {
   });
 }
 
-async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc = null) {
+async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc = null, sidc = null) {
   try {
     const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
     const token    = localStorage.getItem("token");
@@ -411,8 +446,8 @@ async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc =
       latitud:       lat,
       longitud:      lng,
       color:         COLOR_HEX_MAP[colorName] || '#FFD700',
-      icono_src:     iconoSrc,
-      sidc:          arguments[6] || null, // Capturamos sidc si se pasa como 7mo argumento
+      icono_src:     sidc || iconoSrc,
+      sidc:          sidc,
       tipo_creador:  tabla === "personal" ? "PERSONAL" : "USUARIO",
       [idKey]:       idVal
     };
@@ -1128,11 +1163,14 @@ export async function createPoi(lat, lng, iconPath = null) {
 
 export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08, sidc = null) {
   const uniqueName = buildMilUniqueName(nombre);
-  // Pasamos el SIDC como 7mo argumento a savePoiToBackend
   const savedPoi = await savePoiToBackend(lat, lng, uniqueName, "MIL", "red", iconPath, sidc);
   if (!savedPoi) return;
 
-  const ent = buildPoiEntity({ ...savedPoi, scale }, "poi");
+  const ent = buildPoiEntity({
+    ...savedPoi,
+    sidc: sidc || savedPoi.sidc,
+    scale
+  }, "poi");
   if (ent) {
     addTacticalEntity(ent);
     if (dom.tbHint) dom.tbHint.textContent = `${nombre} colocado.`;
@@ -2103,7 +2141,7 @@ export function bindTacticalEvents() {
     dom.iconScale.addEventListener("input", (e) => {
       const ent = dashboardState.selectedEntity;
       if (ent && ent.properties?.tacticalType?.getValue?.() === "mil-dropped") {
-        ent.billboard.scale = Number(e.target.value);
+        ent.billboard.scale = normalizeMilBillboardScale(e.target.value);
       }
     });
   }
@@ -2204,6 +2242,7 @@ export function bindTacticalEvents() {
   if (dom.milIdentity) dom.milIdentity.addEventListener("change", updateMilSymbolPreview);
   if (dom.milDimension) dom.milDimension.addEventListener("change", updateMilSymbolPreview);
   if (dom.milIcon) dom.milIcon.addEventListener("change", updateMilSymbolPreview);
+  if (dom.iconScale) dom.iconScale.addEventListener("input", updateMilSymbolPreview);
 
   if (dom.milPreviewContainer) {
     dom.milPreviewContainer.addEventListener("dragstart", (e) => {
@@ -2224,19 +2263,15 @@ export function bindTacticalEvents() {
 
 export function updateMilSymbolPreview() {
   if (!dom.milPreviewContainer) return;
-
-  const identity = dom.milIdentity.value;
-  const dimension = dom.milDimension.value;
-  const icon = dom.milIcon.value;
-
-  // SIDC de 15 caracteres (MIL-STD-2525B/C simple)
-  const sidc = `S${identity}${dimension}P${icon}---`;
+  const sidc = buildMilSidc();
 
   if (!sidc) return;
 
-  const canvas = ms.asCanvas(sidc, {
-    size: Number(dom.iconScale?.value || 0.1) * 300,
-  });
+  const canvas = renderMilSymbolImage(
+    sidc,
+    Math.max(35, Math.round(Number(dom.iconScale?.value || 0.1) * 300))
+  );
+  if (!canvas) return;
 
   dom.milPreviewContainer.innerHTML = "";
   dom.milPreviewContainer.appendChild(canvas);

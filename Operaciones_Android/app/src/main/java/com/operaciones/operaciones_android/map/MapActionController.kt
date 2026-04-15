@@ -47,12 +47,14 @@ class MapActionController(
         )
 
         val SIMBOLOS_MIL = listOf(
-            "Unidad Blindada" to "img/simbolos_militares/Armored-Track-Unit_MGRS-Mapper.png",
-            "Punto de Control" to "img/simbolos_militares/Checkpoint_MGRS-Mapper.png",
-            "Artilleria de Campo" to "img/simbolos_militares/Field-Artillery_MGRS-Mapper.png",
-            "Infanteria" to "img/simbolos_militares/Infantry_MGRS-Mapper.png",
-            "Infanteria Mecanizada" to "img/simbolos_militares/Mechanized-Armored-Infantry_MGRS-Mapper.png",
-            "Punto de Referencia" to "img/simbolos_militares/Target-Reference-Point_MGRS-Mapper.png"
+            "Infanteria" to "SFGPUCI--------",
+            "Unidad Blindada" to "SFGPUCD--------",
+            "Artilleria de Campo" to "SFGPUCA--------",
+            "Reconocimiento" to "SFGPUCR--------",
+            "Ingenieros" to "SFGPUCJ--------",
+            "Punto de Control" to "SFGPIP---------",
+            "Base / Cuartel" to "SFGPIB---------",
+            "Radar" to "SFGPIR---------"
         )
     }
 

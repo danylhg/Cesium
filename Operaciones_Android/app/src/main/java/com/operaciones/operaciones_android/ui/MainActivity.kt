@@ -1,6 +1,7 @@
 package com.operaciones.operaciones_android.ui
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -14,6 +15,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
@@ -65,7 +67,8 @@ class MainActivity : AppCompatActivity(),
         val nombre: String,
         val tipoPoi: String,
         val color: String,
-        val iconoSrc: String? = null
+        val iconoSrc: String? = null,
+        val sidc: String? = null
     )
 
     private data class PendingCoverageCircleAddition(
@@ -158,6 +161,7 @@ class MainActivity : AppCompatActivity(),
     private val pendingCoverageCircleAdditions = mutableListOf<PendingCoverageCircleAddition>()
     private val pendingAreaPolygonAdditions = mutableListOf<PendingAreaPolygonAddition>()
     private val pendingStructureAdditions = mutableListOf<PendingStructureAddition>()
+    private var emergencyServiceStarted = false
     private val connectionMonitorHandler = Handler(Looper.getMainLooper())
     private val connectionMonitorRunnable = object : Runnable {
         override fun run() {
@@ -274,12 +278,13 @@ class MainActivity : AppCompatActivity(),
                         val tipo   = poi.optString("tipo_poi", "")
                         val color  = poi.optString("color", "#FFD700").ifBlank { "#FFD700" }
                         val iconoSrc = resolvePoiIconUrl(poi.optString("icono_src", null))
+                        val sidc = poi.optString("sidc", null).takeUnless { it.isNullOrBlank() || it.equals("null", ignoreCase = true) }
                         if (idPoi > 0) {
                             if (isCesiumReady) {
-                                cesiumWebController.addPoiToMap(idPoi, lat, lon, nombre, tipo, color, iconoSrc)
+                                cesiumWebController.addPoiToMap(idPoi, lat, lon, nombre, tipo, color, iconoSrc, sidc)
                             } else {
                                 pendingPoiAdditions.add(
-                                    PendingPoiAddition(idPoi, lat, lon, nombre, tipo, color, iconoSrc)
+                                    PendingPoiAddition(idPoi, lat, lon, nombre, tipo, color, iconoSrc, sidc)
                                 )
                             }
                         }
@@ -618,19 +623,35 @@ class MainActivity : AppCompatActivity(),
             putExtra(EmergencyMonitorService.EXTRA_USER_NAME, currentUser.nombreCompleto)
         }
 
+    private fun hasLocationPermission(): Boolean {
+        val fineOk = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val coarseOk = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        return fineOk || coarseOk
+    }
+
     private fun startEmergencyService() {
-        if (currentOperation.id <= 0) return
+        if (currentOperation.id <= 0 || emergencyServiceStarted || !hasLocationPermission()) return
         val intent = buildEmergencyServiceIntent()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
         } else {
             startService(intent)
         }
+        emergencyServiceStarted = true
         Log.d("EMERGENCY", "EmergencyMonitorService iniciado para op=${currentOperation.id}")
     }
 
     private fun stopEmergencyService() {
         stopService(Intent(this, EmergencyMonitorService::class.java))
+        emergencyServiceStarted = false
         Log.d("EMERGENCY", "EmergencyMonitorService detenido")
     }
 
@@ -668,6 +689,9 @@ class MainActivity : AppCompatActivity(),
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         locationHelper.handlePermissionsResult(requestCode, grantResults)
+        if (hasLocationPermission()) {
+            startEmergencyService()
+        }
     }
 
     private fun fetchMapaData() {
@@ -731,6 +755,9 @@ class MainActivity : AppCompatActivity(),
                                 append("\"color\":\"${poi.color}\"")
                                 poi.iconoSrc?.let { icon ->
                                     append(",\"icono_src\":\"${resolvePoiIconUrl(icon)?.replace("\"", "\\\"")}\"")
+                                }
+                                poi.sidc?.let { sidc ->
+                                    append(",\"sidc\":\"${sidc.replace("\"", "\\\"")}\"")
                                 }
                                 append("}")
                             }
@@ -1158,7 +1185,8 @@ class MainActivity : AppCompatActivity(),
                     poi.nombre,
                     poi.tipoPoi,
                     poi.color,
-                    poi.iconoSrc
+                    poi.iconoSrc,
+                    poi.sidc
                 )
             }
             pendingPoiAdditions.clear()
@@ -1233,6 +1261,7 @@ class MainActivity : AppCompatActivity(),
     private fun resolvePoiIconUrl(iconoSrc: String?): String? {
         val cleaned = iconoSrc?.trim()
         if (cleaned.isNullOrBlank() || cleaned.equals("null", ignoreCase = true)) return null
+        if (cleaned.startsWith("S")) return cleaned
         if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) return cleaned
         return "${ApiConfig.BASE_URL}/${cleaned.trimStart('/')}"
     }
@@ -1254,6 +1283,7 @@ class MainActivity : AppCompatActivity(),
               "longitud": $lon,
               "color": "$color",
               "icono_src": ${iconoSrc?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"},
+              "sidc": ${iconoSrc?.takeIf { it.startsWith("S") }?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"},
               "tipo_creador": "$tipoCreador",
               "$idKey": ${currentUser.id}
             }
@@ -1289,6 +1319,7 @@ class MainActivity : AppCompatActivity(),
                             val poiTipo = poi.optString("tipo_poi", tipoPoi)
                             val poiColor = poi.optString("color", color).ifBlank { color }
                             val poiIconoSrc = resolvePoiIconUrl(poi.optString("icono_src", iconoSrc))
+                            val poiSidc = poi.optString("sidc", null).takeUnless { it.isNullOrBlank() || it.equals("null", ignoreCase = true) }
 
                             runOnUiThread {
                                 if (idPoi > 0) {
@@ -1299,7 +1330,8 @@ class MainActivity : AppCompatActivity(),
                                         nombre = poiNombre,
                                         tipoPoi = poiTipo,
                                         color = poiColor,
-                                        iconoSrc = poiIconoSrc
+                                        iconoSrc = poiIconoSrc,
+                                        sidc = poiSidc
                                     )
                                 }
 

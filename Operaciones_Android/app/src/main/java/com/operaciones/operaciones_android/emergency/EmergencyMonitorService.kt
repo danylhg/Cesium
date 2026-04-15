@@ -17,6 +17,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.network.ChatRepository
@@ -171,6 +172,20 @@ class EmergencyMonitorService : Service(), SensorEventListener {
 
     @SuppressLint("MissingPermission")
     private fun registerLocationListener() {
+        val fineOk = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        val coarseOk = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!fineOk && !coarseOk) {
+            Log.w(TAG, "Sin permiso de ubicación; no se registra listener del servicio")
+            return
+        }
+
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
         locationListener = LocationListener { loc: Location ->

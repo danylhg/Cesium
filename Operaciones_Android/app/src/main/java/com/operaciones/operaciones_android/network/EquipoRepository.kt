@@ -18,6 +18,11 @@ class EquipoRepository(
         return optString(key, "").takeUnless { it.equals("null", ignoreCase = true) } ?: ""
     }
 
+    private fun splitCsv(value: String): List<String> =
+        value.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+
     fun fetchEquipos(
         operationId: Int,
         token: String,
@@ -32,7 +37,7 @@ class EquipoRepository(
 
         http.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                onError("Sin conexión cargando equipos.")
+                onError("Sin conexion cargando equipos.")
             }
 
             override fun onResponse(call: Call, response: Response) {
@@ -55,18 +60,37 @@ class EquipoRepository(
                         val personalNombre = e.safeString("asignado_a_personal").ifBlank {
                             e.safeString("personal_apodo").ifBlank { e.safeString("personal_asignado") }
                         }
-                        val vehiculoNombre = e.safeString("asignado_a_vehiculo").ifBlank {
+                        val vehiculoCodigo = e.safeString("asignado_a_vehiculo").ifBlank {
                             e.safeString("vehiculo_asignado")
                         }
+                        val vehiculoAlias = e.safeString("vehiculo_alias")
+                        val vehiculoNombre = listOf(vehiculoCodigo, vehiculoAlias)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" - ")
                         val grupoNombre = e.safeString("grupo_asignado")
-                        val flotillaNombre = e.safeString("flotilla_nombre")
+                        val flotillaNombre = e.safeString("flotilla_asignada")
+                        val tipoEquipo = e.safeString("tipo_equipo")
+                        val gruposVinculados = when (tipoDestino) {
+                            "VEHICULO" -> splitCsv(e.safeString("grupos_vinculados"))
+                            "GRUPO" -> listOf(grupoNombre).filter { it.isNotBlank() }
+                            else -> listOf(e.safeString("personal_grupo_nombre")).filter { it.isNotBlank() }
+                        }
+                        val flotillasVinculadas = when (tipoDestino) {
+                            "VEHICULO" -> splitCsv(e.safeString("flotillas_vinculadas"))
+                            "GRUPO" -> listOf(flotillaNombre).filter { it.isNotBlank() }
+                            else -> listOf(
+                                e.safeString("personal_flotilla_nombre").ifBlank {
+                                    e.safeString("personal_grupo_nombre")
+                                }
+                            ).filter { it.isNotBlank() }
+                        }
 
-                        val asignadoA = when (tipoDestino) {
-                            "PERSONAL" -> "Asignado a personal: $personalNombre"
-                            "VEHICULO" -> "Asignado a vehículo: $vehiculoNombre"
-                            "GRUPO" -> "Asignado a grupo: $grupoNombre"
-                            "FLOTILLA" -> "Asignado a flotilla: $flotillaNombre"
-                            else -> "Sin asignación"
+                        val asignadoA = when {
+                            vehiculoNombre.isNotBlank() -> vehiculoNombre
+                            personalNombre.isNotBlank() -> personalNombre
+                            grupoNombre.isNotBlank() -> grupoNombre
+                            flotillaNombre.isNotBlank() -> flotillaNombre
+                            else -> "Sin destino"
                         }
 
                         val detalle = buildString {
@@ -84,13 +108,16 @@ class EquipoRepository(
                                 numeroSerie = e.safeString("numero_serie"),
                                 nombre = e.safeString("nombre").ifBlank { "Equipo" },
                                 categoria = e.safeString("categoria"),
+                                tipoEquipo = tipoEquipo,
                                 detalle = detalle,
                                 asignadoA = asignadoA,
                                 tipoDestino = tipoDestino,
                                 personalAsignado = personalNombre,
                                 vehiculoAsignado = vehiculoNombre,
                                 grupoAsignado = grupoNombre,
-                                flotillaAsignada = flotillaNombre
+                                flotillaAsignada = flotillaNombre,
+                                gruposVinculados = gruposVinculados,
+                                flotillasVinculadas = flotillasVinculadas
                             )
                         )
                     }

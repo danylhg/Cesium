@@ -7,5 +7,6 @@ data class PoiItem(
     val lat: Double,
     val lon: Double,
     val color: String,
-    val iconoSrc: String? = null
+    val iconoSrc: String? = null,
+    val sidc: String? = null
 )

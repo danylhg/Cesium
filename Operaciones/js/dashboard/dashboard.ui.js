@@ -279,24 +279,83 @@ function renderVehiculosHierarchyHtml(vehiculos) {
 function normalizeEquipos(equipos) {
   return equipos.map((e) => {
     if (e.numero_serie !== undefined && !e.nombre_display) {
-      let destino = "";
-      if (e.tipo_destino === "VEHICULO") {
-        destino = [e.vehiculo_alias, e.asignado_a_vehiculo].filter(Boolean).join(" ") || "";
-      } else if (e.tipo_destino === "PERSONAL" && e.asignado_a_personal) {
-        destino = e.asignado_a_personal;
-      } else if (e.tipo_destino === "GRUPO" && e.grupo_asignado) {
-        destino = e.grupo_asignado;
-      }
-
       return {
+        id_equipo: e.id_equipo,
         nombre: e.nombre,
-        asignadoA: destino,
-        vehiculo: e.tipo_destino === "VEHICULO" ? destino : "",
-        tipo_destino: e.tipo_destino || null
+        numero: e.numero_serie || "",
+        categoria: e.categoria || "",
+        tipo_equipo: e.tipo_equipo || e.tipo_tactico || [e.marca, e.modelo].filter(Boolean).join(" ") || e.categoria || "Equipo",
+        tipo_destino: e.tipo_destino || null,
+        asignadoA: e.asignado_a_personal || "",
+        vehiculo: e.tipo_destino === "VEHICULO"
+          ? [e.asignado_a_vehiculo, e.vehiculo_alias].filter(Boolean).join(" - ")
+          : "",
+        grupos: (() => {
+          if (e.tipo_destino === "VEHICULO") {
+            return String(e.grupos_vinculados || "").split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (e.tipo_destino === "GRUPO") {
+            return [e.grupo_asignado].filter(Boolean);
+          }
+          return [e.personal_grupo_nombre].filter(Boolean);
+        })(),
+        flotillas: (() => {
+          if (e.tipo_destino === "VEHICULO") {
+            return String(e.flotillas_vinculadas || "").split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (e.tipo_destino === "GRUPO") {
+            return [e.flotilla_asignada].filter(Boolean);
+          }
+          return [e.personal_flotilla_nombre || e.personal_grupo_nombre].filter(Boolean);
+        })()
       };
     }
     return e;
   });
+}
+
+function renderEquiposGroupedHtml(equiposNorm) {
+  if (!equiposNorm.length) return "<p>Sin equipos asignados.</p>";
+
+  const groups = [
+    {
+      title: "Equipos de Comunicacion",
+      items: equiposNorm.filter((e) => String(e.categoria || "").toUpperCase() === "COMUNICACION")
+    },
+    {
+      title: "Equipos Tacticos",
+      items: equiposNorm.filter((e) => String(e.categoria || "").toUpperCase() === "TACTICO")
+    },
+    {
+      title: "Otros equipos",
+      items: equiposNorm.filter((e) => !["COMUNICACION", "TACTICO"].includes(String(e.categoria || "").toUpperCase()))
+    }
+  ].filter(group => group.items.length);
+
+  const renderCard = (e) => {
+    const flotillas = [...new Set((e.flotillas || []).filter(Boolean))];
+    const grupos = [...new Set((e.grupos || []).filter(Boolean))];
+    const destinoRaw = e.vehiculo || e.asignadoA || "";
+    const contexto = new Set([...flotillas, ...grupos].map((v) => String(v).trim().toLowerCase()));
+    const destinoFinal = contexto.has(String(destinoRaw).trim().toLowerCase()) ? "" : destinoRaw;
+
+    return `
+      <div class="miniCard">
+        <p><strong>Nombre de equipo:</strong> ${escapeHtml(e.nombre || "")}</p>
+        <p><strong>Numero:</strong> ${escapeHtml(e.numero || "Sin numero")}</p>
+        ${flotillas.length ? `<p style="margin-top:8px;"><strong>${escapeHtml(flotillas.join(", "))}</strong></p>` : ""}
+        ${grupos.length ? `<p style="margin-top:8px;"><strong>${escapeHtml(grupos.join(", "))}</strong></p>` : ""}
+        ${destinoFinal ? `<p style="padding-left:12px; margin-top:8px;">-- ${escapeHtml(destinoFinal)}</p>` : ""}
+      </div>
+    `;
+  };
+
+  return groups.map((group) => `
+    <div style="margin-bottom:16px;">
+      <h4 style="margin:0 0 8px 0; color:#a0c4ff;">${escapeHtml(group.title)}</h4>
+      ${group.items.map(renderCard).join("")}
+    </div>
+  `).join("");
 }
 
 export function renderInfoPanel(bdData = null) {
@@ -365,25 +424,7 @@ export function renderInfoPanel(bdData = null) {
   const vehiculosHtml = renderVehiculosHierarchyHtml(vehiculos);
 
   const equiposNorm = normalizeEquipos(equipos);
-  let equiposHtml = "<p>Sin equipos asignados.</p>";
-  if (equiposNorm.length) {
-    equiposHtml = equiposNorm.map((e) => {
-      const target = e.vehiculo || e.asignadoA || e.destino || "";
-      const isVehiculo = !!e.vehiculo;
-      const isGrupo = !isVehiculo && e.tipo_destino === "GRUPO";
-
-      const destinoText = target
-        ? (isVehiculo ? `Vehiculo: ${target}` : isGrupo ? `Grupo: ${target}` : `Personal: ${target}`)
-        : "Sin asignacion";
-
-      return `
-        <div class="miniCard">
-          <p><strong>Nombre:</strong> ${escapeHtml(e.nombre || e.name || "")}</p>
-          <p>${escapeHtml(destinoText)}</p>
-        </div>
-      `;
-    }).join("");
-  }
+  const equiposHtml = renderEquiposGroupedHtml(equiposNorm);
 
   container.innerHTML = `
     <div class="infoBlock">

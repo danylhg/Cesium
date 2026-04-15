@@ -130,6 +130,7 @@ class OperationMapRepository(
                                     numeroSerie = numeroSerie,
                                     nombre = c.optString("nombre", "Equipo"),
                                     categoria = c.optString("categoria", ""),
+                                    tipoEquipo = c.optString("tipo_equipo", ""),
                                     detalle = if (numeroSerie.isNotBlank()) "S/N: $numeroSerie" else "",
                                     asignadoA = ""
                                 )
@@ -148,6 +149,10 @@ class OperationMapRepository(
                             val idPoi = if (c.has("id_poi")) c.optInt("id_poi") else c.optInt("id_elemento")
                             if (idPoi <= 0) continue
 
+                            val iconoSrc = normalizedOptionalString(c.optString("icono_src", null))
+                            val sidc = normalizedOptionalString(c.optString("sidc", null))
+                                ?: iconoSrc?.takeIf { it.startsWith("S") }
+
                             pois.add(
                                 PoiItem(
                                     idPoi = idPoi,
@@ -156,7 +161,8 @@ class OperationMapRepository(
                                     lat = c.optDouble("latitud"),
                                     lon = c.optDouble("longitud"),
                                     color = c.optString("color", "#FFD700").ifBlank { "#FFD700" },
-                                    iconoSrc = normalizedOptionalString(c.optString("icono_src", null))
+                                    iconoSrc = iconoSrc,
+                                    sidc = sidc
                                 )
                             )
                         }
