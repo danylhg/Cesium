@@ -6,14 +6,14 @@ import { dom } from "./dashboard.dom.js";
 import { cartesianToLatLng } from "./dashboard.persistence.js";
 import { getCesiumColor, getCurrentColorName, getLineWidth } from "./dashboard.tactical.js";
 
-/* ─── Undo / Redo history ───────────────────────────────────── */
+/* ─── Undo / Redo history (global — all map actions) ────────── */
 
 const undoStack = [];
 const redoStack = [];
 const MAX_HISTORY = 60;
 
-function pushUndoAction(action) {
-  // action = { type: "add"|"remove", entityId, entityData?, entityRef? }
+export function pushUndoAction(action) {
+  // action = { type: "add"|"remove", entityId, entityData?, entityRef?, source: "drawing"|"tactical" }
   undoStack.push(action);
   if (undoStack.length > MAX_HISTORY) undoStack.shift();
   redoStack.length = 0; // clear redo on new action
@@ -27,23 +27,46 @@ export function undo() {
   if (!viewer) return;
 
   if (action.type === "add") {
-    // Undo an add → remove the entity
-    const ent = viewer.entities.getById(action.entityId);
+    // Undo an add → hide the entity
+    const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
-      viewer.entities.remove(ent);
-      // Also remove from drawingEntities
-      dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
-        .filter(e => e !== ent);
+      ent.show = false;
+      action.entityRef = ent;
+
+      // Remove from appropriate list
+      if (action.source === "tactical") {
+        dashboardState.tacticalEntities = (dashboardState.tacticalEntities || [])
+          .filter(e => e !== ent);
+      } else {
+        dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+          .filter(e => e !== ent);
+      }
     }
-    redoStack.push({ ...action, _removedData: action.entityData });
+    redoStack.push(action);
   } else if (action.type === "remove") {
-    // Undo a remove → re-add the entity
-    const ent = rebuildDrawingEntity(action.entityData);
-    if (ent) {
-      dashboardState.drawingEntities = dashboardState.drawingEntities || [];
-      dashboardState.drawingEntities.push(ent);
+    // Undo a remove → show the entity again or rebuild
+    if (action.entityRef && viewer.entities.contains(action.entityRef)) {
+      action.entityRef.show = true;
+    } else if (action.entityData) {
+      const ent = rebuildDrawingEntity(action.entityData);
+      if (ent) action.entityRef = ent;
     }
-    redoStack.push({ ...action, entityId: ent?.id ?? action.entityId });
+
+    // Re-add to appropriate list
+    if (action.entityRef) {
+      if (action.source === "tactical") {
+        dashboardState.tacticalEntities = dashboardState.tacticalEntities || [];
+        if (!dashboardState.tacticalEntities.includes(action.entityRef)) {
+          dashboardState.tacticalEntities.push(action.entityRef);
+        }
+      } else {
+        dashboardState.drawingEntities = dashboardState.drawingEntities || [];
+        if (!dashboardState.drawingEntities.includes(action.entityRef)) {
+          dashboardState.drawingEntities.push(action.entityRef);
+        }
+      }
+    }
+    redoStack.push(action);
   }
   refreshUndoRedoButtons();
 }
@@ -55,21 +78,42 @@ export function redo() {
   if (!viewer) return;
 
   if (action.type === "add") {
-    // Redo an add → re-add the entity
-    const ent = rebuildDrawingEntity(action.entityData);
-    if (ent) {
-      dashboardState.drawingEntities = dashboardState.drawingEntities || [];
-      dashboardState.drawingEntities.push(ent);
+    // Redo an add → show the entity again or rebuild
+    if (action.entityRef && viewer.entities.contains(action.entityRef)) {
+      action.entityRef.show = true;
+    } else if (action.entityData) {
+      const ent = rebuildDrawingEntity(action.entityData);
+      if (ent) action.entityRef = ent;
     }
-    action.entityId = ent?.id ?? action.entityId;
+
+    if (action.entityRef) {
+      if (action.source === "tactical") {
+        dashboardState.tacticalEntities = dashboardState.tacticalEntities || [];
+        if (!dashboardState.tacticalEntities.includes(action.entityRef)) {
+          dashboardState.tacticalEntities.push(action.entityRef);
+        }
+      } else {
+        dashboardState.drawingEntities = dashboardState.drawingEntities || [];
+        if (!dashboardState.drawingEntities.includes(action.entityRef)) {
+          dashboardState.drawingEntities.push(action.entityRef);
+        }
+      }
+    }
     undoStack.push(action);
   } else if (action.type === "remove") {
-    // Redo a remove → remove the entity again
-    const ent = viewer.entities.getById(action.entityId);
+    // Redo a remove → hide the entity again
+    const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
-      viewer.entities.remove(ent);
-      dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
-        .filter(e => e !== ent);
+      ent.show = false;
+      action.entityRef = ent;
+
+      if (action.source === "tactical") {
+        dashboardState.tacticalEntities = (dashboardState.tacticalEntities || [])
+          .filter(e => e !== ent);
+      } else {
+        dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+          .filter(e => e !== ent);
+      }
     }
     undoStack.push(action);
   }
@@ -241,7 +285,9 @@ export function startPencilMode() {
         pushUndoAction({
           type: "add",
           entityId: ent.id,
-          entityData: data
+          entityRef: ent,
+          entityData: data,
+          source: "drawing"
         });
       }
     }
@@ -311,7 +357,9 @@ export function startEraserMode() {
         pushUndoAction({
           type: "remove",
           entityId: data.id,
-          entityData: data
+          entityRef: entity,
+          entityData: data,
+          source: "drawing"
         });
       }
 

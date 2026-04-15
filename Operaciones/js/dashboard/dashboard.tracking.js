@@ -3,8 +3,8 @@
 import { dashboardState } from "./dashboard.state.js";
 
 const API_BASE = () => localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-const token    = () => localStorage.getItem("token");
-const opId     = () => localStorage.getItem("active_operation_id");
+const token = () => localStorage.getItem("token");
+const opId = () => localStorage.getItem("active_operation_id");
 
 // ── Iconos / colores ─────────────────────────────────────────
 const COLOR_PERSONAL = Cesium.Color.fromCssColorString("#00BFFF");
@@ -19,7 +19,7 @@ function makePersonalLabel(item) {
 
 function makeVehiculoLabel(item) {
   const codigo = item.codigo_interno || "";
-  const alias  = item.alias || "";
+  const alias = item.alias || "";
   if (codigo && alias) return `${codigo} - ${alias}`;
   return codigo || alias || `V-${item.id_vehiculo}`;
 }
@@ -117,7 +117,7 @@ export async function loadTrackingFromBackend() {
     (data.personal || []).forEach(p => {
       const coords = getCoords(p);
       if (!coords) return;
-      const key   = `P:${p.id_personal}`;
+      const key = `P:${p.id_personal}`;
       const label = makePersonalLabel(p);
       upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_PERSONAL);
     });
@@ -126,7 +126,7 @@ export async function loadTrackingFromBackend() {
     (data.vehiculos || []).forEach(v => {
       const coords = getCoords(v);
       if (!coords) return;
-      const key   = `V:${v.id_vehiculo}`;
+      const key = `V:${v.id_vehiculo}`;
       const label = makeVehiculoLabel(v);
       upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_VEHICULO);
     });
@@ -142,7 +142,7 @@ export function initTrackingSocket(socket) {
     const { id_personal, latitud, longitud } = data ?? {};
     if (!id_personal || latitud == null || longitud == null) return;
 
-    const key   = `P:${id_personal}`;
+    const key = `P:${id_personal}`;
     const label = makePersonalLabel(data);
     upsertTrackingEntity(key, latitud, longitud, label, COLOR_PERSONAL);
   });
@@ -151,7 +151,7 @@ export function initTrackingSocket(socket) {
     const { id_vehiculo, latitud, longitud } = data ?? {};
     if (!id_vehiculo || latitud == null || longitud == null) return;
 
-    const key   = `V:${id_vehiculo}`;
+    const key = `V:${id_vehiculo}`;
     const label = dashboardState.trackingEntities.get(key)?.name || `V-${id_vehiculo}`;
     upsertTrackingEntity(key, latitud, longitud, label, COLOR_VEHICULO);
   });

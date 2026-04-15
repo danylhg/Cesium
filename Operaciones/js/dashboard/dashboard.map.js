@@ -112,6 +112,14 @@ function handleEntitySelection(clickPosition) {
   if (isDraw) { if (dom.entityPopup) dom.entityPopup.style.display = "none"; return; }
 
   if (picked && picked.id) {
+    // Si es el radar, no lo seleccionamos para no mostrar el popup "Eliminar" en todo el centro
+    if (picked.id.name === "Radar Estereográfico") {
+        dashboardState.selectedEntity = null;
+        updateSelectionInfo(null);
+        if (dom.entityPopup) dom.entityPopup.style.display = "none";
+        return;
+    }
+
     const routeId = getRouteIdForEntity(picked.id);
     if (routeId) {
       selectRemoteRoute(routeId);

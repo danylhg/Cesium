@@ -6,19 +6,19 @@ import { setRouteInfo, updateSelectionInfo } from "./dashboard.ui.js";
 import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { cartesianToLatLng, saveTacticalData } from "./dashboard.persistence.js";
-import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes } from "./dashboard.drawing.js";
+import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes, pushUndoAction } from "./dashboard.drawing.js";
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
 // Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
 // cerca (1 km) → escala normal; lejos (2 000 km) → escala mínima visible.
 const COLOR_HEX_MAP = {
-  red:    '#FF4500',
-  blue:   '#00BFFF',
-  black:  '#222222',
+  red: '#FF4500',
+  blue: '#00BFFF',
+  black: '#222222',
   yellow: '#FFD700',
-  green:  '#00FF88',
+  green: '#00FF88',
   orange: '#FF8C00',
-  white:  '#FFFFFF'
+  white: '#FFFFFF'
 };
 
 export function getCesiumColor(name, alpha = 1) {
@@ -134,9 +134,20 @@ function getOperationZonePoints(zona) {
 
 function clearOperationZoneEntities() {
   const viewer = dashboardState.viewer;
-  if (viewer && dashboardState.operationZoneBorder) {
+  if (!viewer) return;
+
+  // Remove the main zone border
+  if (dashboardState.operationZoneBorder) {
     viewer.entities.remove(dashboardState.operationZoneBorder);
   }
+
+  // Remove all radar / wind-rose sub-entities tied to this zone
+  const toRemove = [];
+  viewer.entities.values.forEach(ent => {
+    const tt = ent.properties?.tacticalType?.getValue?.() ?? ent.properties?.tacticalType;
+    if (tt === "operation-zone-part") toRemove.push(ent);
+  });
+  toRemove.forEach(ent => viewer.entities.remove(ent));
 
   if (dashboardState.selectedEntity === dashboardState.operationZoneBorder) {
     dashboardState.selectedEntity = null;
@@ -228,66 +239,214 @@ export function renderIntegratedWindRose(zona, points) {
 
   const center = calculateCentroid(points);
   if (!center) return;
-  const radius = getHullRadius(center, points);
-  const color = Cesium.Color.fromCssColorString(zona.color || "#3b82f6");
-  const opacityColor = color.withAlpha(0.2);
-  const centerCart = Cesium.Cartesian3.fromDegrees(center.lng, center.lat);
+  const idZona = zona.id_zona;
+  const zoneProps = { tacticalType: "operation-zone-part", id_zona: idZona };
 
-  // concentric rings
-  for (let i = 1; i <= 3; i++) {
-    const r = (radius / 3) * i;
-    viewer.entities.add({
-      position: centerCart,
-      name: `Anillo Zona ${i}`,
-      ellipse: {
-        semiMajorAxis: r,
-        semiMinorAxis: r,
-        material: opacityColor,
-        outline: true,
-        outlineColor: color,
-        outlineWidth: 2,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-      },
-      properties: {
-        tacticalType: "operation-zone-part",
-        id_zona: zona.id_zona
-      }
-    });
-  }
+  // ── Bounding box of the zone polygon ──
+  let minLat = Infinity, maxLat = -Infinity;
+  let minLng = Infinity, maxLng = -Infinity;
+  points.forEach(p => {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+  });
 
-  // cardinal lines and labels
-  const offset = radius * 1.05;
-  const cardinals = [
-    { txt: "N", lat: center.lat + (offset / 111320), lng: center.lng },
-    { txt: "S", lat: center.lat - (offset / 111320), lng: center.lng },
-    { txt: "E", lat: center.lat, lng: center.lng + (offset / (111320 * Math.cos(center.lat * Math.PI / 180))) },
-    { txt: "W", lat: center.lat, lng: center.lng - (offset / (111320 * Math.cos(center.lat * Math.PI / 180))) }
+  const boxCenterLat = (minLat + maxLat) / 2;
+  const boxCenterLng = (minLng + maxLng) / 2;
+
+  const lineColor = Cesium.Color.fromCssColorString("rgba(0,0,0,0.75)");
+  const lineWidth = 3;
+
+  // Horizontal Line (E-W)
+  viewer.entities.add({
+    name: "Radar Estereográfico",
+    polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray([minLng, boxCenterLat, maxLng, boxCenterLat]),
+      width: lineWidth,
+      material: lineColor,
+      clampToGround: true
+    },
+    properties: zoneProps
+  });
+
+  // Vertical Line (N-S)
+  viewer.entities.add({
+    name: "Radar Estereográfico",
+    polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray([boxCenterLng, minLat, boxCenterLng, maxLat]),
+      width: lineWidth,
+      material: lineColor,
+      clampToGround: true
+    },
+    properties: zoneProps
+  });
+
+  // Cardinal Labels
+  const labels = [
+    { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },
+    { text: "S", lat: minLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, 15) },
+    { text: "E", lat: boxCenterLat, lng: maxLng, offset: new Cesium.Cartesian2(15, 0) },
+    { text: "W", lat: boxCenterLat, lng: minLng, offset: new Cesium.Cartesian2(-15, 0) }
   ];
 
-  cardinals.forEach(c => {
-    const pCart = Cesium.Cartesian3.fromDegrees(c.lng, c.lat);
+  labels.forEach(lbl => {
     viewer.entities.add({
-      polyline: {
-        positions: [centerCart, pCart],
-        width: 2,
-        material: color,
-        clampToGround: true
-      },
-      properties: { tacticalType: "operation-zone-part", id_zona: zona.id_zona }
-    });
-    viewer.entities.add({
-      position: pCart,
+      name: "Radar Estereográfico",
+      position: Cesium.Cartesian3.fromDegrees(lbl.lng, lbl.lat),
       label: {
-        text: c.txt,
-        font: "bold 14px sans-serif",
-        fillColor: color,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 2,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        text: lbl.text,
+        font: "bold 24px monospace",
+        fillColor: Cesium.Color.fromCssColorString("rgba(0,0,0,0.90)"),
+        pixelOffset: lbl.offset,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
       },
-      properties: { tacticalType: "operation-zone-part", id_zona: zona.id_zona }
+      properties: zoneProps
     });
+  });
+}
+
+/**
+ * Generates a canvas with a stereographic-projection radar overlay.
+ * Inspired by Observable's star map (d3.geoStereographic).
+ */
+function generateRadarCanvas(size, _unused, colorHex, radiusMeters) {
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+
+  const cx = size / 2;
+  const cy = size / 2;
+  const maxR = size * 0.47; // Maximize circle within canvas
+  const totalRings = 8;
+
+  // Line/label colors: black-based, stronger for visibility
+  const lineStrong = "rgba(0,0,0,0.75)";
+  const lineMedium = "rgba(0,0,0,0.45)";
+  const lineLight  = "rgba(0,0,0,0.20)";
+  const labelDark  = "rgba(0,0,0,0.90)";
+  const labelMid   = "rgba(0,0,0,0.60)";
+
+  // ── 1. Outer border ring (REMOVED) ──
+
+  // ── 2. Principal axes (divide into 4 quadrants) ──
+  for (let deg = 0; deg < 360; deg += 90) {
+    const rad = (deg - 90) * (Math.PI / 180);
+    ctx.strokeStyle = lineStrong;
+    ctx.lineWidth = 3;
+
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + maxR * 1.02 * Math.cos(rad), cy + maxR * 1.02 * Math.sin(rad));
+    ctx.stroke();
+  }
+
+  // ── 3. Bearing labels (N, E, S, W) ──
+  const cardinalLabels = [
+    { deg: 0,   sub: "N"  },
+    { deg: 90,  sub: "E"  },
+    { deg: 180, sub: "S" },
+    { deg: 270, sub: "W" }
+  ];
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+
+  cardinalLabels.forEach(({ deg, sub }) => {
+    const rad = (deg - 90) * (Math.PI / 180);
+    const subR = maxR * 1.15; // Closer now that there are no degrees
+    ctx.font = "bold 32px monospace";
+    ctx.fillStyle = labelDark;
+    ctx.fillText(sub, cx + subR * Math.cos(rad), cy + subR * Math.sin(rad));
+  });
+
+  // ── 4. Center crosshair ──
+  const cross = maxR * 0.06;
+  ctx.strokeStyle = lineStrong;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx - cross, cy); ctx.lineTo(cx + cross, cy);
+  ctx.moveTo(cx, cy - cross); ctx.lineTo(cx, cy + cross);
+  ctx.stroke();
+
+  // ── 8. Center dot ──
+  ctx.fillStyle = "rgba(0,0,0,0.85)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  return canvas;
+}
+
+// ── Render standalone RADAR POI entities ──
+function renderRadarEntities(poi) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !poi) return;
+
+  const lat = Number(poi.latitud ?? poi.lat);
+  const lng = Number(poi.longitud ?? poi.lon ?? poi.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+  const entityId = poi.id_poi ? `poi_${poi.id_poi}` : undefined;
+  if (entityId && viewer.entities.getById(entityId)) return;
+
+  const color = Cesium.Color.fromCssColorString(poi.color || "#00BFFF");
+  const position = Cesium.Cartesian3.fromDegrees(lng, lat);
+
+  const ent = viewer.entities.add({
+    id: entityId,
+    name: poi.nombre || "Radar",
+    position,
+    point: {
+      pixelSize: 12,
+      color: color.withAlpha(0.8),
+      outlineColor: Cesium.Color.WHITE,
+      outlineWidth: 2,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    },
+    label: {
+      text: poi.nombre || "Radar",
+      font: "12px sans-serif",
+      pixelOffset: new Cesium.Cartesian2(0, -18),
+      fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 3,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+    },
+    properties: {
+      tacticalType: "radar-part",
+      draggable: true,
+      id_poi: poi.id_poi ?? null
+    }
+  });
+
+  if (ent) addTacticalEntity(ent);
+}
+
+// ── Delete all local entities belonging to a given POI id ──
+function deleteLocalPoiEntities(idPoi) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !idPoi) return;
+
+  // Remove by standard POI id
+  const mainEntity = viewer.entities.getById(`poi_${idPoi}`);
+  if (mainEntity) viewer.entities.remove(mainEntity);
+
+  // Also scan for any entities referencing this id_poi
+  const toRemove = [];
+  viewer.entities.values.forEach(ent => {
+    const entIdPoi = ent.properties?.id_poi?.getValue?.() ?? ent.properties?.id_poi;
+    if (entIdPoi && Number(entIdPoi) === Number(idPoi)) {
+      toRemove.push(ent);
+    }
+  });
+  toRemove.forEach(ent => viewer.entities.remove(ent));
+
+  dashboardState.tacticalEntities = dashboardState.tacticalEntities.filter(ent => {
+    const entIdPoi = ent.properties?.id_poi?.getValue?.() ?? ent.properties?.id_poi;
+    return !entIdPoi || Number(entIdPoi) !== Number(idPoi);
   });
 }
 
@@ -322,7 +481,7 @@ function resolvePoiImage(iconSrc) {
   return `${apiBase.replace(/\/$/, "")}/${iconSrc.replace(/^\.?\//, "")}`;
 }
 
-function getMilSymbolInstance(sidc, size = 40) {
+function getMilSymbolInstance(sidc, size = 200) {
   if (!sidc || typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
 
   try {
@@ -336,15 +495,9 @@ function getMilSymbolInstance(sidc, size = 40) {
   }
 }
 
-function renderMilSymbolImage(sidc, size = 40) {
+function renderMilSymbolImage(sidc, size = 200) {
   const symbol = getMilSymbolInstance(sidc, size);
   return symbol ? symbol.asCanvas() : null;
-}
-
-function normalizeMilBillboardScale(rawScale) {
-  const parsed = Number(rawScale);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 0.3;
-  return Math.max(parsed * 2.1, 0.3);
 }
 
 function buildMilSidc() {
@@ -365,10 +518,10 @@ function buildPoiEntity(poi, tacticalType = "poi") {
 
   const sidc = poi.sidc || (poi.icono_src?.startsWith("S") ? poi.icono_src : null);
   let iconSrc = resolvePoiImage(poi.icono_src || poi.iconSrc || poi.image);
-  
+
   // Si hay SIDC, generamos el icono dinámicamente con milsymbol
   if (sidc) {
-    iconSrc = renderMilSymbolImage(sidc, 90) || iconSrc;
+    iconSrc = renderMilSymbolImage(sidc, 200) || iconSrc;
   }
 
   const tipo_poi_raw = (poi.tipo_poi || poi.tipoPoi || "").toUpperCase();
@@ -394,10 +547,7 @@ function buildPoiEntity(poi, tacticalType = "poi") {
       image: iconSrc,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      scale: isMil
-        ? normalizeMilBillboardScale(poi.scale)
-        : Number(poi.scale || 0.08),
-      scaleByDistance: SCALE_BY_DIST
+      scale: Number(poi.scale || (isMil ? 3.0 : 1.0))
     } : undefined,
     point: !iconSrc ? {
       pixelSize: 10,
@@ -431,31 +581,31 @@ function buildPoiEntity(poi, tacticalType = "poi") {
 async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc = null, sidc = null) {
   try {
     const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-    const token    = localStorage.getItem("token");
-    const opId     = localStorage.getItem("active_operation_id");
+    const token = localStorage.getItem("token");
+    const opId = localStorage.getItem("active_operation_id");
     if (!token || !opId) return;
 
     const userData = JSON.parse(localStorage.getItem("userData") || "{}");
-    const tabla    = userData.tabla || "usuario";
-    const idKey    = tabla === "personal" ? "id_personal" : "id_usuario";
-    const idVal    = tabla === "personal" ? userData.id_personal : userData.id_usuario;
+    const tabla = userData.tabla || "usuario";
+    const idKey = tabla === "personal" ? "id_personal" : "id_usuario";
+    const idVal = tabla === "personal" ? userData.id_personal : userData.id_usuario;
 
     const body = {
       nombre,
-      tipo_poi:      tipoPoi,
-      latitud:       lat,
-      longitud:      lng,
-      color:         COLOR_HEX_MAP[colorName] || '#FFD700',
-      icono_src:     sidc || iconoSrc,
-      sidc:          sidc,
-      tipo_creador:  tabla === "personal" ? "PERSONAL" : "USUARIO",
-      [idKey]:       idVal
+      tipo_poi: tipoPoi,
+      latitud: lat,
+      longitud: lng,
+      color: COLOR_HEX_MAP[colorName] || '#FFD700',
+      icono_src: sidc || iconoSrc,
+      sidc: sidc,
+      tipo_creador: tabla === "personal" ? "PERSONAL" : "USUARIO",
+      [idKey]: idVal
     };
 
-    const res  = await fetch(`${API_BASE}/ops/${opId}/pois`, {
-      method:  "POST",
+    const res = await fetch(`${API_BASE}/ops/${opId}/pois`, {
+      method: "POST",
       headers: {
-        "Content-Type":  "application/json",
+        "Content-Type": "application/json",
         "Authorization": `Bearer ${token}`
       },
       body: JSON.stringify(body)
@@ -464,22 +614,16 @@ async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc =
     if (!res.ok || !data?.ok) {
       const mensaje = data?.mensaje || "No se pudo guardar el punto de interés.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
       return null;
     }
     if (data?.ok && data?.poi?.id_poi) {
-      // Marcar como "mío" para no redibujar cuando llegue el socket event
       _mySentPoiIds.add(data.poi.id_poi);
       setTimeout(() => _mySentPoiIds.delete(data.poi.id_poi), 5000);
       return data.poi;
     }
     return null;
   } catch (err) {
-    console.error("Error guardando POI en backend:", err);
-    if (dom.tbHint) {
-      dom.tbHint.textContent = "Error de conexión al guardar el punto de interés.";
-    }
-    alert("Error de conexión al guardar el punto de interés.");
+    console.warn("[POI] Backend no disponible:", err.message);
     return null;
   }
 }
@@ -512,15 +656,12 @@ async function saveStructureToBackend(lat, lng, nombre, tipoEstructura) {
     if (!res.ok || !data?.ok) {
       const mensaje = data?.mensaje || "No se pudo guardar la estructura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
       return null;
     }
 
     return data.edificio || null;
   } catch (err) {
-    console.error("Error guardando estructura en backend:", err);
-    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al guardar la estructura.";
-    alert("Error de conexion al guardar la estructura.");
+    console.warn("[ESTRUCTURA] Backend no disponible:", err.message);
     return null;
   }
 }
@@ -684,10 +825,10 @@ function buildStructureEntity(estructura) {
     name,
     position: Cesium.Cartesian3.fromDegrees(lng, lat),
     billboard: !isLabel ? {
-      image: resolvePoiImage("img/estructuras/casa.png"),
+      image: "img/estructuras/casa.png",
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      scale: 0.05,
+      scale: 0.08,
       scaleByDistance: SCALE_BY_DIST
     } : undefined,
     label: {
@@ -851,17 +992,15 @@ async function saveOperationZoneToBackend(points, nombre, colorName) {
 
     const data = await res.json().catch(() => ({}));
     if (!res.ok || data.ok === false) {
-      const mensaje = data?.mensaje || "No se pudo guardar la zona de operación.";
+      const mensaje = data?.mensaje || "No se pudo guardar la zona.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
       return null;
     }
 
     return data.zona || null;
   } catch (err) {
-    console.error("[ZONA] Error guardando zona de operación:", err);
-    if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al guardar la zona de operación.";
-    alert("Error de conexión al guardar la zona de operación.");
+    console.warn("[ZONA] Error guardando zona de operación:", err);
+    if (dom.tbHint) dom.tbHint.textContent = "Sin conexión — zona creada localmente.";
     return null;
   }
 }
@@ -922,6 +1061,17 @@ export function toCartesianArray(points) {
 export function addTacticalEntity(entity) {
   dashboardState.tacticalEntities.push(entity);
   saveTacticalData();
+
+  // Register in global undo/redo stack
+  if (entity?.id) {
+    pushUndoAction({
+      type: "add",
+      entityId: entity.id,
+      entityRef: entity,
+      source: "tactical"
+    });
+  }
+
   return entity;
 }
 
@@ -1099,8 +1249,18 @@ export async function createPoi(lat, lng, iconPath = null) {
   const color = getCesiumColor(getCurrentColorName(), 1);
 
   if (dashboardState.toolMode === "poi") {
-    const savedPoi = await savePoiToBackend(lat, lng, label, "PDI", getCurrentColorName());
-    if (!savedPoi) return;
+    let savedPoi = await savePoiToBackend(lat, lng, label, "PDI", getCurrentColorName());
+    if (!savedPoi) {
+      // Fallback local
+      savedPoi = {
+        id_poi: `local_${Date.now()}`,
+        nombre: label,
+        tipo_poi: "PDI",
+        latitud: lat,
+        longitud: lng,
+        color: COLOR_HEX_MAP[getCurrentColorName()] || "#FFD700"
+      };
+    }
 
     const ent = buildPoiEntity(savedPoi, "poi");
     if (ent) {
@@ -1111,8 +1271,16 @@ export async function createPoi(lat, lng, iconPath = null) {
   }
 
   if (dashboardState.toolMode === "building") {
-    const savedStructure = await saveStructureToBackend(lat, lng, label, "EDIFICIO");
-    if (!savedStructure) return;
+    let savedStructure = await saveStructureToBackend(lat, lng, label, "EDIFICIO");
+    if (!savedStructure) {
+      savedStructure = {
+        id_marca: `local_${Date.now()}`,
+        nombre: label,
+        tipo_estructura: "EDIFICIO",
+        latitud: lat,
+        longitud: lng
+      };
+    }
 
     const ent = buildStructureEntity(savedStructure);
     if (ent) {
@@ -1163,14 +1331,21 @@ export async function createPoi(lat, lng, iconPath = null) {
 
 export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08, sidc = null) {
   const uniqueName = buildMilUniqueName(nombre);
-  const savedPoi = await savePoiToBackend(lat, lng, uniqueName, "MIL", "red", iconPath, sidc);
-  if (!savedPoi) return;
+  let savedPoi = await savePoiToBackend(lat, lng, uniqueName, "MIL", "red", iconPath, sidc);
+  if (!savedPoi) {
+    savedPoi = {
+      id_poi: `local_${Date.now()}`,
+      nombre: uniqueName,
+      tipo_poi: "MIL",
+      latitud: lat,
+      longitud: lng,
+      color: "#FF4500",
+      icono_src: sidc || iconPath,
+      sidc: sidc
+    };
+  }
 
-  const ent = buildPoiEntity({
-    ...savedPoi,
-    sidc: sidc || savedPoi.sidc,
-    scale
-  }, "poi");
+  const ent = buildPoiEntity({ ...savedPoi, sidc: sidc || savedPoi.sidc, scale }, "poi");
   if (ent) {
     addTacticalEntity(ent);
     if (dom.tbHint) dom.tbHint.textContent = `${nombre} colocado.`;
@@ -1182,8 +1357,16 @@ export async function createLabel(lat, lng) {
   if (!viewer) return;
 
   const label = getCurrentLabel() || "Etiqueta";
-  const savedStructure = await saveStructureToBackend(lat, lng, label, "ETIQUETA");
-  if (!savedStructure) return;
+  let savedStructure = await saveStructureToBackend(lat, lng, label, "ETIQUETA");
+  if (!savedStructure) {
+    savedStructure = {
+      id_marca: `local_${Date.now()}`,
+      nombre: label,
+      tipo_estructura: "ETIQUETA",
+      latitud: lat,
+      longitud: lng
+    };
+  }
 
   const ent = buildStructureEntity(savedStructure);
   if (ent) addTacticalEntity(ent);
@@ -1194,45 +1377,34 @@ export async function createCircle(lat, lng) {
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
   const radius = getRadius();
-  const savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
-  if (!savedArea) return;
+  let savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
+  
+  if (!savedArea) {
+    // Fallback local
+    const fallbackId = `local_${Date.now()}`;
+    savedArea = {
+        id_area: fallbackId,
+        nombre: label || "Círculo de cobertura",
+        color: COLOR_HEX_MAP[colorName] || "#FF4500",
+        geometria: {
+            type: "Polygon",
+            coordinates: circleToPolygonCoordinates(lat, lng, radius),
+            meta: {
+              shape: "circle",
+              center: [lng, lat],
+              radius_m: radius,
+              opacity: getOpacity(),
+              outline_width: getLineWidth()
+            }
+        }
+    };
+  }
 
   const entFromBackend = buildAreaEntity(savedArea);
   if (!entFromBackend) return;
 
   addTacticalEntity(entFromBackend);
-  if (dom.tbHint) dom.tbHint.textContent = "Círculo de cobertura guardado.";
-  return;
-
-  const ent = viewer.entities.add({
-    name: label || "Círculo táctico",
-    position: Cesium.Cartesian3.fromDegrees(lng, lat),
-    ellipse: {
-      semiMajorAxis: radius,
-      semiMinorAxis: radius,
-      material: fill,
-      outline: true,
-      outlineColor: outline,
-      outlineWidth: getLineWidth(),
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-    },
-    label: label ? {
-      text: label,
-      font: "14px sans-serif",
-      fillColor: Cesium.Color.WHITE,
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-    } : undefined,
-    properties: {
-      tacticalType: "circle",
-      draggable: true
-    }
-  });
-
-  addTacticalEntity(ent);
-  if (dom.tbHint) dom.tbHint.textContent = "Círculo táctico colocado.";
+  if (dom.tbHint) dom.tbHint.textContent = "Círculo de cobertura colocado.";
 }
 
 export async function finishPolygon() {
@@ -1246,60 +1418,36 @@ export async function finishPolygon() {
 
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
-  const savedArea = await savePolygonAreaToBackend(dashboardState.drawingPoints, label, colorName);
-  if (!savedArea) return;
-
-  const entFromBackend = buildAreaEntity(savedArea);
-  if (entFromBackend) addTacticalEntity(entFromBackend);
-
-  resetDrawingState();
-  if (dom.tbHint) dom.tbHint.textContent = "PolÃ­gono / zona guardado.";
-  setTacticalUI();
-  return;
-
-  const ent = viewer.entities.add({
-    name: label || "Polígono táctico",
-    polygon: {
-      hierarchy: positions,
-      material: fill,
-      outline: true,
-      outlineColor: outline,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      perPositionHeight: false
-    },
-    properties: {
-      tacticalType: "polygon",
-      draggable: false
-    }
-  });
-
-  addTacticalEntity(ent);
-
-  if (label) {
-    const center = dashboardState.drawingPoints[0];
-    const labelEnt = viewer.entities.add({
-      name: label,
-      position: Cesium.Cartesian3.fromDegrees(center.lng, center.lat),
-      label: {
-        text: label,
-        font: "14px sans-serif",
-        fillColor: Cesium.Color.WHITE,
-        outlineColor: Cesium.Color.BLACK,
-        outlineWidth: 3,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-        scaleByDistance: SCALE_BY_DIST
-      },
-      properties: {
-        tacticalType: "label",
-        draggable: true
+  let savedArea = await savePolygonAreaToBackend(dashboardState.drawingPoints, label, colorName);
+  
+  if (!savedArea) {
+      // Fallback local
+      const coordinates = pointsToPolygonCoordinates(dashboardState.drawingPoints);
+      if (coordinates) {
+          savedArea = {
+              id_area: `local_${Date.now()}`,
+              nombre: label || "Polígono / Zona",
+              color: COLOR_HEX_MAP[colorName] || "#FFD700",
+              geometria: {
+                type: "Polygon",
+                coordinates,
+                meta: {
+                  shape: "polygon",
+                  opacity: getOpacity(),
+                  outline_width: getLineWidth()
+                }
+              }
+          };
       }
-    });
-    addTacticalEntity(labelEnt);
+  }
+
+  if (savedArea) {
+      const entFromBackend = buildAreaEntity(savedArea);
+      if (entFromBackend) addTacticalEntity(entFromBackend);
   }
 
   resetDrawingState();
-  if (dom.tbHint) dom.tbHint.textContent = "Polígono táctico completado.";
+  if (dom.tbHint) dom.tbHint.textContent = "Polígono / zona colocado.";
   setTacticalUI();
 }
 
@@ -1428,12 +1576,31 @@ async function finishOperationZonePerimeter() {
   }
 
   const label = getCurrentLabel();
-  const zona = await saveOperationZoneToBackend(
+  const colorName = getCurrentColorName();
+  let zona = await saveOperationZoneToBackend(
     dashboardState.drawingPoints,
     label || "Zona de operacion",
-    getCurrentColorName()
+    colorName
   );
-  if (!zona) return;
+
+  // Fallback local: si el backend falla, construimos la zona localmente
+  if (!zona) {
+    const coordinates = pointsToPolygonCoordinates(dashboardState.drawingPoints);
+    if (!coordinates) return;
+
+    const center = calculateCentroid(dashboardState.drawingPoints);
+    zona = {
+      id_zona: `local_${Date.now()}`,
+      nombre: label || "Zona de operacion",
+      color: COLOR_HEX_MAP[colorName] || COLOR_HEX_MAP.blue,
+      geometria: { type: "Polygon", coordinates },
+      centroide_lat: center?.lat,
+      centroide_lon: center?.lng,
+      zoom_inicial: 1000
+    };
+
+    console.warn("[ZONA] Backend no disponible, zona creada localmente.");
+  }
 
   buildOperationZoneEntity(zona);
   focusViewerOnOperationZone(zona);
@@ -1871,13 +2038,13 @@ export async function deleteSelectedEntity() {
 
 export async function loadPoisFromBackend() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token    = localStorage.getItem("token");
-  const opId     = localStorage.getItem("active_operation_id");
-  const viewer   = dashboardState.viewer;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  const viewer = dashboardState.viewer;
   if (!token || !opId || !viewer) return;
 
   try {
-    const res  = await fetch(`${API_BASE}/ops/${opId}/pois`, {
+    const res = await fetch(`${API_BASE}/ops/${opId}/pois`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
     if (!res.ok) return;
@@ -1900,9 +2067,9 @@ export async function loadPoisFromBackend() {
 
 export async function loadAreasFromBackend() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token    = localStorage.getItem("token");
-  const opId     = localStorage.getItem("active_operation_id");
-  const viewer   = dashboardState.viewer;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  const viewer = dashboardState.viewer;
   if (!token || !opId || !viewer) return;
 
   try {
@@ -2141,7 +2308,7 @@ export function bindTacticalEvents() {
     dom.iconScale.addEventListener("input", (e) => {
       const ent = dashboardState.selectedEntity;
       if (ent && ent.properties?.tacticalType?.getValue?.() === "mil-dropped") {
-        ent.billboard.scale = normalizeMilBillboardScale(e.target.value);
+        ent.billboard.scale = Number(e.target.value);
       }
     });
   }
@@ -2278,4 +2445,3 @@ export function updateMilSymbolPreview() {
   dom.milPreviewContainer.dataset.sidc = sidc;
   dom.milPreviewContainer.dataset.title = dom.milIcon.options[dom.milIcon.selectedIndex].text;
 }
-
