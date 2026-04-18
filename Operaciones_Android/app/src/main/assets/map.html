@@ -26,11 +26,75 @@
     .cesium-widget-credits {
       display: none !important;
     }
+
+    /* ── Rosa del norte ────────────────────────────────── */
+    #compassRose {
+      position: fixed;
+      right: 16px;
+      bottom: 72px; /* encima de la barra de navegación nativa (56dp) */
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: rgba(13, 21, 38, 0.84);
+      border: 2px solid rgba(255, 255, 255, 0.18);
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.4);
+      z-index: 900;
+      pointer-events: none;
+      transition: transform 0.12s ease-out;
+    }
+
+    #compassRose::before,
+    #compassRose::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(255, 255, 255, 0.70);
+    }
+
+    #compassRose::before { width: 2px; height: 68px; }
+    #compassRose::after  { width: 68px; height: 2px; }
+
+    #compassCore {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ff7b00;
+      transform: translate(-50%, -50%);
+      box-shadow: 0 0 10px rgba(255, 123, 0, 0.7);
+    }
+
+    .compass-label {
+      position: absolute;
+      font-weight: 900;
+      font-size: 12px;
+      font-family: sans-serif;
+      color: #ffffff;
+      text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
+    }
+
+    #compassN { top: 3px;    left: 50%; transform: translateX(-50%); color: #ff7b00; }
+    #compassS { bottom: 3px; left: 50%; transform: translateX(-50%); }
+    #compassE { right: 5px;  top: 50%;  transform: translateY(-50%); }
+    #compassW { left: 5px;   top: 50%;  transform: translateY(-50%); }
   </style>
 </head>
 
 <body>
   <div id="cesiumContainer"></div>
+
+  <!-- Rosa del norte (rota con la cámara vía postRender) -->
+  <div id="compassRose">
+    <div id="compassCore"></div>
+    <span class="compass-label" id="compassN">N</span>
+    <span class="compass-label" id="compassS">S</span>
+    <span class="compass-label" id="compassE">E</span>
+    <span class="compass-label" id="compassW">W</span>
+  </div>
 
   <script>
     let viewer = null;
@@ -181,6 +245,15 @@
 
       if (window.Android && typeof Android.sendTrafficAlert === 'function') {
         Android.sendTrafficAlert("Mapa listo");
+      }
+
+      // Rota la rosa del norte para que N siempre apunte al norte geográfico
+      const _compassEl = document.getElementById('compassRose');
+      if (_compassEl) {
+        viewer.scene.postRender.addEventListener(function () {
+          const deg = Cesium.Math.toDegrees(viewer.camera.heading);
+          _compassEl.style.transform = 'rotate(' + (-deg) + 'deg)';
+        });
       }
 
       console.log("Cesium OK");
@@ -548,6 +621,7 @@
     const structureEntities = new Map();
     const areaEntities = new Map();
     let operationZoneEntity = null;
+    const operationZoneRoseEntities = [];
 
     function getMilSymbolCanvas(sidc) {
       try {
@@ -587,6 +661,10 @@
           poiEntities.delete(entityId);
         }
 
+        // Los símbolos militares (SIDC) tienen tamaño fijo en pantalla —
+        // no escalan con el zoom. Otros iconos/puntos sí usan scaleByDistance.
+        const isMilSymbol = !!milCanvas;
+
         const entity = viewer.entities.add({
           id: entityId,
           position: Cesium.Cartesian3.fromDegrees(lon, lat),
@@ -595,7 +673,7 @@
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             scale: billboardScale,
-            scaleByDistance: SCALE_BY_DIST,
+            scaleByDistance: isMilSymbol ? undefined : SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           } : undefined,
           point: !useBillboard ? {
@@ -619,7 +697,7 @@
             backgroundColor: !useBillboard ? cesiumColor.withAlpha(0.7) : undefined,
             backgroundPadding: !useBillboard ? new Cesium.Cartesian2(6, 4) : undefined,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            scaleByDistance: SCALE_BY_DIST,
+            scaleByDistance: isMilSymbol ? undefined : SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         });
@@ -763,10 +841,13 @@
       try {
         if (!viewer || !zoneObj || !Array.isArray(zoneObj.points) || zoneObj.points.length < 3) return;
 
+        // Limpiar zona anterior
         if (operationZoneEntity) {
           viewer.entities.remove(operationZoneEntity);
           operationZoneEntity = null;
         }
+        operationZoneRoseEntities.forEach(e => viewer.entities.remove(e));
+        operationZoneRoseEntities.length = 0;
 
         const hexColor = (zoneObj.color && String(zoneObj.color).startsWith('#')) ? zoneObj.color : '#3b82f6';
         const outline = Cesium.Color.fromCssColorString(hexColor);
@@ -787,6 +868,65 @@
             clampToGround: true
           }
         });
+
+        // ── Rosa de los vientos (cruz cardinal sobre el bounding box) ──
+        const pts = zoneObj.points;
+        let minLat = Infinity, maxLat = -Infinity;
+        let minLon = Infinity, maxLon = -Infinity;
+        pts.forEach(function (p) {
+          const la = Number(p.lat), lo = Number(p.lon);
+          if (la < minLat) minLat = la;
+          if (la > maxLat) maxLat = la;
+          if (lo < minLon) minLon = lo;
+          if (lo > maxLon) maxLon = lo;
+        });
+        const cLat = (minLat + maxLat) / 2;
+        const cLon = (minLon + maxLon) / 2;
+        const lineColor = Cesium.Color.fromCssColorString('rgba(0,0,0,0.80)');
+
+        // Línea E–W
+        operationZoneRoseEntities.push(viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray([minLon, cLat, maxLon, cLat]),
+            width: 3,
+            material: lineColor,
+            clampToGround: true
+          }
+        }));
+
+        // Línea N–S
+        operationZoneRoseEntities.push(viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray([cLon, minLat, cLon, maxLat]),
+            width: 3,
+            material: lineColor,
+            clampToGround: true
+          }
+        }));
+
+        // Etiquetas cardinales
+        var cardinals = [
+          { text: 'N', lat: maxLat, lon: cLon,   px: 0,   py: -18 },
+          { text: 'S', lat: minLat, lon: cLon,   px: 0,   py:  18 },
+          { text: 'E', lat: cLat,   lon: maxLon, px: 18,  py:  0  },
+          { text: 'W', lat: cLat,   lon: minLon, px: -18, py:  0  }
+        ];
+        cardinals.forEach(function (c) {
+          operationZoneRoseEntities.push(viewer.entities.add({
+            position: Cesium.Cartesian3.fromDegrees(c.lon, c.lat),
+            label: {
+              text: c.text,
+              font: 'bold 22px monospace',
+              fillColor: Cesium.Color.fromCssColorString('rgba(0,0,0,0.90)'),
+              outlineColor: Cesium.Color.WHITE,
+              outlineWidth: 3,
+              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+              pixelOffset: new Cesium.Cartesian2(c.px, c.py),
+              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+            }
+          }));
+        });
+
       } catch (e) {
         console.error('Error loadOperationZone: ' + e.message);
       }
@@ -943,6 +1083,173 @@
 
     window.removeAreaFromMap = function (id) {
       removeCoverageCircleFromMap(id);
+    };
+
+    // =========================
+    // Dibujo libre (lápiz / goma)
+    // =========================
+    const drawingEntities = new Map(); // localId → entity
+
+    let _drawMode   = null;   // 'pencil' | 'eraser' | null
+    let _isDrawing  = false;
+    let _drawCoords = [];
+    let _previewEnt = null;
+    let _drawHandler = null;
+    let _drawCounter = 0;
+
+    function _destroyDrawHandler() {
+      if (_drawHandler) { _drawHandler.destroy(); _drawHandler = null; }
+    }
+
+    window.startPencilMode = function () {
+      _drawMode = 'pencil';
+      _destroyDrawHandler();
+      _drawHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+      _drawHandler.setInputAction(function (e) {
+        _isDrawing = true;
+        _drawCoords = [];
+        viewer.scene.screenSpaceCameraController.enableRotate    = false;
+        viewer.scene.screenSpaceCameraController.enableTranslate = false;
+        viewer.scene.screenSpaceCameraController.enableZoom      = false;
+        var cart = viewer.camera.pickEllipsoid(e.position, viewer.scene.globe.ellipsoid);
+        if (cart) {
+          var c = Cesium.Cartographic.fromCartesian(cart);
+          _drawCoords.push({ lat: Cesium.Math.toDegrees(c.latitude), lng: Cesium.Math.toDegrees(c.longitude) });
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
+
+      _drawHandler.setInputAction(function (e) {
+        if (!_isDrawing) return;
+        var cart = viewer.camera.pickEllipsoid(e.endPosition, viewer.scene.globe.ellipsoid);
+        if (!cart) return;
+        var c = Cesium.Cartographic.fromCartesian(cart);
+        _drawCoords.push({ lat: Cesium.Math.toDegrees(c.latitude), lng: Cesium.Math.toDegrees(c.longitude) });
+
+        if (_drawCoords.length >= 2) {
+          if (_previewEnt) viewer.entities.remove(_previewEnt);
+          _previewEnt = viewer.entities.add({
+            polyline: {
+              positions: _drawCoords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
+              width: 4,
+              material: Cesium.Color.fromCssColorString('#00ffa6'),
+              clampToGround: true
+            }
+          });
+        }
+      }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
+
+      _drawHandler.setInputAction(function () {
+        if (!_isDrawing) return;
+        _isDrawing = false;
+        viewer.scene.screenSpaceCameraController.enableRotate    = true;
+        viewer.scene.screenSpaceCameraController.enableTranslate = true;
+        viewer.scene.screenSpaceCameraController.enableZoom      = true;
+
+        if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
+
+        if (_drawCoords.length >= 2) {
+          var localId = 'draw_' + (++_drawCounter) + '_' + Date.now();
+          var color   = '#00ffa6';
+          var grosor  = 4;
+
+          var ent = viewer.entities.add({
+            id: localId,
+            polyline: {
+              positions: _drawCoords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
+              width: grosor,
+              material: Cesium.Color.fromCssColorString(color),
+              clampToGround: true
+            },
+            properties: { tacticalType: 'freehand-drawing' }
+          });
+
+          drawingEntities.set(localId, ent);
+
+          if (typeof Android !== 'undefined' && typeof Android.onDrawingSaved === 'function') {
+            Android.onDrawingSaved(JSON.stringify({ localId: localId, coords: _drawCoords, color: color, grosor: grosor }));
+          }
+        }
+        _drawCoords = [];
+      }, Cesium.ScreenSpaceEventType.LEFT_UP);
+    };
+
+    window.stopPencilMode = function () {
+      _destroyDrawHandler();
+      _isDrawing = false;
+      _drawCoords = [];
+      if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
+      viewer.scene.screenSpaceCameraController.enableRotate    = true;
+      viewer.scene.screenSpaceCameraController.enableTranslate = true;
+      viewer.scene.screenSpaceCameraController.enableZoom      = true;
+      if (_drawMode === 'pencil') _drawMode = null;
+    };
+
+    window.startEraserMode = function () {
+      _drawMode = 'eraser';
+      _destroyDrawHandler();
+      _drawHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+      _drawHandler.setInputAction(function (e) {
+        var picked = viewer.scene.pick(e.position);
+        if (!picked || !picked.id) return;
+        var entity = picked.id;
+        var tt = entity.properties && entity.properties.tacticalType
+          ? (entity.properties.tacticalType.getValue ? entity.properties.tacticalType.getValue() : entity.properties.tacticalType)
+          : '';
+        if (tt !== 'freehand-drawing') return;
+
+        var localId = entity.id;
+        viewer.entities.remove(entity);
+        drawingEntities.delete(localId);
+
+        if (typeof Android !== 'undefined' && typeof Android.onDrawingDeleted === 'function') {
+          Android.onDrawingDeleted(localId);
+        }
+      }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    };
+
+    window.stopEraserMode = function () {
+      _destroyDrawHandler();
+      if (_drawMode === 'eraser') _drawMode = null;
+    };
+
+    window.loadDrawings = function (drawingsArray) {
+      try {
+        if (!Array.isArray(drawingsArray)) return;
+        drawingsArray.forEach(function (d) {
+          if (!Array.isArray(d.coords) || d.coords.length < 2) return;
+          var localId = 'draw_loaded_' + d.id_dibujo;
+          if (drawingEntities.has(localId)) return;
+
+          var ent = viewer.entities.add({
+            id: localId,
+            polyline: {
+              positions: d.coords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
+              width: d.grosor || 4,
+              material: Cesium.Color.fromCssColorString(d.color || '#00ffa6'),
+              clampToGround: true
+            },
+            properties: { tacticalType: 'freehand-drawing' }
+          });
+          drawingEntities.set(localId, ent);
+        });
+      } catch (e) {
+        console.error('Error loadDrawings: ' + e.message);
+      }
+    };
+
+    window.removeDrawingFromMap = function (idDibujo) {
+      try {
+        var localId = 'draw_loaded_' + idDibujo;
+        var ent = drawingEntities.get(localId);
+        if (ent) {
+          viewer.entities.remove(ent);
+          drawingEntities.delete(localId);
+        }
+      } catch (e) {
+        console.error('Error removeDrawingFromMap: ' + e.message);
+      }
     };
   </script>
 </body>

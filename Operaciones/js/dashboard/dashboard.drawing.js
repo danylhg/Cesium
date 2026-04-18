@@ -2,9 +2,158 @@
 // Freehand pencil drawing, eraser, and global undo/redo system
 
 import { dashboardState } from "./dashboard.state.js";
-import { dom } from "./dashboard.dom.js";
+
 import { cartesianToLatLng } from "./dashboard.persistence.js";
 import { getCesiumColor, getCurrentColorName, getLineWidth } from "./dashboard.tactical.js";
+
+/* ─── Backend helpers ────────────────────────────────────────── */
+
+function getApiContext() {
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token    = localStorage.getItem("token");
+  const opId     = localStorage.getItem("active_operation_id");
+  return { API_BASE, token, opId };
+}
+
+async function saveDrawingToBackend(coords, color, grosor) {
+  const { API_BASE, token, opId } = getApiContext();
+  if (!token || !opId) return null;
+
+  const userData    = JSON.parse(localStorage.getItem("userData") || "{}");
+  const tabla       = userData.tabla || "usuario";
+  const tipo_creador = tabla === "personal" ? "PERSONAL" : "USUARIO";
+  const idKey       = tabla === "personal" ? "id_personal" : "id_usuario";
+  const idVal       = tabla === "personal" ? userData.id_personal : userData.id_usuario;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/dibujos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+      body: JSON.stringify({ puntos: coords, color, grosor, tipo_creador, [idKey]: idVal })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.ok ? data.dibujo : null;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteDrawingFromBackend(id_dibujo) {
+  const { API_BASE, token, opId } = getApiContext();
+  if (!token || !opId || !id_dibujo) return;
+
+  try {
+    await fetch(`${API_BASE}/ops/${opId}/dibujos/${id_dibujo}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+  } catch {
+    // fallo silencioso — la entidad ya fue removida visualmente
+  }
+}
+
+// Map: cesium entity id → id_dibujo del backend
+const _drawingBackendIds = new Map();
+
+/* ─── Backend sync helpers for undo/redo ────────────────────── */
+
+function getTacticalBackendIds(entityRef) {
+  if (!entityRef?.properties) return null;
+  const get = k => entityRef.properties[k]?.getValue?.() ?? entityRef.properties[k];
+  const idPoi = get("id_poi");
+  if (idPoi != null && !String(idPoi).startsWith("local_"))
+    return { kind: "poi", id: Number(idPoi) };
+  const idArea = get("id_area");
+  if (idArea != null && !String(idArea).startsWith("local_"))
+    return { kind: "area", id: Number(idArea) };
+  const idMarca = get("id_marca");
+  if (idMarca != null && !String(idMarca).startsWith("local_"))
+    return { kind: "structure", id: Number(idMarca) };
+  return null;
+}
+
+const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios" };
+
+async function deleteTacticalFromBackend(kind, id) {
+  const { API_BASE, token, opId } = getApiContext();
+  const seg = _kindToSeg[kind];
+  if (!token || !opId || !seg) return;
+  try {
+    await fetch(`${API_BASE}/ops/${opId}/${seg}/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch { /* fire-and-forget */ }
+}
+
+async function restoreTacticalFromBackend(kind, id) {
+  const { API_BASE, token, opId } = getApiContext();
+  const seg = _kindToSeg[kind];
+  if (!token || !opId || !seg) return;
+  try {
+    await fetch(`${API_BASE}/ops/${opId}/${seg}/${id}/restore`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch { /* fire-and-forget */ }
+}
+
+async function restoreDrawingInBackend(id_dibujo) {
+  const { API_BASE, token, opId } = getApiContext();
+  if (!token || !opId || !id_dibujo) return;
+  try {
+    await fetch(`${API_BASE}/ops/${opId}/dibujos/${id_dibujo}/restore`, {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+  } catch { /* fire-and-forget */ }
+}
+
+// Llamada fire-and-forget tras ejecutar undo visualmente.
+function syncUndoToBackend(action) {
+  if (action.type === "add") {
+    if (action.source === "tactical" && action.entityRef) {
+      const info = getTacticalBackendIds(action.entityRef);
+      if (info) {
+        action.backendInfo = info; // guardado para redo
+        deleteTacticalFromBackend(info.kind, info.id);
+      }
+    } else if (action.source === "drawing" && action.entityRef) {
+      const id_dibujo = _drawingBackendIds.get(action.entityRef.id);
+      if (id_dibujo) {
+        action.backendId = id_dibujo; // guardado para redo
+        deleteDrawingFromBackend(id_dibujo);
+        _drawingBackendIds.delete(action.entityRef.id);
+      }
+    }
+  } else if (action.type === "remove") {
+    if (action.source === "drawing" && action.backendId) {
+      restoreDrawingInBackend(action.backendId).then(() => {
+        if (action.entityRef) _drawingBackendIds.set(action.entityRef.id, action.backendId);
+      });
+    }
+  }
+}
+
+// Llamada fire-and-forget tras ejecutar redo visualmente.
+function syncRedoToBackend(action) {
+  if (action.type === "add") {
+    if (action.source === "tactical" && action.backendInfo) {
+      restoreTacticalFromBackend(action.backendInfo.kind, action.backendInfo.id);
+    } else if (action.source === "drawing" && action.backendId) {
+      restoreDrawingInBackend(action.backendId).then(() => {
+        if (action.entityRef) _drawingBackendIds.set(action.entityRef.id, action.backendId);
+      });
+    }
+  } else if (action.type === "remove") {
+    if (action.source === "drawing" && action.backendId) {
+      deleteDrawingFromBackend(action.backendId);
+      if (action.entityRef) _drawingBackendIds.delete(action.entityRef.id);
+    }
+    // Tactical "remove" no se pushea al stack — sin acción
+  }
+}
 
 /* ─── Undo / Redo history (global — all map actions) ────────── */
 
@@ -30,6 +179,7 @@ export function undo() {
     // Undo an add → hide the entity
     const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
+      syncUndoToBackend(action);
       ent.show = false;
       action.entityRef = ent;
 
@@ -51,6 +201,8 @@ export function undo() {
       const ent = rebuildDrawingEntity(action.entityData);
       if (ent) action.entityRef = ent;
     }
+
+    syncUndoToBackend(action);
 
     // Re-add to appropriate list
     if (action.entityRef) {
@@ -86,6 +238,8 @@ export function redo() {
       if (ent) action.entityRef = ent;
     }
 
+    syncRedoToBackend(action);
+
     if (action.entityRef) {
       if (action.source === "tactical") {
         dashboardState.tacticalEntities = dashboardState.tacticalEntities || [];
@@ -104,6 +258,7 @@ export function redo() {
     // Redo a remove → hide the entity again
     const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
+      syncRedoToBackend(action);
       ent.show = false;
       action.entityRef = ent;
 
@@ -268,12 +423,13 @@ export function startPencilMode() {
       const colorName = getCurrentColorName();
       const cesiumColor = getCesiumColor(colorName, 1);
       const width = getLineWidth();
+      const colorCss = cesiumColor.toCssColorString();
 
       const entityId = `draw_${++_drawIdCounter}_${Date.now()}`;
       const data = {
         id: entityId,
         coords: [..._currentDrawCoords],
-        color: cesiumColor.toCssColorString(),
+        color: colorCss,
         width
       };
 
@@ -288,6 +444,19 @@ export function startPencilMode() {
           entityRef: ent,
           entityData: data,
           source: "drawing"
+        });
+
+        // Guardar en backend y registrar el id_dibujo devuelto.
+        // Si el usuario hizo undo antes de que la respuesta llegara,
+        // la entidad ya no está visible → borramos del backend en lugar de registrar.
+        saveDrawingToBackend(data.coords, colorCss, width).then(dibujo => {
+          if (dibujo?.id_dibujo) {
+            if (ent.show === false) {
+              deleteDrawingFromBackend(dibujo.id_dibujo);
+            } else {
+              _drawingBackendIds.set(ent.id, dibujo.id_dibujo);
+            }
+          }
         });
       }
     }
@@ -349,6 +518,13 @@ export function startEraserMode() {
       // Serialize before removing (for undo)
       const data = serializePolyline(entity);
 
+      // Borrar del backend si tenemos el id_dibujo
+      const id_dibujo = _drawingBackendIds.get(entity.id);
+      if (id_dibujo) {
+        deleteDrawingFromBackend(id_dibujo);
+        _drawingBackendIds.delete(entity.id);
+      }
+
       viewer.entities.remove(entity);
       dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
         .filter(e => e !== entity);
@@ -359,11 +535,10 @@ export function startEraserMode() {
           entityId: data.id,
           entityRef: entity,
           entityData: data,
-          source: "drawing"
+          source: "drawing",
+          backendId: id_dibujo ?? null
         });
       }
-
-
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
@@ -385,6 +560,91 @@ export function stopEraserMode() {
 export function stopAllDrawingModes() {
   stopPencilMode();
   stopEraserMode();
+}
+
+/* ─── Load from backend ───────────────────────────────────────  */
+
+export async function loadDrawingsFromBackend() {
+  const { API_BASE, token, opId } = getApiContext();
+  if (!token || !opId) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/dibujos`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok || !Array.isArray(data.items)) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    data.items.forEach(item => {
+      if (!Array.isArray(item.puntos) || item.puntos.length < 2) return;
+
+      const ent = rebuildDrawingEntity({
+        coords: item.puntos,
+        color:  item.color  || "#FFFFFF",
+        width:  item.grosor || 3
+      });
+
+      if (ent) {
+        dashboardState.drawingEntities = dashboardState.drawingEntities || [];
+        dashboardState.drawingEntities.push(ent);
+        _drawingBackendIds.set(ent.id, item.id_dibujo);
+      }
+    });
+  } catch (err) {
+    console.warn("[DRAWING] Error cargando dibujos:", err.message);
+  }
+}
+
+/* ─── Socket listeners ────────────────────────────────────────  */
+
+export function initDrawingSocket(socket) {
+  socket.on("dibujo_creado", ({ dibujo }) => {
+    if (!dibujo?.id_dibujo) return;
+    // Ignorar eco: si yo ya tengo ese id_dibujo mapeado, no lo redibujamos
+    if ([..._drawingBackendIds.values()].includes(dibujo.id_dibujo)) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const puntos = dibujo.puntos;
+    if (!Array.isArray(puntos) || puntos.length < 2) return;
+
+    const ent = rebuildDrawingEntity({
+      coords: puntos,
+      color:  dibujo.color  || "#FFFFFF",
+      width:  dibujo.grosor || 3
+    });
+
+    if (ent) {
+      dashboardState.drawingEntities = dashboardState.drawingEntities || [];
+      dashboardState.drawingEntities.push(ent);
+      _drawingBackendIds.set(ent.id, dibujo.id_dibujo);
+    }
+  });
+
+  socket.on("dibujo_eliminado", ({ id_dibujo }) => {
+    if (!id_dibujo) return;
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    // Buscar la entidad local que corresponde a este id_dibujo
+    for (const [entityId, backendId] of _drawingBackendIds.entries()) {
+      if (backendId === id_dibujo) {
+        const ent = viewer.entities.getById(entityId);
+        if (ent) {
+          viewer.entities.remove(ent);
+          dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+            .filter(e => e !== ent);
+        }
+        _drawingBackendIds.delete(entityId);
+        break;
+      }
+    }
+  });
 }
 
 /* ─── Bind events ─────────────────────────────────────────────  */

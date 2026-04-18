@@ -1,9 +1,12 @@
 -- =========================================================
 -- 16_patch_poi_color.sql
--- Agrega campo color a puntos_interes y actualiza vistas
+-- Agrega color, icono_src y sidc a puntos_interes
+-- Actualiza vistas v_poi_detalle y v_capas_mapa_operacion
+-- (consolida lo que antes estaba en 18_patch_poi_icono_mil
+--  y 19_patch_poi_sidc)
 -- =========================================================
 
--- 1) Agregar color a puntos_interes
+-- 1) Columnas en puntos_interes
 ALTER TABLE puntos_interes
   ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#FFD700';
 

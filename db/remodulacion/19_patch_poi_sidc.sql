@@ -1,7 +1,6 @@
 -- =========================================================
 -- 19_patch_poi_sidc.sql
--- Compatibilidad explícita para SIDC persistido en POIs
+-- CONSOLIDADO en 16_patch_poi_color.sql
+-- Este archivo se mantiene por compatibilidad con entornos
+-- que ya lo aplicaron. No ejecuta nada nuevo.
 -- =========================================================
-
-ALTER TABLE puntos_interes
-  ADD COLUMN IF NOT EXISTS sidc TEXT;

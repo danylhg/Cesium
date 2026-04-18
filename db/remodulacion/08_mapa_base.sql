@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS dibujo_libre_operacion (
   id_personal INT REFERENCES personal(id_personal) ON DELETE CASCADE,
 
   id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
-  puntos JSONB NOT NULL,
+  puntos JSONB NOT NULL DEFAULT '[]'::jsonb,
   color TEXT NOT NULL DEFAULT '#FFFFFF',
   grosor NUMERIC(6,2) NOT NULL DEFAULT 3,
   activo BOOLEAN NOT NULL DEFAULT TRUE,

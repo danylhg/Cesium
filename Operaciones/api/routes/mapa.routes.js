@@ -17,7 +17,9 @@ import {
   emitAreaEliminada,
   emitEstructuraCreada,
   emitEstructuraActualizada,
-  emitEstructuraEliminada
+  emitEstructuraEliminada,
+  emitDibujoCreado,
+  emitDibujoEliminado
 } from "../sockets/index.js";
 
 // Helper para responder errores de BD/backend de forma uniforme
@@ -1195,6 +1197,219 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
     });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo mapa");
+  }
+});
+
+// =========================================================
+// GET /ops/:id/dibujos
+// Devuelve todos los trazos de dibujo libre activos de la operación.
+// =========================================================
+router.get("/ops/:id/dibujos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT id_dibujo, puntos, color, grosor
+         FROM dibujo_libre_operacion
+        WHERE id_operacion = $1 AND activo = TRUE
+        ORDER BY fecha_creacion ASC`,
+      [id_operacion]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    sendDbError(res, err, "Error obteniendo dibujos");
+  }
+});
+
+// =========================================================
+// POST /ops/:id/dibujos
+// Guarda un nuevo trazo de dibujo libre.
+// Campos esperados:
+//   - puntos: array de {lat, lng}
+//   - color: string CSS
+//   - grosor: número
+//   - tipo_creador: USUARIO o PERSONAL
+//   - id_usuario / id_personal según corresponda
+// =========================================================
+router.post("/ops/:id/dibujos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  const { puntos, color, grosor, tipo_creador, id_usuario, id_personal } = req.body ?? {};
+
+  if (!Array.isArray(puntos) || puntos.length < 2) {
+    return res.status(400).json({ ok: false, mensaje: "puntos invalidos (minimo 2)" });
+  }
+
+  const tipo = (tipo_creador || "USUARIO").toString().toUpperCase();
+  if (!["USUARIO", "PERSONAL"].includes(tipo)) {
+    return res.status(400).json({ ok: false, mensaje: "tipo_creador invalido" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO dibujo_libre_operacion
+         (tipo_creador, id_usuario, id_personal, id_operacion, puntos, color, grosor)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
+       RETURNING id_dibujo, puntos, color, grosor`,
+      [
+        tipo,
+        id_usuario ? Number(id_usuario) : null,
+        id_personal ? Number(id_personal) : null,
+        id_operacion,
+        JSON.stringify(puntos),
+        color?.toString().trim() || "#FFFFFF",
+        Number(grosor) || 3
+      ]
+    );
+    const io = req.app.get("io");
+    if (io) emitDibujoCreado(io, id_operacion, rows[0]);
+    res.json({ ok: true, dibujo: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error guardando dibujo");
+  }
+});
+
+// =========================================================
+// DELETE /ops/:id/dibujos/:id_dibujo
+// Baja lógica de un trazo (activo = FALSE).
+// =========================================================
+router.delete("/ops/:id/dibujos/:id_dibujo", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_dibujo = Number(req.params.id_dibujo);
+
+  if (!isInt(id_operacion) || !isInt(id_dibujo)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE dibujo_libre_operacion
+          SET activo = FALSE
+        WHERE id_dibujo = $1 AND id_operacion = $2 AND activo = TRUE
+        RETURNING id_dibujo`,
+      [id_dibujo, id_operacion]
+    );
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Dibujo no encontrado" });
+    }
+    const io = req.app.get("io");
+    if (io) emitDibujoEliminado(io, id_operacion, id_dibujo);
+    res.json({ ok: true });
+  } catch (err) {
+    sendDbError(res, err, "Error eliminando dibujo");
+  }
+});
+
+// =========================================================
+// PATCH /ops/:id/pois/:id_poi/restore
+// Reactiva un POI que fue desactivado (undo de borrado lógico).
+// =========================================================
+router.patch("/ops/:id/pois/:id_poi/restore", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_poi = Number(req.params.id_poi);
+  if (!isInt(id_operacion) || !isInt(id_poi)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE puntos_interes
+          SET activo = TRUE
+        WHERE id_poi = $1 AND id_operacion = $2
+        RETURNING *`,
+      [id_poi, id_operacion]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "POI no existe" });
+    const io = req.app.get("io");
+    if (io) emitPoiCreado(io, id_operacion, rows[0]);
+    res.json({ ok: true });
+  } catch (err) {
+    sendDbError(res, err, "Error restaurando POI");
+  }
+});
+
+// =========================================================
+// PATCH /ops/:id/areas/:id_area/restore
+// Reactiva un área que fue eliminada (undo de borrado lógico).
+// =========================================================
+router.patch("/ops/:id/areas/:id_area/restore", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_area = Number(req.params.id_area);
+  if (!isInt(id_operacion) || !isInt(id_area)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE area_interes
+          SET estado = 'ACTIVA'
+        WHERE id_area = $1 AND id_operacion = $2
+        RETURNING *`,
+      [id_area, id_operacion]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Area no existe" });
+    const io = req.app.get("io");
+    if (io) emitAreaCreada(io, id_operacion, rows[0]);
+    res.json({ ok: true });
+  } catch (err) {
+    sendDbError(res, err, "Error restaurando area");
+  }
+});
+
+// =========================================================
+// PATCH /ops/:id/edificios/:id_marca/restore
+// Reactiva una estructura que fue desactivada (undo de borrado lógico).
+// =========================================================
+router.patch("/ops/:id/edificios/:id_marca/restore", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_marca = Number(req.params.id_marca);
+  if (!isInt(id_operacion) || !isInt(id_marca)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE marca_edificio
+          SET estado = 'ACTIVO'
+        WHERE id_marca = $1 AND id_operacion = $2
+        RETURNING *`,
+      [id_marca, id_operacion]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Edificio no existe" });
+    const io = req.app.get("io");
+    if (io) emitEstructuraCreada(io, id_operacion, rows[0]);
+    res.json({ ok: true });
+  } catch (err) {
+    sendDbError(res, err, "Error restaurando edificio");
+  }
+});
+
+// =========================================================
+// PATCH /ops/:id/dibujos/:id_dibujo/restore
+// Reactiva un trazo de dibujo que fue desactivado (undo de borrado lógico).
+// =========================================================
+router.patch("/ops/:id/dibujos/:id_dibujo/restore", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_dibujo = Number(req.params.id_dibujo);
+  if (!isInt(id_operacion) || !isInt(id_dibujo)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+  try {
+    const { rows } = await pool.query(
+      `UPDATE dibujo_libre_operacion
+          SET activo = TRUE
+        WHERE id_dibujo = $1 AND id_operacion = $2
+        RETURNING id_dibujo`,
+      [id_dibujo, id_operacion]
+    );
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Dibujo no existe" });
+    const io = req.app.get("io");
+    if (io) emitDibujoCreado(io, id_operacion, rows[0]);
+    res.json({ ok: true });
+  } catch (err) {
+    sendDbError(res, err, "Error restaurando dibujo");
   }
 });
 

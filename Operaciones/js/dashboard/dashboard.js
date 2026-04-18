@@ -30,7 +30,7 @@ import {
   initRoutes
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket } from "./dashboard.tracking.js";
-import { bindDrawingEvents } from "./dashboard.drawing.js";
+import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
 
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
@@ -340,6 +340,7 @@ window.addEventListener("load", async () => {
   await loadAreasFromBackend();
   await loadStructuresFromBackend();
   await loadOperationZoneFromBackend();
+  await loadDrawingsFromBackend();
 
   // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)
   if (bdData?._mapaData) {
@@ -357,6 +358,7 @@ window.addEventListener("load", async () => {
       initRoutes(socket);
       initPoiSocket(socket);
       initTrackingSocket(socket);
+      initDrawingSocket(socket);
     }
   }
 

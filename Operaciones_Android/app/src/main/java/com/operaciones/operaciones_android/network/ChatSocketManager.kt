@@ -17,6 +17,8 @@ class ChatSocketManager(
     private val onAreaEliminada: ((JSONObject) -> Unit)? = null,
     private val onStructureCreada: ((JSONObject) -> Unit)? = null,
     private val onStructureEliminada: ((JSONObject) -> Unit)? = null,
+    private val onDibujoCreado: ((JSONObject) -> Unit)? = null,
+    private val onDibujoEliminado: ((JSONObject) -> Unit)? = null,
     private val onConnected: (() -> Unit)? = null,
     private val onDisconnected: ((String) -> Unit)? = null,
     private val onConnectionError: ((String) -> Unit)? = null,
@@ -105,6 +107,16 @@ class ChatSocketManager(
         socket?.on("estructura_eliminada") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onStructureEliminada?.invoke(data)
+        }
+
+        socket?.on("dibujo_creado") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onDibujoCreado?.invoke(data)
+        }
+
+        socket?.on("dibujo_eliminado") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onDibujoEliminado?.invoke(data)
         }
 
         socket?.connect()

@@ -46,4 +46,14 @@ class MainJsBridge(
             activity.onRouteCreatedFromBridge(payloadJson)
         }
     }
+
+    @JavascriptInterface
+    fun onDrawingSaved(strokeJson: String) {
+        activity.onDrawingSavedFromBridge(strokeJson)
+    }
+
+    @JavascriptInterface
+    fun onDrawingDeleted(localId: String) {
+        activity.onDrawingDeletedFromBridge(localId)
+    }
 }

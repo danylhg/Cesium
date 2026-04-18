@@ -137,6 +137,14 @@ export function emitEstructuraEliminada(io, idOperacion, idMarca) {
   io.to(`op_${idOperacion}`).emit("estructura_eliminada", { id_marca: idMarca });
 }
 
+export function emitDibujoCreado(io, idOperacion, dibujo) {
+  io.to(`op_${idOperacion}`).emit("dibujo_creado", { dibujo });
+}
+
+export function emitDibujoEliminado(io, idOperacion, idDibujo) {
+  io.to(`op_${idOperacion}`).emit("dibujo_eliminado", { id_dibujo: idDibujo });
+}
+
 // ── Emit filtrado de ruta_navegacion_creada ───────────────────
 // Emite la ruta solo a sockets que tienen permiso de verla:
 //   - Admin / CUT / CET / sin rol registrado → ven todo

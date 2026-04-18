@@ -33,6 +33,7 @@ import com.operaciones.operaciones_android.model.User
 import com.operaciones.operaciones_android.model.VehiculoItem
 import com.operaciones.operaciones_android.network.ChatRepository
 import com.operaciones.operaciones_android.network.ChatSocketManager
+import com.operaciones.operaciones_android.network.DrawingRepository
 import com.operaciones.operaciones_android.network.EquipoRepository
 import com.operaciones.operaciones_android.network.OperationMapRepository
 import com.operaciones.operaciones_android.network.OperationStatusRepository
@@ -103,6 +104,11 @@ class MainActivity : AppCompatActivity(),
     private val personalRepository = PersonalRepository()
     private val vehiculoRepository = VehiculoRepository()
     private val equipoRepository = EquipoRepository()
+    private val drawingRepository = DrawingRepository()
+
+    // Map: JS localId → id_dibujo del backend
+    private val drawingLocalToBackendId = HashMap<String, Int>()
+    private var drawingMode: String? = null  // "pencil" | "eraser" | null
 
     private lateinit var webView: WebView
     private lateinit var panelContent: FrameLayout
@@ -412,6 +418,41 @@ class MainActivity : AppCompatActivity(),
                         }
                     }
                 },
+                onDibujoCreado = { data ->
+                    runOnUiThread {
+                        val dibujo = data.optJSONObject("dibujo") ?: return@runOnUiThread
+                        val idDibujo = dibujo.optInt("id_dibujo", -1)
+                        if (idDibujo <= 0) return@runOnUiThread
+                        // Skip echo of our own drawings (already in drawingLocalToBackendId)
+                        if (drawingLocalToBackendId.containsValue(idDibujo)) return@runOnUiThread
+                        val puntos = dibujo.optJSONArray("puntos") ?: org.json.JSONArray()
+                        val coords = org.json.JSONArray()
+                        for (i in 0 until puntos.length()) {
+                            val p = puntos.optJSONObject(i) ?: continue
+                            val c = JSONObject()
+                            c.put("lat", p.optDouble("lat"))
+                            c.put("lng", p.optDouble("lng"))
+                            coords.put(c)
+                        }
+                        if (coords.length() < 2) return@runOnUiThread
+                        val d = JSONObject()
+                        d.put("id_dibujo", idDibujo)
+                        d.put("color", dibujo.optString("color", "#00ffa6"))
+                        d.put("grosor", dibujo.optDouble("grosor", 4.0))
+                        d.put("coords", coords)
+                        val arr = org.json.JSONArray()
+                        arr.put(d)
+                        if (isCesiumReady) cesiumWebController.loadDrawings(arr.toString())
+                    }
+                },
+                onDibujoEliminado = { data ->
+                    runOnUiThread {
+                        val idDibujo = data.optInt("id_dibujo", -1)
+                        if (idDibujo > 0 && isCesiumReady) {
+                            cesiumWebController.removeDrawingFromMap(idDibujo)
+                        }
+                    }
+                },
                 onConnected = {
                     runOnUiThread {
                         setServerConnectionBanner(false)
@@ -503,6 +544,7 @@ class MainActivity : AppCompatActivity(),
         )
 
         setupWebView()
+        setupDrawingToolbar()
         panelNavigationController.setupNavigation()
         setupBackPress()
         panelNavigationController.showPanel(Panel.NONE)
@@ -1191,6 +1233,11 @@ class MainActivity : AppCompatActivity(),
             }
             pendingPoiAdditions.clear()
         }
+
+        // Cargar dibujos libres guardados en backend
+        if (currentOperation.id > 0) {
+            loadDrawingsFromBackend()
+        }
     }
 
     fun getCurrentUserRoleForBridge(): String = currentUser.rol.name
@@ -1389,6 +1436,140 @@ class MainActivity : AppCompatActivity(),
                 lastRouteId = -1
             }
         })
+    }
+
+    // ── Dibujo libre ──────────────────────────────────────────────
+
+    fun setupDrawingToolbar() {
+        val btnPencil = findViewById<TextView>(R.id.btnPencil)
+        val btnEraser = findViewById<TextView>(R.id.btnEraser)
+
+        btnPencil.setOnClickListener {
+            if (drawingMode == "pencil") {
+                drawingMode = null
+                cesiumWebController.stopPencilMode()
+                btnPencil.alpha = 1f
+            } else {
+                drawingMode = "pencil"
+                cesiumWebController.startPencilMode()
+                cesiumWebController.stopEraserMode()
+                btnPencil.alpha = 1f
+                btnEraser.alpha = 0.4f
+            }
+        }
+
+        btnEraser.setOnClickListener {
+            if (drawingMode == "eraser") {
+                drawingMode = null
+                cesiumWebController.stopEraserMode()
+                btnEraser.alpha = 1f
+            } else {
+                drawingMode = "eraser"
+                cesiumWebController.startEraserMode()
+                cesiumWebController.stopPencilMode()
+                btnEraser.alpha = 1f
+                btnPencil.alpha = 0.4f
+            }
+        }
+    }
+
+    fun loadDrawingsFromBackend() {
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        drawingRepository.fetchDrawings(
+            operationId = operationId,
+            token = token,
+            onSuccess = { items ->
+                if (items.isEmpty()) return@fetchDrawings
+                val arr = org.json.JSONArray()
+                items.forEach { item ->
+                    val localId = "draw_loaded_${item.optInt("id_dibujo")}"
+                    drawingLocalToBackendId[localId] = item.optInt("id_dibujo")
+                    val d = JSONObject()
+                    d.put("id_dibujo", item.optInt("id_dibujo"))
+                    d.put("color",     item.optString("color", "#00ffa6"))
+                    d.put("grosor",    item.optDouble("grosor", 4.0))
+                    // puntos viene como JSONArray desde postgres
+                    val puntos = item.optJSONArray("puntos") ?: org.json.JSONArray()
+                    // Convertir [{lat,lng}] al formato que espera loadDrawings en JS
+                    val coords = org.json.JSONArray()
+                    for (i in 0 until puntos.length()) {
+                        val p = puntos.optJSONObject(i) ?: continue
+                        val c = JSONObject()
+                        c.put("lat", p.optDouble("lat"))
+                        c.put("lng", p.optDouble("lng"))
+                        coords.put(c)
+                    }
+                    d.put("coords", coords)
+                    arr.put(d)
+                }
+                runOnUiThread {
+                    cesiumWebController.loadDrawings(arr.toString())
+                }
+            },
+            onError = { msg -> Log.w("DRAWING", "Error cargando dibujos: $msg") }
+        )
+    }
+
+    fun onDrawingSavedFromBridge(strokeJson: String) {
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        try {
+            val stroke   = JSONObject(strokeJson)
+            val localId  = stroke.optString("localId")
+            val coords   = stroke.optJSONArray("coords") ?: return
+            val color    = stroke.optString("color", "#00ffa6")
+            val grosor   = stroke.optDouble("grosor", 4.0)
+
+            val userData = JSONObject().apply {
+                put("tabla",       if (currentUser.tabla == "personal") "personal" else "usuario")
+                put("id_personal", currentUser.id)
+                put("id_usuario",  currentUser.id)
+            }
+
+            drawingRepository.saveDrawing(
+                operationId = operationId,
+                token       = token,
+                userData    = userData,
+                coords      = coords,
+                color       = color,
+                grosor      = grosor,
+                onSuccess   = { idDibujo ->
+                    if (localId.isNotBlank()) drawingLocalToBackendId[localId] = idDibujo
+                    Log.d("DRAWING", "Trazo guardado id_dibujo=$idDibujo localId=$localId")
+                },
+                onError = { msg -> Log.w("DRAWING", "Error guardando trazo: $msg") }
+            )
+        } catch (e: Exception) {
+            Log.e("DRAWING", "Error parseando strokeJson: ${e.message}")
+        }
+    }
+
+    fun onDrawingDeletedFromBridge(localId: String) {
+        val idDibujo = drawingLocalToBackendId[localId] ?: run {
+            Log.w("DRAWING", "onDrawingDeleted: sin id_dibujo para localId=$localId")
+            return
+        }
+        drawingLocalToBackendId.remove(localId)
+
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        drawingRepository.deleteDrawing(
+            operationId = operationId,
+            idDibujo    = idDibujo,
+            token       = token,
+            onError     = { msg -> Log.w("DRAWING", "Error borrando dibujo: $msg") }
+        )
+        Log.d("DRAWING", "Trazo eliminado id_dibujo=$idDibujo")
     }
 
     private fun setupBackPress() {

@@ -459,6 +459,60 @@ class CesiumWebController(
         }
     }
 
+    fun startPencilMode() {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof startPencilMode==='function') startPencilMode(); })();",
+                null
+            )
+        }
+    }
+
+    fun stopPencilMode() {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof stopPencilMode==='function') stopPencilMode(); })();",
+                null
+            )
+        }
+    }
+
+    fun startEraserMode() {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof startEraserMode==='function') startEraserMode(); })();",
+                null
+            )
+        }
+    }
+
+    fun stopEraserMode() {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof stopEraserMode==='function') stopEraserMode(); })();",
+                null
+            )
+        }
+    }
+
+    fun loadDrawings(drawingsJson: String) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof loadDrawings==='function') loadDrawings($drawingsJson); })();",
+                null
+            )
+        }
+    }
+
+    fun removeDrawingFromMap(idDibujo: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof removeDrawingFromMap==='function') removeDrawingFromMap($idDibujo); })();",
+                null
+            )
+        }
+    }
+
     fun evaluate(js: String) {
         webView.post {
             webView.evaluateJavascript(js, null)

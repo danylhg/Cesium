@@ -596,7 +596,7 @@ async function savePoiToBackend(lat, lng, nombre, tipoPoi, colorName, iconoSrc =
       latitud: lat,
       longitud: lng,
       color: COLOR_HEX_MAP[colorName] || '#FFD700',
-      icono_src: sidc || iconoSrc,
+      icono_src: iconoSrc,
       sidc: sidc,
       tipo_creador: tabla === "personal" ? "PERSONAL" : "USUARIO",
       [idKey]: idVal
@@ -1340,7 +1340,7 @@ export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08, 
       latitud: lat,
       longitud: lng,
       color: "#FF4500",
-      icono_src: sidc || iconPath,
+      icono_src: iconPath,
       sidc: sidc
     };
   }
@@ -1776,6 +1776,7 @@ export async function persistDraggedEntity(entity) {
 }
 
 async function deletePoiFromBackend(idPoi) {
+  if (String(idPoi).startsWith("local_")) return true; // nunca llegó al backend
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
   const opId = localStorage.getItem("active_operation_id");
@@ -1805,6 +1806,7 @@ async function deletePoiFromBackend(idPoi) {
 }
 
 async function deleteAreaFromBackend(idArea) {
+  if (String(idArea).startsWith("local_")) return true; // nunca llegó al backend
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
   const opId = localStorage.getItem("active_operation_id");
@@ -1834,6 +1836,7 @@ async function deleteAreaFromBackend(idArea) {
 }
 
 async function deleteStructureFromBackend(idMarca) {
+  if (String(idMarca).startsWith("local_")) return true; // nunca llegó al backend
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
   const opId = localStorage.getItem("active_operation_id");
@@ -1862,7 +1865,8 @@ async function deleteStructureFromBackend(idMarca) {
   }
 }
 
-async function deleteCurrentOperationZoneFromBackend() {
+async function deleteCurrentOperationZoneFromBackend(idZona) {
+  if (idZona && String(idZona).startsWith("local_")) return true; // nunca llegó al backend
   const currentOperation = getCurrentOperation();
   const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
   if (phase === "activa") {
@@ -2006,7 +2010,7 @@ export async function deleteSelectedEntity() {
   }
 
   if (idZona && String(tacticalType) === "operation-zone") {
-    const deleted = await deleteCurrentOperationZoneFromBackend();
+    const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
     if (!deleted) return;
     clearOperationZoneEntities();
   }
