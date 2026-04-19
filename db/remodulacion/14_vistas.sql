@@ -235,6 +235,9 @@ SELECT
   m.tipo_mensaje,
   m.contenido,
   m.destinatario_rol,
+  m.destino_tipo,
+  m.destino_id,
+  m.destino_label,
 
   pc.tipo AS tipo_participante,
   pc.id_usuario,

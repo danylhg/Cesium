@@ -86,20 +86,28 @@ export function ensureOperationPhase(op) {
   // Si existe, usarlo como fuente de verdad en lugar de recalcular desde fecha_inicio.
   if (current.estado) {
     current.phase = current.estado.toLowerCase();
-    return current;
+    if (current.phase === "terminada" || current.phase === "cancelada") {
+      return current;
+    }
   }
 
-  if (current.phase === "terminada") return current;
+  if (current.phase === "terminada" || current.phase === "cancelada") return current;
 
   const scheduled = getOperationDateTime(current);
   if (!scheduled) {
-    current.phase = "planificada";
+    current.phase = current.phase || "planificada";
+    current.estado = current.estado || "PLANIFICADA";
     return current;
   }
 
-  // La fase activa solo la determina el backend (PATCH /ops/:id/estado).
-  // Si no hay estado en BD disponible, siempre se asume planificada.
-  current.phase = "planificada";
+  if (new Date() >= scheduled) {
+    current.phase = "activa";
+    current.estado = "ACTIVA";
+  } else {
+    current.phase = "planificada";
+    current.estado = "PLANIFICADA";
+  }
+  
   return current;
 }
 

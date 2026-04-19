@@ -8,6 +8,7 @@ import {
   getJsonStorage,
   ASIGNACION_ACTUAL_KEY
 } from "./dashboard.storage.js";
+import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
@@ -315,7 +316,7 @@ function normalizeEquipos(equipos) {
 }
 
 function renderEquiposGroupedHtml(equiposNorm) {
-  if (!equiposNorm.length) return "<p>Sin equipos asignados.</p>";
+  if (!equiposNorm.length) return "<p>sin equipos asignados</p>";
 
   const groups = [
     {
@@ -476,12 +477,14 @@ export function updateChatAvailability() {
   const title = document.getElementById("topbarTitle");
   const dot = document.getElementById("brandDot");
   const actionBtns = document.getElementById("mapActionButtons");
+  const activateOpBtn = document.getElementById("activateOpBtn");
   const closeActiveBtn = document.getElementById("closeActiveOpBtn");
 
   if (badge) badge.style.display = active ? "inline-block" : "none";
   if (title) title.textContent = active ? (op.title || op.titulo || "Operacion") : "Panorama tactico";
   if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
   if (actionBtns) actionBtns.style.display = active || closed ? "none" : "flex";
+  if (activateOpBtn) activateOpBtn.style.display = !active && !closed ? "inline-flex" : "none";
   if (closeActiveBtn) closeActiveBtn.style.display = active ? "inline-flex" : "none";
 
   if (dom.toggleChatPanel) {
@@ -508,10 +511,51 @@ export function updateSelectionInfo(selectedEntity) {
   }
 
   const name = selectedEntity.name || "Elemento tactico";
-  const type =
+  let type =
     selectedEntity.properties?.tacticalType?.getValue?.() ||
     selectedEntity.properties?.tacticalType ||
     "Sin tipo";
 
-  dom.selectionInfo.textContent = `Seleccionado: ${name} · Tipo: ${type}`;
+  const trackingKey = selectedEntity.properties?.trackingKey?.getValue?.() || selectedEntity.properties?.trackingKey;
+  
+  if (trackingKey && trackingKey.startsWith("V:")) {
+    type = "Vehículo (Rastreo)";
+    const occupants = getVehicleOccupants(trackingKey);
+    
+    // Convertir P:1 a nombres:
+    const bdData = getCurrentOperation();
+    const personas = Array.isArray(bdData.personal) ? bdData.personal : [];
+    const ocupantesNombres = occupants.map(occId => {
+      const id = occId.split(":")[1];
+      const p = personas.find(x => String(x.id_personal) === String(id));
+      if (p) return [p.nombre, p.apellido].filter(Boolean).join(" ");
+      return occId;
+    });
+
+    const ocupantesHtml = ocupantesNombres.length > 0
+      ? ocupantesNombres.map(n => `<span style="display:inline-block; background:rgba(0,191,255,0.2); padding:2px 6px; border-radius:4px; margin:2px 4px 2px 0;">🧑‍🚀 ${escapeHtml(n)}</span>`).join("")
+      : `<span style="color:#94a3b8; font-size:11px;">Sin tripulación detectada.</span>`;
+
+    dom.selectionInfo.innerHTML = `
+      <div style="font-weight:bold; color:#00ffa6; margin-bottom:4px;">${escapeHtml(name)}</div>
+      <div style="font-size:11px; margin-bottom:8px;">Tipo: ${escapeHtml(type)}</div>
+      <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">Pasajeros a bordo:</div>
+      <div style="margin-bottom:12px;">${ocupantesHtml}</div>
+      <button id="btnChatVehiculo" class="btnBeige" style="width:100%; font-size:12px; padding:6px;">💬 Mensaje a Tripulación</button>
+    `;
+
+    // Asignar evento al botón dinámicamente
+    const btnChat = document.getElementById("btnChatVehiculo");
+    if (btnChat) {
+      btnChat.addEventListener("click", () => {
+        // Enviar evento para abrir chat con el tag del vehículo
+        document.dispatchEvent(new CustomEvent("openVehicleChat", { detail: { vehicleName: name } }));
+      });
+    }
+  } else {
+    dom.selectionInfo.innerHTML = `
+      <div style="font-weight:bold; color:#00ffa6;">${escapeHtml(name)}</div>
+      <div style="font-size:11px; margin-top:2px;">Tipo: ${escapeHtml(type)}</div>
+    `;
+  }
 }

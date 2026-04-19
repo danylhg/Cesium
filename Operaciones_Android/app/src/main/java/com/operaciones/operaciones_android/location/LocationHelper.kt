@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.location.LocationListener
 import android.location.LocationManager
+import android.util.Log
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -43,9 +44,10 @@ class LocationHelper(
             .maxByOrNull { it.time }
 
         bestLocation?.let { loc ->
+            Log.d("TrackingPersonal", "lastKnown lat=${loc.latitude} lon=${loc.longitude}")
             onLocationUpdate(loc.latitude, loc.longitude)
             onEmitLocation?.invoke(loc.latitude, loc.longitude)
-        }
+        } ?: Log.w("TrackingPersonal", "Sin lastKnownLocation disponible")
     }
 
     fun requestLocationPermissionOrStart() {
@@ -60,8 +62,10 @@ class LocationHelper(
         ) == PackageManager.PERMISSION_GRANTED
 
         if (fineOk || coarseOk) {
+            Log.d("TrackingPersonal", "Permiso de ubicacion OK. Iniciando updates")
             startLocationUpdates()
         } else {
+            Log.w("TrackingPersonal", "Pidiendo permiso de ubicacion")
             ActivityCompat.requestPermissions(
                 activity,
                 arrayOf(
@@ -81,7 +85,10 @@ class LocationHelper(
             grantResults.isNotEmpty() &&
             grantResults.any { it == PackageManager.PERMISSION_GRANTED }
         ) {
+            Log.d("TrackingPersonal", "Permiso concedido. Iniciando updates")
             startLocationUpdates()
+        } else if (requestCode == LOCATION_PERM) {
+            Log.w("TrackingPersonal", "Permiso de ubicacion denegado")
         }
     }
 
@@ -90,6 +97,7 @@ class LocationHelper(
         locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
         locationListener = LocationListener { loc ->
+            Log.d("TrackingPersonal", "location update lat=${loc.latitude} lon=${loc.longitude}")
             onLocationUpdate(loc.latitude, loc.longitude)
             onEmitLocation?.invoke(loc.latitude, loc.longitude)
         }

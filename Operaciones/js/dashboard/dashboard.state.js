@@ -48,5 +48,7 @@ export const dashboardState = {
   lastRouteId: null,              // id_ruta guardado en DB para la ruta activa del selector
   selectedRemoteRouteId: null,    // id_ruta de la ruta remota seleccionada en el mapa
   remoteRouteEntities: new Map(), // id_ruta → { ruta, entities: [cesiumEntity, ...] }
-  trackingEntities: new Map()     // "P:id_personal" | "V:id_vehiculo" → cesiumEntity
+  trackingEntities: new Map(),    // "P:id_personal" | "V:id_vehiculo" → cesiumEntity
+  trackingHistory: new Map(),     // "P:id" | "V:id" → { lat, lng, time, speed, bearing }
+  trackingClusters: new Map()     // "V:id" → Set(["P:id1", "P:id2"])
 };

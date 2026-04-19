@@ -87,7 +87,13 @@ class OperationMapRepository(
                                     rol = c.optString("rol", ""),
                                     puesto = c.optString("puesto", ""),
                                     lat = pos?.first,
-                                    lon = pos?.second
+                                    lon = pos?.second,
+                                    idGrupoOperacion = c.optInt("id_grupo_operacion", -1).takeIf { it > 0 },
+                                    idGrupoPadre = c.optInt("grupo_padre_id", -1).takeIf { it > 0 },
+                                    grupoNombre = c.optString("grupo_nombre", ""),
+                                    grupoApodo = c.optString("grupo_apodo", ""),
+                                    grupoPadreNombre = c.optString("grupo_padre_nombre", ""),
+                                    grupoPadreApodo = c.optString("grupo_padre_apodo", "")
                                 )
                             )
                         }

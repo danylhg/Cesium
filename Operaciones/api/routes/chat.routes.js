@@ -13,8 +13,81 @@ import { sendDbError } from "../utils/dbErrors.js";
 // Helper para validar enteros
 import { isInt } from "../utils/validators.js";
 
+// Emisión filtrada de mensajes de chat por socket
+import { emitChatMessage } from "../sockets/index.js";
+
 // Crea la instancia del router que se exportará al final
 const router = Router();
+
+// ── Filtro de visibilidad para historial ─────────────────────
+// opParam, rolParam, actorParam: referencias a parámetros SQL ("$1", "$2", …)
+// isPersonal: si el actor viene de tabla personal (usa id_personal) o usuario (usa id_usuario)
+function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
+  const colActor = isPersonal ? 'pc.id_personal' : 'pc.id_usuario';
+
+  const groupClauses = isPersonal ? `
+      OR (m.destino_tipo = 'CELL' AND (
+        (${rolParam} = 'CELL' AND m.destino_id = ${actorParam}::text)
+        OR (${rolParam} = 'CET' AND EXISTS (
+          SELECT 1
+          FROM asignacion_operacion_personal aop_cell
+          JOIN grupo_operacion g_cell ON g_cell.id_grupo_operacion = aop_cell.id_grupo_operacion
+          JOIN asignacion_operacion_personal aop_cet ON aop_cet.id_operacion = aop_cell.id_operacion
+          JOIN grupo_operacion g_cet ON g_cet.id_grupo_operacion = aop_cet.id_grupo_operacion
+          WHERE aop_cell.id_operacion      = ${opParam}
+            AND aop_cell.id_personal::text = m.destino_id
+            AND aop_cet.id_personal        = ${actorParam}
+            AND COALESCE(g_cell.id_grupo_padre, g_cell.id_grupo_operacion) =
+                COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
+        ))
+      ))
+      OR (m.destino_tipo IN ('FLOTILLA', 'GRUPO') AND EXISTS (
+        SELECT 1
+        FROM asignacion_operacion_personal aop
+        JOIN grupo_operacion g  ON g.id_grupo_operacion  = aop.id_grupo_operacion
+        LEFT JOIN grupo_operacion gp ON gp.id_grupo_operacion = g.id_grupo_padre
+        WHERE aop.id_operacion = ${opParam}
+          AND aop.id_personal  = ${actorParam}
+          AND (g.id_grupo_operacion::text = m.destino_id
+               OR gp.id_grupo_operacion::text = m.destino_id
+               OR g.nombre = m.destino_id OR g.apodo = m.destino_id
+               OR gp.nombre = m.destino_id OR gp.apodo = m.destino_id)
+      ))` : '';
+
+  return `
+    AND (
+      ${colActor} = ${actorParam}
+      OR (m.destino_tipo IS NULL AND (
+            m.destinatario_rol = 'GLOBAL'
+            OR m.destinatario_rol = ${rolParam}
+            OR (m.destinatario_rol = 'CELL,CET' AND ${rolParam} IN ('CELL', 'CET'))
+         ))
+      OR m.destino_tipo = 'GLOBAL'
+      OR (m.destino_tipo = 'CETS' AND ${rolParam} = 'CET')
+      OR (m.destino_tipo = 'CET'  AND m.destino_id = ${actorParam}::text AND ${rolParam} = 'CET')
+      OR (m.destino_tipo = 'CUTS' AND ${rolParam} IN ('CUT', 'CET'))
+      OR (m.destino_tipo = 'CUT'  AND (
+            (m.destino_id = ${actorParam}::text AND ${rolParam} = 'CUT')
+            OR (pc.id_personal = ${actorParam} AND ${rolParam} = 'CET')
+         ))
+      ${groupClauses}
+    )`;
+}
+
+let chatDestinationColumnsReady = false;
+
+async function ensureChatDestinationColumns() {
+  if (chatDestinationColumnsReady) return;
+
+  await pool.query(`
+    ALTER TABLE mensaje_chat
+      ADD COLUMN IF NOT EXISTS destino_tipo TEXT,
+      ADD COLUMN IF NOT EXISTS destino_id TEXT,
+      ADD COLUMN IF NOT EXISTS destino_label TEXT
+  `);
+
+  chatDestinationColumnsReady = true;
+}
 
 
 // ===============================
@@ -58,33 +131,46 @@ router.get("/ops/:id/chat", requireAuth, async (req, res) => {
 
   try {
     // Query base: todos los mensajes del feed de esta operación
-    let query = `SELECT * FROM v_chat_feed WHERE id_operacion = $1`;
+    await ensureChatDestinationColumns();
+
+    let query = `
+      SELECT
+        m.id_mensaje,
+        m.id_chat,
+        co.id_operacion,
+        m.contenido,
+        m.tipo_mensaje,
+        m.fecha_envio,
+        m.destinatario_rol,
+        m.destino_tipo,
+        m.destino_id,
+        m.destino_label,
+        pc.tipo AS tipo_participante,
+        pc.id_usuario,
+        pc.id_personal,
+        COALESCE(u.rol::text, p.rol::text) AS autor_rol,
+        COALESCE(
+          u.nombre || ' ' || u.apellido,
+          p.nombre || ' ' || p.apellido,
+          'Sistema'
+        ) AS autor_nombre
+      FROM mensaje_chat m
+      JOIN chat_operacion co ON co.id_chat = m.id_chat
+      JOIN participante_chat pc ON pc.id_participante = m.id_participante
+      LEFT JOIN usuario u ON u.id_usuario = pc.id_usuario
+      LEFT JOIN personal p ON p.id_personal = pc.id_personal
+      WHERE co.id_operacion = $1
+    `;
     let params = [id_operacion];
 
     // Si no es ADMIN ni CUT, aplica filtro de visibilidad
     if (user_role !== 'ADMIN' && user_role !== 'CUT') {
-      // Dependiendo si el actor es personal o usuario,
-      // la comparación se hace contra id_personal o id_usuario
-      const colActor = isPersonal ? 'id_personal' : 'id_usuario';
-
-      // Solo puede ver:
-      // - GLOBAL
-      // - mensajes dirigidos exactamente a su rol
-      // - mensajes compartidos CELL,CET si su rol es CELL o CET
-      // - mensajes donde su id coincide con el actor del mensaje
-      query += ` AND (
-        destinatario_rol = 'GLOBAL'
-        OR destinatario_rol = $2
-        OR (destinatario_rol = 'CELL,CET' AND $2 IN ('CELL', 'CET'))
-        OR (${colActor} = $3)
-      )`;
-
-      // Agrega parámetros del filtro
+      query += chatVisibilityClause('$1', '$2', '$3', isPersonal);
       params.push(user_role, id_actor);
     }
 
     // Ordena cronológicamente ascendente
-    query += ` ORDER BY fecha_envio ASC`;
+    query += ` ORDER BY m.fecha_envio ASC, m.id_mensaje ASC`;
 
     // Ejecuta la consulta final
     const { rows } = await pool.query(query, params);
@@ -130,6 +216,9 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
 
   // Rol destinatario del mensaje; por default GLOBAL
   const destinatario_rol = (req.body?.destinatario_rol || "GLOBAL").toString().toUpperCase();
+  const destino_tipo = String(req.body?.destino_tipo || "").trim().toUpperCase() || null;
+  const destino_id = req.body?.destino_id != null ? String(req.body.destino_id).trim() : null;
+  const destino_label = req.body?.destino_label != null ? String(req.body.destino_label).trim() : null;
 
   // contenido es obligatorio
   if (!contenido) {
@@ -151,6 +240,8 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
   const client = await pool.connect();
 
   try {
+    await ensureChatDestinationColumns();
+
     // Inicia transacción
     await client.query("BEGIN");
 
@@ -194,9 +285,21 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
 
     // Inserta el mensaje en la tabla mensaje_chat
     const { rows: msgRows } = await client.query(
-      `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol]
+      `INSERT INTO mensaje_chat (
+         id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol,
+         destino_tipo, destino_id, destino_label
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      [
+        id_chat,
+        id_participante,
+        contenido,
+        tipo_mensaje,
+        destinatario_rol,
+        destino_tipo,
+        destino_id,
+        destino_label
+      ]
     );
 
     // Confirma transacción
@@ -214,8 +317,8 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
     // Obtiene instancia de socket.io guardada en la app
     const io = req.app.get("io");
 
-    // Emite el evento al room de la operación (agrega autor_rol para que el dashboard filtre por tab)
-    io.to(`op_${id_operacion}`).emit("chat_message", { ...messageToBroadcast, autor_rol: req.user.rol });
+    // Emite el evento solo a quienes deben recibirlo según destino_tipo/destino_id
+    await emitChatMessage(io, id_operacion, { ...messageToBroadcast, autor_rol: req.user.rol });
 
     // Devuelve el mensaje enviado
     res.json({ ok: true, mensaje: { ...messageToBroadcast, autor_rol: req.user.rol } });
@@ -447,6 +550,7 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureChatDestinationColumns();
     // Busca el chat asociado a la operación
     const chatRes = await pool.query(
       `SELECT id_chat FROM chat_operacion WHERE id_operacion = $1 LIMIT 1`,
@@ -461,9 +565,13 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     // Id del chat encontrado
     const id_chat = chatRes.rows[0].id_chat;
 
-    // Consulta los mensajes del chat con información del autor
-    const { rows } = await pool.query(
-      `
+    // Info de visibilidad del usuario actual
+    const gm_role      = req.user.rol;
+    const gm_isPersonal = req.user.tabla === "personal";
+    const gm_actor     = Number(req.user.sub);
+
+    // Query base con filtros de contenido
+    let msgQuery = `
       SELECT
         m.id_mensaje,
         m.id_chat,
@@ -471,15 +579,13 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
         m.tipo_mensaje,
         m.fecha_envio,
         m.destinatario_rol,
+        m.destino_tipo,
+        m.destino_id,
+        m.destino_label,
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
-
-        -- Rol del autor (para filtrado y coloreado en UI)
         COALESCE(u.rol::text, p.rol::text) AS autor_rol,
-
-        -- Resuelve nombre del autor:
-        -- primero usuario, luego personal, y si no hay, "Sistema"
         COALESCE(
           u.nombre || ' ' || u.apellido,
           p.nombre || ' ' || p.apellido,
@@ -495,10 +601,17 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       WHERE m.id_chat = $1
         AND m.contenido NOT ILIKE 'OPERACION % automáticamente por trigger de BD.'
         AND m.contenido NOT ILIKE 'OPERACION % automÃ¡ticamente por trigger de BD.'
-      ORDER BY m.fecha_envio ASC, m.id_mensaje ASC
-      `,
-      [id_chat]
-    );
+    `;
+    let msgParams = [id_chat];
+
+    // Aplica visibilidad si no es ADMIN/CUT
+    if (gm_role !== 'ADMIN' && gm_role !== 'CUT') {
+      msgParams.push(id_operacion, gm_role, gm_actor); // $2, $3, $4
+      msgQuery += chatVisibilityClause('$2', '$3', '$4', gm_isPersonal);
+    }
+
+    msgQuery += ` ORDER BY m.fecha_envio ASC, m.id_mensaje ASC`;
+    const { rows } = await pool.query(msgQuery, msgParams);
 
     // Responde con los mensajes
     return res.json({ ok: true, items: rows });
@@ -531,6 +644,8 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureChatDestinationColumns();
+
     // Limpia contenido
     const contenido = String(req.body?.contenido || "").trim();
 
@@ -539,6 +654,9 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
 
     // Destinatario del mensaje (tab activo del dashboard)
     const destinatario_rol = String(req.body?.destinatario_rol || "GLOBAL").toUpperCase();
+    const destino_tipo = String(req.body?.destino_tipo || "").trim().toUpperCase() || null;
+    const destino_id = req.body?.destino_id != null ? String(req.body.destino_id).trim() : null;
+    const destino_label = req.body?.destino_label != null ? String(req.body.destino_label).trim() : null;
 
     // contenido obligatorio
     if (!contenido) {
@@ -602,11 +720,24 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     // Inserta mensaje en mensaje_chat
     const ins = await pool.query(
       `
-      INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio, destinatario_rol
+      INSERT INTO mensaje_chat (
+        id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol,
+        destino_tipo, destino_id, destino_label
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio,
+                destinatario_rol, destino_tipo, destino_id, destino_label
       `,
-      [id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol]
+      [
+        id_chat,
+        id_participante,
+        contenido,
+        tipo_mensaje,
+        destinatario_rol,
+        destino_tipo,
+        destino_id,
+        destino_label
+      ]
     );
 
     // Consulta información del autor
@@ -637,9 +768,9 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       ...(autorRes.rows[0] || {})
     };
 
-    // Emite el evento al room socket de la operación
+    // Emite solo a sockets con permiso según destino_tipo/destino_id
     const io = req.app.get("io");
-    io.to(`op_${id_operacion}`).emit("chat_message", payload);
+    await emitChatMessage(io, id_operacion, payload);
 
     // Respuesta final
     return res.json({ ok: true, item: payload });

@@ -68,6 +68,9 @@ class ChatRepository(
         contenido: String,
         tipoMensaje: String = "NORMAL",
         destinatarioRol: String? = "GLOBAL",
+        destinoTipo: String? = null,
+        destinoId: String? = null,
+        destinoLabel: String? = null,
         onSuccess: (JSONObject) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -75,6 +78,9 @@ class ChatRepository(
             put("contenido", contenido)
             put("tipo_mensaje", tipoMensaje)
             put("destinatario_rol", destinatarioRol ?: "GLOBAL")
+            destinoTipo?.takeIf { it.isNotBlank() }?.let { put("destino_tipo", it) }
+            destinoId?.takeIf { it.isNotBlank() }?.let { put("destino_id", it) }
+            destinoLabel?.takeIf { it.isNotBlank() }?.let { put("destino_label", it) }
         }.toString().toRequestBody("application/json".toMediaType())
 
         val req = Request.Builder()

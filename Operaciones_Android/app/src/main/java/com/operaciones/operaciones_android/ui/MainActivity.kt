@@ -976,37 +976,32 @@ class MainActivity : AppCompatActivity(),
         cesiumWebController.setup()
     }
 
-    override fun sendChatMessage(text: String, alert: Boolean, destinatarioRol: String?) {
+    override fun sendChatMessage(
+        text: String,
+        alert: Boolean,
+        destinatarioRol: String?,
+        destinoTipo: String?,
+        destinoId: String?,
+        destinoLabel: String?
+    ) {
         if (currentOperation.id <= 0) {
-            addMessage(
-                ChatMessage(
-                    user = "Sistema",
-                    text = "No hay operación activa para enviar mensajes.",
-                    type = MessageType.SYSTEM
-                )
-            )
+            addMessage(ChatMessage(user = "Sistema", text = "No hay operación activa para enviar mensajes.", type = MessageType.SYSTEM))
             return
         }
 
         val token = AuthManager.getToken(this)
-        val tipoMensaje = if (alert) "URGENTE" else "NORMAL"
 
         chatRepository.sendMessage(
-            operationId = currentOperation.id,
-            token = token,
-            contenido = text,
-            tipoMensaje = tipoMensaje,
+            operationId     = currentOperation.id,
+            token           = token,
+            contenido       = text,
+            tipoMensaje     = if (alert) "URGENTE" else "NORMAL",
             destinatarioRol = destinatarioRol,
-            onSuccess = { item ->
-                runOnUiThread {
-                    addMessage(parseChatMessage(item))
-                }
-            },
-            onError = { message ->
-                runOnUiThread {
-                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
-                }
-            }
+            destinoTipo     = destinoTipo,
+            destinoId       = destinoId,
+            destinoLabel    = destinoLabel,
+            onSuccess = { item -> runOnUiThread { addMessage(parseChatMessage(item)) } },
+            onError   = { message -> runOnUiThread { addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM)) } }
         )
     }
 
@@ -1046,28 +1041,41 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun parseChatMessage(item: JSONObject): ChatMessage {
-        val id = item.optInt("id_mensaje", -1).takeIf { it > 0 }
-        val autor = item.optString("autor_nombre", "Sistema")
-        val contenido = item.optString("contenido", "")
+        val id          = item.optInt("id_mensaje", -1).takeIf { it > 0 }
+        val autor       = item.optString("autor_nombre", "Sistema")
+        val contenido   = item.optString("contenido", "")
         val tipoMensaje = item.optString("tipo_mensaje", "NORMAL").uppercase()
 
         val messageType = when (tipoMensaje) {
             "URGENTE" -> MessageType.ALERT
             "SISTEMA" -> MessageType.SYSTEM
-            else -> MessageType.NORMAL
+            else      -> MessageType.NORMAL
         }
 
-        val destinatarioRol = item.optString("destinatario_rol", "GLOBAL")
-        val autorRol = item.optString("autor_rol", "").uppercase().ifBlank { null }
+        val idPersonal = item.optInt("id_personal", -1).takeIf { it > 0 }
+        val idUsuario  = item.optInt("id_usuario",  -1).takeIf { it > 0 }
+        val isMine = ::currentUser.isInitialized &&
+            ((idPersonal != null && idPersonal == currentUser.id) ||
+             (idUsuario  != null && idUsuario  == currentUser.id))
 
         return ChatMessage(
-            id = id,
-            user = autor,
-            text = contenido,
-            type = messageType,
-            destinatarioRol = destinatarioRol,
-            autorRol = autorRol
+            id              = id,
+            user            = autor,
+            text            = contenido,
+            type            = messageType,
+            isMine          = isMine,
+            destinatarioRol = item.optString("destinatario_rol", "GLOBAL"),
+            autorRol        = item.optString("autor_rol", "").uppercase().ifBlank { null },
+            destinoTipo     = optionalJsonString(item, "destino_tipo"),
+            destinoId       = optionalJsonString(item, "destino_id"),
+            destinoLabel    = optionalJsonString(item, "destino_label")
         )
+    }
+
+    private fun optionalJsonString(item: JSONObject, key: String): String? {
+        if (!item.has(key) || item.isNull(key)) return null
+        return item.optString(key, "").trim()
+            .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
     }
 
     override fun inflateOperationPanel() {
@@ -1081,7 +1089,8 @@ class MainActivity : AppCompatActivity(),
         val refs: ChatPanelRefs = panelRenderer.inflateChatPanel(
             panelContent = panelContent,
             messages = messages,
-            currentUser = currentUser
+            currentUser = currentUser,
+            personalList = personalList
         )
 
         chatRecycler = refs.recyclerView

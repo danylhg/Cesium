@@ -29,7 +29,7 @@ import {
   loadRouteForSelectedVehicle,
   initRoutes
 } from "./dashboard.routes.js";
-import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket } from "./dashboard.tracking.js";
+import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
 
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
@@ -276,23 +276,8 @@ function bindPlanningLogoutChoice() {
       if (decision === "cancel") return;
 
       if (decision === "discard") {
-        const opId = localStorage.getItem("active_operation_id") || op?.id;
-        if (!opId) {
-          alert("No se encontro la operacion planificada.");
-          return;
-        }
-
-        const res = await apiFetchEstado(opId, "CANCELADA");
-        if (!res) {
-          alert("Error de conexion al intentar salir sin guardar.");
-          return;
-        }
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          alert(`Error al salir sin guardar: ${data.mensaje || res.statusText}`);
-          return;
-        }
+        window.location.href = "menu_inicial.html";
+        return;
       }
     }
 
@@ -348,6 +333,7 @@ window.addEventListener("load", async () => {
   } else {
     await loadTrackingFromBackend();
   }
+  startTrackingPolling(5000);
 
   // Conectar Socket.io — chat y rutas en tiempo real
   const opId = localStorage.getItem("active_operation_id");

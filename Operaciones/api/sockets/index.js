@@ -40,10 +40,20 @@ export function initSocket(server) {
     // Persiste en BD y retransmite al room
     socket.on("tracking_personal", async (data) => {
       const opId = socket.operationId;
-      if (!opId) return;
+      if (!opId) {
+        console.warn("[SOCKET] tracking_personal ignorado: socket sin operacion", data);
+        return;
+      }
 
       const { id_personal, latitud, longitud, altitud, precision_m } = data ?? {};
-      if (!id_personal || latitud == null || longitud == null) return;
+      if (!id_personal || latitud == null || longitud == null) {
+        console.warn("[SOCKET] tracking_personal ignorado: payload incompleto", data);
+        return;
+      }
+
+      console.log(
+        `📍 tracking_personal op=${opId} personal=${id_personal} lat=${latitud} lon=${longitud}`
+      );
 
       try {
         await pool.query(
@@ -64,10 +74,20 @@ export function initSocket(server) {
     // Persiste en BD y retransmite al room
     socket.on("tracking_vehiculo", async (data) => {
       const opId = socket.operationId;
-      if (!opId) return;
+      if (!opId) {
+        console.warn("[SOCKET] tracking_vehiculo ignorado: socket sin operacion", data);
+        return;
+      }
 
       const { id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m } = data ?? {};
-      if (!id_vehiculo || latitud == null || longitud == null) return;
+      if (!id_vehiculo || latitud == null || longitud == null) {
+        console.warn("[SOCKET] tracking_vehiculo ignorado: payload incompleto", data);
+        return;
+      }
+
+      console.log(
+        `📍 tracking_vehiculo op=${opId} vehiculo=${id_vehiculo} lat=${latitud} lon=${longitud}`
+      );
 
       try {
         await pool.query(
@@ -143,6 +163,96 @@ export function emitDibujoCreado(io, idOperacion, dibujo) {
 
 export function emitDibujoEliminado(io, idOperacion, idDibujo) {
   io.to(`op_${idOperacion}`).emit("dibujo_eliminado", { id_dibujo: idDibujo });
+}
+
+// ── Visibilidad de mensajes de chat ──────────────────────────
+async function canReceiveChatMessage(sock, msg, idOperacion) {
+  const { rol, id_personal } = sock.userData || {};
+  const tipo   = (msg.destino_tipo || '').toUpperCase().trim();
+  const destId = msg.destino_id != null ? String(msg.destino_id).trim() : null;
+
+  if (!tipo || tipo === 'GLOBAL') return true;
+  if (!rol) return true;                          // dashboard sin rol → ve todo
+  if (rol === 'ADMIN' || rol === 'CUT') return true;
+
+  switch (tipo) {
+    case 'CETS': return rol === 'CET';
+    case 'CET':  return rol === 'CET'  && id_personal != null && String(id_personal) === destId;
+    case 'CUTS': return rol === 'CUT' || rol === 'CET';
+    case 'CUT':  return id_personal != null && (
+      (rol === 'CUT' && String(id_personal) === destId)
+      || (rol === 'CET' && msg.id_personal != null && String(msg.id_personal) === String(id_personal))
+    );
+
+    case 'CELL': {
+      if (!id_personal) return false;
+      if (rol === 'CELL') return String(id_personal) === destId;
+      if (rol === 'CET' && destId) {
+        try {
+          const { rows } = await pool.query(
+            `SELECT 1
+             FROM asignacion_operacion_personal aop_cell
+             JOIN grupo_operacion g_cell ON g_cell.id_grupo_operacion = aop_cell.id_grupo_operacion
+             JOIN asignacion_operacion_personal aop_cet  ON aop_cet.id_operacion  = aop_cell.id_operacion
+             JOIN grupo_operacion g_cet  ON g_cet.id_grupo_operacion  = aop_cet.id_grupo_operacion
+             WHERE aop_cell.id_operacion        = $1
+               AND aop_cell.id_personal::text   = $2
+               AND aop_cet.id_personal          = $3
+               AND COALESCE(g_cell.id_grupo_padre, g_cell.id_grupo_operacion) =
+                   COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
+             LIMIT 1`,
+            [idOperacion, destId, id_personal]
+          );
+          return rows.length > 0;
+        } catch (err) {
+          console.error('[SOCKET] canReceiveChatMessage CELL:', err.message);
+          return false;
+        }
+      }
+      return false;
+    }
+
+    case 'FLOTILLA':
+    case 'GRUPO': {
+      if (!id_personal || !destId) return false;
+      try {
+        const { rows } = await pool.query(
+          `SELECT 1
+           FROM asignacion_operacion_personal aop
+           JOIN grupo_operacion g  ON g.id_grupo_operacion  = aop.id_grupo_operacion
+           LEFT JOIN grupo_operacion gp ON gp.id_grupo_operacion = g.id_grupo_padre
+           WHERE aop.id_operacion  = $1
+             AND aop.id_personal   = $2
+             AND (g.id_grupo_operacion::text = $3
+                  OR gp.id_grupo_operacion::text = $3
+                  OR g.nombre = $3 OR g.apodo = $3
+                  OR gp.nombre = $3 OR gp.apodo = $3)
+           LIMIT 1`,
+          [idOperacion, id_personal, destId]
+        );
+        return rows.length > 0;
+      } catch (err) {
+        console.error('[SOCKET] canReceiveChatMessage FLOTILLA/GRUPO:', err.message);
+        return false;
+      }
+    }
+
+    default: return true;
+  }
+}
+
+export async function emitChatMessage(io, idOperacion, payload) {
+  const room    = `op_${idOperacion}`;
+  const sockets = await io.in(room).fetchSockets();
+  for (const sock of sockets) {
+    try {
+      if (await canReceiveChatMessage(sock, payload, idOperacion))
+        sock.emit('chat_message', payload);
+    } catch (err) {
+      console.error('[SOCKET] emitChatMessage error:', err.message);
+      sock.emit('chat_message', payload); // fallback: mejor mostrar que perder
+    }
+  }
 }
 
 // ── Emit filtrado de ruta_navegacion_creada ───────────────────

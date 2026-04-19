@@ -6,6 +6,26 @@ import { isInt } from "../utils/validators.js";
 
 const router = Router();
 
+async function getLatestPersonalPosition(id_operacion, id_personal) {
+  const { rows } = await pool.query(
+    `SELECT * FROM v_ultima_posicion_personal
+     WHERE id_operacion = $1 AND id_personal = $2
+     LIMIT 1`,
+    [id_operacion, id_personal]
+  );
+  return rows[0] || null;
+}
+
+async function getLatestVehiculoPosition(id_operacion, id_vehiculo) {
+  const { rows } = await pool.query(
+    `SELECT * FROM v_ultima_posicion_vehiculo
+     WHERE id_operacion = $1 AND id_vehiculo = $2
+     LIMIT 1`,
+    [id_operacion, id_vehiculo]
+  );
+  return rows[0] || null;
+}
+
 // ===============================
 // TRACKING PERSONAL
 // ===============================
@@ -26,6 +46,18 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
       [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
         altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
     );
+
+    const latest = await getLatestPersonalPosition(id_operacion, Number(id_personal));
+    const io = req.app.get("io");
+    io?.to(`op_${id_operacion}`).emit("tracking_personal", latest || {
+      id_operacion,
+      id_personal: Number(id_personal),
+      latitud: Number(latitud),
+      longitud: Number(longitud),
+      altitud: altitud != null ? Number(altitud) : null,
+      precision_m: precision_m != null ? Number(precision_m) : null
+    });
+
     res.json({ ok: true, tracking: rows[0] });
   } catch (err) {
     sendDbError(res, err, "Error registrando tracking personal");
@@ -88,6 +120,20 @@ router.post("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
         rumbo_grados != null ? Number(rumbo_grados) : null,
         precision_m != null ? Number(precision_m) : null]
     );
+
+    const latest = await getLatestVehiculoPosition(id_operacion, Number(id_vehiculo));
+    const io = req.app.get("io");
+    io?.to(`op_${id_operacion}`).emit("tracking_vehiculo", latest || {
+      id_operacion,
+      id_vehiculo: Number(id_vehiculo),
+      latitud: Number(latitud),
+      longitud: Number(longitud),
+      altitud: altitud != null ? Number(altitud) : null,
+      velocidad_kmh: velocidad_kmh != null ? Number(velocidad_kmh) : null,
+      rumbo_grados: rumbo_grados != null ? Number(rumbo_grados) : null,
+      precision_m: precision_m != null ? Number(precision_m) : null
+    });
+
     res.json({ ok: true, tracking: rows[0] });
   } catch (err) {
     sendDbError(res, err, "Error registrando tracking vehiculo");

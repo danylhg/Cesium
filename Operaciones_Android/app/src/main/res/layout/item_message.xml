@@ -1,23 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="6dp">
+    android:paddingHorizontal="8dp"
+    android:paddingVertical="2dp">
 
-    <TextView
-        android:id="@+id/msgUser"
-        android:layout_width="wrap_content"
+    <LinearLayout
+        android:id="@+id/bubble"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:textColor="#3b82f6"
-        android:textSize="11sp"
-        android:textStyle="bold"/>
+        android:layout_gravity="start"
+        android:orientation="vertical"
+        android:background="@drawable/bg_bubble_recv"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp">
 
-    <TextView
-        android:id="@+id/msgText"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:textColor="#e2e8f0"
-        android:textSize="13sp"/>
+        <TextView
+            android:id="@+id/msgMeta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#4a6580"
+            android:textSize="10sp"
+            android:layout_marginBottom="3dp"/>
 
-</LinearLayout>
+        <TextView
+            android:id="@+id/msgText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#e2e8f0"
+            android:textSize="13sp"
+            android:lineSpacingExtra="1dp"/>
+
+    </LinearLayout>
+
+</FrameLayout>

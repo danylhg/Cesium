@@ -153,6 +153,7 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         go.apodo AS grupo_apodo,
 
         -- Grupo padre del grupo actual, normalmente flotilla
+        gp_padre.id_grupo_operacion AS grupo_padre_id,
         gp_padre.nombre AS grupo_padre_nombre,
         gp_padre.apodo AS grupo_padre_apodo,
 

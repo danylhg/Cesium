@@ -1,6 +1,7 @@
 package com.operaciones.operaciones_android.network
 
 import com.operaciones.operaciones_android.config.ApiConfig
+import android.util.Log
 import io.socket.client.IO
 import io.socket.client.Socket
 import org.json.JSONObject
@@ -34,6 +35,7 @@ class ChatSocketManager(
         socket = IO.socket(ApiConfig.BASE_URL)
 
         socket?.on(Socket.EVENT_CONNECT) {
+            Log.d("TrackingPersonal", "Socket conectado. Uniendo a operacion=$operationId idPersonal=$idPersonal rol=$rol")
             val payload = JSONObject().apply {
                 put("id_operacion", operationId)
                 if (idPersonal > 0) put("id_personal", idPersonal)
@@ -123,6 +125,17 @@ class ChatSocketManager(
     }
 
     fun emitTracking(idPersonal: Int, lat: Double, lon: Double, apodo: String, rol: String = "") {
+        val connected = socket?.connected() == true
+        Log.d(
+            "TrackingPersonal",
+            "emitTracking connected=$connected op=$operationId personal=$idPersonal lat=$lat lon=$lon rol=$rol"
+        )
+
+        if (!connected) {
+            Log.w("TrackingPersonal", "No se emitio tracking_personal: socket desconectado")
+            return
+        }
+
         val payload = JSONObject().apply {
             put("id_personal", idPersonal)
             put("latitud", lat)

@@ -844,6 +844,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             go.nombre          AS grupo_nombre,
             go.apodo           AS grupo_apodo,
             go.descripcion     AS grupo_flotilla,
+            gp_padre.id_grupo_operacion AS grupo_padre_id,
             gp_padre.nombre    AS grupo_padre_nombre,
             gp_padre.apodo     AS grupo_padre_apodo,
             t.latitud,

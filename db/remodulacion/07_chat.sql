@@ -33,5 +33,8 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
   contenido TEXT NOT NULL,
   tipo_mensaje tipo_mensaje_enum NOT NULL DEFAULT 'NORMAL',
   destinatario_rol TEXT DEFAULT 'GLOBAL',
+  destino_tipo TEXT,
+  destino_id TEXT,
+  destino_label TEXT,
   fecha_envio TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

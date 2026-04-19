@@ -7,6 +7,7 @@ import {
   isOperationActive
 } from "./dashboard.storage.js";
 import { togglePanel, closeAllPanels } from "./dashboard.ui.js";
+import { saveTacticalData } from "./dashboard.persistence.js";
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -92,20 +93,17 @@ function bindOperationActionEvents() {
         return;
       }
 
-      if (!confirm(`¿Activar la operación "${opName}"?\nEsta acción iniciará la operación oficialmente.`)) return;
+      const confirmMsg = `¿Guardar la operación "${opName}"?\nSe guardará todo lo planificado en el mapa y la operación se activará automáticamente al llegar su fecha y hora programadas.`;
+      if (!confirm(confirmMsg)) return;
 
       try {
-        const res = await apiFetchEstado(opId, "ACTIVA");
-        if (res.ok) {
-          alert(`¡Operación "${opName}" activada con éxito!`);
-          saveCurrentOperation({ ...op, estado: "ACTIVA", phase: "activa" });
-          window.location.reload();
-        } else {
-          const data = await res.json().catch(() => ({}));
-          alert(`Error al activar: ${data.mensaje || res.statusText}`);
-        }
-      } catch {
-        alert("Error de conexión al intentar activar la operación.");
+        saveTacticalData();
+        saveCurrentOperation(op);
+        alert(`¡Operación "${opName}" guardada exitosamente!\nSe activará sola en la fecha designada.`);
+        window.location.href = "menu_inicial.html";
+      } catch (e) {
+        console.error(e);
+        alert("Error al guardar la operación.");
       }
     });
   }
@@ -133,6 +131,42 @@ function bindOperationActionEvents() {
         }
       } catch {
         alert("Error de conexión al intentar cancelar la operación.");
+      }
+    });
+  }
+
+  const activateOpBtn = document.getElementById("activateOpBtn");
+  if (activateOpBtn) {
+    activateOpBtn.addEventListener("click", async () => {
+      const op = getCurrentOperation();
+      const opId = localStorage.getItem("active_operation_id") || op?.id_operacion || op?.id;
+      const opName = op.nombre || op.title || op.titulo || "Operacion";
+
+      if (!opId) {
+        alert("No se encontro la operacion activa.");
+        return;
+      }
+
+      if (!confirm(`Activar la operacion "${opName}"?\nSe iniciara la operacion y se habilitara el chat tactico.`)) return;
+
+      try {
+        saveTacticalData();
+        const res = await apiFetchEstado(opId, "ACTIVA");
+        const data = await res.json().catch(() => ({}));
+
+        if (res.ok) {
+          const updatedOp = data.operacion || { ...op, estado: "ACTIVA", phase: "activa" };
+          updatedOp.phase = "activa";
+          localStorage.setItem("operacion_actual", JSON.stringify(updatedOp));
+          localStorage.setItem("active_operation_id", updatedOp.id_operacion || opId);
+          localStorage.setItem("force_open_chat", "true");
+          window.location.reload();
+        } else {
+          alert(`Error al activar: ${data.mensaje || res.statusText}`);
+        }
+      } catch (e) {
+        console.error(e);
+        alert("Error de conexion al intentar activar la operacion.");
       }
     });
   }

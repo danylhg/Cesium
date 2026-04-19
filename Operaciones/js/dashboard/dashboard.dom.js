@@ -14,8 +14,6 @@ export const dom = {
   milIcon: document.getElementById("milIcon"),
   milPreviewContainer: document.getElementById("milPreviewContainer"),
   iconPallet: document.getElementById("iconPallet"),
-  iconScale: document.getElementById("iconScale"),
-  iconSettings: document.getElementById("iconSettings"),
   symLabelContainer: document.getElementById("symLabelContainer"),
   symLabel: document.getElementById("symLabel"),
   placeBtn: document.getElementById("placeBtn"),
@@ -37,6 +35,8 @@ export const dom = {
   toggleChatPanel: document.getElementById("toggleChatPanel"),
   chatTabCet: document.getElementById("chatTabCet"),
   chatTabCells: document.getElementById("chatTabCells"),
+  chatChannelType: document.getElementById("chatChannelType"),
+  chatChannelTarget: document.getElementById("chatChannelTarget"),
   chatMessages: document.getElementById("chatMessages"),
   chatInput: document.getElementById("chatInput"),
   sendChatBtn: document.getElementById("sendChatBtn"),
@@ -76,5 +76,10 @@ export const dom = {
   // Popup entidad
   entityPopup: document.getElementById("entityPopup"),
   entityPopupName: document.getElementById("entityPopupName"),
-  entityPopupDelete: document.getElementById("entityPopupDelete")
+  entityPopupDelete: document.getElementById("entityPopupDelete"),
+  vehicleQuickMenu: document.getElementById("vehicleQuickMenu"),
+  vehicleQuickMenuName: document.getElementById("vehicleQuickMenuName"),
+  btnVehQuickChat: document.getElementById("btnVehQuickChat"),
+  btnVehQuickAlert: document.getElementById("btnVehQuickAlert"),
+  btnVehQuickRoute: document.getElementById("btnVehQuickRoute")
 };

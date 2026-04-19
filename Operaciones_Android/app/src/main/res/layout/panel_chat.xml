@@ -3,84 +3,99 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:paddingHorizontal="12dp"
-    android:paddingBottom="8dp">
+    android:background="#0a1628">
 
-    <!-- Header -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="MENSAJES"
-        android:textColor="#94a3b8"
-        android:textSize="10sp"
-        android:letterSpacing="0.15"
-        android:paddingTop="8dp"
-        android:paddingBottom="6dp"/>
+    <!-- ── Header ───────────────────────────────────────────── -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="36dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="14dp"
+        android:background="#0d1f3c">
 
-    <!-- Lista de mensajes -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="MENSAJES"
+            android:textColor="#94a3b8"
+            android:textSize="10sp"
+            android:letterSpacing="0.12"/>
+
+    </LinearLayout>
+
+    <!-- ── Lista de mensajes ─────────────────────────────────── -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/chatRecycler"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:paddingVertical="4dp"
         android:clipToPadding="false"/>
 
-    <!-- Predetermined messages (Quick replies) -->
+    <!-- ── Respuestas rápidas ─────────────────────────────────── -->
     <HorizontalScrollView
         android:id="@+id/quickRepliesScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:scrollbars="none"
         android:overScrollMode="never"
-        android:layout_marginTop="4dp"
-        android:layout_marginBottom="4dp">
+        android:paddingHorizontal="10dp"
+        android:paddingVertical="4dp">
         <LinearLayout
             android:id="@+id/quickRepliesContainer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:paddingVertical="4dp"/>
+            android:gravity="center_vertical"/>
     </HorizontalScrollView>
 
-    <!-- Destination / Channel Selector -->
+    <!-- ── Destino ────────────────────────────────────────────── -->
     <LinearLayout
         android:id="@+id/channelSelector"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginBottom="4dp">
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingHorizontal="10dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="DESTINATARIO"
+            android:text="Para:"
             android:textColor="#64748b"
-            android:textSize="9sp"
-            android:letterSpacing="0.05"
-            android:layout_marginBottom="2dp"/>
-        <HorizontalScrollView
-            android:id="@+id/channelsScroll"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:scrollbars="none">
-            <LinearLayout
-                android:id="@+id/channelsContainer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:paddingVertical="2dp"/>
-        </HorizontalScrollView>
+            android:textSize="11sp"
+            android:layout_marginEnd="6dp"/>
+
+        <TextView
+            android:id="@+id/destBtn"
+            android:layout_width="0dp"
+            android:layout_height="30dp"
+            android:layout_weight="1"
+            android:background="@drawable/bg_dest_btn"
+            android:textColor="#cbd5e1"
+            android:textSize="12sp"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="10dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"/>
     </LinearLayout>
 
-    <!-- Input row -->
+    <!-- ── Composición ───────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginTop="4dp">
+        android:paddingHorizontal="8dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="6dp">
 
-        <!-- Campo de texto -->
         <EditText
             android:id="@+id/msgInput"
             android:layout_width="0dp"
@@ -89,34 +104,39 @@
             android:hint="Escribe un mensaje..."
             android:textColor="#e2e8f0"
             android:textColorHint="#475569"
-            android:background="#1a2235"
+            android:background="@drawable/input_bg"
             android:paddingHorizontal="12dp"
             android:inputType="text"
-            android:textSize="13sp"/>
+            android:textSize="13sp"
+            android:imeOptions="actionSend"/>
 
-        <!-- Botón aviso (rojo) -->
-        <ImageButton
-            android:id="@+id/btnAlert"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="#7f1d1d"
-            android:src="@android:drawable/ic_dialog_alert"
-            android:contentDescription="Aviso"
-            android:tint="#ef4444"
-            android:scaleType="centerInside"
-            android:padding="10dp"/>
-
-        <!-- Botón enviar -->
         <ImageButton
             android:id="@+id/sendBtn"
             android:layout_width="44dp"
             android:layout_height="44dp"
-            android:background="#1e3a5f"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_quick_reply_selected"
             android:src="@android:drawable/ic_menu_send"
             android:contentDescription="Enviar"
-            android:tint="#3b82f6"
+            android:tint="#ffffff"
             android:scaleType="centerInside"
             android:padding="10dp"/>
 
     </LinearLayout>
+
+    <!-- ── Alerta (discreta, solo texto) ─────────────────────── -->
+    <TextView
+        android:id="@+id/btnAlert"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚠  Enviar como urgente"
+        android:textColor="#94534a"
+        android:textSize="11sp"
+        android:gravity="end"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:foreground="?attr/selectableItemBackground"/>
+
 </LinearLayout>

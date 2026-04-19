@@ -11,6 +11,8 @@ data class PersonalItem(
     val lon: Double? = null,
     val grupoNombre: String = "",
     val grupoApodo: String = "",
+    val idGrupoOperacion: Int? = null,
+    val idGrupoPadre: Int? = null,
     val grupoPadreNombre: String = "",
     val grupoPadreApodo: String = "",
     val cetNombre: String = "",

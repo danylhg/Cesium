@@ -1,6 +1,7 @@
 // js/dashboard/dashboard.tracking.js
 
 import { dashboardState } from "./dashboard.state.js";
+import { processTrackingUpdate } from "./dashboard.tracking.clustering.js";
 
 const API_BASE = () => localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const token = () => localStorage.getItem("token");
@@ -31,8 +32,29 @@ function getCoords(item) {
   return { lat, lng };
 }
 
+function upsertPersonalTracking(item) {
+  const coords = getCoords(item);
+  if (!coords || item?.id_personal == null) return;
+
+  upsertTrackingEntity(`P:${item.id_personal}`, coords.lat, coords.lng, makePersonalLabel(item), COLOR_PERSONAL, {
+    tacticalType: "personal",
+    trackingRole: item.rol_en_operacion || item.rol || ""
+  });
+}
+
+function upsertVehiculoTracking(item) {
+  const coords = getCoords(item);
+  if (!coords || item?.id_vehiculo == null) return;
+
+  upsertTrackingEntity(`V:${item.id_vehiculo}`, coords.lat, coords.lng, makeVehiculoLabel(item), COLOR_VEHICULO, {
+    tacticalType: "vehiculo"
+  });
+}
+
 // ── Crear o mover una entidad de tracking ────────────────────
-function upsertTrackingEntity(key, lat, lng, label, color) {
+function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
+  processTrackingUpdate(key, lat, lng);
+
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
@@ -50,6 +72,10 @@ function upsertTrackingEntity(key, lat, lng, label, color) {
     if (ent.point) {
       ent.point.color = color.withAlpha(0.18);
       ent.point.outlineColor = Cesium.Color.BLACK;
+    }
+    if (ent.properties) {
+      ent.properties.trackingRole = meta.trackingRole || ent.properties.trackingRole;
+      ent.properties.tacticalType = meta.tacticalType || ent.properties.tacticalType;
     }
     return;
   }
@@ -80,6 +106,12 @@ function upsertTrackingEntity(key, lat, lng, label, color) {
       backgroundColor: color.withAlpha(0.6),
       backgroundPadding: new Cesium.Cartesian2(4, 2),
       scaleByDistance: SCALE_BY_DIST
+    },
+    properties: {
+      trackingKey: key,
+      tacticalType: meta.tacticalType || (key.startsWith("V:") ? "vehiculo" : "personal"),
+      trackingRole: meta.trackingRole || "",
+      draggable: false
     }
   });
 
@@ -89,14 +121,10 @@ function upsertTrackingEntity(key, lat, lng, label, color) {
 // ── Carga desde datos de mapa ya obtenidos (sin fetch extra) ─
 export function loadTrackingFromMapaData(mapaData) {
   (mapaData.personal || []).forEach(p => {
-    const coords = getCoords(p);
-    if (!coords) return;
-    upsertTrackingEntity(`P:${p.id_personal}`, coords.lat, coords.lng, makePersonalLabel(p), COLOR_PERSONAL);
+    upsertPersonalTracking(p);
   });
   (mapaData.vehiculos || []).forEach(v => {
-    const coords = getCoords(v);
-    if (!coords) return;
-    upsertTrackingEntity(`V:${v.id_vehiculo}`, coords.lat, coords.lng, makeVehiculoLabel(v), COLOR_VEHICULO);
+    upsertVehiculoTracking(v);
   });
 }
 
@@ -119,7 +147,10 @@ export async function loadTrackingFromBackend() {
       if (!coords) return;
       const key = `P:${p.id_personal}`;
       const label = makePersonalLabel(p);
-      upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_PERSONAL);
+      upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_PERSONAL, {
+        tacticalType: "personal",
+        trackingRole: p.rol_en_operacion || p.rol || ""
+      });
     });
 
     // Vehículos con posición conocida
@@ -128,7 +159,9 @@ export async function loadTrackingFromBackend() {
       if (!coords) return;
       const key = `V:${v.id_vehiculo}`;
       const label = makeVehiculoLabel(v);
-      upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_VEHICULO);
+      upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_VEHICULO, {
+        tacticalType: "vehiculo"
+      });
     });
 
   } catch (err) {
@@ -136,23 +169,50 @@ export async function loadTrackingFromBackend() {
   }
 }
 
+async function fetchTrackingList(path) {
+  const id = opId();
+  if (!id || !token()) return [];
+
+  try {
+    const res = await fetch(`${API_BASE()}/ops/${id}${path}`, {
+      headers: { "Authorization": `Bearer ${token()}` },
+      cache: "no-store"
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.items) ? data.items : [];
+  } catch (err) {
+    console.warn("[TRACKING] No se pudo refrescar tracking:", err.message);
+    return [];
+  }
+}
+
+export async function refreshTrackingPositions() {
+  const [personal, vehiculos] = await Promise.all([
+    fetchTrackingList("/tracking/personal"),
+    fetchTrackingList("/tracking/vehiculos")
+  ]);
+
+  if (personal.length || vehiculos.length) {
+    console.log(`[TRACKING] refresh personal=${personal.length} vehiculos=${vehiculos.length}`);
+  }
+
+  personal.forEach(upsertPersonalTracking);
+  vehiculos.forEach(upsertVehiculoTracking);
+}
+
+export function startTrackingPolling(intervalMs = 5000) {
+  refreshTrackingPositions();
+  return window.setInterval(refreshTrackingPositions, intervalMs);
+}
+
 // ── Socket en tiempo real ────────────────────────────────────
 export function initTrackingSocket(socket) {
   socket.on("tracking_personal", (data) => {
-    const { id_personal, latitud, longitud } = data ?? {};
-    if (!id_personal || latitud == null || longitud == null) return;
-
-    const key = `P:${id_personal}`;
-    const label = makePersonalLabel(data);
-    upsertTrackingEntity(key, latitud, longitud, label, COLOR_PERSONAL);
+    upsertPersonalTracking(data);
   });
 
   socket.on("tracking_vehiculo", (data) => {
-    const { id_vehiculo, latitud, longitud } = data ?? {};
-    if (!id_vehiculo || latitud == null || longitud == null) return;
-
-    const key = `V:${id_vehiculo}`;
-    const label = dashboardState.trackingEntities.get(key)?.name || `V-${id_vehiculo}`;
-    upsertTrackingEntity(key, latitud, longitud, label, COLOR_VEHICULO);
+    upsertVehiculoTracking(data);
   });
 }

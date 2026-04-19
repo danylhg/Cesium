@@ -11,7 +11,7 @@ import {
   persistDraggedEntity
 } from "./dashboard.tactical.js";
 import { addAreaVertex, updateAreaPreview } from "./dashboard.area.js";
-import { cartesianToLatLng } from "./dashboard.persistence.js";
+import { cartesianToLatLng, autoSaveTacticalData } from "./dashboard.persistence.js";
 import {
   persistRouteDataToCurrentOperation,
   autoCalcRoute,
@@ -102,6 +102,139 @@ export function setBaseLayer(key) {
   viewer.imageryLayers.addImageryProvider(provider);
 }
 
+function getEntityProperty(entity, key) {
+  const value = entity?.properties?.[key];
+  return value?.getValue?.(Cesium.JulianDate.now()) ?? value ?? "";
+}
+
+function getQuickMenuContext(entity) {
+  const trackingKey = String(getEntityProperty(entity, "trackingKey") || "");
+  if (!trackingKey) return null;
+
+  if (trackingKey.startsWith("V:")) {
+    return {
+      type: "vehiculo",
+      label: "Vehiculo",
+      name: entity.name || "Vehiculo",
+      actions: [
+        { slot: "chat", kind: "vehiculo", text: "Mandar mensaje a tripulacion" },
+        { slot: "alert", kind: "aviso-vehiculo", text: "Dar aviso rapido" },
+        { slot: "route", kind: "ruta", text: "Ver ruta" }
+      ]
+    };
+  }
+
+  if (trackingKey.startsWith("P:")) {
+    const role = String(getEntityProperty(entity, "trackingRole") || "").toUpperCase();
+    if (!["CET", "CELL"].includes(role)) return null;
+
+    const actions = role === "CET"
+      ? [
+          { slot: "chat", kind: "cet", text: "Mandar mensaje a CET" },
+          { slot: "alert", kind: "flotilla", text: "Mandar mensaje a flotilla" },
+          { slot: "route", kind: "ruta", text: "Ver ruta" }
+        ]
+      : [
+          { slot: "chat", kind: "flotilla", text: "Mandar mensaje a flotilla" },
+          { slot: "alert", kind: "grupo", text: "Mandar mensaje a grupo" },
+          { slot: "route", kind: "ruta", text: "Ver ruta" }
+        ];
+
+    return {
+      type: role,
+      label: role,
+      name: entity.name || role,
+      actions
+    };
+  }
+
+  return null;
+}
+
+function showQuickMenuForEntity(entity, clickPosition) {
+  const context = getQuickMenuContext(entity);
+  if (!dom.vehicleQuickMenu) return false;
+
+  if (!context) {
+    dom.vehicleQuickMenu.style.display = "none";
+    return false;
+  }
+
+  if (dom.vehicleQuickMenuName) {
+    dom.vehicleQuickMenuName.textContent = `${context.name} (${context.label})`;
+  }
+  const buttons = {
+    chat: dom.btnVehQuickChat,
+    alert: dom.btnVehQuickAlert,
+    route: dom.btnVehQuickRoute
+  };
+
+  Object.values(buttons).forEach((button) => {
+    if (!button) return;
+    button.style.display = "none";
+    button.dataset.actionKind = "";
+  });
+
+  context.actions.forEach((action) => {
+    const button = buttons[action.slot];
+    if (!button) return;
+    button.textContent = action.text;
+    button.dataset.actionKind = action.kind;
+    button.style.display = "block";
+  });
+
+  dom.vehicleQuickMenu.dataset.contextType = context.type;
+
+  const viewer = dashboardState.viewer;
+  const rect = viewer.canvas.getBoundingClientRect();
+  const x = clickPosition.x + rect.left + 15;
+  const y = clickPosition.y + rect.top - 20;
+
+  dom.vehicleQuickMenu.style.left = `${Math.min(x, window.innerWidth - 230)}px`;
+  dom.vehicleQuickMenu.style.top = `${Math.max(y - 30, rect.top + 10)}px`;
+  dom.vehicleQuickMenu.style.display = "block";
+  return true;
+}
+
+function dispatchEntityChat(actionKind) {
+  const selected = dashboardState.selectedEntity;
+  if (!selected) return;
+
+  const entityName = selected.name || dom.vehicleQuickMenuName?.textContent || "Elemento";
+  const contextType = dom.vehicleQuickMenu?.dataset.contextType || "";
+
+  document.dispatchEvent(new CustomEvent("openEntityChat", {
+    detail: {
+      entityName,
+      contextType,
+      target: actionKind,
+      trackingKey: getEntityProperty(selected, "trackingKey"),
+      role: getEntityProperty(selected, "trackingRole")
+    }
+  }));
+
+  if (actionKind === "vehiculo") {
+    document.dispatchEvent(new CustomEvent("openVehicleChat", { detail: { vehicleName: entityName } }));
+  }
+
+  if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+}
+
+function openSelectedEntityRoute() {
+  const selected = dashboardState.selectedEntity;
+  if (!selected) return;
+
+  const trackingKey = getEntityProperty(selected, "trackingKey");
+  if (trackingKey) {
+    const id = String(trackingKey).split(":")[1];
+    if (id) {
+      import("./dashboard.tactical.js").then(m => m.selectRemoteRoute("route-" + id));
+    }
+  }
+
+  if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+}
+
 function handleEntitySelection(clickPosition) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
@@ -109,15 +242,20 @@ function handleEntitySelection(clickPosition) {
   const picked = viewer.scene.pick(clickPosition);
 
   const isDraw = (dashboardState.toolMode === "pencil" || dashboardState.toolMode === "eraser");
-  if (isDraw) { if (dom.entityPopup) dom.entityPopup.style.display = "none"; return; }
+  if (isDraw) {
+    if (dom.entityPopup) dom.entityPopup.style.display = "none";
+    if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+    return;
+  }
 
   if (picked && picked.id) {
     // Si es el radar, no lo seleccionamos para no mostrar el popup "Eliminar" en todo el centro
     if (picked.id.name === "Radar Estereográfico") {
-        dashboardState.selectedEntity = null;
-        updateSelectionInfo(null);
-        if (dom.entityPopup) dom.entityPopup.style.display = "none";
-        return;
+      dashboardState.selectedEntity = null;
+      updateSelectionInfo(null);
+      if (dom.entityPopup) dom.entityPopup.style.display = "none";
+      if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+      return;
     }
 
     const routeId = getRouteIdForEntity(picked.id);
@@ -128,6 +266,7 @@ function handleEntitySelection(clickPosition) {
 
     dashboardState.selectedEntity = picked.id;
     updateSelectionInfo(dashboardState.selectedEntity);
+    const quickMenuShown = showQuickMenuForEntity(dashboardState.selectedEntity, clickPosition);
 
     const tacticalType =
       dashboardState.selectedEntity.properties?.tacticalType?.getValue?.() ||
@@ -137,7 +276,7 @@ function handleEntitySelection(clickPosition) {
       tacticalType &&
       !["planning-area", "planning-area-border", "planning-area-label"].includes(tacticalType);
 
-    if (dom.entityPopup && isTactical) {
+    if (dom.entityPopup && isTactical && !quickMenuShown) {
       const name = dashboardState.selectedEntity.name || tacticalType || "Elemento táctico";
       if (dom.entityPopupName) {
         dom.entityPopupName.textContent = name;
@@ -154,20 +293,11 @@ function handleEntitySelection(clickPosition) {
       dom.entityPopup.style.display = "none";
     }
 
-    if (
-      dashboardState.selectedEntity.properties?.tacticalType?.getValue?.() === "mil-dropped" &&
-      dom.iconScale
-    ) {
-      const currentScale =
-        dashboardState.selectedEntity.billboard?.scale?.getValue?.() ||
-        dashboardState.selectedEntity.billboard?.scale ||
-        0.08;
-      dom.iconScale.value = currentScale;
-    }
   } else {
     dashboardState.selectedEntity = null;
     updateSelectionInfo(null);
     if (dom.entityPopup) dom.entityPopup.style.display = "none";
+    if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
   }
 }
 
@@ -343,6 +473,7 @@ function bindCesiumPointerEvents(handler) {
     if (!saved && dragStartPosition) {
       draggedEntity.position = dragStartPosition;
     }
+    autoSaveTacticalData();
   }, Cesium.ScreenSpaceEventType.LEFT_UP);
 }
 
@@ -379,7 +510,7 @@ function bindMapDropEvents() {
       coords.lng,
       title,
       src || null,
-      Number(dom.iconScale ? dom.iconScale.value : 0.08),
+      1,
       sidc || null
     );
   });
@@ -423,7 +554,7 @@ function bindMapUiEvents() {
   if (clearRouteBtn) {
     clearRouteBtn.onclick = () => {
       dashboardState.pickMode = null;
-      clearRoute(); 
+      clearRoute();
     };
   }
 
@@ -431,6 +562,40 @@ function bindMapUiEvents() {
   if (layerSelect) {
     layerSelect.addEventListener("change", (e) => {
       setBaseLayer(e.target.value);
+    });
+  }
+
+  if (dom.btnVehQuickChat) {
+    dom.btnVehQuickChat.addEventListener("click", () => {
+      dispatchEntityChat(dom.btnVehQuickChat.dataset.actionKind || "vehiculo");
+    });
+  }
+
+  if (dom.btnVehQuickAlert) {
+    dom.btnVehQuickAlert.addEventListener("click", () => {
+      const actionKind = dom.btnVehQuickAlert.dataset.actionKind || "";
+      if (actionKind === "aviso-vehiculo") {
+        const selected = dashboardState.selectedEntity;
+        const entityName = selected?.name || dom.vehicleQuickMenuName?.textContent || "Vehiculo";
+        document.dispatchEvent(new CustomEvent("sendVehicleAlert", { detail: { vehicleName: entityName } }));
+        if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+        alert("Aviso enviado.");
+        return;
+      }
+
+      dispatchEntityChat(actionKind);
+    });
+  }
+
+  if (dom.btnVehQuickRoute) {
+    dom.btnVehQuickRoute.addEventListener("click", () => {
+      const actionKind = dom.btnVehQuickRoute.dataset.actionKind || "ruta";
+      if (actionKind === "ruta") {
+        openSelectedEntityRoute();
+        return;
+      }
+
+      dispatchEntityChat(actionKind);
     });
   }
 }
@@ -462,6 +627,13 @@ export function initCesium() {
   });
 
   const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+  viewer.entities.collectionChanged.addEventListener(() => {
+    if (dashboardState._saveTimer) clearTimeout(dashboardState._saveTimer);
+    dashboardState._saveTimer = setTimeout(() => {
+      autoSaveTacticalData();
+    }, 1000);
+  });
 
   bindCesiumPointerEvents(handler);
   bindMapDropEvents();

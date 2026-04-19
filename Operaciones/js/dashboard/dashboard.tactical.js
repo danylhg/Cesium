@@ -500,6 +500,10 @@ function renderMilSymbolImage(sidc, size = 200) {
   return symbol ? symbol.asCanvas() : null;
 }
 
+function getMilBillboardSize() {
+  return 42;
+}
+
 function buildMilSidc() {
   const identity = dom.milIdentity?.value || "F";
   const dimension = dom.milDimension?.value || "G";
@@ -547,7 +551,9 @@ function buildPoiEntity(poi, tacticalType = "poi") {
       image: iconSrc,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      scale: Number(poi.scale || (isMil ? 3.0 : 1.0))
+      width: isMil ? getMilBillboardSize() : undefined,
+      height: isMil ? getMilBillboardSize() : undefined,
+      scale: isMil ? 1 : Number(poi.scale || 1.0)
     } : undefined,
     point: !iconSrc ? {
       pixelSize: 10,
@@ -1158,23 +1164,24 @@ export function updateTacticalPreview(currentLat, currentLng) {
 
 function syncTacticalToolAvailability(currentOperation = getCurrentOperation()) {
   const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
+  const isPlanningOperation = phase === "planificada";
   const isActiveOperation = phase === "activa";
   const panelTitle = document.getElementById("tacticalPanelTitle") || document.querySelector("#tacticalPanel .panelTitle");
   const toolGroupTitle = document.getElementById("tacticalToolGroupTitle") || document.querySelector("#tacticalPanel .groupTitle");
   const perimeterOption = dom.toolSelect?.querySelector('option[value="perimeter"]');
-  const operationZoneGroup = perimeterOption?.parentElement?.tagName === "OPTGROUP" ? perimeterOption.parentElement : null;
 
   if (panelTitle) panelTitle.textContent = "Objetos tácticos";
   if (toolGroupTitle) toolGroupTitle.textContent = "Selección de tipo de objeto";
 
   if (perimeterOption) {
-    perimeterOption.hidden = isActiveOperation;
-    perimeterOption.disabled = isActiveOperation;
+    perimeterOption.hidden = !isPlanningOperation;
+    perimeterOption.disabled = !isPlanningOperation;
   }
 
-  if (operationZoneGroup) {
-    operationZoneGroup.disabled = isActiveOperation;
-    operationZoneGroup.style.display = isActiveOperation ? "none" : "";
+  if (!isPlanningOperation && dashboardState.toolMode === "perimeter") {
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
+    resetDrawingState();
   }
 
   return { isActiveOperation };
@@ -1204,7 +1211,6 @@ export function setTacticalUI() {
   if (milTitle) milTitle.style.display = isMil ? "block" : "none";
 
   if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = isMil ? "block" : "none";
-  if (dom.iconSettings) dom.iconSettings.style.display = isMil ? "block" : "none";
 
   if (dom.symLabelContainer) dom.symLabelContainer.style.display = showLabelInput ? "block" : "none";
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
@@ -2308,15 +2314,6 @@ export function bindTacticalEvents() {
     });
   }
 
-  if (dom.iconScale) {
-    dom.iconScale.addEventListener("input", (e) => {
-      const ent = dashboardState.selectedEntity;
-      if (ent && ent.properties?.tacticalType?.getValue?.() === "mil-dropped") {
-        ent.billboard.scale = Number(e.target.value);
-      }
-    });
-  }
-
   if (dom.placeBtn) {
     dom.placeBtn.addEventListener("click", () => {
       if (dashboardState.toolMode === "mil") return;
@@ -2413,7 +2410,6 @@ export function bindTacticalEvents() {
   if (dom.milIdentity) dom.milIdentity.addEventListener("change", updateMilSymbolPreview);
   if (dom.milDimension) dom.milDimension.addEventListener("change", updateMilSymbolPreview);
   if (dom.milIcon) dom.milIcon.addEventListener("change", updateMilSymbolPreview);
-  if (dom.iconScale) dom.iconScale.addEventListener("input", updateMilSymbolPreview);
 
   if (dom.milPreviewContainer) {
     dom.milPreviewContainer.addEventListener("dragstart", (e) => {
@@ -2438,10 +2434,7 @@ export function updateMilSymbolPreview() {
 
   if (!sidc) return;
 
-  const canvas = renderMilSymbolImage(
-    sidc,
-    Math.max(35, Math.round(Number(dom.iconScale?.value || 0.1) * 300))
-  );
+  const canvas = renderMilSymbolImage(sidc, 130);
   if (!canvas) return;
 
   dom.milPreviewContainer.innerHTML = "";

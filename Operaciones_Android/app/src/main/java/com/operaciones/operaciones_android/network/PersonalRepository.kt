@@ -63,6 +63,8 @@ class PersonalRepository(
                                 lon = if (p.isNull("longitud")) null else p.optDouble("longitud"),
                                 grupoNombre = p.safeString("grupo_nombre"),
                                 grupoApodo = p.safeString("grupo_apodo"),
+                                idGrupoOperacion = p.optInt("id_grupo_operacion", -1).takeIf { it > 0 },
+                                idGrupoPadre = p.optInt("grupo_padre_id", -1).takeIf { it > 0 },
                                 grupoPadreNombre = p.safeString("grupo_padre_nombre"),
                                 grupoPadreApodo = p.safeString("grupo_padre_apodo"),
                                 cetNombre = p.safeString("cet_nombre"),

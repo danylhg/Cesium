@@ -626,7 +626,7 @@
     function getMilSymbolCanvas(sidc) {
       try {
         if (!sidc || typeof ms === 'undefined' || typeof ms.Symbol !== 'function') return null;
-        return new ms.Symbol(sidc, { size: 130, colorMode: 'Light' }).asCanvas();
+        return new ms.Symbol(sidc, { size: 500, colorMode: 'Light' }).asCanvas();
       } catch (e) {
         console.error('[POI][WEB] Error creando milsymbol: ' + e.message);
         return null;
@@ -650,7 +650,7 @@
           !normalizedIconoSrc.endsWith('/null');
         const billboardImage = milCanvas || (useImageSrc ? normalizedIconoSrc : null);
         const useBillboard = !!billboardImage;
-        const billboardScale = milCanvas ? 0.28 : 0.05;
+        const billboardScale = 0.05;
 
         console.log('[POI][WEB] addPoiToMap in', JSON.stringify({
           id, lat, lon, nombre, tipoPoi, color, iconoSrc: normalizedIconoSrc, sidc: normalizedSidc, useBillboard
@@ -663,8 +663,6 @@
 
         // Los símbolos militares (SIDC) tienen tamaño fijo en pantalla —
         // no escalan con el zoom. Otros iconos/puntos sí usan scaleByDistance.
-        const isMilSymbol = !!milCanvas;
-
         const entity = viewer.entities.add({
           id: entityId,
           position: Cesium.Cartesian3.fromDegrees(lon, lat),
@@ -673,7 +671,7 @@
             verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
             scale: billboardScale,
-            scaleByDistance: isMilSymbol ? undefined : SCALE_BY_DIST,
+            scaleByDistance: SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           } : undefined,
           point: !useBillboard ? {
@@ -697,7 +695,7 @@
             backgroundColor: !useBillboard ? cesiumColor.withAlpha(0.7) : undefined,
             backgroundPadding: !useBillboard ? new Cesium.Cartesian2(6, 4) : undefined,
             heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            scaleByDistance: isMilSymbol ? undefined : SCALE_BY_DIST,
+            scaleByDistance: SCALE_BY_DIST,
             disableDepthTestDistance: Number.POSITIVE_INFINITY
           }
         });

@@ -1,15 +1,22 @@
 package com.operaciones.operaciones_android.ui.panel
 
 import android.graphics.Color
+import android.graphics.Typeface
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.EquipoItem
@@ -27,7 +34,14 @@ class MainPanelRenderer(
         fun getLayoutInflater(): LayoutInflater
         fun addMessage(msg: ChatMessage)
         fun openChatPanel()
-        fun sendChatMessage(text: String, alert: Boolean = false, destinatarioRol: String? = null)
+        fun sendChatMessage(
+            text: String,
+            alert: Boolean = false,
+            destinatarioRol: String? = null,
+            destinoTipo: String? = null,
+            destinoId: String? = null,
+            destinoLabel: String? = null
+        )
     }
 
     fun inflateOperationPanel(
@@ -56,130 +70,269 @@ class MainPanelRenderer(
     fun inflateChatPanel(
         panelContent: FrameLayout,
         messages: MutableList<ChatMessage>,
-        currentUser: User
+        currentUser: User,
+        personalList: List<PersonalItem>
     ): ChatPanelRefs {
         val view = host.getLayoutInflater().inflate(R.layout.panel_chat, panelContent, false)
         panelContent.addView(view)
 
         val chatRecycler = view.findViewById<RecyclerView>(R.id.chatRecycler)
-        val msgInput = view.findViewById<EditText>(R.id.msgInput)
-        val sendBtn = view.findViewById<ImageButton>(R.id.sendBtn)
-        val alertBtn = view.findViewById<ImageButton>(R.id.btnAlert)
+        val msgInput     = view.findViewById<EditText>(R.id.msgInput)
+        val sendBtn      = view.findViewById<ImageButton>(R.id.sendBtn)
+        val alertBtn     = view.findViewById<View>(R.id.btnAlert)
 
         val chatAdapter = ChatAdapter(messages)
-        chatRecycler.layoutManager = LinearLayoutManager(view.context).apply {
-            stackFromEnd = true
-        }
+        chatRecycler.layoutManager = LinearLayoutManager(view.context).apply { stackFromEnd = true }
         chatRecycler.adapter = chatAdapter
+        if (messages.isNotEmpty()) chatRecycler.scrollToPosition(messages.size - 1)
 
-        if (messages.isNotEmpty()) {
-            chatRecycler.scrollToPosition(messages.size - 1)
-        }
+        // ── Directorio ─────────────────────────────────────────────
+        data class TargetEntry(val id: String, val label: String)
 
-        var selectedChannel = "GLOBAL"
+        fun pName(p: PersonalItem): String = p.apodo.ifBlank { "${p.nombre} ${p.apellido}".trim() }
 
-        sendBtn.setOnClickListener {
-            val t = msgInput.text.toString().trim()
-            if (t.isNotEmpty()) {
-                host.sendChatMessage(t, alert = false, destinatarioRol = selectedChannel)
-                msgInput.text.clear()
+        fun flotillaTarget(p: PersonalItem): TargetEntry? {
+            val padre = p.grupoPadreNombre.trim()
+            val grupo = p.grupoNombre.trim()
+            return when {
+                p.cetFlotilla.isNotBlank() -> TargetEntry(
+                    p.idGrupoPadre?.toString() ?: p.cetFlotilla.trim(),
+                    p.cetFlotilla.trim()
+                )
+                padre.isNotBlank() && !padre.equals("Mando Operativo", ignoreCase = true) -> TargetEntry(
+                    p.idGrupoPadre?.toString() ?: padre,
+                    padre
+                )
+                grupo.isNotBlank() -> TargetEntry(
+                    p.idGrupoOperacion?.toString() ?: grupo,
+                    grupo
+                )
+                else -> null
             }
         }
 
-        alertBtn.setOnClickListener {
-            val t = msgInput.text.toString().trim().ifEmpty { "Aviso de posicion" }
-            host.sendChatMessage(t, alert = true, destinatarioRol = selectedChannel)
-            msgInput.text.clear()
-        }
+        fun roleTargets(rol: String) = personalList
+            .filter { it.rol.equals(rol, ignoreCase = true) }
+            .map { TargetEntry(it.idPersonal.toString(), pName(it)) }
+            .sortedBy { it.label }
 
-        val channelsContainer = view.findViewById<LinearLayout>(R.id.channelsContainer)
-        val channelSelector = view.findViewById<View>(R.id.channelSelector)
+        val cuts      = roleTargets("CUT")
+        val cets      = roleTargets("CET")
+        val cells     = roleTargets("CELL")
+        val flotillas = personalList
+            .mapNotNull { flotillaTarget(it) }
+            .distinctBy { it.id.ifBlank { it.label.trim().lowercase() } }
+            .sortedBy { it.label }
+        val grupos    = personalList
+            .mapNotNull { p ->
+                val padre = p.grupoPadreNombre.trim()
+                val grupo = p.grupoNombre.trim()
+                if (grupo.isNotBlank() && padre.isNotBlank() &&
+                    !padre.equals("Mando Operativo", ignoreCase = true)) {
+                    val id = p.idGrupoOperacion?.toString() ?: grupo
+                    val label = "$grupo ($padre)"
+                    TargetEntry(id, label)
+                } else null
+            }
+            .distinctBy { it.id.ifBlank { it.label.trim().lowercase() } }
+            .sortedBy { it.label }
+
+        // ── Definición de canales ──────────────────────────────────
+        data class ChannelDef(
+            val type: String,
+            val label: String,
+            val targets: List<TargetEntry>,
+            val destinatarioRol: String,
+            val destinoTipo: String?,
+            val fixedId: String? = null,
+            val fixedLabel: String? = null
+        )
 
         val userRol = currentUser.rol.name.uppercase()
-        val availableChannels = mutableListOf("GLOBAL")
 
-        when (userRol) {
-            "ADMIN", "CUT" -> {
-                availableChannels.add("CET")
-                availableChannels.add("CELL")
-                availableChannels.add("CELL,CET")
-            }
-            "CET" -> {
-                availableChannels.add("CUT")
+        val rawDefs: List<ChannelDef> = when (userRol) {
+            "CET" -> listOf(
+                ChannelDef("GLOBAL",        "Global (a todos)",  emptyList(), "GLOBAL",   null),
+                ChannelDef("CUTS",          "Todos los CUT",     emptyList(), "CUT",      "CUTS",  "ALL", "Todos los CUT"),
+                ChannelDef("CUT_SPECIFIC",  "CUT específico",    cuts,        "CUT",      "CUT"),
+                ChannelDef("CETS",          "Todos los CETs",    emptyList(), "CET",      "CETS",  "ALL", "Todos los CETs"),
+                ChannelDef("CET_SPECIFIC",  "CET específico",    cets,        "CET",      "CET"),
+                ChannelDef("CELL_SPECIFIC", "CELL específico",   cells,       "CELL",     "CELL"),
+                ChannelDef("FLOTILLA",      "Flotilla",          flotillas,   "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO",         "Grupo específico",  grupos,      "CELL,CET", "GRUPO"),
+            )
+            "CELL" -> listOf(
+                ChannelDef("GLOBAL",        "Global (a todos)",  emptyList(), "GLOBAL",   null),
+                ChannelDef("CETS",          "Todos los CETs",    emptyList(), "CET",      "CETS",  "ALL", "Todos los CETs"),
+                ChannelDef("CET_SPECIFIC",  "CET específico",    cets,        "CET",      "CET"),
+                ChannelDef("CELL_SPECIFIC", "CELL específico",   cells,       "CELL",     "CELL"),
+                ChannelDef("FLOTILLA",      "Flotilla",          flotillas,   "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO",         "Grupo específico",  grupos,      "CELL,CET", "GRUPO"),
+            )
+            else -> listOf(ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null))
+        }
+
+        val channelDefs = rawDefs.filter { ch ->
+            ch.fixedId != null || ch.type == "GLOBAL" || ch.targets.isNotEmpty()
+        }
+
+        // ── Estado ────────────────────────────────────────────────
+        var selectedChannel   = channelDefs.first()
+        var selectedTargetIdx = 0
+
+        // ── Vistas del panel ──────────────────────────────────────
+        val channelSelector = view.findViewById<View>(R.id.channelSelector)
+        val destBtn         = view.findViewById<TextView>(R.id.destBtn)
+
+        fun destLabel(): String {
+            val ch = selectedChannel
+            if (ch.targets.isEmpty()) return "${ch.label}  ▼"
+            val t = ch.targets.getOrNull(selectedTargetIdx)
+            return "${t?.label ?: ch.label}  ▼"
+        }
+
+        fun buildPayload(): Triple<String?, String?, String?> {
+            val ch = selectedChannel
+            return if (ch.targets.isEmpty()) {
+                Triple(ch.destinoTipo, ch.fixedId, ch.fixedLabel)
+            } else {
+                val t = ch.targets.getOrNull(selectedTargetIdx)
+                Triple(ch.destinoTipo, t?.id, t?.label)
             }
         }
 
-        if (availableChannels.size <= 1) {
+        fun send(text: String, isAlert: Boolean) {
+            val (tipo, id, label) = buildPayload()
+            host.sendChatMessage(
+                text            = text,
+                alert           = isAlert,
+                destinatarioRol = selectedChannel.destinatarioRol,
+                destinoTipo     = tipo,
+                destinoId       = id,
+                destinoLabel    = label
+            )
+        }
+
+        // ── Spinner adapter (reutilizable) ────────────────────────
+        fun makeSpinnerAdapter(items: List<String>) =
+            object : ArrayAdapter<String>(view.context, android.R.layout.simple_spinner_item, items) {
+                private val txClr = Color.parseColor("#e2e8f0")
+                private val bgClr = Color.parseColor("#1e293b")
+                override fun getView(pos: Int, cv: View?, parent: ViewGroup): View =
+                    (super.getView(pos, cv, parent) as TextView)
+                        .apply { setTextColor(txClr); setBackgroundColor(bgClr) }
+                override fun getDropDownView(pos: Int, cv: View?, parent: ViewGroup): View =
+                    ((cv as? TextView) ?: TextView(context)).apply {
+                        text = getItem(pos)
+                        setTextColor(txClr); setBackgroundColor(bgClr)
+                        textSize = 14f; setPadding(32, 24, 32, 24)
+                    }
+            }
+
+        // ── Bottom sheet selector de destino ──────────────────────
+        fun openChannelPicker() {
+            val sheet      = BottomSheetDialog(view.context)
+            val sheetView  = host.getLayoutInflater().inflate(R.layout.sheet_channel_picker, null)
+            val channelList  = sheetView.findViewById<LinearLayout>(R.id.sheetChannelList)
+            val sheetSpinner = sheetView.findViewById<Spinner>(R.id.sheetTargetSpinner)
+            val applyBtn     = sheetView.findViewById<Button>(R.id.sheetApplyBtn)
+
+            var tempChannel   = selectedChannel
+            var tempTargetIdx = selectedTargetIdx
+
+            val rows = mutableListOf<TextView>()
+
+            fun refreshRows() = rows.forEachIndexed { i, row ->
+                val sel = channelDefs[i].type == tempChannel.type
+                row.setBackgroundColor(if (sel) Color.parseColor("#1e3a5f") else Color.TRANSPARENT)
+                row.setTextColor(if (sel) Color.WHITE else Color.parseColor("#cbd5e1"))
+                row.setTypeface(null, if (sel) Typeface.BOLD else Typeface.NORMAL)
+            }
+
+            fun refreshSheetSpinner() {
+                val targets = tempChannel.targets
+                if (targets.isEmpty()) {
+                    sheetSpinner.visibility = View.GONE
+                } else {
+                    sheetSpinner.adapter = makeSpinnerAdapter(targets.map { it.label })
+                    sheetSpinner.setSelection(tempTargetIdx.coerceIn(0, targets.lastIndex))
+                    sheetSpinner.visibility = View.VISIBLE
+                }
+            }
+
+            sheetSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) { tempTargetIdx = pos }
+                override fun onNothingSelected(p: AdapterView<*>?) {}
+            }
+
+            channelDefs.forEach { ch ->
+                val dp = view.context.resources.displayMetrics.density
+                val row = TextView(view.context).apply {
+                    text      = ch.label
+                    textSize  = 14f
+                    setTextColor(Color.parseColor("#cbd5e1"))
+                    setPadding((16 * dp).toInt(), (14 * dp).toInt(), (16 * dp).toInt(), (14 * dp).toInt())
+                    isClickable = true; isFocusable = true
+                    foreground = view.context.obtainStyledAttributes(
+                        intArrayOf(android.R.attr.selectableItemBackground)
+                    ).getDrawable(0)
+                }
+                row.setOnClickListener {
+                    tempChannel   = ch
+                    tempTargetIdx = 0
+                    refreshRows()
+                    refreshSheetSpinner()
+                }
+                rows.add(row)
+                channelList.addView(row)
+            }
+
+            refreshRows()
+            refreshSheetSpinner()
+
+            applyBtn.setOnClickListener {
+                selectedChannel   = tempChannel
+                selectedTargetIdx = tempTargetIdx
+                destBtn.text      = destLabel()
+                sheet.dismiss()
+            }
+
+            sheet.setContentView(sheetView)
+            sheet.show()
+        }
+
+        // ── Inicializar destBtn ───────────────────────────────────
+        if (channelDefs.size <= 1) {
             channelSelector.visibility = View.GONE
         } else {
             channelSelector.visibility = View.VISIBLE
-
-            fun updateChannelUI() {
-                for (i in 0 until channelsContainer.childCount) {
-                    val child = channelsContainer.getChildAt(i)
-                    val txt = child.findViewById<TextView>(R.id.replyText)
-                    val channel = availableChannels[i]
-                    if (channel == selectedChannel) {
-                        child.setBackgroundResource(R.drawable.bg_quick_reply_selected)
-                        txt.setTextColor(Color.WHITE)
-                    } else {
-                        child.setBackgroundResource(R.drawable.bg_quick_reply)
-                        txt.setTextColor(Color.parseColor("#94a3b8"))
-                    }
-                }
-            }
-
-            availableChannels.forEach { channel ->
-                val chip = host.getLayoutInflater()
-                    .inflate(R.layout.item_quick_reply, channelsContainer, false)
-                val txt = chip.findViewById<TextView>(R.id.replyText)
-                txt.text = if (channel == "CELL,CET") "CET + CELL" else channel
-
-                chip.setOnClickListener {
-                    selectedChannel = channel
-                    updateChannelUI()
-                }
-                channelsContainer.addView(chip)
-            }
-            updateChannelUI()
+            destBtn.text = destLabel()
+            destBtn.setOnClickListener { openChannelPicker() }
         }
 
+        // ── Botones de envío ──────────────────────────────────────
+        sendBtn.setOnClickListener {
+            val t = msgInput.text.toString().trim()
+            if (t.isNotEmpty()) { send(t, false); msgInput.text.clear() }
+        }
+        alertBtn.setOnClickListener {
+            val t = msgInput.text.toString().trim().ifEmpty { "Aviso de posición" }
+            send(t, true); msgInput.text.clear()
+        }
+
+        // ── Respuestas rápidas ────────────────────────────────────
         val quickRepliesContainer = view.findViewById<LinearLayout>(R.id.quickRepliesContainer)
-        val suggestions = listOf(
-            "Recibido",
-            "En camino",
-            "Apoyo necesario",
-            "Situacion controlada",
-            "Zona despejada",
-            "Solicito extraccion"
-        )
-
-        suggestions.forEach { text ->
-            val chip = host.getLayoutInflater()
-                .inflate(R.layout.item_quick_reply, quickRepliesContainer, false)
-            val replyText = chip.findViewById<TextView>(R.id.replyText)
-            replyText.text = text
-
-            if (text == "Apoyo necesario") {
-                replyText.setTextColor(Color.parseColor("#ef4444"))
-            }
-
-            chip.setOnClickListener {
-                host.sendChatMessage(
-                    text,
-                    alert = (text == "Apoyo necesario"),
-                    destinatarioRol = selectedChannel
-                )
-                msgInput.text.clear()
-            }
+        listOf("Recibido", "En camino", "Apoyo necesario", "Situacion controlada",
+               "Zona despejada", "Solicito extraccion").forEach { text ->
+            val chip = host.getLayoutInflater().inflate(R.layout.item_quick_reply, quickRepliesContainer, false)
+            val tv   = chip.findViewById<TextView>(R.id.replyText)
+            tv.text  = text
+            if (text == "Apoyo necesario") tv.setTextColor(Color.parseColor("#ef4444"))
+            chip.setOnClickListener { send(text, text == "Apoyo necesario"); msgInput.text.clear() }
             quickRepliesContainer.addView(chip)
         }
 
-        return ChatPanelRefs(
-            recyclerView = chatRecycler,
-            adapter = chatAdapter,
-            input = msgInput
-        )
+        return ChatPanelRefs(recyclerView = chatRecycler, adapter = chatAdapter, input = msgInput)
     }
 
     fun inflatePersonalPanel(

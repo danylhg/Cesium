@@ -128,6 +128,15 @@ export function serializeEntity(ent) {
 // restoreTacticalData() se reemplaza por GET /ops/:id/mapa
 // que devuelve todas las capas ya guardadas.
 // ============================================================
+export function autoSaveTacticalData() {
+  const op = dashboardState.currentOperation;
+  if (!op || !op.id) return;
+  const phase = (op.phase || op.estado || "").toLowerCase();
+  if (phase === "activa") {
+    saveTacticalData();
+  }
+}
+
 export function saveTacticalData() {
   const op = dashboardState.currentOperation;
   if (!op || !op.id) return;

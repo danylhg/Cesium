@@ -57,6 +57,7 @@
     <div id="map" class="mapBox"></div>
 
     <div id="mapTopRightActions" class="mapTopRightActions">
+      <button id="activateOpBtn" class="mapTopActionBtn" style="display:none;">Activar operación</button>
       <button id="closeActiveOpBtn" class="mapTopActionBtn" style="display:none;">Cerrar operación</button>
     </div>
 
@@ -69,17 +70,20 @@
         Eliminar</button>
     </div>
 
+    <!-- Menú rápido flotante para vehículos rastreados -->
+    <div id="vehicleQuickMenu"
+      style="display:none; position:absolute; z-index:9999; background:rgba(5, 15, 30, 0.95); border:1px solid #00c3ff; border-radius:12px; padding:10px 14px; box-shadow:0 6px 25px rgba(0, 195, 255, 0.25); pointer-events:all; min-width:200px;">
+      <div id="vehicleQuickMenuName" style="font-size:14px; color:#dbeafe; margin-bottom:10px; font-weight:800; text-align:center; border-bottom:1px solid rgba(0,195,255,0.2); padding-bottom:6px;">Vehículo</div>
+      <div style="display:flex; flex-direction:column; gap:8px;">
+        <button id="btnVehQuickChat" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(0,255,170,0.15); border:1px solid rgba(0,255,170,0.4); color:#e6edf3; width:100%; text-transform:none;">💬 Mnsj a Tripulación</button>
+        <button id="btnVehQuickAlert" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(255, 69, 0, 0.2); border:1px solid rgba(255, 69, 0, 0.5); color:#ffd6d6; width:100%; text-transform:none;">⚠️ Dar Aviso Rápido</button>
+        <button id="btnVehQuickRoute" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(0,195,255,0.15); border:1px solid rgba(0,195,255,0.4); color:#e6edf3; width:100%; text-transform:none;">🗺️ Ver Ruta</button>
+      </div>
+    </div>
+
     <div id="mapActionButtons" class="mapActionButtons">
       <button id="saveOpMapBtn" class="actionBtn saveBtn">Guardar operación</button>
       <button id="cancelOpMapBtn" class="actionBtn cancelBtn">Cancelar operación</button>
-    </div>
-
-    <div class="compassRose" aria-hidden="true">
-      <div class="compassCore"></div>
-      <div class="compassNorth">N</div>
-      <div class="compassEast">E</div>
-      <div class="compassSouth">S</div>
-      <div class="compassWest">W</div>
     </div>
   </main>
 
@@ -148,9 +152,9 @@
       </optgroup>
 
       <optgroup label="ÁREAS DE INTERÉS">
-        <option value="perimeter">Línea de Perímetro (Zona Op)</option>
+        <option value="perimeter">Perímetro punteado</option>
         <option value="polygon">Polígono Táctico</option>
-        <option value="circle">Área Circular / Radio</option>
+        <option value="circle">Círculo de cobertura</option>
         <option value="polyline">Línea Táctica (Ruta)</option>
       </optgroup>
 
@@ -162,7 +166,8 @@
 
     <div class="groupTitle" id="milSymbolTitle" style="display:none;">Símbolos MIL</div>
 
-    <div id="milSymbolGenerator" style="display:none; margin-bottom: 20px; background: rgba(0,255,166,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(0,255,166,0.15);">
+    <div id="milSymbolGenerator"
+      style="display:none; margin-bottom: 20px; background: rgba(0,255,166,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(0,255,166,0.15);">
       <div class="fieldRow">
         <div class="fieldCol">
           <label class="fieldLabel">Identidad</label>
@@ -211,19 +216,11 @@
       </div>
 
       <div style="margin-top: 15px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
-        <div id="milPreviewContainer" 
-             class="milPreviewBox" 
-             draggable="true"
-             title="Arrastra este icono al mapa">
+        <div id="milPreviewContainer" class="milPreviewBox" draggable="true" title="Arrastra este icono al mapa">
           <!-- Canvas se insertará aquí -->
         </div>
         <span style="font-size: 10px; color: #a0c4ff; font-weight: 600;">ARRASTRA EL ICONO AL MAPA</span>
       </div>
-    </div>
-
-    <div id="iconSettings" style="display:none; margin-bottom: 15px;">
-      <label class="fieldLabel">Tamaño del icono</label>
-      <input id="iconScale" type="range" min="0.05" max="1.5" step="0.05" value="0.1">
     </div>
 
     <div id="symLabelContainer">
@@ -279,17 +276,26 @@
   </aside>
 
   <aside id="chatPanel" class="glassPanel chatPanel">
-    <h2 class="panelTitle">Chat táctico</h2>
+    <h2 class="panelTitle">Chat</h2>
 
-    <div class="chatChannelTabs">
-      <button id="chatTabCet" class="chatTab active">CET</button>
-      <button id="chatTabCells" class="chatTab">Global</button>
+    <div class="chatChannelGroup" style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+      <select id="chatChannelType" class="opsInput" style="margin-bottom: 5px;">
+        <option value="global">Global (Todos)</option>
+        <option value="cets">Todos los CETs</option>
+        <option value="cet_specific">CET Específico</option>
+        <option value="flotilla">Flotilla (+ CET)</option>
+        <option value="grupo">Grupo (+ CET)</option>
+        <option value="vehiculo">Vehículo</option>
+      </select>
+      <select id="chatChannelTarget" class="opsInput" style="display: none;">
+        <!-- Filled dynamically -->
+      </select>
     </div>
 
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
-      <textarea id="chatInput" placeholder="Escribe un mensaje táctico..."></textarea>
+      <textarea id="chatInput" placeholder="Escribe un mensaje..."></textarea>
       <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
     </div>
   </aside>
