@@ -744,14 +744,6 @@ class MainActivity : AppCompatActivity(),
             token = token,
             onSuccess = { data ->
                 runOnUiThread {
-                    addMessage(
-                        ChatMessage(
-                            user = "Sistema",
-                            text = "Mapa cargado correctamente.",
-                            type = MessageType.SYSTEM
-                        )
-                    )
-
                     data.operationZone?.let { zone ->
                         opLat = zone.centerLat
                         opLon = zone.centerLon
@@ -1033,9 +1025,7 @@ class MainActivity : AppCompatActivity(),
                 }
             },
             onError = { message ->
-                runOnUiThread {
-                    addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
-                }
+                android.util.Log.w("CHAT_HTTP", "No se pudo cargar historial de chat: $message")
             }
         )
     }

@@ -24,30 +24,32 @@ const router = Router();
 // isPersonal: si el actor viene de tabla personal (usa id_personal) o usuario (usa id_usuario)
 function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
   const colActor = isPersonal ? 'pc.id_personal' : 'pc.id_usuario';
+  const destinatarioRol = `COALESCE(NULLIF(m.destinatario_rol, ''), 'GLOBAL')`;
 
   const groupClauses = isPersonal ? `
       OR (m.destino_tipo = 'CELL' AND (
         (${rolParam} = 'CELL' AND m.destino_id = ${actorParam}::text)
         OR (${rolParam} = 'CET' AND EXISTS (
           SELECT 1
-          FROM asignacion_operacion_personal aop_cell
-          JOIN grupo_operacion g_cell ON g_cell.id_grupo_operacion = aop_cell.id_grupo_operacion
-          JOIN asignacion_operacion_personal aop_cet ON aop_cet.id_operacion = aop_cell.id_operacion
-          JOIN grupo_operacion g_cet ON g_cet.id_grupo_operacion = aop_cet.id_grupo_operacion
-          WHERE aop_cell.id_operacion      = ${opParam}
-            AND aop_cell.id_personal::text = m.destino_id
-            AND aop_cet.id_personal        = ${actorParam}
+          FROM grupo_personal gp_cell
+          JOIN grupo_operacion g_cell ON g_cell.id_grupo_operacion = gp_cell.id_grupo_operacion
+          JOIN grupo_personal gp_cet ON TRUE
+          JOIN grupo_operacion g_cet ON g_cet.id_grupo_operacion = gp_cet.id_grupo_operacion
+          WHERE g_cell.id_operacion       = ${opParam}
+            AND g_cet.id_operacion        = ${opParam}
+            AND gp_cell.id_personal::text = m.destino_id
+            AND gp_cet.id_personal        = ${actorParam}
             AND COALESCE(g_cell.id_grupo_padre, g_cell.id_grupo_operacion) =
                 COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
         ))
       ))
       OR (m.destino_tipo IN ('FLOTILLA', 'GRUPO') AND EXISTS (
         SELECT 1
-        FROM asignacion_operacion_personal aop
-        JOIN grupo_operacion g  ON g.id_grupo_operacion  = aop.id_grupo_operacion
+        FROM grupo_personal gper
+        JOIN grupo_operacion g  ON g.id_grupo_operacion  = gper.id_grupo_operacion
         LEFT JOIN grupo_operacion gp ON gp.id_grupo_operacion = g.id_grupo_padre
-        WHERE aop.id_operacion = ${opParam}
-          AND aop.id_personal  = ${actorParam}
+        WHERE g.id_operacion = ${opParam}
+          AND gper.id_personal  = ${actorParam}
           AND (g.id_grupo_operacion::text = m.destino_id
                OR gp.id_grupo_operacion::text = m.destino_id
                OR g.nombre = m.destino_id OR g.apodo = m.destino_id
@@ -58,9 +60,9 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
     AND (
       ${colActor} = ${actorParam}
       OR (m.destino_tipo IS NULL AND (
-            m.destinatario_rol = 'GLOBAL'
-            OR m.destinatario_rol = ${rolParam}
-            OR (m.destinatario_rol = 'CELL,CET' AND ${rolParam} IN ('CELL', 'CET'))
+            ${destinatarioRol} = 'GLOBAL'
+            OR ${destinatarioRol} = ${rolParam}
+            OR (${destinatarioRol} = 'CELL,CET' AND ${rolParam} IN ('CELL', 'CET'))
          ))
       OR m.destino_tipo = 'GLOBAL'
       OR (m.destino_tipo = 'CETS' AND ${rolParam} = 'CET')
@@ -599,8 +601,6 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       LEFT JOIN personal p
         ON p.id_personal = pc.id_personal
       WHERE m.id_chat = $1
-        AND m.contenido NOT ILIKE 'OPERACION % automáticamente por trigger de BD.'
-        AND m.contenido NOT ILIKE 'OPERACION % automÃ¡ticamente por trigger de BD.'
     `;
     let msgParams = [id_chat];
 

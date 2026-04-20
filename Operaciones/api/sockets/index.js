@@ -191,13 +191,14 @@ async function canReceiveChatMessage(sock, msg, idOperacion) {
         try {
           const { rows } = await pool.query(
             `SELECT 1
-             FROM asignacion_operacion_personal aop_cell
-             JOIN grupo_operacion g_cell ON g_cell.id_grupo_operacion = aop_cell.id_grupo_operacion
-             JOIN asignacion_operacion_personal aop_cet  ON aop_cet.id_operacion  = aop_cell.id_operacion
-             JOIN grupo_operacion g_cet  ON g_cet.id_grupo_operacion  = aop_cet.id_grupo_operacion
-             WHERE aop_cell.id_operacion        = $1
-               AND aop_cell.id_personal::text   = $2
-               AND aop_cet.id_personal          = $3
+             FROM grupo_personal gp_cell
+             JOIN grupo_operacion g_cell ON g_cell.id_grupo_operacion = gp_cell.id_grupo_operacion
+             JOIN grupo_personal gp_cet ON TRUE
+             JOIN grupo_operacion g_cet ON g_cet.id_grupo_operacion = gp_cet.id_grupo_operacion
+             WHERE g_cell.id_operacion          = $1
+               AND g_cet.id_operacion           = $1
+               AND gp_cell.id_personal::text    = $2
+               AND gp_cet.id_personal           = $3
                AND COALESCE(g_cell.id_grupo_padre, g_cell.id_grupo_operacion) =
                    COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
              LIMIT 1`,
@@ -218,11 +219,11 @@ async function canReceiveChatMessage(sock, msg, idOperacion) {
       try {
         const { rows } = await pool.query(
           `SELECT 1
-           FROM asignacion_operacion_personal aop
-           JOIN grupo_operacion g  ON g.id_grupo_operacion  = aop.id_grupo_operacion
+           FROM grupo_personal gper
+           JOIN grupo_operacion g  ON g.id_grupo_operacion  = gper.id_grupo_operacion
            LEFT JOIN grupo_operacion gp ON gp.id_grupo_operacion = g.id_grupo_padre
-           WHERE aop.id_operacion  = $1
-             AND aop.id_personal   = $2
+           WHERE g.id_operacion    = $1
+             AND gper.id_personal  = $2
              AND (g.id_grupo_operacion::text = $3
                   OR gp.id_grupo_operacion::text = $3
                   OR g.nombre = $3 OR g.apodo = $3

@@ -23,7 +23,7 @@ class ChatRepository(
         onError: (String) -> Unit
     ) {
         val req = Request.Builder()
-            .url("${ApiConfig.BASE_URL}/ops/$operationId/chat")
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/chat/messages")
             .get()
             .addHeader("Authorization", "Bearer $token")
             .build()
@@ -84,7 +84,7 @@ class ChatRepository(
         }.toString().toRequestBody("application/json".toMediaType())
 
         val req = Request.Builder()
-            .url("${ApiConfig.BASE_URL}/ops/$operationId/chat")
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/chat/messages")
             .post(body)
             .addHeader("Authorization", "Bearer $token")
             .build()
@@ -113,7 +113,7 @@ class ChatRepository(
                         return
                     }
 
-                    val item = json.optJSONObject("mensaje")
+                    val item = json.optJSONObject("item") ?: json.optJSONObject("mensaje")
                     if (item == null) {
                         onError("Respuesta OK pero sin mensaje")
                         return
