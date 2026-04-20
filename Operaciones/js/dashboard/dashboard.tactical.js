@@ -1170,7 +1170,7 @@ function syncTacticalToolAvailability(currentOperation = getCurrentOperation()) 
   const toolGroupTitle = document.getElementById("tacticalToolGroupTitle") || document.querySelector("#tacticalPanel .groupTitle");
   const perimeterOption = dom.toolSelect?.querySelector('option[value="perimeter"]');
 
-  if (panelTitle) panelTitle.textContent = "Objetos tácticos";
+  if (panelTitle) panelTitle.textContent = "Objetos";
   if (toolGroupTitle) toolGroupTitle.textContent = "Selección de tipo de objeto";
 
   if (perimeterOption) {
