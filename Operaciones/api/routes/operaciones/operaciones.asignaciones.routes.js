@@ -402,6 +402,54 @@ router.post("/ops/:id/grupos", requireAuth, async (req, res) => {
       });
     }
 
+    const nombresReservadosOperacion = new Set(["mando operativo"]);
+    const flotillaReservada = flotillasNormalizadas.find(nombre => nombresReservadosOperacion.has(nombre));
+
+    if (flotillaReservada) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: `La flotilla "${flotillaReservada}" usa un nombre reservado de la operacion.`
+      });
+    }
+
+    const flotillasSet = new Set(flotillasNormalizadas);
+    const gruposNormalizados = grupos
+      .map(g => String(g.nombre || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    const grupoDuplicado = gruposNormalizados.find(
+      (nombre, index) => gruposNormalizados.indexOf(nombre) !== index
+    );
+
+    if (grupoDuplicado) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: "No puede haber dos grupos con el mismo nombre."
+      });
+    }
+
+    const grupoReservado = gruposNormalizados.find(nombre => nombresReservadosOperacion.has(nombre));
+
+    if (grupoReservado) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: `El grupo "${grupoReservado}" usa un nombre reservado de la operacion.`
+      });
+    }
+
+    const grupoConNombreDeFlotilla = gruposNormalizados.find(nombre => flotillasSet.has(nombre));
+
+    if (grupoConNombreDeFlotilla) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: `El grupo "${grupoConNombreDeFlotilla}" no puede llamarse igual que una flotilla.`
+      });
+    }
+
     // Recorre cada definición de grupo enviada por frontend
     for (const g of grupos) {
       const { nombre, id_cet, cet_nombre, integrantes, flotilla } = g;

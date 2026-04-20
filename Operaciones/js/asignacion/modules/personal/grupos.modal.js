@@ -134,6 +134,23 @@ export function abrirModalCrearGrupo(cetActivo) {
       return;
     }
 
+    const reservedNames = new Set(["mando operativo"]);
+    const matchesReservedName = normalizedNewNames.some(name => reservedNames.has(name));
+    if (matchesReservedName) {
+      alert("Ese nombre esta reservado para la operacion.");
+      return;
+    }
+
+    const flotillaNames = Object.values(state.flotillaByCet || {})
+      .map(name => String(name || "").trim().toLowerCase())
+      .filter(Boolean);
+
+    const matchesFlotilla = normalizedNewNames.some(name => flotillaNames.includes(name));
+    if (matchesFlotilla) {
+      alert("Un grupo no puede llamarse igual que una flotilla.");
+      return;
+    }
+
     const info = state.gruposByCet[cetActivo] || {
       names: [],
       active: null,

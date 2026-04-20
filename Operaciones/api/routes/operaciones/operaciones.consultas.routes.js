@@ -157,15 +157,15 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         gp_padre.nombre AS grupo_padre_nombre,
         gp_padre.apodo AS grupo_padre_apodo,
 
-        -- Si el grupo actual es subgrupo (tiene padre), expone su id
+        -- Si el grupo actual es subgrupo/celula, expone su id
         CASE
-          WHEN go.id_grupo_operacion IS NOT NULL AND go.id_grupo_padre IS NOT NULL THEN go.id_grupo_operacion
+          WHEN go.apodo = 'CELULA' THEN go.id_grupo_operacion
           ELSE NULL
         END AS grupo_hijo_id,
 
-        -- Si el grupo actual es subgrupo, expone su nombre
+        -- Si el grupo actual es subgrupo/celula, expone su nombre
         CASE
-          WHEN go.id_grupo_operacion IS NOT NULL AND go.id_grupo_padre IS NOT NULL THEN go.nombre
+          WHEN go.apodo = 'CELULA' THEN go.nombre
           ELSE NULL
         END AS grupo_hijo_nombre,
 
@@ -209,7 +209,7 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
            AND mo.id_cet IS NOT NULL
            AND (
                 go.id_grupo_operacion IS NULL
-                OR go.id_grupo_padre IS NULL
+                OR go.apodo <> 'CELULA'
                )
           THEN TRUE
           ELSE FALSE
@@ -275,7 +275,7 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
       -- y luego prefiriendo registros con grupo (celula) sobre los nulos o flotillas
       ORDER BY
         p.id_personal,
-        CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
+        CASE WHEN go.apodo = 'CELULA' THEN 0 ELSE 1 END,
         CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
         go.id_grupo_operacion
       `,
@@ -328,10 +328,18 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
           p.puesto,
           aop.rol_en_operacion AS personal_rol,
           go.id_grupo_operacion AS grupo_personal_id,
-          go.nombre AS grupo_personal_nombre,
-          go.apodo AS grupo_personal_apodo,
-          gp_padre.nombre AS grupo_personal_padre_nombre,
-          gp_padre.apodo AS grupo_personal_padre_apodo,
+          CASE WHEN go.apodo = 'CELULA' THEN go.nombre ELSE NULL END AS grupo_personal_nombre,
+          CASE WHEN go.apodo = 'CELULA' THEN go.apodo ELSE NULL END AS grupo_personal_apodo,
+          CASE
+            WHEN go.apodo = 'CELULA' THEN gp_padre.nombre
+            WHEN go.apodo = 'FLOTILLA' THEN go.nombre
+            ELSE NULL
+          END AS grupo_personal_padre_nombre,
+          CASE
+            WHEN go.apodo = 'CELULA' THEN gp_padre.apodo
+            WHEN go.apodo = 'FLOTILLA' THEN go.apodo
+            ELSE NULL
+          END AS grupo_personal_padre_apodo,
           CASE
             WHEN p.rol = 'CET' THEN p.id_personal
             ELSE mo.id_cet
@@ -368,7 +376,7 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
           AND aop.estado_asignacion NOT IN ('LIBERADO')
         ORDER BY
           p.id_personal,
-          CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
+          CASE WHEN go.apodo = 'CELULA' THEN 0 ELSE 1 END,
           CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
           go.id_grupo_operacion
       )
@@ -474,8 +482,12 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
       `WITH personal_ctx AS (
          SELECT DISTINCT ON (p.id_personal)
            p.id_personal,
-           go.nombre AS grupo_nombre,
-           gp_padre.nombre AS grupo_padre_nombre
+           CASE WHEN go.apodo = 'CELULA' THEN go.nombre ELSE NULL END AS grupo_nombre,
+           CASE
+             WHEN go.apodo = 'CELULA' THEN gp_padre.nombre
+             WHEN go.apodo = 'FLOTILLA' THEN go.nombre
+             ELSE NULL
+           END AS grupo_padre_nombre
          FROM asignacion_operacion_personal aop
          JOIN personal p ON p.id_personal = aop.id_personal
          LEFT JOIN grupo_personal gper
@@ -492,7 +504,7 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
            AND aop.estado_asignacion NOT IN ('LIBERADO')
          ORDER BY
            p.id_personal,
-           CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
+           CASE WHEN go.apodo = 'CELULA' THEN 0 ELSE 1 END,
            CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
            go.id_grupo_operacion
        )
