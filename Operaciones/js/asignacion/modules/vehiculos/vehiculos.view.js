@@ -411,6 +411,9 @@ export function renderVehiculos() {
     if (isEnOperacion) {
       capP.textContent = "En operación";
       capP.style.color = "#c0392b";
+    } else if (isAssignedInCurrentOp) {
+      capP.textContent = `Asignado | Capacidad: ${used}/${cap || 0}`;
+      capP.style.color = "#1f7a3f";
     } else {
       capP.textContent = `Capacidad: ${used}/${cap || 0}`;
     }

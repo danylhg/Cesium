@@ -690,8 +690,19 @@ export function renderEquipoLeftVehiculo() {
     const info3 = document.createElement("div");
     info3.textContent = `Personas: ${resumen.personas}`;
 
+    const estadoAsignado = document.createElement("div");
+    estadoAsignado.textContent = "Asignado";
+    estadoAsignado.style.width = "max-content";
+    estadoAsignado.style.padding = "3px 8px";
+    estadoAsignado.style.borderRadius = "999px";
+    estadoAsignado.style.background = "#e9f8ee";
+    estadoAsignado.style.color = "#1f7a3f";
+    estadoAsignado.style.fontSize = "12px";
+    estadoAsignado.style.fontWeight = "800";
+
     content.appendChild(title);
     content.appendChild(sub);
+    content.appendChild(estadoAsignado);
     content.appendChild(info1);
     content.appendChild(info2);
     content.appendChild(info3);
