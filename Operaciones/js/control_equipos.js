@@ -8,6 +8,10 @@
 (() => {
   "use strict";
 
+  const logAlert = (message) => {
+    if (message) console.warn(message);
+  };
+
   /* =========================
      Sesión / seguridad
   ========================= */
@@ -23,7 +27,7 @@
 
   function redirectToLogin(message = "") {
     clearSession();
-    if (message) alert(message);
+    logAlert(message);
     window.location.href = "login.html";
   }
 
@@ -160,7 +164,7 @@
 
   for (const [name, el] of Object.entries(requiredEls)) {
     if (!el) {
-      alert(`Falta el elemento del DOM: ${name}`);
+      logAlert(`Falta el elemento del DOM: ${name}`);
       return;
     }
   }
@@ -408,7 +412,7 @@
 
   btnEdit?.addEventListener("click", () => {
     if (!selectedId) {
-      alert("Selecciona un equipo.");
+      logAlert("Selecciona un equipo.");
       return;
     }
     openModal("edit");
@@ -428,7 +432,7 @@
       selectedId = null;
       renderTable();
     } catch (err) {
-      alert(err.message);
+      logAlert(err.message);
     }
   });
 
@@ -469,33 +473,33 @@
       };
 
       if (!body.numero_serie || !body.nombre || !body.categoria || !body.estado) {
-        alert("Completa todos los campos obligatorios.");
+        logAlert("Completa todos los campos obligatorios.");
         return;
       }
 
       if (!CATEGORIAS.includes(body.categoria)) {
-        alert("Categoría inválida.");
+        logAlert("Categoría inválida.");
         return;
       }
 
       if (!ESTADOS.includes(body.estado)) {
-        alert("Estado inválido.");
+        logAlert("Estado inválido.");
         return;
       }
 
       if (mode === "add") {
         await api("/catalog/equipos", { method: "POST", body });
-        alert("Equipo creado.");
+        logAlert("Equipo creado.");
       } else {
         await api(`/catalog/equipos/${selectedId}`, { method: "PUT", body });
-        alert("Equipo actualizado.");
+        logAlert("Equipo actualizado.");
       }
 
       closeModal();
       await loadFromApi();
       renderTable();
     } catch (err) {
-      alert(err.message);
+      logAlert(err.message);
     }
   });
 
@@ -511,7 +515,7 @@
       await loadFromApi();
       renderTable();
     } catch (err) {
-      alert(`No se pudo cargar equipos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
+      logAlert(`No se pudo cargar equipos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
     }
   })();
 })();

@@ -372,7 +372,19 @@ function formatDestino(msg) {
   return `para ${label}`;
 }
 
+function shouldHideChatMessage(msg) {
+  const tipo = String(msg?.tipo_mensaje || "").toUpperCase();
+  const contenido = String(msg?.contenido || "").toLowerCase();
+  if (tipo !== "SISTEMA") return false;
+  return (
+    contenido.includes("trigger de bd") ||
+    contenido.includes("operacion activada autom") ||
+    contenido.includes("operación activada autom")
+  );
+}
+
 function buildBubble(msg) {
+  if (shouldHideChatMessage(msg)) return "";
   const mine  = isMine(msg);
   const autor = escapeHtml(msg.autor_nombre || "Sistema");
   const hora  = escapeHtml(formatTime(msg.fecha_envio));
@@ -403,7 +415,7 @@ function buildBubble(msg) {
 function renderMessages() {
   if (!dom.chatMessages) return;
   dom.chatMessages.innerHTML = "";
-  _allMsgs.filter(isVisibleInTab).forEach(msg => {
+  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
     dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
   });
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
@@ -417,6 +429,7 @@ function appendMessage(msg) {
   if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return;
   _allMsgs.push(msg);
 
+  if (shouldHideChatMessage(msg)) return;
   if (!isVisibleInTab(msg)) return;
 
   const atBottom =

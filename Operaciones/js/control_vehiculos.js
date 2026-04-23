@@ -8,6 +8,10 @@
 (() => {
   "use strict";
 
+  const logAlert = (message) => {
+    if (message) console.warn(message);
+  };
+
   /* =========================
      Sesión / seguridad
   ========================= */
@@ -23,7 +27,7 @@
 
   function redirectToLogin(message = "") {
     clearSession();
-    if (message) alert(message);
+    logAlert(message);
     window.location.href = "login.html";
   }
 
@@ -160,7 +164,7 @@
 
   for (const [name, el] of Object.entries(requiredEls)) {
     if (!el) {
-      alert(`Falta el elemento del DOM: ${name}`);
+      logAlert(`Falta el elemento del DOM: ${name}`);
       return;
     }
   }
@@ -472,7 +476,7 @@
       selectedId = null;
       renderTable();
     } catch (err) {
-      alert(err.message);
+      logAlert(err.message);
     }
   });
 
@@ -517,31 +521,31 @@
       };
 
       if (!body.codigo_interno || !body.estado) {
-        alert("Completa los campos obligatorios.");
+        logAlert("Completa los campos obligatorios.");
         return;
       }
 
       if (!body.tipo) {
-        alert("Selecciona el tipo de vehículo.");
+        logAlert("Selecciona el tipo de vehículo.");
         return;
       }
 
       if (!ESTADOS.includes(body.estado)) {
-        alert("Estado inválido.");
+        logAlert("Estado inválido.");
         return;
       }
 
       if (body.capacidad !== null && (!Number.isInteger(body.capacidad) || body.capacidad < 0)) {
-        alert("Capacidad inválida.");
+        logAlert("Capacidad inválida.");
         return;
       }
 
       if (mode === "add") {
         await api("/catalog/vehiculos", { method: "POST", body });
-        alert("Vehículo creado.");
+        logAlert("Vehículo creado.");
       } else {
         await api(`/catalog/vehiculos/${selectedId}`, { method: "PUT", body });
-        alert("Vehículo actualizado.");
+        logAlert("Vehículo actualizado.");
       }
 
       closeModal();
@@ -549,7 +553,7 @@
       renderTable();
 
     } catch (err) {
-      alert(err.message);
+      logAlert(err.message);
     }
   });
 
@@ -564,7 +568,7 @@
       await loadFromApi();
       renderTable();
     } catch (err) {
-      alert(`No se pudo cargar vehículos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
+      logAlert(`No se pudo cargar vehículos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
     }
   })();
 })();

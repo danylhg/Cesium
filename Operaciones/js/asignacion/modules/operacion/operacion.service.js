@@ -237,7 +237,7 @@ export async function syncOperacionCompleta(idOperacion) {
     console.log("Sincronización completa exitosa");
     return { ok: true };
   } catch (err) {
-    alert("Error sincronizando: " + err.message);
+    console.error("Error sincronizando:", err);
     return { ok: false, error: err.message };
   }
 }

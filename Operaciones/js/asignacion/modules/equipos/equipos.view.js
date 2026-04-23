@@ -26,6 +26,10 @@ import { saveOperacionActual, syncOperacionCompleta } from "../operacion/operaci
 import { readObjectStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL } from "../../core/constants.js";
 
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 function getNombrePersonalById(idPersonal) {
   for (const [nombre, id] of Object.entries(state.personalMap)) {
     if (id === idPersonal) return nombre;
@@ -171,7 +175,6 @@ async function finalizarAsignacionCompleta() {
     try {
       await syncOperacionCompleta(opLoc.id);
     } catch (e) {
-      alert("Error al sincronizar operación: " + e.message);
       console.error(e);
       btnAccion.disabled = false;
       btnAccion.textContent = "Finalizar";
@@ -390,12 +393,12 @@ export function renderEquipoAsignacion() {
 
   assignBtn.addEventListener("click", () => {
     if (!state.equipoCategoria) {
-      alert("Selecciona una categoría de equipo.");
+      logAlert("Selecciona una categoría de equipo.");
       return;
     }
 
     if (!state.equipoSelectedResource || state.equipoSelectedItems.length === 0) {
-      alert("Selecciona destino y equipo.");
+      logAlert("Selecciona destino y equipo.");
       return;
     }
 
@@ -419,7 +422,7 @@ export function renderEquipoAsignacion() {
     }
 
     if (!idPersonal && !idVehiculo) {
-      alert("Destino inválido.");
+      logAlert("Destino inválido.");
       return;
     }
 
@@ -430,7 +433,7 @@ export function renderEquipoAsignacion() {
         asignarEquipo(eqId, tipoDestino, idPersonal, idVehiculo, state.equipoCategoria);
         state.equiposLiberadosLocalmente = state.equiposLiberadosLocalmente.filter(id => id !== eqId);
       } catch (e) {
-        alert(`Error asignando equipo: ${e.message}`);
+        logAlert(`Error asignando equipo: ${e.message}`);
       }
     });
 

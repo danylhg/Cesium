@@ -22,6 +22,10 @@ import {
   getRouteIdForEntity
 } from "./dashboard.routes.js";
 
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 const providers = {
   osm: new Cesium.OpenStreetMapImageryProvider({
     url: "https://a.tile.openstreetmap.org/"
@@ -579,7 +583,7 @@ function bindMapUiEvents() {
         const entityName = selected?.name || dom.vehicleQuickMenuName?.textContent || "Vehiculo";
         document.dispatchEvent(new CustomEvent("sendVehicleAlert", { detail: { vehicleName: entityName } }));
         if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
-        alert("Aviso enviado.");
+        logAlert("Aviso enviado.");
         return;
       }
 

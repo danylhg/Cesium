@@ -2,6 +2,10 @@ import { state } from "../../core/state.js";
 import { saveAsignacionActual } from "../asignacion/asignacion.service.js";
 import { renderCelulas } from "./personal.views.js";
 
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 export function abrirModalCrearGrupo(cetActivo) {
   const overlay = document.createElement("div");
   overlay.style.position = "fixed";
@@ -108,19 +112,19 @@ export function abrirModalCrearGrupo(cetActivo) {
     const nExpected = Number(inpNum.value || 0);
 
     if (!nExpected || nExpected < 1) {
-      alert("Pon un número válido en 'Cuantos'.");
+      logAlert("Pon un número válido en 'Cuantos'.");
       return;
     }
 
     if (names.length !== nExpected) {
-      alert("Completa todos los nombres de grupo.");
+      logAlert("Completa todos los nombres de grupo.");
       return;
     }
 
     const normalizedNewNames = names.map(name => name.toLowerCase());
     const hasDuplicateInModal = normalizedNewNames.some((name, index) => normalizedNewNames.indexOf(name) !== index);
     if (hasDuplicateInModal) {
-      alert("No puede haber más de un grupo con el mismo nombre.");
+      logAlert("No puede haber más de un grupo con el mismo nombre.");
       return;
     }
 
@@ -130,14 +134,14 @@ export function abrirModalCrearGrupo(cetActivo) {
 
     const alreadyExists = normalizedNewNames.some(name => existingGroupNames.includes(name));
     if (alreadyExists) {
-      alert("No puede haber más de un grupo con el mismo nombre.");
+      logAlert("No puede haber más de un grupo con el mismo nombre.");
       return;
     }
 
     const reservedNames = new Set(["mando operativo"]);
     const matchesReservedName = normalizedNewNames.some(name => reservedNames.has(name));
     if (matchesReservedName) {
-      alert("Ese nombre esta reservado para la operacion.");
+      logAlert("Ese nombre esta reservado para la operacion.");
       return;
     }
 
@@ -147,7 +151,7 @@ export function abrirModalCrearGrupo(cetActivo) {
 
     const matchesFlotilla = normalizedNewNames.some(name => flotillaNames.includes(name));
     if (matchesFlotilla) {
-      alert("Un grupo no puede llamarse igual que una flotilla.");
+      logAlert("Un grupo no puede llamarse igual que una flotilla.");
       return;
     }
 

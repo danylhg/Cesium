@@ -7,6 +7,11 @@ import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { cartesianToLatLng, saveTacticalData } from "./dashboard.persistence.js";
 import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes, pushUndoAction } from "./dashboard.drawing.js";
+
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
 // Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
@@ -898,7 +903,7 @@ async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
     if (!res.ok || !data?.ok) {
       const mensaje = data?.mensaje || "No se pudo guardar el círculo de cobertura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return null;
     }
 
@@ -908,7 +913,7 @@ async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
     if (dom.tbHint) {
       dom.tbHint.textContent = "Error de conexión al guardar el círculo de cobertura.";
     }
-    alert("Error de conexión al guardar el círculo de cobertura.");
+    logAlert("Error de conexión al guardar el círculo de cobertura.");
     return null;
   }
 }
@@ -952,7 +957,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (!res.ok || !data?.ok) {
       const mensaje = data?.mensaje || "No se pudo guardar el polÃ­gono.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return null;
     }
 
@@ -962,7 +967,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (dom.tbHint) {
       dom.tbHint.textContent = "Error de conexiÃ³n al guardar el polÃ­gono.";
     }
-    alert("Error de conexiÃ³n al guardar el polÃ­gono.");
+    logAlert("Error de conexiÃ³n al guardar el polÃ­gono.");
     return null;
   }
 }
@@ -1027,7 +1032,7 @@ async function deleteOperationZoneFromBackend() {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar la zona de operación.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1035,7 +1040,7 @@ async function deleteOperationZoneFromBackend() {
   } catch (err) {
     console.error("[ZONA] Error eliminando zona de operación:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al eliminar la zona de operación.";
-    alert("Error de conexión al eliminar la zona de operación.");
+    logAlert("Error de conexión al eliminar la zona de operación.");
     return false;
   }
 }
@@ -1762,7 +1767,7 @@ export async function persistDraggedEntity(entity) {
     if (!res.ok || data?.ok === false) {
       const mensaje = data?.mensaje || "No se pudo actualizar el objeto táctico.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1776,7 +1781,7 @@ export async function persistDraggedEntity(entity) {
   } catch (err) {
     console.error("[TACTICAL] Error actualizando objeto arrastrado:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al actualizar el objeto táctico.";
-    alert("Error de conexión al actualizar el objeto táctico.");
+    logAlert("Error de conexión al actualizar el objeto táctico.");
     return false;
   }
 }
@@ -1798,7 +1803,7 @@ async function deletePoiFromBackend(idPoi) {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar el punto de interés.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1806,7 +1811,7 @@ async function deletePoiFromBackend(idPoi) {
   } catch (err) {
     console.error("[POI] Error eliminando punto de interés:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al eliminar el punto de interés.";
-    alert("Error de conexión al eliminar el punto de interés.");
+    logAlert("Error de conexión al eliminar el punto de interés.");
     return false;
   }
 }
@@ -1828,7 +1833,7 @@ async function deleteAreaFromBackend(idArea) {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar el círculo de cobertura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1836,7 +1841,7 @@ async function deleteAreaFromBackend(idArea) {
   } catch (err) {
     console.error("[AREA] Error eliminando círculo de cobertura:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al eliminar el círculo de cobertura.";
-    alert("Error de conexión al eliminar el círculo de cobertura.");
+    logAlert("Error de conexión al eliminar el círculo de cobertura.");
     return false;
   }
 }
@@ -1858,7 +1863,7 @@ async function deleteStructureFromBackend(idMarca) {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar la estructura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1866,7 +1871,7 @@ async function deleteStructureFromBackend(idMarca) {
   } catch (err) {
     console.error("[ESTRUCTURA] Error eliminando estructura:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al eliminar la estructura.";
-    alert("Error de conexion al eliminar la estructura.");
+    logAlert("Error de conexion al eliminar la estructura.");
     return false;
   }
 }
@@ -1877,7 +1882,7 @@ async function deleteCurrentOperationZoneFromBackend(idZona) {
   const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
   if (phase === "activa") {
     if (dom.tbHint) dom.tbHint.textContent = "La zona de operacion no se puede eliminar mientras la operacion este activa.";
-    alert("La zona de operacion no se puede eliminar mientras la operacion este activa.");
+    logAlert("La zona de operacion no se puede eliminar mientras la operacion este activa.");
     return false;
   }
 
