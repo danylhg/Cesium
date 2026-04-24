@@ -42,6 +42,9 @@ class MainPanelRenderer(
             destinoId: String? = null,
             destinoLabel: String? = null
         )
+        fun shouldShowSimulationButton(): Boolean
+        fun isSimulationActive(): Boolean
+        fun toggleSimulation()
     }
 
     fun inflateOperationPanel(
@@ -65,6 +68,27 @@ class MainPanelRenderer(
             else -> Color.parseColor("#94a3b8")
         }
         view.findViewById<TextView>(R.id.opPrioridad).setTextColor(priorityColor)
+
+        val simulationBtn = view.findViewById<Button>(R.id.btnSimulacion)
+        if (host.shouldShowSimulationButton()) {
+            simulationBtn.visibility = View.VISIBLE
+
+            fun refreshSimulationText() {
+                simulationBtn.text = if (host.isSimulationActive()) {
+                    "Detener simulacion"
+                } else {
+                    "Activar simulacion"
+                }
+            }
+
+            refreshSimulationText()
+            simulationBtn.setOnClickListener {
+                host.toggleSimulation()
+                refreshSimulationText()
+            }
+        } else {
+            simulationBtn.visibility = View.GONE
+        }
     }
 
     fun inflateChatPanel(

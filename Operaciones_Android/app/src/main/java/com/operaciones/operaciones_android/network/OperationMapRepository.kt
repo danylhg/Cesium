@@ -116,7 +116,9 @@ class OperationMapRepository(
                                     codigoInterno = codigoInterno,
                                     nombre = nombreVehiculo,
                                     tipo = v.optString("tipo", ""),
-                                    detalle = ""
+                                    detalle = "",
+                                    lat = if (v.isNull("latitud")) null else v.optDouble("latitud"),
+                                    lon = if (v.isNull("longitud")) null else v.optDouble("longitud")
                                 )
                             )
                         }

@@ -147,6 +147,28 @@ class ChatSocketManager(
         socket?.emit("tracking_personal", payload)
     }
 
+    fun emitTrackingVehiculo(idVehiculo: Int, lat: Double, lon: Double, alias: String) {
+        val connected = socket?.connected() == true
+        Log.d(
+            "TrackingVehiculo",
+            "emitTrackingVehiculo connected=$connected op=$operationId vehiculo=$idVehiculo lat=$lat lon=$lon"
+        )
+
+        if (!connected) {
+            Log.w("TrackingVehiculo", "No se emitio tracking_vehiculo: socket desconectado")
+            return
+        }
+
+        val payload = JSONObject().apply {
+            put("id_vehiculo", idVehiculo)
+            put("latitud", lat)
+            put("longitud", lon)
+            put("alias", alias)
+            put("nombre", alias)
+        }
+        socket?.emit("tracking_vehiculo", payload)
+    }
+
     fun disconnect() {
         socket?.disconnect()
         socket?.off()

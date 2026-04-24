@@ -19,6 +19,7 @@ import {
   loadPoisFromBackend,
   loadAreasFromBackend,
   loadStructuresFromBackend,
+  loadRoutesFromBackend,
   loadOperationZoneFromBackend
 } from "./dashboard.tactical.js";
 import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
@@ -328,6 +329,7 @@ window.addEventListener("load", async () => {
   await loadPoisFromBackend();
   await loadAreasFromBackend();
   await loadStructuresFromBackend();
+  await loadRoutesFromBackend();
   await loadOperationZoneFromBackend();
   await loadDrawingsFromBackend();
 

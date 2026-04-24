@@ -136,9 +136,7 @@ function isVisibleInTab(msg) {
   }
   if (_channelType === "flotilla") {
     return flotillaMessageMatchesTarget(msg)
-      || destinoTipo === "CETS"
-      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget))
-      || (destinoTipo === "CET" && personBelongsToFlotilla(destinoId, _channelTarget));
+      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget));
   }
   if (_channelType === "grupo") {
     return destinoTipo === "GRUPO" && destinoId === String(_channelTarget);

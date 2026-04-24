@@ -27,74 +27,11 @@
       display: none !important;
     }
 
-    /* ── Rosa del norte ────────────────────────────────── */
-    #compassRose {
-      position: fixed;
-      right: 16px;
-      bottom: 72px; /* encima de la barra de navegación nativa (56dp) */
-      width: 84px;
-      height: 84px;
-      border-radius: 50%;
-      background: rgba(13, 21, 38, 0.84);
-      border: 2px solid rgba(255, 255, 255, 0.18);
-      box-shadow: 0 0 20px rgba(0, 0, 0, 0.4);
-      z-index: 900;
-      pointer-events: none;
-      transition: transform 0.12s ease-out;
-    }
-
-    #compassRose::before,
-    #compassRose::after {
-      content: "";
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(255, 255, 255, 0.70);
-    }
-
-    #compassRose::before { width: 2px; height: 68px; }
-    #compassRose::after  { width: 68px; height: 2px; }
-
-    #compassCore {
-      position: absolute;
-      left: 50%;
-      top: 50%;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      background: #ff7b00;
-      transform: translate(-50%, -50%);
-      box-shadow: 0 0 10px rgba(255, 123, 0, 0.7);
-    }
-
-    .compass-label {
-      position: absolute;
-      font-weight: 900;
-      font-size: 12px;
-      font-family: sans-serif;
-      color: #ffffff;
-      text-shadow: 0 0 8px rgba(0, 0, 0, 0.8);
-    }
-
-    #compassN { top: 3px;    left: 50%; transform: translateX(-50%); color: #ff7b00; }
-    #compassS { bottom: 3px; left: 50%; transform: translateX(-50%); }
-    #compassE { right: 5px;  top: 50%;  transform: translateY(-50%); }
-    #compassW { left: 5px;   top: 50%;  transform: translateY(-50%); }
   </style>
 </head>
 
 <body>
   <div id="cesiumContainer"></div>
-
-  <!-- Rosa del norte (rota con la cámara vía postRender) -->
-  <div id="compassRose">
-    <div id="compassCore"></div>
-    <span class="compass-label" id="compassN">N</span>
-    <span class="compass-label" id="compassS">S</span>
-    <span class="compass-label" id="compassE">E</span>
-    <span class="compass-label" id="compassW">W</span>
-  </div>
 
   <script>
     let viewer = null;
@@ -117,6 +54,8 @@
     let routeEntity = null;
 
     let remoteRoutes = new Map();
+    const trackingPersonalEntities = new Map();
+    const trackingVehiculoEntities = new Map();
 
     const OSRM_BASE = "https://router.project-osrm.org";
 
@@ -247,15 +186,6 @@
         Android.sendTrafficAlert("Mapa listo");
       }
 
-      // Rota la rosa del norte para que N siempre apunte al norte geográfico
-      const _compassEl = document.getElementById('compassRose');
-      if (_compassEl) {
-        viewer.scene.postRender.addEventListener(function () {
-          const deg = Cesium.Math.toDegrees(viewer.camera.heading);
-          _compassEl.style.transform = 'rotate(' + (-deg) + 'deg)';
-        });
-      }
-
       console.log("Cesium OK");
     } catch (e) {
       console.error("Error iniciando Cesium: " + e.message);
@@ -296,6 +226,69 @@
         });
       } catch (e) {
         console.error("Error en updateMyPosition: " + e.message);
+      }
+    };
+
+    function upsertTrackingEntity(store, key, lat, lon, label, color) {
+      if (!viewer || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+      const current = store.get(key);
+      if (current) viewer.entities.remove(current);
+
+      const entity = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        point: {
+          pixelSize: 10,
+          color: color.withAlpha(0.18),
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
+        },
+        label: label ? {
+          text: label,
+          font: "bold 12px sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.BLACK,
+          outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -22),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000)
+        } : undefined
+      });
+
+      store.set(key, entity);
+    }
+
+    window.updateTrackingPersonal = function (idPersonal, lat, lon, label) {
+      try {
+        const id = String(idPersonal || "");
+        upsertTrackingEntity(
+          trackingPersonalEntities,
+          id,
+          Number(lat),
+          Number(lon),
+          label || ("P-" + id),
+          Cesium.Color.DODGERBLUE
+        );
+      } catch (e) {
+        console.error("Error en updateTrackingPersonal: " + e.message);
+      }
+    };
+
+    window.updateTrackingVehiculo = function (idVehiculo, lat, lon, label) {
+      try {
+        const id = String(idVehiculo || "");
+        upsertTrackingEntity(
+          trackingVehiculoEntities,
+          id,
+          Number(lat),
+          Number(lon),
+          label || ("V-" + id),
+          Cesium.Color.ORANGE
+        );
+      } catch (e) {
+        console.error("Error en updateTrackingVehiculo: " + e.message);
       }
     };
 

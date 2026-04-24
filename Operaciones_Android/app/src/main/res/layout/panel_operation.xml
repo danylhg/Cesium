@@ -142,6 +142,18 @@
             android:textSize="14sp"
             android:layout_marginBottom="20dp"/>
 
+        <Button
+            android:id="@+id/btnSimulacion"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_quick_reply_selected"
+            android:text="ACTIVAR SIMULACION"
+            android:textAllCaps="false"
+            android:textColor="#ffffff"
+            android:textStyle="bold"
+            android:visibility="gone"/>
+
     </LinearLayout>
 
 </androidx.core.widget.NestedScrollView>
