@@ -8,10 +8,6 @@
 (() => {
   "use strict";
 
-  const logAlert = (message) => {
-    if (message) console.warn(message);
-  };
-
   /* =========================
      Sesión / seguridad
   ========================= */
@@ -27,7 +23,7 @@
 
   function redirectToLogin(message = "") {
     clearSession();
-    logAlert(message);
+    if (message) alert(message);
     window.location.href = "login.html";
   }
 
@@ -164,7 +160,7 @@
 
   for (const [name, el] of Object.entries(requiredEls)) {
     if (!el) {
-      logAlert(`Falta el elemento del DOM: ${name}`);
+      alert(`Falta el elemento del DOM: ${name}`);
       return;
     }
   }
@@ -350,8 +346,13 @@
           <td>${escapeHtml(v.fecha_registro || "-")}</td>
         `;
 
-        tr.addEventListener("click", () => {
-          selectedId = v.id_vehiculo;
+        tr.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (selectedId == v.id_vehiculo) {
+            selectedId = null;
+          } else {
+            selectedId = v.id_vehiculo;
+          }
           updateButtons();
           renderTable();
         });
@@ -468,15 +469,13 @@
     const v = vehiculos.find(x => x.id_vehiculo === selectedId);
     const name = v ? `${v.codigo_interno}` : "este registro";
 
-    if (!confirm(`¿BORRAR definitivamente el vehículo ${name}?\n(Si está referenciado, no te dejará.)`)) return;
-
     try {
       await api(`/catalog/vehiculos/${selectedId}`, { method: "DELETE" });
       await loadFromApi();
       selectedId = null;
       renderTable();
     } catch (err) {
-      logAlert(err.message);
+      alert(err.message);
     }
   });
 
@@ -491,7 +490,16 @@
   btnClear?.addEventListener("click", () => {
     if (searchInput) searchInput.value = "";
     if (filterEstado) filterEstado.value = "";
+    selectedId = null;
     renderTable();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (selectedId && !e.target.closest("table") && !e.target.closest("#modal") && !e.target.closest("button") && !e.target.closest(".controls")) {
+      selectedId = null;
+      updateButtons();
+      renderTable();
+    }
   });
 
   filterEstado?.addEventListener("change", renderTable);
@@ -521,31 +529,29 @@
       };
 
       if (!body.codigo_interno || !body.estado) {
-        logAlert("Completa los campos obligatorios.");
+        alert("Completa los campos obligatorios.");
         return;
       }
 
       if (!body.tipo) {
-        logAlert("Selecciona el tipo de vehículo.");
+        alert("Selecciona el tipo de vehículo.");
         return;
       }
 
       if (!ESTADOS.includes(body.estado)) {
-        logAlert("Estado inválido.");
+        alert("Estado inválido.");
         return;
       }
 
       if (body.capacidad !== null && (!Number.isInteger(body.capacidad) || body.capacidad < 0)) {
-        logAlert("Capacidad inválida.");
+        alert("Capacidad inválida.");
         return;
       }
 
       if (mode === "add") {
         await api("/catalog/vehiculos", { method: "POST", body });
-        logAlert("Vehículo creado.");
       } else {
         await api(`/catalog/vehiculos/${selectedId}`, { method: "PUT", body });
-        logAlert("Vehículo actualizado.");
       }
 
       closeModal();
@@ -553,7 +559,7 @@
       renderTable();
 
     } catch (err) {
-      logAlert(err.message);
+      alert(err.message);
     }
   });
 
@@ -568,7 +574,7 @@
       await loadFromApi();
       renderTable();
     } catch (err) {
-      logAlert(`No se pudo cargar vehículos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
+      alert(`No se pudo cargar vehículos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
     }
   })();
 })();

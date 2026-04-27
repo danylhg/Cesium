@@ -33,10 +33,6 @@ import {
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
 
-const logAlert = (message) => {
-  if (message) console.warn(message);
-};
-
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
@@ -145,7 +141,7 @@ function handleClosedOperation(operacion) {
   if (!["cerrada", "cancelada"].includes(estado)) return;
 
   operationClosedHandled = true;
-  logAlert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
+  alert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
   window.location.href = "menu_inicial.html";
 }
 
@@ -208,12 +204,6 @@ if (dom.who) dom.who.textContent = `(${username})`;
 
 if (dom.logout) {
   dom.logout.onclick = async () => {
-    const op = getCurrentOperation();
-    const esPlanificada = (op.phase || "planificada") === "planificada";
-    if (esPlanificada) {
-      const ok = confirm("¿Seguro que quieres salir? Se descartará toda la información ingresada.");
-      if (!ok) return;
-    }
     window.location.href = "menu_inicial.html";
   };
 }

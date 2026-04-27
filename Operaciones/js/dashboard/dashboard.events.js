@@ -9,10 +9,6 @@ import {
 import { togglePanel, closeAllPanels } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
 
-const logAlert = (message) => {
-  if (message) console.warn(message);
-};
-
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
  */
@@ -38,7 +34,7 @@ function bindPanelEvents() {
   if (dom.toggleChatPanel) {
     dom.toggleChatPanel.addEventListener("click", () => {
       if (!isOperationActive()) {
-        logAlert("El chat táctico solo está disponible cuando la operación está activa automáticamente por fecha y hora.");
+        alert("El chat táctico solo está disponible cuando la operación está activa automáticamente por fecha y hora.");
         return;
       }
       togglePanel(dom.chatPanel, dom.toggleChatPanel);
@@ -93,20 +89,19 @@ function bindOperationActionEvents() {
       const opName = op.nombre || op.title || op.titulo || "Operación";
 
       if (!opId) {
-        logAlert("No se encontró la operación activa.");
+        alert("No se encontró la operación activa.");
         return;
       }
 
-      const confirmMsg = `¿Guardar la operación "${opName}"?\nSe guardará todo lo planificado en el mapa y la operación se activará automáticamente al llegar su fecha y hora programadas.`;
+
 
       try {
         saveTacticalData();
         saveCurrentOperation(op);
-        logAlert(`¡Operación "${opName}" guardada exitosamente!\nSe activará sola en la fecha designada.`);
         window.location.href = "menu_inicial.html";
       } catch (e) {
         console.error(e);
-        logAlert("Error al guardar la operación.");
+        alert("Error al guardar la operación.");
       }
     });
   }
@@ -118,11 +113,11 @@ function bindOperationActionEvents() {
       const opName = op.nombre || op.title || op.titulo || "Operación";
 
       if (!opId) {
-        logAlert("No se encontró la operación activa.");
+        alert("No se encontró la operación activa.");
         return;
       }
 
-      if (!confirm(`¿Cancelar la operación "${opName}"?\nTodo el personal, vehículos y equipos asignados quedarán liberados.`)) return;
+
 
       try {
         const res = await apiFetchEstado(opId, "CANCELADA");
@@ -130,10 +125,10 @@ function bindOperationActionEvents() {
           window.location.href = "menu_inicial.html";
         } else {
           const data = await res.json().catch(() => ({}));
-          logAlert(`Error al cancelar: ${data.mensaje || res.statusText}`);
+          alert(`Error al cancelar: ${data.mensaje || res.statusText}`);
         }
       } catch {
-        logAlert("Error de conexión al intentar cancelar la operación.");
+        alert("Error de conexión al intentar cancelar la operación.");
       }
     });
   }
@@ -146,11 +141,11 @@ function bindOperationActionEvents() {
       const opName = op.nombre || op.title || op.titulo || "Operacion";
 
       if (!opId) {
-        logAlert("No se encontro la operacion activa.");
+        alert("No se encontro la operacion activa.");
         return;
       }
 
-      if (!confirm(`Activar la operacion "${opName}"?\nSe iniciara la operacion y se habilitara el chat tactico.`)) return;
+
 
       try {
         saveTacticalData();
@@ -165,11 +160,11 @@ function bindOperationActionEvents() {
           localStorage.setItem("force_open_chat", "true");
           window.location.reload();
         } else {
-          logAlert(`Error al activar: ${data.mensaje || res.statusText}`);
+          alert(`Error al activar: ${data.mensaje || res.statusText}`);
         }
       } catch (e) {
         console.error(e);
-        logAlert("Error de conexion al intentar activar la operacion.");
+        alert("Error de conexion al intentar activar la operacion.");
       }
     });
   }
@@ -182,11 +177,11 @@ function bindOperationActionEvents() {
       const opName = op.nombre || op.title || op.titulo || "OperaciÃ³n";
 
       if (!opId) {
-        logAlert("No se encontrÃ³ la operaciÃ³n activa.");
+        alert("No se encontrÃ³ la operaciÃ³n activa.");
         return;
       }
 
-      if (!confirm(`Â¿Cerrar la operaciÃ³n "${opName}"?\nEsta acciÃ³n finalizarÃ¡ la operaciÃ³n activa.`)) return;
+
 
       try {
         const res = await apiFetchEstado(opId, "CERRADA");
@@ -194,10 +189,10 @@ function bindOperationActionEvents() {
           window.location.href = "menu_inicial.html";
         } else {
           const data = await res.json().catch(() => ({}));
-          logAlert(`Error al cerrar: ${data.mensaje || res.statusText}`);
+          alert(`Error al cerrar: ${data.mensaje || res.statusText}`);
         }
       } catch {
-        logAlert("Error de conexiÃ³n al intentar cerrar la operaciÃ³n.");
+        alert("Error de conexiÃ³n al intentar cerrar la operaciÃ³n.");
       }
     });
   }

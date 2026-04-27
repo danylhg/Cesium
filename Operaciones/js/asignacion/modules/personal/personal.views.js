@@ -513,7 +513,7 @@ export function renderCelulas() {
 
             const grupoInfo = state.gruposByCet[cetActivo];
             const grupoActivo = grupoInfo?.active || null;
-            const grupoActualDePersona = getGrupoDeCelula(cetActivo, cel);
+            const grupoActualDePersona = getGrupoDeCelula(cetActivo, cel) || null;
 
             if (enEste) {
               // Si ya está en el CET, evaluamos si movemos de grupo o desasignamos

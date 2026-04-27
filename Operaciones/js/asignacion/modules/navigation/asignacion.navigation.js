@@ -41,8 +41,6 @@ export function bindNavigation() {
   });
 
   btnVolver.addEventListener("click", () => {
-    const ok = confirm("¿Seguro que quieres salir? Se descartará toda la información ingresada.");
-    if (!ok) return;
     removeStorage(STORAGE_OPERACION_ACTUAL);
     removeStorage(STORAGE_ASIGNACION_ACTUAL);
     window.location.href = "menu_inicial.html";

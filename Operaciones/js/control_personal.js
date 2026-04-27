@@ -3,10 +3,6 @@
 (() => {
   "use strict";
 
-  const logAlert = (message) => {
-    if (message) console.warn(message);
-  };
-
   /* =========================
      Sesión / seguridad
   ========================= */
@@ -21,7 +17,7 @@
 
   function redirectToLogin(message = "") {
     clearSession();
-    logAlert(message);
+    if (message) alert(message);
     window.location.href = "login.html";
   }
 
@@ -320,7 +316,7 @@
 
   for (const [name, el] of Object.entries(requiredEls)) {
     if (!el) {
-      logAlert(`Falta el elemento del DOM: ${name}`);
+      alert(`Falta el elemento del DOM: ${name}`);
       return;
     }
   }
@@ -514,8 +510,13 @@
         `;
 
         if (p.id_personal != null) {
-          tr.addEventListener("click", () => {
-            selectedId = p.id_personal;
+          tr.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (selectedId == p.id_personal) {
+              selectedId = null;
+            } else {
+              selectedId = p.id_personal;
+            }
             updateButtons();
             renderTable();
           });
@@ -537,7 +538,7 @@
   ========================= */
   function openModal(newMode) {
     if (newMode !== "add" && newMode !== "edit") {
-      logAlert("Modo de formulario inválido.");
+      alert("Modo de formulario inválido.");
       return;
     }
 
@@ -591,7 +592,7 @@
     }
 
     if (!selectedId) {
-      logAlert("No hay personal seleccionado.");
+      alert("No hay personal seleccionado.");
       closeModal();
       return;
     }
@@ -600,7 +601,7 @@
 
     const p = personal.find((x) => x.id_personal === selectedId);
     if (!p) {
-      logAlert("No se encontró el registro seleccionado.");
+      alert("No se encontró el registro seleccionado.");
       closeModal();
       return;
     }
@@ -670,7 +671,7 @@
 
   btnEdit?.addEventListener("click", () => {
     if (!selectedId) {
-      logAlert("Selecciona un registro para modificar.");
+      alert("Selecciona un registro para modificar.");
       return;
     }
     openModal("edit");
@@ -680,23 +681,19 @@
     if (isDeleting) return;
 
     if (!selectedId) {
-      logAlert("Selecciona un registro para eliminar.");
+      alert("Selecciona un registro para eliminar.");
       return;
     }
 
     const p = personal.find((x) => x.id_personal === selectedId);
     if (!p) {
-      logAlert("No se encontró el registro seleccionado.");
+      alert("No se encontró el registro seleccionado.");
       selectedId = null;
       renderTable();
       return;
     }
 
     const name = `${p.nombre || ""} ${p.apellido || ""}`.trim() || "este registro";
-
-    if (!confirm(`¿BORRAR definitivamente a ${name}?\n(Si tiene asignaciones, no te dejará.)`)) {
-      return;
-    }
 
     isDeleting = true;
     updateButtons();
@@ -706,9 +703,9 @@
       await loadFromApi();
       selectedId = null;
       renderTable();
-      logAlert("Registro eliminado.");
+      alert("Registro eliminado.");
     } catch (e) {
-      logAlert(e.message);
+      alert(e.message);
     } finally {
       isDeleting = false;
       updateButtons();
@@ -731,6 +728,14 @@
     filterActivo.value = "";
     selectedId = null;
     renderTable();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (selectedId && !e.target.closest("table") && !e.target.closest("#modal") && !e.target.closest("button") && !e.target.closest(".controls")) {
+      selectedId = null;
+      updateButtons();
+      renderTable();
+    }
   });
 
   filterRol?.addEventListener("change", renderTable);
@@ -763,25 +768,25 @@
       // password requerida en add, opcional en edit
       const errPassword = validarPassword(password, mode === "add");
 
-      if (errApodo) { logAlert(errApodo); fApodo.focus(); return; }
-      if (errNombre) { logAlert(errNombre); fNombre.focus(); return; }
-      if (errApellido) { logAlert(errApellido); fApellido.focus(); return; }
-      if (errPuesto) { logAlert(errPuesto); fPuesto.focus(); return; }
-      if (errUsername) { logAlert(errUsername); fUsername?.focus(); return; }
-      if (errPassword) { logAlert(errPassword); fPassword?.focus(); return; }
+      if (errApodo) { alert(errApodo); fApodo.focus(); return; }
+      if (errNombre) { alert(errNombre); fNombre.focus(); return; }
+      if (errApellido) { alert(errApellido); fApellido.focus(); return; }
+      if (errPuesto) { alert(errPuesto); fPuesto.focus(); return; }
+      if (errUsername) { alert(errUsername); fUsername?.focus(); return; }
+      if (errPassword) { alert(errPassword); fPassword?.focus(); return; }
 
       if (mode === "add") {
         const rolUi = (fRol.value || "").trim();
         const rol = uiRolToApi(rolUi);
 
         if (!rolUi) {
-          logAlert("Rol es obligatorio.");
+          alert("Rol es obligatorio.");
           fRol.focus();
           return;
         }
 
         if (!ROLES_UI.includes(rolUi) || !rol) {
-          logAlert("Rol inválido.");
+          alert("Rol inválido.");
           fRol.focus();
           return;
         }
@@ -797,24 +802,21 @@
         };
 
         const r = await api("/catalog/personal", { method: "POST", body });
-
-        const usernameReal = r?.item?.username || "(sin username)";
-        logAlert(`Personal creado.\nUsername: ${usernameReal}`);
       } else if (mode === "edit") {
         if (!selectedId) {
-          logAlert("No hay personal seleccionado.");
+          alert("No hay personal seleccionado.");
           return;
         }
 
         if (!isValidBooleanString(fActivo.value)) {
-          logAlert("Estado activo inválido.");
+          alert("Estado activo inválido.");
           fActivo.focus();
           return;
         }
 
         const exists = personal.some((x) => x.id_personal === selectedId);
         if (!exists) {
-          logAlert("El registro seleccionado ya no existe.");
+          alert("El registro seleccionado ya no existe.");
           selectedId = null;
           renderTable();
           closeModal();
@@ -833,9 +835,8 @@
         };
 
         await api(`/catalog/personal/${selectedId}`, { method: "PUT", body });
-        logAlert("Personal actualizado.");
       } else {
-        logAlert("Modo de formulario inválido.");
+        alert("Modo de formulario inválido.");
         return;
       }
 
@@ -851,7 +852,7 @@
 
       renderTable();
     } catch (e2) {
-      logAlert(e2.message || "Ocurrió un error al guardar.");
+      alert(e2.message || "Ocurrió un error al guardar.");
     } finally {
       isSaving = false;
       updateButtons();
@@ -868,7 +869,7 @@
       await loadFromApi();
       renderTable();
     } catch (e) {
-      logAlert(`No se pudo cargar personal: ${e.message}\nRevisa API_BASE y token.`);
+      alert(`No se pudo cargar personal: ${e.message}\nRevisa API_BASE y token.`);
     }
   })();
 })();

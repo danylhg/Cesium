@@ -16,10 +16,6 @@ import { asignarVehiculo, removerAsignacionVehiculo, getNombreVehiculoAsignado }
 import { renderEquipoAsignacion } from "../equipos/equipos.view.js";
 import { guardarOperacionBaseDatos, collectOperacionActual } from "../operacion/operacion.service.js";
 
-const logAlert = (message) => {
-  if (message) console.warn(message);
-};
-
 function getNombrePersonalById(idPersonal) {
   for (const [nombre, id] of Object.entries(state.personalMap)) {
     if (id === idPersonal) return nombre;
@@ -97,6 +93,41 @@ function removerAsignacionPorKey(key) {
   return true;
 }
 
+function toggleSelectedKey(value, checked) {
+  const set = new Set(state.selectedCells || []);
+  if (checked) set.add(value);
+  else set.delete(value);
+  state.selectedCells = Array.from(set);
+}
+
+function mkCheckRow({ labelText, valueKey, disabled = false, checked = false, onChange }) {
+  const label = document.createElement("label");
+  label.style.display = "flex";
+  label.style.alignItems = "center";
+  label.style.gap = "10px";
+  label.style.marginBottom = "10px";
+  label.style.padding = "10px";
+  label.style.cursor = disabled ? "not-allowed" : "pointer";
+  label.style.borderRadius = "8px";
+  label.style.backgroundColor = "#f5f5f5";
+  if (disabled) label.style.opacity = "0.65";
+
+  const chk = document.createElement("input");
+  chk.type = "checkbox";
+  chk.value = valueKey;
+  chk.checked = checked;
+  chk.disabled = disabled;
+  chk.addEventListener("change", (e) => onChange?.(e.target.checked));
+
+  const textSpan = document.createElement("span");
+  textSpan.style.flex = "1";
+  textSpan.textContent = labelText;
+
+  label.appendChild(chk);
+  label.appendChild(textSpan);
+  return label;
+}
+
 export function renderVehiculos() {
   clearPanel();
   showBack(true);
@@ -146,9 +177,10 @@ export function renderVehiculos() {
   cetButtons.style.marginBottom = "12px";
 
   state.cetSeleccionados.forEach((n, i) => {
+    const flotillaName = state.flotillaByCet[n] || "Sin Flotilla";
     const btn = document.createElement("button");
     btn.className = "chip" + (i === state.cetActivoIndexVeh ? " active" : "");
-    btn.textContent = `CET: ${n}`;
+    btn.textContent = flotillaName;
     btn.style.cursor = "pointer";
     btn.addEventListener("click", () => {
       state.cetActivoIndexVeh = i;
@@ -172,16 +204,34 @@ export function renderVehiculos() {
   const flotillaLbl = document.createElement("div");
   flotillaLbl.className = "lbl";
   flotillaLbl.style.marginBottom = "8px";
-  flotillaLbl.textContent = "Nombre de la flotilla";
-
-  const flotillaChip = document.createElement("div");
-  flotillaChip.className = "chip active";
-  flotillaChip.style.display = "inline-block";
-  flotillaChip.style.cursor = "default";
-  flotillaChip.textContent = state.flotillaByCet[cet] ? state.flotillaByCet[cet] : "—";
+  flotillaLbl.textContent = "CET a cargo";
 
   headerBox.appendChild(flotillaLbl);
-  headerBox.appendChild(flotillaChip);
+
+  const cetKey = `${cet}`;
+  const cetAssigned = getNombreVehiculoAsignado(cetKey);
+  const cetAssignedToSelectedVehicle = keysAsignadosAlVehiculoSeleccionado.has(cetKey);
+  const cetLocked = !!cetAssigned && !cetAssignedToSelectedVehicle;
+
+  const cetCheckboxRow = mkCheckRow({
+    labelText: cetLocked ? `CET: ${cet} (Asignado: ${cetAssigned})` : `CET: ${cet}`,
+    valueKey: cetKey,
+    disabled: cetLocked,
+    checked: cetAssignedToSelectedVehicle || (state.selectedCells || []).includes(cetKey),
+    onChange: (checked) => {
+      if (!checked && cetAssignedToSelectedVehicle) {
+        removerAsignacionPorKey(cetKey);
+        toggleSelectedKey(cetKey, false);
+        saveAsignacionActual();
+        renderVehiculos();
+        return;
+      }
+      toggleSelectedKey(cetKey, checked);
+      renderVehiculos();
+    }
+  });
+
+  headerBox.appendChild(cetCheckboxRow);
 
   const grpLbl = document.createElement("div");
   grpLbl.className = "lbl";
@@ -238,75 +288,10 @@ export function renderVehiculos() {
     cellsToShow = cellsForCET.filter(c => !getGrupoDeCelula(cet, c));
   }
 
-  function toggleSelectedKey(value, checked) {
-    const set = new Set(state.selectedCells || []);
-    if (checked) set.add(value);
-    else set.delete(value);
-    state.selectedCells = Array.from(set);
-  }
+  const visibleKeys = cellsToShow.map(c => `${cet}-${c}`);
+  const unlockedVisible = visibleKeys.filter(k => !getNombreVehiculoAsignado(k));
 
-  function mkCheckRow({ labelText, valueKey, disabled = false, checked = false, onChange }) {
-    const label = document.createElement("label");
-    label.style.display = "flex";
-    label.style.alignItems = "center";
-    label.style.gap = "10px";
-    label.style.marginBottom = "10px";
-    label.style.padding = "10px";
-    label.style.cursor = disabled ? "not-allowed" : "pointer";
-    label.style.borderRadius = "8px";
-    label.style.backgroundColor = "#f5f5f5";
-    if (disabled) label.style.opacity = "0.65";
-
-    const chk = document.createElement("input");
-    chk.type = "checkbox";
-    chk.value = valueKey;
-    chk.checked = checked;
-    chk.disabled = disabled;
-    chk.addEventListener("change", (e) => onChange?.(e.target.checked));
-
-    const textSpan = document.createElement("span");
-    textSpan.style.flex = "1";
-    textSpan.textContent = labelText;
-
-    label.appendChild(chk);
-    label.appendChild(textSpan);
-    return label;
-  }
-
-  const cetKey = `${cet}`;
-
-  if (!ginfo.vehActive) {
-    const cetAssigned = getNombreVehiculoAsignado(cetKey);
-    const cetAssignedToSelectedVehicle = keysAsignadosAlVehiculoSeleccionado.has(cetKey);
-    const cetLocked = !!cetAssigned && !cetAssignedToSelectedVehicle;
-
-    cellulasList.appendChild(
-      mkCheckRow({
-        labelText: cetLocked ? `CET: ${cet} (Asignado: ${cetAssigned})` : `CET: ${cet}`,
-        valueKey: cetKey,
-        disabled: cetLocked,
-        checked: cetAssignedToSelectedVehicle || (state.selectedCells || []).includes(cetKey),
-        onChange: (checked) => {
-          if (!checked && cetAssignedToSelectedVehicle) {
-            removerAsignacionPorKey(cetKey);
-            toggleSelectedKey(cetKey, false);
-            saveAsignacionActual();
-            renderVehiculos();
-            return;
-          }
-          toggleSelectedKey(cetKey, checked);
-          renderVehiculos();
-        }
-      })
-    );
-  }
-
-  if (cellsToShow.length > 0) {
-    const visibleKeys = ginfo.vehActive
-      ? cellsToShow.map(c => `${cet}-${c}`)
-      : [cetKey, ...cellsToShow.map(c => `${cet}-${c}`)];
-    const unlockedVisible = visibleKeys.filter(k => !getNombreVehiculoAsignado(k));
-
+  if (visibleKeys.length > 0) {
     const allSelectedVisible =
       unlockedVisible.length > 0 &&
       unlockedVisible.every(k => (state.selectedCells || []).includes(k));
@@ -474,7 +459,7 @@ export function renderVehiculos() {
 
   assignBtn.addEventListener("click", () => {
     if (!state.selectedVehicle) {
-      logAlert("Selecciona un vehículo");
+      alert("Selecciona un vehículo");
       return;
     }
 
@@ -486,13 +471,13 @@ export function renderVehiculos() {
     }).filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
 
     if (selected.length === 0) {
-      logAlert("Selecciona al menos una persona/célula o el CET");
+      alert("Selecciona al menos una persona/célula o el CET");
       return;
     }
 
     const vehObj = state.vehiclesList.find(v => v.name === state.selectedVehicle);
     if (!vehObj) {
-      logAlert("Vehículo inválido.");
+      alert("Vehículo inválido.");
       return;
     }
 
@@ -502,12 +487,12 @@ export function renderVehiculos() {
 
     const locked = selected.filter(k => getNombreVehiculoAsignado(k));
     if (locked.length > 0) {
-      logAlert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
+      alert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
       return;
     }
 
     if (selected.length > remainingNow) {
-      logAlert(`Capacidad insuficiente. Disponible: ${remainingNow}/${cap}`);
+      alert(`Capacidad insuficiente. Disponible: ${remainingNow}/${cap}`);
       return;
     }
 

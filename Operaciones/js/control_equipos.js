@@ -8,10 +8,6 @@
 (() => {
   "use strict";
 
-  const logAlert = (message) => {
-    if (message) console.warn(message);
-  };
-
   /* =========================
      Sesión / seguridad
   ========================= */
@@ -27,7 +23,7 @@
 
   function redirectToLogin(message = "") {
     clearSession();
-    logAlert(message);
+    if (message) alert(message);
     window.location.href = "login.html";
   }
 
@@ -164,7 +160,7 @@
 
   for (const [name, el] of Object.entries(requiredEls)) {
     if (!el) {
-      logAlert(`Falta el elemento del DOM: ${name}`);
+      alert(`Falta el elemento del DOM: ${name}`);
       return;
     }
   }
@@ -345,8 +341,13 @@
           <td>${escapeHtml(e.fecha_registro || "-")}</td>
         `;
 
-        tr.addEventListener("click", () => {
-          selectedId = e.id_equipo;
+        tr.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (selectedId == e.id_equipo) {
+            selectedId = null;
+          } else {
+            selectedId = e.id_equipo;
+          }
           updateButtons();
           renderTable();
         });
@@ -412,7 +413,7 @@
 
   btnEdit?.addEventListener("click", () => {
     if (!selectedId) {
-      logAlert("Selecciona un equipo.");
+      alert("Selecciona un equipo.");
       return;
     }
     openModal("edit");
@@ -424,15 +425,13 @@
     const e = equipos.find(x => x.id_equipo === selectedId);
     const name = e ? `${e.nombre} (${e.numero_serie})` : "este registro";
 
-    if (!confirm(`¿BORRAR definitivamente el equipo ${name}?\n(Si está referenciado, no te dejará.)`)) return;
-
     try {
       await api(`/catalog/equipos/${selectedId}`, { method: "DELETE" });
       await loadFromApi();
       selectedId = null;
       renderTable();
     } catch (err) {
-      logAlert(err.message);
+      alert(err.message);
     }
   });
 
@@ -451,6 +450,14 @@
     if (filterEstado) filterEstado.value = "";
     selectedId = null;
     renderTable();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (selectedId && !e.target.closest("table") && !e.target.closest("#modal") && !e.target.closest("button") && !e.target.closest(".controls")) {
+      selectedId = null;
+      updateButtons();
+      renderTable();
+    }
   });
 
   filterCategoria?.addEventListener("change", renderTable);
@@ -473,33 +480,31 @@
       };
 
       if (!body.numero_serie || !body.nombre || !body.categoria || !body.estado) {
-        logAlert("Completa todos los campos obligatorios.");
+        alert("Completa todos los campos obligatorios.");
         return;
       }
 
       if (!CATEGORIAS.includes(body.categoria)) {
-        logAlert("Categoría inválida.");
+        alert("Categoría inválida.");
         return;
       }
 
       if (!ESTADOS.includes(body.estado)) {
-        logAlert("Estado inválido.");
+        alert("Estado inválido.");
         return;
       }
 
       if (mode === "add") {
         await api("/catalog/equipos", { method: "POST", body });
-        logAlert("Equipo creado.");
       } else {
         await api(`/catalog/equipos/${selectedId}`, { method: "PUT", body });
-        logAlert("Equipo actualizado.");
       }
 
       closeModal();
       await loadFromApi();
       renderTable();
     } catch (err) {
-      logAlert(err.message);
+      alert(err.message);
     }
   });
 
@@ -515,7 +520,7 @@
       await loadFromApi();
       renderTable();
     } catch (err) {
-      logAlert(`No se pudo cargar equipos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
+      alert(`No se pudo cargar equipos: ${err.message}\nRevisa API_BASE, token y endpoints.`);
     }
   })();
 })();
