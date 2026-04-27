@@ -658,15 +658,7 @@ BEGIN
         fecha_cierre = NULL
     WHERE id_chat = v_id_chat;
 
-    v_id_participante := fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
-
-    INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
-    VALUES (
-      v_id_chat,
-      v_id_participante,
-      'OPERACION ACTIVADA automáticamente por trigger de BD.',
-      'SISTEMA'
-    );
+    PERFORM fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
 
   ELSIF NEW.estado IN ('CERRADA','CANCELADA') AND OLD.estado IS DISTINCT FROM NEW.estado THEN
     UPDATE chat_operacion
@@ -674,15 +666,7 @@ BEGIN
         fecha_cierre = NOW()
     WHERE id_chat = v_id_chat;
 
-    v_id_participante := fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
-
-    INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
-    VALUES (
-      v_id_chat,
-      v_id_participante,
-      'OPERACION ' || NEW.estado::text || ' automáticamente por trigger de BD.',
-      'SISTEMA'
-    );
+    PERFORM fn_agregar_participante_chat_operacion(NEW.id_operacion, NEW.creada_por, NULL);
   END IF;
 
   RETURN NEW;
