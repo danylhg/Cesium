@@ -111,10 +111,9 @@ export function renderChatMessages(events) {
 
   const chatEvents = events.filter(ev => {
     if (ev.tipo_evento !== "chat_mensaje") return false;
-    const msg = ev.payload || {};
-    // Descarta mensajes sin remitente identificable (mensajes de sistema)
-    const sender = msg.remitente_apodo || msg.apodo || msg.nombre || msg.username || "";
-    return sender.trim().length > 0;
+    const contenido = ev.payload?.contenido || "";
+    if (contenido.includes("automáticamente por trigger de BD.")) return false;
+    return true;
   });
 
   if (!chatEvents.length) {
@@ -124,8 +123,8 @@ export function renderChatMessages(events) {
 
   dom.chatMessages.innerHTML = chatEvents.map((ev) => {
     const msg = ev.payload || {};
-    const sender = msg.remitente_apodo || msg.apodo || msg.nombre || msg.username || "";
-    const text = msg.contenido || msg.texto || msg.mensaje || "";
+    const sender = msg.autor_nombre || "";
+    const text = msg.contenido || "";
     const ms = Date.parse(ev.occurred_at);
     return `
       <div class="historyChatMessage" data-ms="${ms}" style="display:none">
