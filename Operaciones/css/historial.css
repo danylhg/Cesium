@@ -1,0 +1,202 @@
+.historyStatusBadge {
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 255, 170, 0.24);
+  background: rgba(0, 255, 170, 0.10);
+  color: #adffe2;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+}
+
+.historyInfoPanel {
+  left: 16px;
+  width: 370px;
+  max-height: calc(100vh - 190px);
+}
+
+.historyChatPanel {
+  left: auto;
+  right: 16px;
+  width: 390px;
+  max-height: calc(100vh - 190px);
+}
+
+.historyInfoContent {
+  display: grid;
+  gap: 12px;
+}
+
+.historyOpCard,
+.historyChatMessage,
+.historyLoading,
+.historyEmpty {
+  border: 1px solid rgba(0, 255, 170, 0.14);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.34);
+  padding: 12px;
+}
+
+.historyLoading,
+.historyEmpty {
+  color: #b8c4d1;
+  line-height: 1.45;
+}
+
+.historyOpCardTitle {
+  margin: 0 0 8px;
+  color: #eaf8ff;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.historyMetaGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.historyMetaItem {
+  display: grid;
+  gap: 2px;
+}
+
+.historyMetaLabel {
+  color: #8ea3b8;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: .4px;
+  text-transform: uppercase;
+}
+
+.historyMetaValue {
+  color: #e6edf3;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.historyChatMessages {
+  display: grid;
+  gap: 10px;
+  max-height: calc(100vh - 290px);
+  overflow: auto;
+}
+
+.historyChatMessage {
+  display: grid;
+  gap: 5px;
+}
+
+.historyChatMessageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #9fb4c8;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.historyChatMessageBody {
+  color: #eef6ff;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.historyTimeline {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  z-index: 1250;
+  width: min(980px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid rgba(0, 255, 170, 0.18);
+  border-radius: 20px;
+  background: rgba(5, 10, 20, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 12px 38px rgba(0, 0, 0, 0.48);
+}
+
+.historyTimelineControls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.historyTimelineBtn,
+.historySpeedSelect {
+  border: 1px solid rgba(0, 255, 170, 0.22);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.46);
+  color: #e6edf3;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.historyTimelineBtn {
+  width: 42px;
+  height: 38px;
+}
+
+.historyPlayBtn {
+  background: linear-gradient(135deg, #00ffa6, #00c3ff);
+  color: #001b1b;
+}
+
+.historySpeedSelect {
+  height: 38px;
+  padding: 0 10px;
+}
+
+.historySpeedSelect option {
+  color: #e6edf3;
+  background: #08111b;
+}
+
+.historyTimelineMain {
+  display: grid;
+  gap: 7px;
+}
+
+.historyScrubber {
+  width: 100%;
+  accent-color: #00ffa6;
+}
+
+.historyTimeRow {
+  display: flex;
+  justify-content: space-between;
+  color: #b8c4d1;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@media (max-width: 960px) {
+  .historyInfoPanel,
+  .historyChatPanel {
+    width: calc(50vw - 24px);
+  }
+}
+
+@media (max-width: 768px) {
+  .historyInfoPanel {
+    left: 12px;
+    width: calc(100vw - 24px);
+    max-height: 34vh;
+  }
+
+  .historyChatPanel {
+    display: none;
+  }
+
+  .historyTimeline {
+    grid-template-columns: 1fr;
+    bottom: 10px;
+  }
+}

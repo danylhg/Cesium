@@ -24,3 +24,4 @@
 \ir 18_patch_poi_icono_mil.sql
 \ir 19_patch_poi_sidc.sql
 \ir 20_patch_dibujo_libre.sql
+\ir 21_patch_operacion_evento.sql

@@ -5,22 +5,64 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Historial de Operaciones</title>
   <script src="js/auth_check.js"></script>
+  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css"/>
   <link rel="stylesheet" href="css/dashboard.css"/>
+  <link rel="stylesheet" href="css/historial.css"/>
 </head>
 <body>
   <header class="topbar">
     <div class="topbarLeft">
-      <strong>Historial de Operaciones</strong>
+      <span class="brandDot"></span>
+      <strong id="historyTitle">Historial de Operación</strong>
+      <span id="historyStatusBadge" class="historyStatusBadge">Cargando</span>
+      <span id="historyWho" class="who"></span>
     </div>
     <div class="topbarRight">
       <button id="backBtn" class="topBtn">Volver</button>
     </div>
   </header>
 
-  <main class="panel" style="margin:16px">
-    <div id="historyList"></div>
+  <main class="mapStage">
+    <div id="historyMap" class="mapBox"></div>
   </main>
 
-  <script src="js/historial.js"></script>
+  <aside id="historyInfoPanel" class="glassPanel open historyInfoPanel">
+    <h2 class="panelTitle">Información</h2>
+    <div id="historyInfoContent" class="historyInfoContent">
+      <div class="historyLoading">Cargando operación...</div>
+    </div>
+  </aside>
+
+  <aside id="historyChatPanel" class="glassPanel open chatPanel historyChatPanel">
+    <h2 class="panelTitle">Chat histórico</h2>
+    <div id="historyChatMessages" class="chatMessages historyChatMessages">
+      <div class="historyEmpty">Los mensajes se sincronizarán con el timeline.</div>
+    </div>
+  </aside>
+
+  <section id="historyTimeline" class="historyTimeline" aria-label="Timeline de reproducción">
+    <div class="historyTimelineControls">
+      <button id="historyPrevEvent" class="historyTimelineBtn" type="button" title="Evento anterior">⏮</button>
+      <button id="historyPlayPause" class="historyTimelineBtn historyPlayBtn" type="button">▶</button>
+      <button id="historyNextEvent" class="historyTimelineBtn" type="button" title="Evento siguiente">⏭</button>
+      <select id="historySpeed" class="historySpeedSelect" title="Velocidad">
+        <option value="1">1x</option>
+        <option value="2">2x</option>
+        <option value="5">5x</option>
+      </select>
+    </div>
+    <div class="historyTimelineMain">
+      <input id="historyTimeRange" class="historyScrubber" type="range" min="0" max="1" value="0" step="1"/>
+      <div class="historyTimeRow">
+        <span id="historyCurrentTime">--:--:--</span>
+        <span id="historyEventCounter">0 eventos</span>
+        <span id="historyTotalTime">--:--:--</span>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
+  <script src="https://unpkg.com/milsymbol@2.2.0/dist/milsymbol.js"></script>
+  <script type="module" src="js/historial.js"></script>
 </body>
 </html>

@@ -22,6 +22,7 @@ import {
   emitRutaOperacionCreada,
   emitRutaOperacionEliminada
 } from "../sockets/index.js";
+import { getActorFromRequest, logOperacionEvento } from "../utils/timeline.js";
 
 // Crea la instancia del router
 const router = Router();
@@ -142,6 +143,15 @@ router.post("/ops/:id/rutas", requireAuth, async (req, res) => {
     );
 
     const ruta = rows[0];
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "ruta_tactica_creada",
+      entidad_tipo: "ruta_operacion",
+      entidad_id: ruta.id_ruta,
+      payload: ruta,
+      occurred_at: ruta.fecha_creacion,
+      actor: getActorFromRequest(req)
+    });
     const io = req.app.get("io");
     if (io) emitRutaOperacionCreada(io, id_operacion, ruta);
 
@@ -180,6 +190,14 @@ router.delete("/ops/:id/rutas/:id_ruta", requireAuth, async (req, res) => {
     }
 
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "ruta_tactica_eliminada",
+      entidad_tipo: "ruta_operacion",
+      entidad_id: id_ruta,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitRutaOperacionEliminada(io, id_operacion, id_ruta);
 
     res.json({ ok: true, item: rows[0] });
@@ -512,6 +530,15 @@ router.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
 
     // Agrega rol_creador al payload con el rol del token
     ruta.rol_creador = req.user?.rol || "ADMIN";
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "ruta_navegacion_creada",
+      entidad_tipo: "ruta_navegacion",
+      entidad_id: ruta.id_ruta,
+      payload: ruta,
+      occurred_at: ruta.fecha_creacion,
+      actor: getActorFromRequest(req)
+    });
 
     // Obtiene socket.io
     const io = req.app.get("io");
@@ -603,6 +630,14 @@ router.delete("/ops/:id/rutas/navegacion/:id_ruta", requireAuth, async (req, res
         mensaje: "Ruta no encontrada o ya estaba inactiva"
       });
     }
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "ruta_navegacion_eliminada",
+      entidad_tipo: "ruta_navegacion",
+      entidad_id: rutaOcultada.id_ruta,
+      payload: rutaOcultada,
+      actor: getActorFromRequest(req)
+    });
 
     // Obtiene socket.io
     const io = req.app.get("io");

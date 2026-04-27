@@ -164,7 +164,7 @@ btnSelect.addEventListener("click", async () => {
       } else if (pClass === "planificada") {
         window.location.href = "dashboard.html";
       } else {
-        window.location.href = "asignacion.html";
+        window.location.href = `historial.html?id=${op.id_operacion}`;
       }
     });
 

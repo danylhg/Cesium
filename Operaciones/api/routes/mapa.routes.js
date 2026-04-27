@@ -27,6 +27,7 @@ import { sendDbError } from "../utils/dbErrors.js";
 
 // Helper para validar enteros
 import { isInt } from "../utils/validators.js";
+import { getActorFromRequest, logOperacionEvento } from "../utils/timeline.js";
 
 // Crea la instancia del router
 const router = Router();
@@ -192,6 +193,15 @@ router.post("/ops/:id/pois", requireAuth, async (req, res) => {
     );
 
     const poi = rows[0];
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "poi_creado",
+      entidad_tipo: "poi",
+      entidad_id: poi.id_poi,
+      payload: poi,
+      occurred_at: poi.fecha_creacion,
+      actor: getActorFromRequest(req)
+    });
 
     // Emite en tiempo real a todos los clientes de la operación
     const io = req.app.get("io");
@@ -235,6 +245,14 @@ router.put("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
     }
 
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "poi_actualizado",
+      entidad_tipo: "poi",
+      entidad_id: rows[0].id_poi,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitPoiActualizado(io, id_operacion, rows[0]);
 
     res.json({ ok: true, poi: rows[0] });
@@ -267,7 +285,7 @@ router.delete("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
   try {
     // Soft delete del POI
     const { rows } = await pool.query(
-      `UPDATE puntos_interes SET activo=FALSE WHERE id_poi=$1 RETURNING id_poi, activo`,
+      `UPDATE puntos_interes SET activo=FALSE WHERE id_poi=$1 RETURNING *`,
       [id_poi]
     );
 
@@ -277,6 +295,14 @@ router.delete("/ops/:id/pois/:id_poi", requireAuth, async (req, res) => {
     }
 
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion: Number(req.params.id),
+      tipo_evento: "poi_eliminado",
+      entidad_tipo: "poi",
+      entidad_id: id_poi,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitPoiEliminado(io, Number(req.params.id), id_poi);
 
     // Respuesta final
@@ -401,6 +427,15 @@ router.post("/ops/:id/areas", requireAuth, async (req, res) => {
 
     // Devuelve el área creada
     const area = rows[0];
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "area_creada",
+      entidad_tipo: "area",
+      entidad_id: area.id_area,
+      payload: area,
+      occurred_at: area.fecha_creacion,
+      actor: getActorFromRequest(req)
+    });
     const io = req.app.get("io");
     if (io) emitAreaCreada(io, id_operacion, area);
     res.json({ ok: true, area });
@@ -465,6 +500,14 @@ router.put("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
     );
 
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "area_actualizada",
+      entidad_tipo: "area",
+      entidad_id: rows[0].id_area,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitAreaActualizada(io, id_operacion, rows[0]);
 
     res.json({ ok: true, area: rows[0] });
@@ -497,7 +540,7 @@ router.delete("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
   try {
     // Soft delete del área
     const { rows } = await pool.query(
-      `UPDATE area_interes SET estado='ELIMINADA' WHERE id_area=$1 RETURNING id_area, estado`,
+      `UPDATE area_interes SET estado='ELIMINADA' WHERE id_area=$1 RETURNING *`,
       [id_area]
     );
 
@@ -508,6 +551,14 @@ router.delete("/ops/:id/areas/:id_area", requireAuth, async (req, res) => {
 
     // Respuesta final
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion: Number(req.params.id),
+      tipo_evento: "area_eliminada",
+      entidad_tipo: "area",
+      entidad_id: id_area,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitAreaEliminada(io, Number(req.params.id), id_area);
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
@@ -640,6 +691,15 @@ router.post("/ops/:id/edificios", requireAuth, async (req, res) => {
 
     // Devuelve el edificio creado
     const edificio = rows[0];
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "estructura_creada",
+      entidad_tipo: "estructura",
+      entidad_id: edificio.id_marca,
+      payload: edificio,
+      occurred_at: edificio.fecha_creacion,
+      actor: getActorFromRequest(req)
+    });
     const io = req.app.get("io");
     if (io) emitEstructuraCreada(io, id_operacion, edificio);
     res.json({ ok: true, edificio });
@@ -678,6 +738,14 @@ router.put("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
     }
 
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "estructura_actualizada",
+      entidad_tipo: "estructura",
+      entidad_id: rows[0].id_marca,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitEstructuraActualizada(io, id_operacion, rows[0]);
 
     res.json({ ok: true, edificio: rows[0] });
@@ -710,7 +778,7 @@ router.delete("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
   try {
     // Soft delete de la estructura
     const { rows } = await pool.query(
-      `UPDATE marca_edificio SET estado='INACTIVO' WHERE id_marca=$1 RETURNING id_marca, estado`,
+      `UPDATE marca_edificio SET estado='INACTIVO' WHERE id_marca=$1 RETURNING *`,
       [id_marca]
     );
 
@@ -721,6 +789,14 @@ router.delete("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
 
     // Respuesta final
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion: Number(req.params.id),
+      tipo_evento: "estructura_eliminada",
+      entidad_tipo: "estructura",
+      entidad_id: id_marca,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitEstructuraEliminada(io, Number(req.params.id), id_marca);
     res.json({ ok: true, item: rows[0] });
   } catch (err) {
@@ -1257,7 +1333,7 @@ router.post("/ops/:id/dibujos", requireAuth, async (req, res) => {
       `INSERT INTO dibujo_libre_operacion
          (tipo_creador, id_usuario, id_personal, id_operacion, puntos, color, grosor)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-       RETURNING id_dibujo, puntos, color, grosor`,
+       RETURNING id_dibujo, id_operacion, puntos, color, grosor, activo, fecha_creacion`,
       [
         tipo,
         id_usuario ? Number(id_usuario) : null,
@@ -1269,6 +1345,15 @@ router.post("/ops/:id/dibujos", requireAuth, async (req, res) => {
       ]
     );
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "dibujo_creado",
+      entidad_tipo: "dibujo",
+      entidad_id: rows[0].id_dibujo,
+      payload: rows[0],
+      occurred_at: rows[0].fecha_creacion,
+      actor: getActorFromRequest(req)
+    });
     if (io) emitDibujoCreado(io, id_operacion, rows[0]);
     res.json({ ok: true, dibujo: rows[0] });
   } catch (err) {
@@ -1293,13 +1378,21 @@ router.delete("/ops/:id/dibujos/:id_dibujo", requireAuth, async (req, res) => {
       `UPDATE dibujo_libre_operacion
           SET activo = FALSE
         WHERE id_dibujo = $1 AND id_operacion = $2 AND activo = TRUE
-        RETURNING id_dibujo`,
+        RETURNING id_dibujo, id_operacion, puntos, color, grosor, activo, fecha_creacion`,
       [id_dibujo, id_operacion]
     );
     if (!rows[0]) {
       return res.status(404).json({ ok: false, mensaje: "Dibujo no encontrado" });
     }
     const io = req.app.get("io");
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "dibujo_eliminado",
+      entidad_tipo: "dibujo",
+      entidad_id: id_dibujo,
+      payload: rows[0],
+      actor: getActorFromRequest(req)
+    });
     if (io) emitDibujoEliminado(io, id_operacion, id_dibujo);
     res.json({ ok: true });
   } catch (err) {

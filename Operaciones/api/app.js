@@ -18,6 +18,7 @@ import rutasRoutes from "./routes/rutas.routes.js";
 import trackingRoutes from "./routes/tracking.routes.js";
 import zonaRoutes from "./routes/zona.routes.js";
 import validationRoutes from "./routes/validation.routes.js";
+import replayRoutes from "./routes/replay.routes.js";
 
 const app = express();
 
@@ -47,6 +48,7 @@ app.use("/", rutasRoutes);
 app.use("/", trackingRoutes);
 app.use("/", zonaRoutes);
 app.use("/", validationRoutes);
+app.use("/", replayRoutes);
 
 app.use(payloadTooLarge);
 app.use(malformedJson);

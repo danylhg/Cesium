@@ -15,6 +15,7 @@ import { isInt } from "../utils/validators.js";
 
 // Emisión filtrada de mensajes de chat por socket
 import { emitChatMessage } from "../sockets/index.js";
+import { getActorFromRequest, logOperacionEvento } from "../utils/timeline.js";
 
 // Crea la instancia del router que se exportará al final
 const router = Router();
@@ -332,6 +333,15 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
 
     // Usa la versión enriquecida si existe; si no, usa la cruda
     const messageToBroadcast = feedRows[0] || msgRows[0];
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "chat_mensaje",
+      entidad_tipo: "mensaje_chat",
+      entidad_id: messageToBroadcast.id_mensaje,
+      payload: { ...messageToBroadcast, autor_rol: req.user.rol },
+      occurred_at: messageToBroadcast.fecha_envio,
+      actor: getActorFromRequest(req)
+    });
 
     // Obtiene instancia de socket.io guardada en la app
     const io = req.app.get("io");
@@ -784,6 +794,15 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       ...ins.rows[0],
       ...(autorRes.rows[0] || {})
     };
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "chat_mensaje",
+      entidad_tipo: "mensaje_chat",
+      entidad_id: payload.id_mensaje,
+      payload,
+      occurred_at: payload.fecha_envio,
+      actor: getActorFromRequest(req)
+    });
 
     // Emite solo a sockets con permiso según destino_tipo/destino_id
     const io = req.app.get("io");

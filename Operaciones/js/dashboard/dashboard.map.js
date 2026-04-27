@@ -27,10 +27,10 @@ const logAlert = (message) => {
 };
 
 const providers = {
-  osm: new Cesium.OpenStreetMapImageryProvider({
+  osm: () => new Cesium.OpenStreetMapImageryProvider({
     url: "https://a.tile.openstreetmap.org/"
   }),
-  satellite: new Cesium.UrlTemplateImageryProvider({
+  satellite: () => new Cesium.UrlTemplateImageryProvider({
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     credit: "Esri World Imagery"
   })
@@ -99,11 +99,32 @@ export function getMapClickPosition(screenPosition) {
 
 export function setBaseLayer(key) {
   const viewer = dashboardState.viewer;
-  const provider = providers[key];
-  if (!viewer || !provider) return;
+  if (!viewer) return;
 
   viewer.imageryLayers.removeAll();
-  viewer.imageryLayers.addImageryProvider(provider);
+
+  if (key === "hybrid") {
+    const satelliteLayer = viewer.imageryLayers.addImageryProvider(providers.satellite());
+    satelliteLayer.brightness = 0.78;
+    satelliteLayer.contrast = 1.35;
+    satelliteLayer.saturation = 1.15;
+    satelliteLayer.gamma = 0.9;
+
+    const osmOverlay = viewer.imageryLayers.addImageryProvider(providers.osm());
+    osmOverlay.alpha = 0.28;
+    osmOverlay.brightness = 0.95;
+    osmOverlay.contrast = 1.2;
+    return;
+  }
+
+  const createProvider = providers[key] || providers.satellite;
+  const layer = viewer.imageryLayers.addImageryProvider(createProvider());
+  if (key === "satellite" || !providers[key]) {
+    layer.brightness = 0.78;
+    layer.contrast = 1.35;
+    layer.saturation = 1.15;
+    layer.gamma = 0.9;
+  }
 }
 
 function getEntityProperty(entity, key) {
@@ -619,12 +640,14 @@ export function initCesium() {
   });
 
   dashboardState.viewer = viewer;
+  viewer.scene.screenSpaceCameraController.minimumZoomDistance = 500;
+  viewer.scene.screenSpaceCameraController.maximumZoomDistance = 5000000;
 
   viewer.geocoder.viewModel.destinationFound = function (_viewModel, destination) {
     viewer.camera.flyTo({ destination });
   };
 
-  setBaseLayer("osm");
+  setBaseLayer("hybrid");
 
   viewer.camera.flyTo({
     destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, 2500000)

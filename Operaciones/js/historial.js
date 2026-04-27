@@ -1,40 +1,43 @@
-// Session validation is now handled globally by js/auth_check.js
+import { loadReplay } from "./historial/historial.api.js";
+import { dom, readHistoryDom } from "./historial/historial.dom.js";
+import { initHistoryMap, buildMapEntities, focusOnReplay } from "./historial/historial.map.js";
+import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
+import { renderError, renderOperationInfo, renderTopbar, renderChatMessages } from "./historial/historial.ui.js";
 
-document.getElementById("backBtn").onclick = () => {
-  window.location.href = "dashboard.html";
-};
+readHistoryDom();
 
-const HISTORY_KEY = "ops_history";
-const historyOps = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+dom.backBtn?.addEventListener("click", () => {
+  window.location.href = "menu_inicial.html";
+});
 
-const list = document.getElementById("historyList");
+async function main() {
+  const operationId = getOperationId();
 
-if (historyOps.length === 0) {
-  list.innerHTML = "<p>No hay operaciones en el historial.</p>";
-} else {
-  historyOps.forEach(op => {
-    const km = (op.route?.distance ?? 0) / 1000;
-    const min = (op.route?.duration ?? 0) / 60;
+  if (!operationId) {
+    renderError("No se encontró el id de operación. Abre historial.html?id=3 o selecciona una operación cerrada.");
+    return;
+  }
 
-    const div = document.createElement("div");
-    div.className = "item";
-    div.innerHTML = `
-      <strong>${escapeHtml(op.title)}</strong><br/>
-      <span>${escapeHtml(op.description || "")}</span>
-      <div class="meta">
-        Origen: (${op.start.lat.toFixed(5)}, ${op.start.lng.toFixed(5)})<br/>
-        Destino: (${op.end.lat.toFixed(5)}, ${op.end.lng.toFixed(5)})<br/>
-        Ruta: ${km.toFixed(2)} km · ${min.toFixed(1)} min<br/>
-        ${new Date(op.created_at).toLocaleString()}
-      </div>
-    `;
-    list.appendChild(div);
-  });
+  initHistoryMap();
+  initTimeline();
+
+  try {
+    const replay = await loadReplay(operationId);
+    renderTopbar(replay);
+    renderOperationInfo(replay);
+    setReplayData(replay);
+    buildMapEntities(replay);
+    renderChatMessages(replay.timeline?.eventos || []);
+    focusOnReplay(replay);
+  } catch (error) {
+    console.error("Error cargando replay", error);
+    renderError(error.message || "No se pudo cargar el historial de la operación.");
+  }
 }
 
-function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[c]));
+function getOperationId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("id") || params.get("op") || localStorage.getItem("active_operation_id");
 }
 
+main();
