@@ -121,27 +121,14 @@ export function renderChatMessages(events) {
     return;
   }
 
-  dom.chatMessages.innerHTML = chatEvents.map((ev) => {
-    const msg = ev.payload || {};
-    const sender = msg.autor_nombre || "";
-    const text = msg.contenido || "";
-    const ms = Date.parse(ev.occurred_at);
-    return `
-      <div class="historyChatMessage" data-ms="${ms}" style="display:none">
-        <div class="historyChatMessageHeader">
-          <span>${escapeHtml(sender)}</span>
-          <span>${formatDateTime(ev.occurred_at)}</span>
-        </div>
-        <div class="historyChatMessageBody">${escapeHtml(text)}</div>
-      </div>`;
-  }).join("");
+  dom.chatMessages.innerHTML = chatEvents.map(ev => buildBubble(ev)).join("");
 }
 
 export function updateChatToTime(currentMs) {
   if (!dom.chatMessages) return;
 
   let lastVisible = null;
-  for (const el of dom.chatMessages.querySelectorAll(".historyChatMessage")) {
+  for (const el of dom.chatMessages.querySelectorAll(".chatBubble[data-ms]")) {
     const visible = Number(el.dataset.ms) <= currentMs;
     el.style.display = visible ? "" : "none";
     if (visible) lastVisible = el;
@@ -150,6 +137,25 @@ export function updateChatToTime(currentMs) {
   if (lastVisible) {
     lastVisible.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
+}
+
+function buildBubble(ev) {
+  const msg = ev.payload || {};
+  const tipo = (msg.tipo_mensaje || "NORMAL").toUpperCase();
+  const rol = (msg.autor_rol || "").toLowerCase();
+  const autor = escapeHtml(msg.autor_nombre || "");
+  const hora = formatDateTime(ev.occurred_at);
+  const texto = escapeHtml(msg.contenido || "");
+  const ms = Date.parse(ev.occurred_at);
+
+  const typeExtra = tipo === "URGENTE" ? " urgente" : tipo === "SISTEMA" ? " sistema" : "";
+  const rolClass = rol ? ` rol-${rol}` : "";
+
+  const header = tipo !== "SISTEMA"
+    ? `<div class="chatBubbleHeader"><span>${autor}</span><span>${hora}</span></div>`
+    : `<div class="chatBubbleTime">${hora}</div>`;
+
+  return `<div class="chatBubble${typeExtra}${rolClass}" data-ms="${ms}" style="display:none">${header}<div class="chatBubbleText">${texto}</div></div>`;
 }
 
 function escapeHtml(value) {
