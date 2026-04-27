@@ -16,6 +16,10 @@ import { asignarVehiculo, removerAsignacionVehiculo, getNombreVehiculoAsignado }
 import { renderEquipoAsignacion } from "../equipos/equipos.view.js";
 import { guardarOperacionBaseDatos, collectOperacionActual } from "../operacion/operacion.service.js";
 
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 function getNombrePersonalById(idPersonal) {
   for (const [nombre, id] of Object.entries(state.personalMap)) {
     if (id === idPersonal) return nombre;
@@ -411,6 +415,9 @@ export function renderVehiculos() {
     if (isEnOperacion) {
       capP.textContent = "En operación";
       capP.style.color = "#c0392b";
+    } else if (isAssignedInCurrentOp) {
+      capP.textContent = `Asignado | Capacidad: ${used}/${cap || 0}`;
+      capP.style.color = "#1f7a3f";
     } else {
       capP.textContent = `Capacidad: ${used}/${cap || 0}`;
     }
@@ -467,7 +474,7 @@ export function renderVehiculos() {
 
   assignBtn.addEventListener("click", () => {
     if (!state.selectedVehicle) {
-      alert("Selecciona un vehículo");
+      logAlert("Selecciona un vehículo");
       return;
     }
 
@@ -479,13 +486,13 @@ export function renderVehiculos() {
     }).filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
 
     if (selected.length === 0) {
-      alert("Selecciona al menos una persona/célula o el CET");
+      logAlert("Selecciona al menos una persona/célula o el CET");
       return;
     }
 
     const vehObj = state.vehiclesList.find(v => v.name === state.selectedVehicle);
     if (!vehObj) {
-      alert("Vehículo inválido.");
+      logAlert("Vehículo inválido.");
       return;
     }
 
@@ -495,12 +502,12 @@ export function renderVehiculos() {
 
     const locked = selected.filter(k => getNombreVehiculoAsignado(k));
     if (locked.length > 0) {
-      alert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
+      logAlert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
       return;
     }
 
     if (selected.length > remainingNow) {
-      alert(`Capacidad insuficiente. Disponible: ${remainingNow}/${cap}`);
+      logAlert(`Capacidad insuficiente. Disponible: ${remainingNow}/${cap}`);
       return;
     }
 

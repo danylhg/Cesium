@@ -165,6 +165,14 @@ export function emitDibujoEliminado(io, idOperacion, idDibujo) {
   io.to(`op_${idOperacion}`).emit("dibujo_eliminado", { id_dibujo: idDibujo });
 }
 
+export function emitRutaOperacionCreada(io, idOperacion, ruta) {
+  io.to(`op_${idOperacion}`).emit("ruta_operacion_creada", { ruta });
+}
+
+export function emitRutaOperacionEliminada(io, idOperacion, idRuta) {
+  io.to(`op_${idOperacion}`).emit("ruta_operacion_eliminada", { id_ruta: idRuta });
+}
+
 // ── Visibilidad de mensajes de chat ──────────────────────────
 async function canReceiveChatMessage(sock, msg, idOperacion) {
   const { rol, id_personal } = sock.userData || {};

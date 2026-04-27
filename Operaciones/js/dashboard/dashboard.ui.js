@@ -77,6 +77,20 @@ function normalizePersonal(personal) {
   });
 }
 
+function isRootGroupName(value) {
+  return String(value || "").trim().toLowerCase() === "mando operativo";
+}
+
+function formatRoleLabel(value) {
+  const role = String(value || "").trim().toUpperCase();
+  return role ? `(${role})` : "";
+}
+
+function formatPersonWithRole(nombre, rol) {
+  const roleLabel = formatRoleLabel(rol);
+  return [roleLabel, String(nombre || "").trim()].filter(Boolean).join(" ");
+}
+
 // Evita duplicar prefijos como "Flotilla Flotilla Alfa" o "Grupo Grupo Alpha"
 function labelConPrefijo(prefijo, nombre) {
   if (!nombre) return prefijo;
@@ -117,9 +131,9 @@ function renderPersonalHtml(personalNorm) {
 
       if (cell.grupo) {
         if (!grupos.has(cell.grupo)) grupos.set(cell.grupo, []);
-        grupos.get(cell.grupo).push(cell.nombre);
+        grupos.get(cell.grupo).push(formatPersonWithRole(cell.nombre, cell.cargo));
       } else {
-        directos.push(cell.nombre);
+        directos.push(formatPersonWithRole(cell.nombre, cell.cargo));
       }
     });
 
@@ -179,12 +193,13 @@ function getVehiculoPersonalNombre(row) {
   ].filter(Boolean).join(" ").trim();
 
   if (nombreCompleto) {
-    return row.personal_puesto
+    const baseName = row.personal_puesto
       ? `${row.personal_puesto} ${nombreCompleto}`.trim()
       : nombreCompleto;
+    return formatPersonWithRole(baseName, row.personal_rol);
   }
 
-  return row.asignado_a_apodo || "";
+  return formatPersonWithRole(row.asignado_a_apodo || "", row.personal_rol);
 }
 
 function renderVehiculosHierarchyHtml(vehiculos) {
@@ -212,11 +227,12 @@ function renderVehiculosHierarchyHtml(vehiculos) {
       const grupoDirecto = row.grupo_directo_nombre || row.grupo_nombre || "";
       const grupoPadre  = row.grupo_padre_nombre || "";
       const nivel       = (row.nivel_asignacion || "").toUpperCase();
+      const padreUtil = isRootGroupName(grupoPadre) ? "" : grupoPadre;
 
       let flotillaNombre, grupoNombre;
 
-      if (grupoPadre) {
-        flotillaNombre = grupoPadre;
+      if (padreUtil) {
+        flotillaNombre = padreUtil;
         grupoNombre    = grupoDirecto;
       } else if (grupoDirecto) {
         if (nivel === "GRUPO") {
@@ -280,35 +296,67 @@ function renderVehiculosHierarchyHtml(vehiculos) {
 function normalizeEquipos(equipos) {
   return equipos.map((e) => {
     if (e.numero_serie !== undefined && !e.nombre_display) {
+      const tipoDestino = e.tipo_destino || null;
+      const grupoAsignado = String(e.grupo_asignado || "").trim();
+      const flotillaAsignada = String(e.flotilla_asignada || "").trim();
+      const personalGrupo = String(e.personal_grupo_nombre || "").trim();
+      const personalFlotilla = String(e.personal_flotilla_nombre || "").trim();
+      const gruposVehiculo = String(e.grupos_vinculados || "").split(",").map(v => v.trim()).filter(Boolean);
+      const flotillasVehiculo = String(e.flotillas_vinculadas || "").split(",").map(v => v.trim()).filter(Boolean);
+
+      let grupos = [];
+      let flotillas = [];
+
+      if (tipoDestino === "VEHICULO") {
+        grupos = gruposVehiculo;
+        flotillas = flotillasVehiculo.filter(v => !isRootGroupName(v));
+
+        if (!flotillas.length && grupos.length === 1) {
+          flotillas = grupos;
+          grupos = [];
+        }
+      } else if (tipoDestino === "GRUPO") {
+        const flotillaUtil = !isRootGroupName(flotillaAsignada) ? flotillaAsignada : "";
+        if (flotillaUtil) {
+          flotillas = [flotillaUtil];
+          grupos = grupoAsignado ? [grupoAsignado] : [];
+        } else if (grupoAsignado && !isRootGroupName(grupoAsignado)) {
+          flotillas = [grupoAsignado];
+          grupos = [];
+        }
+      } else {
+        const flotillaUtil = !isRootGroupName(personalFlotilla) ? personalFlotilla : "";
+        if (flotillaUtil) {
+          flotillas = [flotillaUtil];
+          grupos = personalGrupo ? [personalGrupo] : [];
+        } else if (personalGrupo && !isRootGroupName(personalGrupo)) {
+          flotillas = [personalGrupo];
+          grupos = [];
+        }
+      }
+
+      const flotillasNorm = [...new Set(flotillas.map(v => v.trim()).filter(v => v && !isRootGroupName(v)))];
+      const gruposNorm = [...new Set(
+        grupos
+          .map(v => v.trim())
+          .filter(v => v && !isRootGroupName(v))
+          .filter(v => !flotillasNorm.some(f => f.toLowerCase() === v.toLowerCase()))
+      )];
+
       return {
         id_equipo: e.id_equipo,
         nombre: e.nombre,
         numero: e.numero_serie || "",
         categoria: e.categoria || "",
         tipo_equipo: e.tipo_equipo || e.tipo_tactico || [e.marca, e.modelo].filter(Boolean).join(" ") || e.categoria || "Equipo",
-        tipo_destino: e.tipo_destino || null,
+        tipo_destino: tipoDestino,
         asignadoA: e.asignado_a_personal || "",
-        vehiculo: e.tipo_destino === "VEHICULO"
+        personalRol: e.personal_rol || "",
+        vehiculo: tipoDestino === "VEHICULO"
           ? [e.asignado_a_vehiculo, e.vehiculo_alias].filter(Boolean).join(" - ")
           : "",
-        grupos: (() => {
-          if (e.tipo_destino === "VEHICULO") {
-            return String(e.grupos_vinculados || "").split(",").map(v => v.trim()).filter(Boolean);
-          }
-          if (e.tipo_destino === "GRUPO") {
-            return [e.grupo_asignado].filter(Boolean);
-          }
-          return [e.personal_grupo_nombre].filter(Boolean);
-        })(),
-        flotillas: (() => {
-          if (e.tipo_destino === "VEHICULO") {
-            return String(e.flotillas_vinculadas || "").split(",").map(v => v.trim()).filter(Boolean);
-          }
-          if (e.tipo_destino === "GRUPO") {
-            return [e.flotilla_asignada].filter(Boolean);
-          }
-          return [e.personal_flotilla_nombre || e.personal_grupo_nombre].filter(Boolean);
-        })()
+        grupos: gruposNorm,
+        flotillas: flotillasNorm
       };
     }
     return e;
@@ -336,16 +384,19 @@ function renderEquiposGroupedHtml(equiposNorm) {
   const renderCard = (e) => {
     const flotillas = [...new Set((e.flotillas || []).filter(Boolean))];
     const grupos = [...new Set((e.grupos || []).filter(Boolean))];
-    const destinoRaw = e.vehiculo || e.asignadoA || "";
+    const destinoBase = e.vehiculo || e.asignadoA || "";
+    const destinoRaw = e.vehiculo
+      ? destinoBase
+      : [e.personalRol ? `(${String(e.personalRol).toUpperCase()})` : "", destinoBase].filter(Boolean).join(" ");
     const contexto = new Set([...flotillas, ...grupos].map((v) => String(v).trim().toLowerCase()));
-    const destinoFinal = contexto.has(String(destinoRaw).trim().toLowerCase()) ? "" : destinoRaw;
+    const destinoFinal = contexto.has(String(destinoBase).trim().toLowerCase()) ? "" : destinoRaw;
 
     return `
       <div class="miniCard">
         <p><strong>Nombre de equipo:</strong> ${escapeHtml(e.nombre || "")}</p>
-        <p><strong>Numero:</strong> ${escapeHtml(e.numero || "Sin numero")}</p>
-        ${flotillas.length ? `<p style="margin-top:8px;"><strong>${escapeHtml(flotillas.join(", "))}</strong></p>` : ""}
-        ${grupos.length ? `<p style="margin-top:8px;"><strong>${escapeHtml(grupos.join(", "))}</strong></p>` : ""}
+        <p><strong>Identificador:</strong> ${escapeHtml(e.numero || "Sin numero")}</p>
+        ${flotillas.length ? `<p style="margin-top:8px;"><strong>Flotilla:</strong> ${escapeHtml(flotillas.join(", "))}</p>` : ""}
+        ${grupos.length ? `<p style="margin-top:8px;"><strong>Grupo:</strong> ${escapeHtml(grupos.join(", "))}</p>` : ""}
         ${destinoFinal ? `<p style="padding-left:12px; margin-top:8px;">-- ${escapeHtml(destinoFinal)}</p>` : ""}
       </div>
     `;

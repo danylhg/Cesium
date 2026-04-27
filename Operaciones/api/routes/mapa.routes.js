@@ -1067,6 +1067,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
               NULLIF(TRIM(CONCAT_WS(' ', p_ueo.puesto, p_ueo.nombre, p_ueo.apellido)), ''),
               p_ueo.apodo
             ) AS asignado_a_personal,
+            p_ueo.rol AS personal_rol,
 
             -- Vehículo contexto si aplica
             v_ueo.codigo_interno AS asignado_a_vehiculo,

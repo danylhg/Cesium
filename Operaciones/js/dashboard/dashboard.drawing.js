@@ -70,10 +70,13 @@ function getTacticalBackendIds(entityRef) {
   const idMarca = get("id_marca");
   if (idMarca != null && !String(idMarca).startsWith("local_"))
     return { kind: "structure", id: Number(idMarca) };
+  const idRuta = get("id_ruta");
+  if (idRuta != null && !String(idRuta).startsWith("local_"))
+    return { kind: "route", id: Number(idRuta) };
   return null;
 }
 
-const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios" };
+const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios", route: "rutas" };
 
 async function deleteTacticalFromBackend(kind, id) {
   const { API_BASE, token, opId } = getApiContext();

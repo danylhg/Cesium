@@ -17,7 +17,11 @@ import { sendDbError } from "../utils/dbErrors.js";
 import { isInt } from "../utils/validators.js";
 
 // Emit filtrado de rutas por rol
-import { emitRutaCreada } from "../sockets/index.js";
+import {
+  emitRutaCreada,
+  emitRutaOperacionCreada,
+  emitRutaOperacionEliminada
+} from "../sockets/index.js";
 
 // Crea la instancia del router
 const router = Router();
@@ -137,10 +141,86 @@ router.post("/ops/:id/rutas", requireAuth, async (req, res) => {
       ]
     );
 
+    const ruta = rows[0];
+    const io = req.app.get("io");
+    if (io) emitRutaOperacionCreada(io, id_operacion, ruta);
+
     // Devuelve la ruta creada
-    res.json({ ok: true, ruta: rows[0] });
+    res.json({ ok: true, ruta });
   } catch (err) {
     sendDbError(res, err, "Error creando ruta");
+  }
+});
+
+// =========================================================
+// DELETE /ops/:id/rutas/:id_ruta
+// Oculta una ruta operacional/tactica con baja logica.
+// =========================================================
+router.delete("/ops/:id/rutas/:id_ruta", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_ruta = Number(req.params.id_ruta);
+
+  if (!isInt(id_operacion) || !isInt(id_ruta)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ruta_operacion
+          SET estado = 'CANCELADA'
+        WHERE id_operacion = $1
+          AND id_ruta = $2
+          AND estado IN ('PLANIFICADA','ACTIVA')
+      RETURNING id_ruta, estado`,
+      [id_operacion, id_ruta]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Ruta no existe" });
+    }
+
+    const io = req.app.get("io");
+    if (io) emitRutaOperacionEliminada(io, id_operacion, id_ruta);
+
+    res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error eliminando ruta");
+  }
+});
+
+// =========================================================
+// PATCH /ops/:id/rutas/:id_ruta/restore
+// Reactiva una ruta operacional/tactica cancelada.
+// =========================================================
+router.patch("/ops/:id/rutas/:id_ruta/restore", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_ruta = Number(req.params.id_ruta);
+
+  if (!isInt(id_operacion) || !isInt(id_ruta)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ruta_operacion
+          SET estado = 'PLANIFICADA'
+        WHERE id_operacion = $1
+          AND id_ruta = $2
+      RETURNING *`,
+      [id_operacion, id_ruta]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Ruta no existe" });
+    }
+
+    const ruta = rows[0];
+    const io = req.app.get("io");
+    if (io) emitRutaOperacionCreada(io, id_operacion, ruta);
+
+    res.json({ ok: true, ruta });
+  } catch (err) {
+    sendDbError(res, err, "Error restaurando ruta");
   }
 });
 

@@ -7,6 +7,11 @@ import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { cartesianToLatLng, saveTacticalData } from "./dashboard.persistence.js";
 import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes, pushUndoAction } from "./dashboard.drawing.js";
+
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
 // Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
@@ -38,6 +43,7 @@ export function getCesiumColor(name, alpha = 1) {
 
 // IDs de POIs que acabo de enviar yo (evita redibujar lo que ya dibujé localmente)
 const _mySentPoiIds = new Set();
+const _mySentRouteIds = new Set();
 
 function getAreaCreatorPayload() {
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
@@ -94,6 +100,17 @@ function pointsToPolygonCoordinates(points) {
   }
 
   return [ring];
+}
+
+function pointsToLineString(points) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+
+  const coordinates = points
+    .map(point => [Number(point.lng), Number(point.lat)])
+    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+
+  if (coordinates.length < 2) return null;
+  return { type: "LineString", coordinates };
 }
 
 function getPolygonLabelPosition(points) {
@@ -860,6 +877,46 @@ function buildStructureEntity(estructura) {
   });
 }
 
+function buildRouteEntity(ruta) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return null;
+
+  let geometry = ruta?.geometria;
+  if (typeof geometry === "string") {
+    try { geometry = JSON.parse(geometry); } catch { return null; }
+  }
+  if (geometry?.type !== "LineString" || !Array.isArray(geometry.coordinates)) return null;
+
+  const points = geometry.coordinates
+    .map(coord => ({
+      lng: Number(coord?.[0]),
+      lat: Number(coord?.[1])
+    }))
+    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+  if (points.length < 2) return null;
+
+  const entityId = ruta.id_ruta ? `ruta_operacion_${ruta.id_ruta}` : undefined;
+  if (entityId && viewer.entities.getById(entityId)) return null;
+
+  const color = Cesium.Color.fromCssColorString(ruta.color || "#1E90FF");
+
+  return viewer.entities.add({
+    id: entityId,
+    name: ruta.nombre || "Linea tactica",
+    polyline: {
+      positions: toCartesianArray(points),
+      width: Number(ruta.grosor || ruta.width || getLineWidth()),
+      material: color,
+      clampToGround: true
+    },
+    properties: {
+      tacticalType: "polyline",
+      draggable: false,
+      id_ruta: ruta.id_ruta ?? null
+    }
+  });
+}
+
 async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
   try {
     const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
@@ -898,7 +955,7 @@ async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
     if (!res.ok || !data?.ok) {
       const mensaje = data?.mensaje || "No se pudo guardar el círculo de cobertura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return null;
     }
 
@@ -908,7 +965,7 @@ async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
     if (dom.tbHint) {
       dom.tbHint.textContent = "Error de conexión al guardar el círculo de cobertura.";
     }
-    alert("Error de conexión al guardar el círculo de cobertura.");
+    logAlert("Error de conexión al guardar el círculo de cobertura.");
     return null;
   }
 }
@@ -952,7 +1009,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (!res.ok || !data?.ok) {
       const mensaje = data?.mensaje || "No se pudo guardar el polÃ­gono.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return null;
     }
 
@@ -962,7 +1019,53 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (dom.tbHint) {
       dom.tbHint.textContent = "Error de conexiÃ³n al guardar el polÃ­gono.";
     }
-    alert("Error de conexiÃ³n al guardar el polÃ­gono.");
+    logAlert("Error de conexiÃ³n al guardar el polÃ­gono.");
+    return null;
+  }
+}
+
+async function saveTacticalRouteToBackend(points, nombre, colorName) {
+  const geometria = pointsToLineString(points);
+  if (!geometria) return null;
+
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId) return null;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/rutas`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        nombre: nombre || "Linea tactica",
+        descripcion: "Linea tactica dibujada en dashboard",
+        geometria,
+        color: COLOR_HEX_MAP[colorName] || "#1E90FF",
+        ...getAreaCreatorPayload()
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok) {
+      const mensaje = data?.mensaje || "No se pudo guardar la linea tactica.";
+      if (dom.tbHint) dom.tbHint.textContent = mensaje;
+      logAlert(mensaje);
+      return null;
+    }
+
+    if (data.ruta?.id_ruta) {
+      _mySentRouteIds.add(data.ruta.id_ruta);
+      setTimeout(() => _mySentRouteIds.delete(data.ruta.id_ruta), 5000);
+    }
+
+    return data.ruta || null;
+  } catch (err) {
+    console.error("[RUTA] Error guardando linea tactica:", err);
+    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al guardar la linea tactica.";
     return null;
   }
 }
@@ -1027,7 +1130,7 @@ async function deleteOperationZoneFromBackend() {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar la zona de operación.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1035,7 +1138,7 @@ async function deleteOperationZoneFromBackend() {
   } catch (err) {
     console.error("[ZONA] Error eliminando zona de operación:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al eliminar la zona de operación.";
-    alert("Error de conexión al eliminar la zona de operación.");
+    logAlert("Error de conexión al eliminar la zona de operación.");
     return false;
   }
 }
@@ -1457,7 +1560,7 @@ export async function finishPolygon() {
   setTacticalUI();
 }
 
-export function finishPolyline() {
+export async function finishPolyline() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
@@ -1469,22 +1572,34 @@ export function finishPolyline() {
   const positions = toCartesianArray(dashboardState.drawingPoints);
   const color = getCesiumColor(getCurrentColorName(), 1);
   const label = getCurrentLabel();
+  const colorName = getCurrentColorName();
+  let savedRoute = await saveTacticalRouteToBackend(dashboardState.drawingPoints, label, colorName);
 
-  const ent = viewer.entities.add({
-    name: label || "Línea táctica",
-    polyline: {
-      positions,
-      width: getLineWidth(),
-      material: color,
-      clampToGround: true
-    },
-    properties: {
-      tacticalType: "polyline",
-      draggable: false
-    }
-  });
+  if (savedRoute) {
+    const entFromBackend = buildRouteEntity(savedRoute);
+    if (entFromBackend) addTacticalEntity(entFromBackend);
+  } else {
+    savedRoute = { id_ruta: `local_${Date.now()}` };
+  }
 
-  addTacticalEntity(ent);
+  if (String(savedRoute.id_ruta).startsWith("local_")) {
+    const ent = viewer.entities.add({
+      name: label || "Línea táctica",
+      polyline: {
+        positions,
+        width: getLineWidth(),
+        material: color,
+        clampToGround: true
+      },
+      properties: {
+        tacticalType: "polyline",
+        draggable: false,
+        id_ruta: savedRoute.id_ruta
+      }
+    });
+
+    addTacticalEntity(ent);
+  }
 
   if (label) {
     const last = dashboardState.drawingPoints[dashboardState.drawingPoints.length - 1];
@@ -1762,7 +1877,7 @@ export async function persistDraggedEntity(entity) {
     if (!res.ok || data?.ok === false) {
       const mensaje = data?.mensaje || "No se pudo actualizar el objeto táctico.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1776,7 +1891,7 @@ export async function persistDraggedEntity(entity) {
   } catch (err) {
     console.error("[TACTICAL] Error actualizando objeto arrastrado:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al actualizar el objeto táctico.";
-    alert("Error de conexión al actualizar el objeto táctico.");
+    logAlert("Error de conexión al actualizar el objeto táctico.");
     return false;
   }
 }
@@ -1798,7 +1913,7 @@ async function deletePoiFromBackend(idPoi) {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar el punto de interés.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1806,7 +1921,7 @@ async function deletePoiFromBackend(idPoi) {
   } catch (err) {
     console.error("[POI] Error eliminando punto de interés:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al eliminar el punto de interés.";
-    alert("Error de conexión al eliminar el punto de interés.");
+    logAlert("Error de conexión al eliminar el punto de interés.");
     return false;
   }
 }
@@ -1828,7 +1943,7 @@ async function deleteAreaFromBackend(idArea) {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar el círculo de cobertura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1836,7 +1951,7 @@ async function deleteAreaFromBackend(idArea) {
   } catch (err) {
     console.error("[AREA] Error eliminando círculo de cobertura:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexión al eliminar el círculo de cobertura.";
-    alert("Error de conexión al eliminar el círculo de cobertura.");
+    logAlert("Error de conexión al eliminar el círculo de cobertura.");
     return false;
   }
 }
@@ -1858,7 +1973,7 @@ async function deleteStructureFromBackend(idMarca) {
       const data = await res.json().catch(() => ({}));
       const mensaje = data?.mensaje || "No se pudo eliminar la estructura.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
+      logAlert(mensaje);
       return false;
     }
 
@@ -1866,7 +1981,36 @@ async function deleteStructureFromBackend(idMarca) {
   } catch (err) {
     console.error("[ESTRUCTURA] Error eliminando estructura:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al eliminar la estructura.";
-    alert("Error de conexion al eliminar la estructura.");
+    logAlert("Error de conexion al eliminar la estructura.");
+    return false;
+  }
+}
+
+async function deleteRouteFromBackend(idRuta) {
+  if (String(idRuta).startsWith("local_")) return true;
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId || !idRuta) return false;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/rutas/${idRuta}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const mensaje = data?.mensaje || "No se pudo eliminar la ruta tactica.";
+      if (dom.tbHint) dom.tbHint.textContent = mensaje;
+      logAlert(mensaje);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[RUTA] Error eliminando ruta tactica:", err);
+    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al eliminar la ruta tactica.";
     return false;
   }
 }
@@ -1877,7 +2021,7 @@ async function deleteCurrentOperationZoneFromBackend(idZona) {
   const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
   if (phase === "activa") {
     if (dom.tbHint) dom.tbHint.textContent = "La zona de operacion no se puede eliminar mientras la operacion este activa.";
-    alert("La zona de operacion no se puede eliminar mientras la operacion este activa.");
+    logAlert("La zona de operacion no se puede eliminar mientras la operacion este activa.");
     return false;
   }
 
@@ -1917,6 +2061,7 @@ async function clearTacticalPersistedData() {
     const idArea = entity.properties?.id_area?.getValue?.() ?? entity.properties?.id_area;
     const idMarca = entity.properties?.id_marca?.getValue?.() ?? entity.properties?.id_marca;
     const idZona = entity.properties?.id_zona?.getValue?.() ?? entity.properties?.id_zona;
+    const idRuta = entity.properties?.id_ruta?.getValue?.() ?? entity.properties?.id_ruta;
 
     // La zona de operacion/perimetro persistido no se toca desde este boton.
     if (idZona || ["operation-zone", "perimeter"].includes(String(tacticalType))) {
@@ -1962,6 +2107,16 @@ async function clearTacticalPersistedData() {
       continue;
     }
 
+    if (idRuta && String(tacticalType) === "polyline") {
+      const deleted = await deleteRouteFromBackend(idRuta);
+      if (!deleted) {
+        failures.push(`Ruta ${idRuta}`);
+        continue;
+      }
+      removeTacticalEntityLocally(entity);
+      continue;
+    }
+
     // Todo lo no persistido en backend se limpia localmente.
     removeTacticalEntityLocally(entity);
   }
@@ -1995,6 +2150,7 @@ export async function deleteSelectedEntity() {
   const idArea = selected.properties?.id_area?.getValue?.() ?? selected.properties?.id_area;
   const idMarca = selected.properties?.id_marca?.getValue?.() ?? selected.properties?.id_marca;
   const idZona = selected.properties?.id_zona?.getValue?.() ?? selected.properties?.id_zona;
+  const idRuta = selected.properties?.id_ruta?.getValue?.() ?? selected.properties?.id_ruta;
 
   if (idPoi && ["poi", "mil-dropped", "radar-part"].includes(String(tacticalType))) {
     const deleted = await deletePoiFromBackend(idPoi);
@@ -2012,6 +2168,11 @@ export async function deleteSelectedEntity() {
 
   if (idMarca && ["building", "label"].includes(String(tacticalType))) {
     const deleted = await deleteStructureFromBackend(idMarca);
+    if (!deleted) return;
+  }
+
+  if (idRuta && String(tacticalType) === "polyline") {
+    const deleted = await deleteRouteFromBackend(idRuta);
     if (!deleted) return;
   }
 
@@ -2122,6 +2283,31 @@ export async function loadStructuresFromBackend() {
     });
   } catch (err) {
     console.error("[ESTRUCTURA] Error cargando estructuras desde backend:", err);
+  }
+}
+
+export async function loadRoutesFromBackend() {
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  const viewer = dashboardState.viewer;
+  if (!token || !opId || !viewer) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/rutas`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const items = data.items || [];
+
+    items.forEach(ruta => {
+      if (!ruta?.id_ruta) return;
+      const ent = buildRouteEntity(ruta);
+      if (ent) addTacticalEntity(ent);
+    });
+  } catch (err) {
+    console.error("[RUTA] Error cargando rutas tacticas desde backend:", err);
   }
 }
 
@@ -2288,6 +2474,32 @@ export function initPoiSocket(socket) {
     dashboardState.tacticalEntities = dashboardState.tacticalEntities.filter(ent => {
       const entIdMarca = ent.properties?.id_marca?.getValue?.() ?? ent.properties?.id_marca;
       return Number(entIdMarca) !== Number(id_marca);
+    });
+  });
+
+  socket.on("ruta_operacion_creada", ({ ruta }) => {
+    if (!ruta?.id_ruta) return;
+    if (_mySentRouteIds.has(ruta.id_ruta)) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const ent = buildRouteEntity(ruta);
+    if (ent) addTacticalEntity(ent);
+  });
+
+  socket.on("ruta_operacion_eliminada", ({ id_ruta }) => {
+    if (!id_ruta) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const entity = viewer.entities.getById(`ruta_operacion_${id_ruta}`);
+    if (entity) viewer.entities.remove(entity);
+
+    dashboardState.tacticalEntities = dashboardState.tacticalEntities.filter(ent => {
+      const entIdRuta = ent.properties?.id_ruta?.getValue?.() ?? ent.properties?.id_ruta;
+      return Number(entIdRuta) !== Number(id_ruta);
     });
   });
 }

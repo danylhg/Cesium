@@ -1,3 +1,7 @@
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
+
 export function generateUUID() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -53,7 +57,7 @@ export function validateDateTime(opInicioEl, opHoraInicioEl) {
 
   if (opInicioEl.value < todayStr) {
     opInicioEl.value = todayStr;
-    alert("No puedes planificar una operación en una fecha pasada.");
+    logAlert("No puedes planificar una operación en una fecha pasada.");
   }
 
   if (opInicioEl.value === todayStr && opHoraInicioEl.value) {
@@ -66,7 +70,7 @@ export function validateDateTime(opInicioEl, opHoraInicioEl) {
           String(today.getHours()).padStart(2, "0") +
           ":" +
           String(today.getMinutes()).padStart(2, "0");
-        alert("La hora de inicio no puede ser menor a la hora actual.");
+        logAlert("La hora de inicio no puede ser menor a la hora actual.");
       }
     }
   }

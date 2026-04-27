@@ -13,6 +13,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -53,8 +54,11 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : AppCompatActivity(),
     MainPanelRenderer.Host,
@@ -70,6 +74,11 @@ class MainActivity : AppCompatActivity(),
         val color: String,
         val iconoSrc: String? = null,
         val sidc: String? = null
+    )
+
+    private data class SimulationRoutePoint(
+        val lat: Double,
+        val lon: Double
     )
 
     private data class PendingCoverageCircleAddition(
@@ -155,6 +164,22 @@ class MainActivity : AppCompatActivity(),
     // Última posición conocida del usuario — se emite al socket cuando se conecta
     private var lastKnownLat: Double? = null
     private var lastKnownLon: Double? = null
+
+    private val simulationHandler = Handler(Looper.getMainLooper())
+    private var simulationRunnable: Runnable? = null
+    private var simulationTick = 0
+    private var simulationActive = false
+    private val simulationRoutePoints = mutableListOf<SimulationRoutePoint>()
+    private var simulationRouteStartTick: Int? = null
+    private var simulationRouteDeletedTick: Int? = null
+    private val simulationPersonStartPoints = mutableMapOf<Int, SimulationRoutePoint>()
+    private val simulationLastPersonPoints = mutableMapOf<Int, SimulationRoutePoint>()
+    private val simulationReturnStartPersonPoints = mutableMapOf<Int, SimulationRoutePoint>()
+    private var simulationLastVehiclePoint: SimulationRoutePoint? = null
+    private var simulationReturnVehiclePoint: SimulationRoutePoint? = null
+    private var simulationRouteDistanceSq = Double.POSITIVE_INFINITY
+    private val simulationAnchorLat = 19.04502
+    private val simulationAnchorLon = -95.97207
 
     // POIs pendientes de dibujar hasta que Cesium esté listo
     private var pendingPoisJson: String? = null
@@ -244,11 +269,13 @@ class MainActivity : AppCompatActivity(),
                         if (event == "creada") {
                             val rutaJson = data.optJSONObject("ruta")?.toString()
                             if (rutaJson != null) {
+                                updateSimulationRouteFromRouteJson(rutaJson)
                                 cesiumWebController.evaluate("if(typeof drawRemoteRoute === 'function') drawRemoteRoute($rutaJson)")
                             }
                         } else if (event == "eliminada") {
                             val idRuta = data.optInt("id_ruta", -1)
                             if (idRuta != -1) {
+                                handleSimulationRouteDeleted()
                                 cesiumWebController.evaluate("if(typeof removeRemoteRoute === 'function') removeRemoteRoute($idRuta)")
                             }
                         }
@@ -259,8 +286,11 @@ class MainActivity : AppCompatActivity(),
                         val id = data.optInt("id_personal")
                         val lat = data.optDouble("latitud")
                         val lon = data.optDouble("longitud")
-                        if (id > 0) {
-                            cesiumWebController.evaluate("if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon)")
+                        val label = data.optString("apodo", data.optString("nombre", "P-$id"))
+                        if (id > 0 && id != currentUser.id) {
+                            cesiumWebController.evaluate(
+                                "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon, '${jsString(label)}')"
+                            )
                         }
                     }
                 },
@@ -269,8 +299,11 @@ class MainActivity : AppCompatActivity(),
                         val id = data.optInt("id_vehiculo")
                         val lat = data.optDouble("latitud")
                         val lon = data.optDouble("longitud")
+                        val label = data.optString("alias", data.optString("nombre", "V-$id"))
                         if (id > 0) {
-                            cesiumWebController.evaluate("if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon)")
+                            cesiumWebController.evaluate(
+                                "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon, '${jsString(label)}')"
+                            )
                         }
                     }
                 },
@@ -564,6 +597,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun onDestroy() {
         super.onDestroy()
+        stopSimulation()
         stopServerConnectionMonitor()
         chatSocketManager?.disconnect()
         stopEmergencyService()
@@ -642,6 +676,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun leaveClosedOperation(operation: Operation?) {
+        stopSimulation()
         stopServerConnectionMonitor()
         chatSocketManager?.disconnect()
         stopEmergencyService()
@@ -769,11 +804,17 @@ class MainActivity : AppCompatActivity(),
                     } ?: cesiumWebController.applyOperationView()
                     
                     data.rutasNavegacion?.let { jsonString ->
+                        updateSimulationRouteFromRoutesJson(jsonString)
                         // Pequeño delay adicional para asegurar que Cesium y las funciones JS ya están listas
                         findViewById<WebView>(R.id.cesiumWebView)?.postDelayed({
                             cesiumWebController.evaluate("if(typeof loadRemoteRoutes === 'function') loadRemoteRoutes($jsonString)")
                         }, 2600)
                     }
+
+                    val trackingDelayMs = if (isCesiumReady) 0L else 2600L
+                    findViewById<WebView>(R.id.cesiumWebView)?.postDelayed({
+                        loadInitialTrackingMarkers(data.personal, data.vehiculos)
+                    }, trackingDelayMs)
 
                     if (data.pois.isNotEmpty()) {
                         val poisJson = buildString {
@@ -1068,11 +1109,169 @@ class MainActivity : AppCompatActivity(),
             .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
     }
 
+    private fun jsString(value: String): String =
+        value
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", " ")
+            .replace("\r", " ")
+
+    private fun loadInitialTrackingMarkers(personal: List<PersonalItem>, vehiculos: List<VehiculoItem>) {
+        val js = buildString {
+            append("(function(){")
+            personal.forEach { person ->
+                val lat = person.lat ?: return@forEach
+                val lon = person.lon ?: return@forEach
+                if (person.idPersonal == currentUser.id) return@forEach
+                val label = person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
+                    .ifBlank { "P-${person.idPersonal}" }
+                append("if(typeof updateTrackingPersonal==='function') updateTrackingPersonal(")
+                append(person.idPersonal)
+                append(",")
+                append(lat)
+                append(",")
+                append(lon)
+                append(",'")
+                append(jsString(label))
+                append("');")
+            }
+            vehiculos.forEach { vehiculo ->
+                val lat = vehiculo.lat ?: return@forEach
+                val lon = vehiculo.lon ?: return@forEach
+                val label = vehiculo.alias.ifBlank { vehiculo.codigoInterno }
+                    .ifBlank { vehiculo.nombre }
+                    .ifBlank { "V-${vehiculo.idVehiculo}" }
+                append("if(typeof updateTrackingVehiculo==='function') updateTrackingVehiculo(")
+                append(vehiculo.idVehiculo)
+                append(",")
+                append(lat)
+                append(",")
+                append(lon)
+                append(",'")
+                append(jsString(label))
+                append("');")
+            }
+            append("})();")
+        }
+        cesiumWebController.evaluate(js)
+    }
+
+    private fun updateSimulationRouteFromRoutesJson(routesJson: String) {
+        try {
+            val routes = JSONArray(routesJson)
+            var selectedDistanceSq = Double.POSITIVE_INFINITY
+            var selectedPoints: List<SimulationRoutePoint> = emptyList()
+
+            for (i in 0 until routes.length()) {
+                val route = routes.optJSONObject(i) ?: continue
+                val points = parseSimulationRoutePoints(route)
+                val distanceSq = routeDistanceToSimulationAnchorSq(points)
+                if (points.size >= 2 && distanceSq < selectedDistanceSq) {
+                    selectedDistanceSq = distanceSq
+                    selectedPoints = points
+                }
+            }
+
+            if (selectedPoints.isNotEmpty()) {
+                simulationRoutePoints.clear()
+                simulationRoutePoints.addAll(selectedPoints)
+                simulationRouteDistanceSq = selectedDistanceSq
+                simulationRouteStartTick = null
+                simulationRouteDeletedTick = null
+            }
+        } catch (e: Exception) {
+            Log.w("SIMULATION", "No se pudo cargar ruta para simulacion: ${e.message}")
+        }
+    }
+
+    private fun updateSimulationRouteFromRouteJson(routeJson: String) {
+        try {
+            val points = parseSimulationRoutePoints(JSONObject(routeJson))
+            val distanceSq = routeDistanceToSimulationAnchorSq(points)
+            if (points.size >= 2 && distanceSq <= simulationRouteDistanceSq) {
+                simulationRoutePoints.clear()
+                simulationRoutePoints.addAll(points)
+                simulationRouteDistanceSq = distanceSq
+                simulationRouteStartTick = null
+                simulationRouteDeletedTick = null
+            }
+        } catch (e: Exception) {
+            Log.w("SIMULATION", "No se pudo actualizar ruta para simulacion: ${e.message}")
+        }
+    }
+
+    private fun handleSimulationRouteDeleted() {
+        simulationRoutePoints.clear()
+        simulationRouteDistanceSq = Double.POSITIVE_INFINITY
+        simulationRouteStartTick = null
+        if (simulationActive) {
+            simulationRouteDeletedTick = simulationTick
+            simulationReturnStartPersonPoints.clear()
+            simulationReturnStartPersonPoints.putAll(simulationLastPersonPoints)
+            simulationReturnVehiclePoint = simulationLastVehiclePoint
+        } else {
+            simulationRouteDeletedTick = null
+            simulationReturnStartPersonPoints.clear()
+            simulationReturnVehiclePoint = null
+        }
+    }
+
+    private fun routeDistanceToSimulationAnchorSq(points: List<SimulationRoutePoint>): Double {
+        if (points.isEmpty()) return Double.POSITIVE_INFINITY
+        var best = Double.POSITIVE_INFINITY
+        points.forEach { point ->
+            val dLat = point.lat - simulationAnchorLat
+            val dLon = point.lon - simulationAnchorLon
+            val distanceSq = dLat * dLat + dLon * dLon
+            if (distanceSq < best) best = distanceSq
+        }
+        return best
+    }
+
+    private fun parseSimulationRoutePoints(route: JSONObject): List<SimulationRoutePoint> {
+        val geojsonValue = when {
+            route.has("geojson") -> route.opt("geojson")
+            route.has("geometria") -> route.opt("geometria")
+            else -> null
+        }
+        val geojson = when (geojsonValue) {
+            is JSONObject -> geojsonValue
+            is String -> JSONObject(geojsonValue)
+            else -> return emptyList()
+        }
+        val coords = geojson.optJSONArray("coordinates") ?: return emptyList()
+        val points = mutableListOf<SimulationRoutePoint>()
+        for (i in 0 until coords.length()) {
+            val coord = coords.optJSONArray(i) ?: continue
+            if (coord.length() < 2) continue
+            points.add(
+                SimulationRoutePoint(
+                    lat = coord.optDouble(1),
+                    lon = coord.optDouble(0)
+                )
+            )
+        }
+        return points
+    }
+
     override fun inflateOperationPanel() {
         panelRenderer.inflateOperationPanel(
             panelContent = panelContent,
             operation = currentOperation
         )
+    }
+
+    override fun shouldShowSimulationButton(): Boolean = currentOperation.id == 1
+
+    override fun isSimulationActive(): Boolean = simulationActive
+
+    override fun toggleSimulation() {
+        if (simulationActive) {
+            stopSimulation()
+            Toast.makeText(this, "Simulacion detenida", Toast.LENGTH_SHORT).show()
+        } else {
+            startSimulation()
+        }
     }
 
     override fun inflateChatPanel() {
@@ -1133,6 +1332,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun onStop() {
         super.onStop()
+        stopSimulation()
         if (::locationHelper.isInitialized) {
             locationHelper.stopLocationUpdates()
         }
@@ -1569,6 +1769,259 @@ class MainActivity : AppCompatActivity(),
             onError     = { msg -> Log.w("DRAWING", "Error borrando dibujo: $msg") }
         )
         Log.d("DRAWING", "Trazo eliminado id_dibujo=$idDibujo")
+    }
+
+    private fun startSimulation() {
+        if (currentOperation.id != 1) {
+            Toast.makeText(this, "La simulacion solo esta disponible en la operacion 1", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (chatSocketManager == null) {
+            Toast.makeText(this, "Socket no disponible para simulacion", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (personalList.isEmpty()) {
+            fetchPersonalPanelData()
+            Toast.makeText(this, "Cargando personal de la flotilla. Intenta de nuevo en unos segundos.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (vehiculosList.isEmpty()) {
+            fetchVehiculosPanelData()
+            Toast.makeText(this, "Cargando vehiculos asignados. Intenta de nuevo en unos segundos.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val targets = getSimulationTargets()
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "No se encontro personal de la flotilla para simular.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val vehicleTarget = getSimulationVehicleTarget()
+        if (vehicleTarget == null) {
+            Toast.makeText(this, "No se encontro un vehiculo sin ubicacion real para simular.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        simulationActive = true
+        simulationTick = 0
+        simulationRouteStartTick = null
+        simulationRouteDeletedTick = null
+        simulationLastPersonPoints.clear()
+        simulationReturnStartPersonPoints.clear()
+        simulationLastVehiclePoint = null
+        simulationReturnVehiclePoint = null
+        prepareSimulationStartPoints(targets)
+        simulationRunnable?.let { simulationHandler.removeCallbacks(it) }
+        simulationRunnable = object : Runnable {
+            override fun run() {
+                emitSimulationPositions(targets, vehicleTarget)
+                simulationTick += 1
+                if (simulationActive) simulationHandler.postDelayed(this, 2500)
+            }
+        }
+        simulationRunnable?.run()
+        Toast.makeText(this, "Simulacion activada", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopSimulation() {
+        simulationActive = false
+        simulationRunnable?.let { simulationHandler.removeCallbacks(it) }
+        simulationRunnable = null
+        simulationRouteStartTick = null
+        simulationRouteDeletedTick = null
+        simulationPersonStartPoints.clear()
+        simulationLastPersonPoints.clear()
+        simulationReturnStartPersonPoints.clear()
+        simulationLastVehiclePoint = null
+        simulationReturnVehiclePoint = null
+    }
+
+    private fun getSimulationTargets(): List<PersonalItem> {
+        val myRecord = personalList.firstOrNull { it.idPersonal == currentUser.id }
+        val myFlotilla = myRecord?.let { simulationFlotillaName(it) }.orEmpty()
+
+        val sameFlotilla = if (myFlotilla.isNotBlank()) {
+            personalList.filter {
+                simulationFlotillaName(it).equals(myFlotilla, ignoreCase = true) &&
+                    isSimulationCandidate(it)
+            }
+        } else {
+            emptyList()
+        }
+
+        return sameFlotilla.ifEmpty {
+            personalList.filter(::isSimulationCandidate)
+        }
+    }
+
+    private fun getSimulationVehicleTarget(): VehiculoItem? =
+        vehiculosList.firstOrNull { it.lat == null && it.lon == null }
+
+    private fun prepareSimulationStartPoints(targets: List<PersonalItem>) {
+        simulationPersonStartPoints.clear()
+        val radiusLat = 55.0 / 111_320.0
+        val radiusLon = 55.0 / 104_500.0
+        targets.forEachIndexed { index, person ->
+            val angle = Math.PI * 2.0 * index / targets.size.coerceAtLeast(1)
+            simulationPersonStartPoints[person.idPersonal] = SimulationRoutePoint(
+                lat = person.lat ?: (simulationAnchorLat + sin(angle) * radiusLat),
+                lon = person.lon ?: (simulationAnchorLon + cos(angle) * radiusLon)
+            )
+        }
+    }
+
+    private fun isSimulationCandidate(person: PersonalItem): Boolean {
+        val isOperationalRole =
+            person.rol.equals("CELL", ignoreCase = true) ||
+                person.rol.equals("CET", ignoreCase = true)
+        if (!isOperationalRole) return false
+
+        val hasRealBackendLocation = person.lat != null && person.lon != null
+        val isCurrentDevice = person.idPersonal == currentUser.id
+        val currentDeviceHasGps = isCurrentDevice && lastKnownLat != null && lastKnownLon != null
+
+        return !hasRealBackendLocation && !currentDeviceHasGps
+    }
+
+    private fun simulationFlotillaName(person: PersonalItem): String {
+        val parent = person.grupoPadreNombre.trim()
+        val group = person.grupoNombre.trim()
+        return when {
+            person.cetFlotilla.isNotBlank() -> person.cetFlotilla.trim()
+            parent.isNotBlank() && !parent.equals("Mando Operativo", ignoreCase = true) -> parent
+            group.isNotBlank() -> group
+            else -> ""
+        }
+    }
+
+    private fun interpolatePoint(
+        from: SimulationRoutePoint,
+        to: SimulationRoutePoint,
+        t: Double
+    ): SimulationRoutePoint =
+        SimulationRoutePoint(
+            lat = from.lat + (to.lat - from.lat) * t,
+            lon = from.lon + (to.lon - from.lon) * t
+        )
+
+    private fun emitSimulationPositions(
+        targets: List<PersonalItem>,
+        vehicleTarget: VehiculoItem
+    ) {
+        val routePoints = simulationRoutePoints.toList()
+        val approachTicks = 4
+        val vehicleToRouteTicks = 4
+        val returnTicks = 4
+        val vehicleStartDistanceM = 85.0
+        val hasRoute = routePoints.size >= 2
+        if (hasRoute && simulationRouteStartTick == null) {
+            simulationRouteStartTick = simulationTick
+        }
+        val phaseTick = if (hasRoute) {
+            simulationTick - (simulationRouteStartTick ?: simulationTick)
+        } else {
+            0
+        }
+        val vehicleStart = SimulationRoutePoint(
+            lat = simulationAnchorLat + (vehicleStartDistanceM / 111_320.0),
+            lon = simulationAnchorLon + (vehicleStartDistanceM / 104_500.0)
+        )
+        val isReturning = !hasRoute && simulationRouteDeletedTick != null
+        val returnTick = simulationTick - (simulationRouteDeletedTick ?: simulationTick)
+        val routeStart = routePoints.firstOrNull() ?: vehicleStart
+        val vehiclePosition = when {
+            isReturning -> simulationReturnVehiclePoint ?: simulationLastVehiclePoint ?: vehicleStart
+            !hasRoute -> vehicleStart
+            phaseTick < approachTicks -> vehicleStart
+            phaseTick < approachTicks + vehicleToRouteTicks -> {
+                val t = (phaseTick - approachTicks).toDouble() / vehicleToRouteTicks
+                interpolatePoint(vehicleStart, routeStart, t.coerceIn(0.0, 1.0))
+            }
+            else -> {
+                val routeTick = phaseTick - approachTicks - vehicleToRouteTicks
+                routePoints[routeTick.coerceIn(0, routePoints.lastIndex)]
+            }
+        }
+        val vehicleLat = vehiclePosition.lat
+        val vehicleLon = vehiclePosition.lon
+        val groupRadiusLat = 1.6 / 111_320.0
+        val groupRadiusLon = 1.6 / 104_500.0
+        val phase = simulationTick * 0.22
+
+        targets.forEachIndexed { index, person ->
+            val baseAngle = Math.PI * 2.0 * index / targets.size.coerceAtLeast(1)
+            val angle = if (hasRoute && phaseTick >= approachTicks + vehicleToRouteTicks) {
+                baseAngle + phase
+            } else {
+                baseAngle
+            }
+            val groupedPoint = SimulationRoutePoint(
+                lat = vehicleLat + sin(angle) * groupRadiusLat,
+                lon = vehicleLon + cos(angle) * groupRadiusLon
+            )
+            val startPoint = simulationPersonStartPoints[person.idPersonal] ?: groupedPoint
+            val personPosition = if (isReturning) {
+                val returnStart = simulationReturnStartPersonPoints[person.idPersonal] ?: startPoint
+                if (returnTick < returnTicks) {
+                    val t = returnTick.toDouble() / returnTicks
+                    interpolatePoint(returnStart, startPoint, t.coerceIn(0.0, 1.0))
+                } else {
+                    val orbitRadiusLat = 1.4 / 111_320.0
+                    val orbitRadiusLon = 1.4 / 104_500.0
+                    SimulationRoutePoint(
+                        lat = startPoint.lat + sin(baseAngle + phase) * orbitRadiusLat,
+                        lon = startPoint.lon + cos(baseAngle + phase) * orbitRadiusLon
+                    )
+                }
+            } else if (!hasRoute) {
+                startPoint
+            } else if (phaseTick < approachTicks) {
+                val t = phaseTick.toDouble() / approachTicks
+                interpolatePoint(startPoint, groupedPoint, t.coerceIn(0.0, 1.0))
+            } else {
+                groupedPoint
+            }
+            val lat = personPosition.lat
+            val lon = personPosition.lon
+            simulationLastPersonPoints[person.idPersonal] = personPosition
+            val name = person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
+                .ifBlank { "Personal ${person.idPersonal}" }
+
+            chatSocketManager?.emitTracking(
+                idPersonal = person.idPersonal,
+                lat = lat,
+                lon = lon,
+                apodo = name,
+                rol = person.rol
+            )
+
+            if (isCesiumReady) {
+                cesiumWebController.evaluate(
+                    "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal(${person.idPersonal}, $lat, $lon, '${jsString(name)}')"
+                )
+            }
+        }
+
+        val vehicleName = vehicleTarget.alias.ifBlank { vehicleTarget.codigoInterno }
+            .ifBlank { vehicleTarget.nombre }
+            .ifBlank { "Vehiculo ${vehicleTarget.idVehiculo}" }
+        simulationLastVehiclePoint = vehiclePosition
+        chatSocketManager?.emitTrackingVehiculo(
+            idVehiculo = vehicleTarget.idVehiculo,
+            lat = vehicleLat,
+            lon = vehicleLon,
+            alias = vehicleName
+        )
+
+        if (isCesiumReady) {
+            cesiumWebController.evaluate(
+                "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo(${vehicleTarget.idVehiculo}, $vehicleLat, $vehicleLon, '${jsString(vehicleName)}')"
+            )
+        }
     }
 
     private fun setupBackPress() {

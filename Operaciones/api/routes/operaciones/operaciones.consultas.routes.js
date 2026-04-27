@@ -521,6 +521,9 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
          ec.marca,
          ec.modelo,
          et.tipo_tactico,
+         ueo.id_personal AS ueo_id_personal,
+         ueo.id_vehiculo_contexto,
+         ueo.id_grupo_operacion AS ueo_id_grupo_operacion,
          CASE
            WHEN UPPER(COALESCE(e.categoria, '')) = 'COMUNICACION'
              THEN COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ec.marca, ec.modelo)), ''), 'Equipo de comunicacion')

@@ -259,7 +259,11 @@ export async function hydrateAsignacionFromBD(idOperacion) {
 
   // ── 3. EQUIPOS ───────────────────────────────────────────────────────────
   state.asignacionEquipos = equiposRows
-    .filter(r => r.ueo_id_personal != null)
+    .filter(r =>
+      r.ueo_id_personal != null ||
+      r.id_vehiculo_contexto != null ||
+      r.ueo_id_grupo_operacion != null
+    )
     .map(r => {
       // Si el backend trae GRUPO pero además hay custodio personal, la UI de asignación
       // lo opera como equipo asignado a personal dentro de ese grupo.

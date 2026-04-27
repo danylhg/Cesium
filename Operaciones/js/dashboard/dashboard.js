@@ -19,6 +19,7 @@ import {
   loadPoisFromBackend,
   loadAreasFromBackend,
   loadStructuresFromBackend,
+  loadRoutesFromBackend,
   loadOperationZoneFromBackend
 } from "./dashboard.tactical.js";
 import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
@@ -31,6 +32,10 @@ import {
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
+
+const logAlert = (message) => {
+  if (message) console.warn(message);
+};
 
 Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
@@ -140,7 +145,7 @@ function handleClosedOperation(operacion) {
   if (!["cerrada", "cancelada"].includes(estado)) return;
 
   operationClosedHandled = true;
-  alert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
+  logAlert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
   window.location.href = "menu_inicial.html";
 }
 
@@ -324,6 +329,7 @@ window.addEventListener("load", async () => {
   await loadPoisFromBackend();
   await loadAreasFromBackend();
   await loadStructuresFromBackend();
+  await loadRoutesFromBackend();
   await loadOperationZoneFromBackend();
   await loadDrawingsFromBackend();
 

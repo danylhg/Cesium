@@ -78,6 +78,12 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
 
 let chatDestinationColumnsReady = false;
 
+function shouldHideLegacySystemMessage(row) {
+  const tipo = String(row?.tipo_mensaje || "").toUpperCase();
+  const contenido = String(row?.contenido || "").toLowerCase();
+  return tipo === "SISTEMA" && contenido.includes("automáticamente por trigger de bd");
+}
+
 async function ensureChatDestinationColumns() {
   if (chatDestinationColumnsReady) return;
 
@@ -89,6 +95,17 @@ async function ensureChatDestinationColumns() {
   `);
 
   chatDestinationColumnsReady = true;
+}
+
+function shouldHideChatMessage(row) {
+  const tipo = String(row?.tipo_mensaje || "").toUpperCase();
+  const contenido = String(row?.contenido || "").toLowerCase();
+  if (tipo !== "SISTEMA") return false;
+  return (
+    contenido.includes("trigger de bd") ||
+    contenido.includes("operacion activada autom") ||
+    contenido.includes("operación activada autom")
+  );
 }
 
 
@@ -177,8 +194,8 @@ router.get("/ops/:id/chat", requireAuth, async (req, res) => {
     // Ejecuta la consulta final
     const { rows } = await pool.query(query, params);
 
-    // Responde con el feed filtrado
-    res.json({ ok: true, items: rows });
+    // Oculta mensajes legados generados por triggers de BD.
+    res.json({ ok: true, items: rows.filter((row) => !shouldHideChatMessage(row)) });
   } catch (err) {
     // Manejo uniforme de error
     sendDbError(res, err, "Error obteniendo chat");
@@ -613,8 +630,8 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     msgQuery += ` ORDER BY m.fecha_envio ASC, m.id_mensaje ASC`;
     const { rows } = await pool.query(msgQuery, msgParams);
 
-    // Responde con los mensajes
-    return res.json({ ok: true, items: rows });
+    // Oculta mensajes legados generados por triggers de BD.
+    return res.json({ ok: true, items: rows.filter((row) => !shouldHideChatMessage(row)) });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo mensajes del chat");
   }
