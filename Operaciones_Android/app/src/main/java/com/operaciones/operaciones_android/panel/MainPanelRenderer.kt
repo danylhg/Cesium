@@ -29,6 +29,54 @@ import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
 class MainPanelRenderer(
     private val host: Host
 ) {
+    private val liveLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val activeRows = mutableMapOf<Int, View>()
+    private var currentUserId: Int? = null
+    private var selectedPersonalId: Int? = null
+
+    private fun applyPersonalRowStyle(row: View, idPersonal: Int) {
+        val selected = selectedPersonalId == idPersonal
+        val isCurrentUser = currentUserId == idPersonal
+        val highlighted = selected || isCurrentUser
+
+        row.setBackgroundColor(
+            Color.parseColor(if (highlighted) "#0d1f3c" else "#0d1526")
+        )
+        row.findViewById<TextView>(R.id.personalNombre).setTextColor(
+            Color.parseColor(if (highlighted) "#3b82f6" else "#e2e8f0")
+        )
+        row.findViewById<TextView>(R.id.personalAvatar).setBackgroundColor(
+            Color.parseColor(if (selected) "#2563eb" else "#1e3a5f")
+        )
+    }
+
+    fun selectPersonal(idPersonal: Int?) {
+        selectedPersonalId = idPersonal
+        activeRows.forEach { (id, row) ->
+            applyPersonalRowStyle(row, id)
+        }
+    }
+
+    fun updatePersonalLocation(id: Int, lat: Double, lon: Double) {
+        liveLocations[id] = Pair(lat, lon)
+        val row = activeRows[id]
+        if (row != null) {
+            row.findViewById<View>(R.id.personalStatus).setBackgroundColor(Color.parseColor("#22c55e"))
+            if (row.foreground == null) {
+                row.foreground = row.context.obtainStyledAttributes(
+                    intArrayOf(android.R.attr.selectableItemBackground)
+                ).getDrawable(0)
+            }
+            val label = row.findViewById<TextView>(R.id.personalNombre).text.toString()
+            row.setOnClickListener {
+                selectPersonal(id)
+                host.selectPersonalOnMap(id, lat, lon, label)
+            }
+            applyPersonalRowStyle(row, id)
+        } else {
+            host.refreshPersonalPanelIfActive()
+        }
+    }
 
     interface Host {
         fun getLayoutInflater(): LayoutInflater
@@ -45,6 +93,8 @@ class MainPanelRenderer(
         fun shouldShowSimulationButton(): Boolean
         fun isSimulationActive(): Boolean
         fun toggleSimulation()
+        fun selectPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String)
+        fun refreshPersonalPanelIfActive()
     }
 
     fun inflateOperationPanel(
@@ -368,6 +418,8 @@ class MainPanelRenderer(
         panelContent.addView(view)
 
         val list = view.findViewById<LinearLayout>(R.id.personalList)
+        currentUserId = currentUser.id
+        activeRows.clear()
 
         if (personalList.isEmpty()) {
             val tv = TextView(view.context).apply {
@@ -397,8 +449,8 @@ class MainPanelRenderer(
             row.findViewById<TextView>(R.id.personalAvatar).text =
                 p.nombre.firstOrNull()?.toString() ?: "?"
 
-            row.findViewById<TextView>(R.id.personalNombre).text =
-                if (p.apodo.isNotBlank()) p.apodo else "${p.nombre} ${p.apellido}"
+            val rowLabel = if (p.apodo.isNotBlank()) p.apodo else "${p.nombre} ${p.apellido}"
+            row.findViewById<TextView>(R.id.personalNombre).text = rowLabel
 
             row.findViewById<TextView>(R.id.personalRol).text =
                 buildString {
@@ -406,19 +458,29 @@ class MainPanelRenderer(
                     if (p.puesto.isNotBlank()) append(" · ${p.puesto}")
                 }
 
-            val statusColor = if (p.lat != null && p.lon != null) {
+            val live = liveLocations[p.idPersonal]
+            val effectiveLat = live?.first ?: p.lat
+            val effectiveLon = live?.second ?: p.lon
+
+            val statusColor = if (effectiveLat != null && effectiveLon != null) {
                 Color.parseColor("#22c55e")
             } else {
                 Color.parseColor("#475569")
             }
             row.findViewById<View>(R.id.personalStatus).setBackgroundColor(statusColor)
 
-            if (p.idPersonal == currentUser.id) {
-                row.setBackgroundColor(Color.parseColor("#0d1f3c"))
-                row.findViewById<TextView>(R.id.personalNombre)
-                    .setTextColor(Color.parseColor("#3b82f6"))
+            if (effectiveLat != null && effectiveLon != null) {
+                row.foreground = row.context.obtainStyledAttributes(
+                    intArrayOf(android.R.attr.selectableItemBackground)
+                ).getDrawable(0)
+                row.setOnClickListener {
+                    selectPersonal(p.idPersonal)
+                    host.selectPersonalOnMap(p.idPersonal, effectiveLat, effectiveLon, rowLabel)
+                }
             }
 
+            activeRows[p.idPersonal] = row
+            applyPersonalRowStyle(row, p.idPersonal)
             list.addView(row)
         }
 

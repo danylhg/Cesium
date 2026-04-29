@@ -125,6 +125,24 @@ class CesiumWebController(
         }
     }
 
+    fun selectTrackingPersonal(idPersonal: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof selectTrackingPersonal==='function') selectTrackingPersonal($idPersonal); })();",
+                null
+            )
+        }
+    }
+
+    fun clearTrackingSelection() {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof clearTrackingSelection==='function') clearTrackingSelection(); })();",
+                null
+            )
+        }
+    }
+
     fun enablePickStart() {
         webView.post {
             webView.evaluateJavascript(

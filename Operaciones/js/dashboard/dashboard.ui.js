@@ -9,6 +9,7 @@ import {
   ASIGNACION_ACTUAL_KEY
 } from "./dashboard.storage.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
+import { dashboardState } from "./dashboard.state.js";
 
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
@@ -81,7 +82,10 @@ function normalizePersonal(personal) {
       cargo: p.rol_en_operacion,
       nombre,
       grupo: tieneSubgrupo ? grupoDirecto : "",
-      flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || "")
+      flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || ""),
+      id_personal: p.id_personal ?? null,
+      lat: p.latitud ?? p.lat ?? null,
+      lon: p.longitud ?? p.lon ?? p.lng ?? null
     };
   });
 }
@@ -107,6 +111,29 @@ function labelConPrefijo(prefijo, nombre) {
   return `${prefijo} ${nombre.trim()}`;
 }
 
+function personSpan(nombre, id, lat, lon) {
+  const safe = escapeHtml(nombre);
+  if (id == null) return safe;
+  if (lat != null && lon != null) {
+    return `<span class="personal-locatable" data-pid="${id}" data-lat="${lat}" data-lon="${lon}" style="cursor:pointer;color:#00BFFF;border-bottom:1px dotted #00BFFF;" title="Ir a ubicacion">${safe}</span>`;
+  }
+  return `<span data-pid="${id}">${safe}</span>`;
+}
+
+export function activatePersonalLocation(id, lat, lon) {
+  document.querySelectorAll(`[data-pid="${id}"]`).forEach(span => {
+    span.dataset.lat = lat;
+    span.dataset.lon = lon;
+    if (!span.classList.contains("personal-locatable")) {
+      span.classList.add("personal-locatable");
+      span.style.cursor = "pointer";
+      span.style.color = "#00BFFF";
+      span.style.borderBottom = "1px dotted #00BFFF";
+      span.title = "Ir a ubicacion";
+    }
+  });
+}
+
 function renderPersonalHtml(personalNorm) {
   if (!personalNorm.length) return "<p>Sin personal asignado.</p>";
 
@@ -125,7 +152,7 @@ function renderPersonalHtml(personalNorm) {
   cuts.forEach((cut) => {
     html += `
       <div class="miniCard" style="border-left: 3px solid #10b981;">
-        <p><strong>CUT:</strong> ${escapeHtml(cut.nombre || cut.name)}</p>
+        <p><strong>CUT:</strong> ${personSpan(cut.nombre || cut.name, cut.id_personal, cut.lat, cut.lon)}</p>
       </div>
     `;
   });
@@ -138,23 +165,24 @@ function renderPersonalHtml(personalNorm) {
     cells.forEach((cell) => {
       if (cell.flotilla !== flotillaNombre) return;
 
+      const nameHtml = personSpan(formatPersonWithRole(cell.nombre, cell.cargo), cell.id_personal, cell.lat, cell.lon);
       if (cell.grupo) {
         if (!grupos.has(cell.grupo)) grupos.set(cell.grupo, []);
-        grupos.get(cell.grupo).push(formatPersonWithRole(cell.nombre, cell.cargo));
+        grupos.get(cell.grupo).push(nameHtml);
       } else {
-        directos.push(formatPersonWithRole(cell.nombre, cell.cargo));
+        directos.push(nameHtml);
       }
     });
 
     html += `
       <div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:8px;">
-        <p><strong>${escapeHtml(cet.nombre)} (CET)</strong></p>
+        <p><strong>(CET) ${personSpan(cet.nombre, cet.id_personal, cet.lat, cet.lon)}</strong></p>
         <p style="margin-top:8px;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flotillaNombre))}</strong></p>
     `;
 
-    directos.forEach((nombre) => {
+    directos.forEach((nameHtml) => {
       html += `
-        <p style="padding-left:20px; margin:2px 0;">-- ${escapeHtml(nombre)}</p>
+        <p style="padding-left:20px; margin:2px 0;">-- ${nameHtml}</p>
       `;
     });
 
@@ -163,9 +191,9 @@ function renderPersonalHtml(personalNorm) {
         <p style="margin-top:12px;"><strong>${escapeHtml(labelConPrefijo("Grupo", grupoNombre))}</strong></p>
       `;
 
-      integrantes.forEach((nombre) => {
+      integrantes.forEach((nameHtml) => {
         html += `
-          <p style="padding-left:20px; margin:2px 0;">-- ${escapeHtml(nombre)}</p>
+          <p style="padding-left:20px; margin:2px 0;">-- ${nameHtml}</p>
         `;
       });
     });
@@ -525,6 +553,37 @@ export function renderInfoPanel(bdData = null) {
       window.location.href = "asignacion.html";
     });
   }
+
+  container.addEventListener("click", (e) => {
+    const el = e.target.closest(".personal-locatable");
+    if (!el) return;
+    const id = el.dataset.pid;
+    const lat = parseFloat(el.dataset.lat);
+    const lon = parseFloat(el.dataset.lon);
+    if (isNaN(lat) || isNaN(lon)) return;
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+    const orientation = {
+      heading: viewer.camera.heading,
+      pitch: viewer.camera.pitch,
+      roll: viewer.camera.roll
+    };
+    const entity = dashboardState.trackingEntities?.get(`P:${id}`);
+    let destLat = lat;
+    let destLon = lon;
+    if (entity) {
+      const pos = entity.position?.getValue(viewer.clock.currentTime);
+      if (pos) {
+        const carto = Cesium.Cartographic.fromCartesian(pos);
+        destLat = Cesium.Math.toDegrees(carto.latitude);
+        destLon = Cesium.Math.toDegrees(carto.longitude);
+      }
+    }
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(destLon, destLat, 800),
+      orientation
+    });
+  });
 }
 
 export function updateChatAvailability() {

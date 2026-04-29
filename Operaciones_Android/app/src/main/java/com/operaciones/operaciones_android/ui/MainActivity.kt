@@ -341,10 +341,11 @@ class MainActivity : AppCompatActivity(),
                         val lat = data.optDouble("latitud")
                         val lon = data.optDouble("longitud")
                         val label = data.optString("apodo", data.optString("nombre", "P-$id"))
-                        if (id > 0 && id != currentUser.id) {
+                        if (id > 0 && id != currentUser.id && !lat.isNaN() && !lon.isNaN()) {
                             cesiumWebController.evaluate(
                                 "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon, '${jsString(label)}')"
                             )
+                            panelRenderer.updatePersonalLocation(id, lat, lon)
                         }
                     }
                 },
@@ -608,6 +609,9 @@ class MainActivity : AppCompatActivity(),
                 lastKnownLat = latitude
                 lastKnownLon = longitude
                 cesiumWebController.updateMyPosition(latitude, longitude)
+                if (::currentUser.isInitialized) {
+                    panelRenderer.updatePersonalLocation(currentUser.id, latitude, longitude)
+                }
                 if (centerOnNextLocation) {
                     centerOnNextLocation = false
                     cesiumWebController.centerOnLocation(latitude, longitude, follow = false)
@@ -722,6 +726,16 @@ class MainActivity : AppCompatActivity(),
 
         if (selected.kind.isBlank() || (selected.id == null && selected.localId == null)) return
 
+        if (selected.kind == "personal") {
+            val idPersonal = selected.id ?: return
+            selectedMapObject = null
+            btnDeleteSelectedObject.visibility = View.GONE
+            findViewById<View>(R.id.objectToolsMenu)?.visibility = View.GONE
+            panelRenderer.selectPersonal(idPersonal)
+            Toast.makeText(this, "${selected.label} seleccionado.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
         selectedMapObject = selected
         btnDeleteSelectedObject.visibility = View.VISIBLE
         findViewById<View>(R.id.objectToolsMenu)?.visibility = View.GONE
@@ -730,6 +744,12 @@ class MainActivity : AppCompatActivity(),
 
     fun clearSelectedMapObject() {
         selectedMapObject = null
+        if (::panelRenderer.isInitialized) {
+            panelRenderer.selectPersonal(null)
+        }
+        if (::cesiumWebController.isInitialized) {
+            cesiumWebController.clearTrackingSelection()
+        }
         if (::btnDeleteSelectedObject.isInitialized) {
             btnDeleteSelectedObject.visibility = View.GONE
         }
@@ -1004,6 +1024,18 @@ class MainActivity : AppCompatActivity(),
 
     override fun openChatPanel() {
         panelNavigationController.showPanel(Panel.CHAT)
+    }
+
+    override fun selectPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String) {
+        panelRenderer.selectPersonal(idPersonal)
+        cesiumWebController.selectTrackingPersonal(idPersonal)
+        cesiumWebController.centerOnLocation(lat, lon, zoom = 500)
+    }
+
+    override fun refreshPersonalPanelIfActive() {
+        if (panelNavigationController.activePanel == Panel.PERSONAL && personalList.isNotEmpty()) {
+            panelNavigationController.showPanel(Panel.PERSONAL)
+        }
     }
 
     override fun isChatPanelActive(): Boolean =
@@ -1376,6 +1408,7 @@ class MainActivity : AppCompatActivity(),
             personal.forEach { person ->
                 val lat = person.lat ?: return@forEach
                 val lon = person.lon ?: return@forEach
+                panelRenderer.updatePersonalLocation(person.idPersonal, lat, lon)
                 if (person.idPersonal == currentUser.id) return@forEach
                 val label = person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
                     .ifBlank { "P-${person.idPersonal}" }
@@ -2651,6 +2684,7 @@ class MainActivity : AppCompatActivity(),
                     "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal(${person.idPersonal}, $lat, $lon, '${jsString(name)}')"
                 )
             }
+            panelRenderer.updatePersonalLocation(person.idPersonal, lat, lon)
         }
 
         val vehicleName = vehicleTarget.alias.ifBlank { vehicleTarget.codigoInterno }

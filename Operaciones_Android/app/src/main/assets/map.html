@@ -60,9 +60,13 @@
     let remoteRoutes = new Map();
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
+    let selectedTrackingPersonalId = null;
     let followMyLocation = false;
     const MIN_CAMERA_ZOOM_DISTANCE = 50;
     const FOLLOW_LOCATION_ZOOM = 250;
+    const TRACKING_PERSONAL_COLOR = Cesium.Color.fromCssColorString("#00BFFF");
+    const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
+    const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
 
     const OSRM_BASE = "https://router.project-osrm.org";
 
@@ -184,6 +188,14 @@
       }
       if (entityId.indexOf("remote_route_") === 0) {
         return { kind: "route", id: Number(entityId.replace("remote_route_", "")), label: label || "Ruta" };
+      }
+
+      const trackingKind = String(getEntityProperty(entity, "trackingKind") || "");
+      if (trackingKind === "personal") {
+        const trackingId = Number(getEntityProperty(entity, "trackingId"));
+        if (Number.isFinite(trackingId) && trackingId > 0) {
+          return { kind: "personal", id: trackingId, label: label || ("P-" + trackingId) };
+        }
       }
 
       const tacticalType = String(getEntityProperty(entity, "tacticalType") || "");
@@ -316,11 +328,17 @@
           if (!_drawMode) {
             const selectedObject = getSelectableObjectAt(movement.position);
             if (selectedObject) {
+              if (selectedObject.kind === "personal") {
+                setSelectedTrackingPersonal(selectedObject.id);
+              } else {
+                setSelectedTrackingPersonal(null);
+              }
               notifyMapObjectSelected(selectedObject);
               return;
             }
           }
 
+          setSelectedTrackingPersonal(null);
           notifyMapSelectionCleared();
 
           // Click normal, se mantiene tu flujo actual
@@ -392,19 +410,62 @@
       }
     };
 
-    function upsertTrackingEntity(store, key, lat, lon, label, color) {
+    function applyPersonalTrackingStyle(entity, selected) {
+      if (!entity || !entity.point) return;
+
+      const markerColor = selected ? TRACKING_PERSONAL_SELECTED_COLOR : TRACKING_PERSONAL_COLOR;
+      entity.point.pixelSize = selected ? 16 : 12;
+      entity.point.color = markerColor.withAlpha(selected ? 0.9 : 0.35);
+      entity.point.outlineColor = TRACKING_ACTIVE_COLOR;
+      entity.point.outlineWidth = selected ? 6 : 4;
+
+      if (entity.label) {
+        entity.label.showBackground = true;
+        entity.label.fillColor = Cesium.Color.WHITE;
+        entity.label.backgroundColor = markerColor.withAlpha(selected ? 0.9 : 0.68);
+        entity.label.backgroundPadding = new Cesium.Cartesian2(5, 3);
+      }
+    }
+
+    function setSelectedTrackingPersonal(id) {
+      const nextId = id == null ? null : String(id);
+
+      if (selectedTrackingPersonalId && selectedTrackingPersonalId !== nextId) {
+        const previous = trackingPersonalEntities.get(selectedTrackingPersonalId);
+        applyPersonalTrackingStyle(previous, false);
+      }
+
+      selectedTrackingPersonalId = nextId;
+
+      if (selectedTrackingPersonalId) {
+        const current = trackingPersonalEntities.get(selectedTrackingPersonalId);
+        applyPersonalTrackingStyle(current, true);
+      }
+    }
+
+    window.selectTrackingPersonal = function (idPersonal) {
+      setSelectedTrackingPersonal(idPersonal);
+    };
+
+    window.clearTrackingSelection = function () {
+      setSelectedTrackingPersonal(null);
+    };
+
+    function upsertTrackingEntity(store, key, lat, lon, label, color, meta) {
       if (!viewer || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
+      const options = meta || {};
       const current = store.get(key);
       if (current) viewer.entities.remove(current);
 
       const entity = viewer.entities.add({
+        name: label,
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
         point: {
-          pixelSize: 10,
+          pixelSize: options.kind === "personal" ? 12 : 10,
           color: color.withAlpha(0.18),
-          outlineColor: Cesium.Color.BLACK,
-          outlineWidth: 3,
+          outlineColor: options.kind === "personal" ? TRACKING_ACTIVE_COLOR : Cesium.Color.BLACK,
+          outlineWidth: options.kind === "personal" ? 4 : 3,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
           scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
         },
@@ -416,11 +477,25 @@
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
           pixelOffset: new Cesium.Cartesian2(0, -22),
-          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000)
-        } : undefined
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000),
+          showBackground: options.kind === "personal",
+          backgroundColor: color.withAlpha(0.68),
+          backgroundPadding: new Cesium.Cartesian2(5, 3)
+        } : undefined,
+        properties: {
+          trackingKind: options.kind || "",
+          trackingId: String(key),
+          trackingKey: options.trackingKey || "",
+          tacticalType: options.tacticalType || "",
+          active: options.active === true
+        }
       });
 
       store.set(key, entity);
+
+      if (options.kind === "personal") {
+        applyPersonalTrackingStyle(entity, selectedTrackingPersonalId === String(key));
+      }
     }
 
     window.updateTrackingPersonal = function (idPersonal, lat, lon, label) {
@@ -432,7 +507,13 @@
           Number(lat),
           Number(lon),
           label || ("P-" + id),
-          Cesium.Color.DODGERBLUE
+          TRACKING_PERSONAL_COLOR,
+          {
+            kind: "personal",
+            trackingKey: "P:" + id,
+            tacticalType: "personal",
+            active: true
+          }
         );
       } catch (e) {
         console.error("Error en updateTrackingPersonal: " + e.message);
@@ -448,7 +529,13 @@
           Number(lat),
           Number(lon),
           label || ("V-" + id),
-          Cesium.Color.ORANGE
+          Cesium.Color.ORANGE,
+          {
+            kind: "vehiculo",
+            trackingKey: "V:" + id,
+            tacticalType: "vehiculo",
+            active: true
+          }
         );
       } catch (e) {
         console.error("Error en updateTrackingVehiculo: " + e.message);

@@ -319,6 +319,7 @@
         android:layout_gravity="bottom"
         android:orientation="vertical"
         android:background="#E6111827"
+        android:clickable="true"
         android:elevation="8dp">
 
         <!-- Handle / drag indicator -->
@@ -491,10 +492,11 @@
         android:background="@drawable/bg_fab_location"
         android:clickable="true"
         android:contentDescription="Centrar en mi ubicacion"
-        android:elevation="14dp"
+        android:elevation="4dp"
         android:focusable="true"
         android:padding="13dp"
         android:scaleType="centerInside"
+        android:stateListAnimator="@null"
         android:src="@android:drawable/ic_menu_mylocation"
         android:tint="#0f172a" />
 
