@@ -687,3 +687,30 @@ export function bindDrawingEvents() {
 
   refreshUndoRedoButtons();
 }
+
+export async function clearAllDrawings() {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return [];
+
+  const entities = dashboardState.drawingEntities || [];
+  const failures = [];
+
+  for (const entity of [...entities]) {
+    const id_dibujo = _drawingBackendIds.get(entity.id);
+    if (id_dibujo) {
+      try {
+        await deleteDrawingFromBackend(id_dibujo);
+        _drawingBackendIds.delete(entity.id);
+      } catch (err) {
+        failures.push(`Dibujo ${id_dibujo}`);
+        continue;
+      }
+    }
+    viewer.entities.remove(entity);
+  }
+
+  dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+    .filter(entity => viewer.entities.contains(entity));
+
+  return failures;
+}

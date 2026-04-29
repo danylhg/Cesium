@@ -6,7 +6,7 @@ import { setRouteInfo, updateSelectionInfo } from "./dashboard.ui.js";
 import { getCurrentOperation } from "./dashboard.storage.js";
 import { clearPlanningArea, finishPlanningAreaByPoints } from "./dashboard.area.js";
 import { cartesianToLatLng, saveTacticalData } from "./dashboard.persistence.js";
-import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes, pushUndoAction } from "./dashboard.drawing.js";
+import { startPencilMode, stopPencilMode, startEraserMode, stopEraserMode, stopAllDrawingModes, pushUndoAction, clearAllDrawings } from "./dashboard.drawing.js";
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 
 // Escala los íconos/etiquetas proporcionalmente a la distancia de la cámara:
@@ -200,7 +200,7 @@ function buildOperationZoneEntity(zona) {
     name: zona.nombre || "Zona de operación",
     polyline: {
       positions: toCartesianArray(closedPoints),
-      width: 3,
+      width: Number(zona.geometria?.meta?.outline_width || 3),
       material: new Cesium.PolylineDashMaterialProperty({
         color,
         dashLength: 16
@@ -1088,7 +1088,10 @@ async function saveOperationZoneToBackend(points, nombre, colorName) {
         nombre: nombre || "Zona de operación",
         geometria: {
           type: "Polygon",
-          coordinates
+          coordinates,
+          meta: {
+            outline_width: getLineWidth()
+          }
         },
         color: COLOR_HEX_MAP[colorName] || COLOR_HEX_MAP.blue
       })
@@ -1709,7 +1712,13 @@ async function finishOperationZonePerimeter() {
       id_zona: `local_${Date.now()}`,
       nombre: label || "Zona de operacion",
       color: COLOR_HEX_MAP[colorName] || COLOR_HEX_MAP.blue,
-      geometria: { type: "Polygon", coordinates },
+      geometria: {
+        type: "Polygon",
+        coordinates,
+        meta: {
+          outline_width: getLineWidth()
+        }
+      },
       centroide_lat: center?.lat,
       centroide_lon: center?.lng,
       zoom_inicial: 1000
@@ -2125,6 +2134,9 @@ async function clearTacticalPersistedData() {
 
   clearPlanningArea();
   clearTacticalStorageSnapshot();
+
+  const drawingFailures = await clearAllDrawings();
+  failures.push(...drawingFailures);
 
   return {
     ok: failures.length === 0,
@@ -2565,7 +2577,7 @@ export function bindTacticalEvents() {
       }
 
       if (result.ok) {
-        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos limpiados. La zona de operacion se conservo.";
+        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos y dibujos limpiados. La zona de operacion se conservo.";
       } else if (dom.tbHint) {
         dom.tbHint.textContent = `Se limpiaron elementos tacticos, pero fallaron algunos borrados: ${result.failures.join(", ")}.`;
       }

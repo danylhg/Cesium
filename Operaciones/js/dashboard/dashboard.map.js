@@ -364,7 +364,7 @@ function handleRoutePick(lat, lng) {
       }
     });
 
-    dashboardState.pickMode = null;
+    dashboardState.pickMode = "end";
 
     persistRouteDataToCurrentOperation();
 
