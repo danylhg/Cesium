@@ -8,9 +8,7 @@ import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import com.operaciones.operaciones_android.model.ChatMessage
-import com.operaciones.operaciones_android.model.MessageType
 import com.operaciones.operaciones_android.model.User
-import com.operaciones.operaciones_android.model.UserRole
 import com.operaciones.operaciones_android.webview.CesiumWebController
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -78,69 +76,22 @@ class MapActionController(
         lon: Double
     ) {
         val coord = "%.5f, %.5f".format(lat, lon)
-        val author = currentUser.nombreCompleto
 
-        val actions = mutableListOf<Pair<String, () -> Unit>>()
-
-        if (currentUser.rol == UserRole.CET) {
-            actions += "Usar como origen de ruta" to {
+        val actions = listOf<Pair<String, () -> Unit>>(
+            "Usar como origen de ruta" to {
                 cesiumWebController.setRouteStart(lat, lon)
-            }
-
-            actions += "Usar como destino de ruta" to {
+            },
+            "Usar como destino de ruta" to {
                 cesiumWebController.setRouteEnd(lat, lon)
-            }
-
-            actions += "Limpiar ruta" to {
+            },
+            "Limpiar ruta" to {
                 cesiumWebController.clearRoute()
                 (host as? com.operaciones.operaciones_android.ui.MainActivity)?.sendClearRouteToBackend()
             }
-        }
-
-        actions += "Punto de interes" to {
-            showPoiCreationDialog(lat, lon, author)
-        }
-
-        actions += "Area de interes" to {
-            cesiumWebController.evaluate(
-                "if (typeof addAreaOfInterest === 'function') addAreaOfInterest($lat, $lon, '$author');"
-            )
-            host.addMessage(
-                ChatMessage(
-                    user = author,
-                    text = "Area marcada -> $coord",
-                    type = MessageType.NORMAL
-                )
-            )
-        }
-
-        if (currentUser.puedeAsignarEstructuras) {
-            actions += "Estructura tactica" to {
-                cesiumWebController.evaluate(
-                    "if (typeof addTacticalStructure === 'function') addTacticalStructure($lat, $lon, '$author');"
-                )
-                host.addMessage(
-                    ChatMessage(
-                        user = author,
-                        text = "Estructura -> $coord",
-                        type = MessageType.NORMAL
-                    )
-                )
-            }
-        }
-
-        actions += "Aviso de posicion" to {
-            host.addMessage(
-                ChatMessage(
-                    user = "Alerta $author",
-                    text = "Aviso de posicion -> $coord",
-                    type = MessageType.ALERT
-                )
-            )
-        }
+        )
 
         AlertDialog.Builder(host as android.content.Context)
-            .setTitle("Agregar en $coord")
+            .setTitle("Ruta en $coord")
             .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
                 actions[which].second.invoke()
             }
@@ -148,10 +99,13 @@ class MapActionController(
             .show()
     }
 
-    private fun showPoiCreationDialog(lat: Double, lon: Double, author: String) {
+    fun showPoiCreationDialog(lat: Double, lon: Double, author: String, defaultTipoPoi: String = "PDI") {
         val context = host as android.content.Context
         val dp8 = (8 * context.resources.displayMetrics.density).toInt()
         val dp4 = (4 * context.resources.displayMetrics.density).toInt()
+        val defaultTipoIndex = TIPOS_POI
+            .indexOfFirst { it.first.equals(defaultTipoPoi, ignoreCase = true) }
+            .takeIf { it >= 0 } ?: 0
 
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -174,7 +128,7 @@ class MapActionController(
             RadioButton(context).apply {
                 id = idx + 1
                 text = etiqueta
-                isChecked = idx == 0
+                isChecked = idx == defaultTipoIndex
                 radioGroupTipo.addView(this)
             }
         }

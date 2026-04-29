@@ -2,7 +2,8 @@
 
 import { dashboardState } from "./dashboard.state.js";
 import { dom } from "./dashboard.dom.js";
-import { updateSelectionInfo, setRouteInfo } from "./dashboard.ui.js";
+import { configureGoogleLikeCamera } from "../map.camera.js";
+import { updateSelectionInfo, setRouteInfo, openPanel } from "./dashboard.ui.js";
 import {
   handleTacticalPlacement,
   updateTacticalPreview,
@@ -557,8 +558,7 @@ function bindMapUiEvents() {
       if (dom.markAreaBtn) dom.markAreaBtn.textContent = "Marcar área";
       dashboardState.pickMode = "start";
       setRouteInfo("Modo origen activo: haz clic en el mapa.");
-      dom.routePanel?.classList.add("open");
-      dom.toggleRoutePanel?.classList.add("active");
+      openPanel(dom.routePanel, dom.toggleRoutePanel);
     };
   }
 
@@ -570,8 +570,7 @@ function bindMapUiEvents() {
       if (dom.markAreaBtn) dom.markAreaBtn.textContent = "Marcar área";
       dashboardState.pickMode = "end";
       setRouteInfo("Modo destino activo: haz clic en el mapa.");
-      dom.routePanel?.classList.add("open");
-      dom.toggleRoutePanel?.classList.add("active");
+      openPanel(dom.routePanel, dom.toggleRoutePanel);
     };
   }
 
@@ -640,8 +639,7 @@ export function initCesium() {
   });
 
   dashboardState.viewer = viewer;
-  viewer.scene.screenSpaceCameraController.minimumZoomDistance = 500;
-  viewer.scene.screenSpaceCameraController.maximumZoomDistance = 5000000;
+  configureGoogleLikeCamera(viewer);
 
   viewer.geocoder.viewModel.destinationFound = function (_viewModel, destination) {
     viewer.camera.flyTo({ destination });

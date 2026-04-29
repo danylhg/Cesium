@@ -104,6 +104,27 @@ class CesiumWebController(
         }
     }
 
+    fun centerOnLocation(latitude: Double, longitude: Double, zoom: Int = 250, follow: Boolean = false) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof centerOnLocation === 'function') {
+                        centerOnLocation($latitude, $longitude, $zoom, $follow);
+                        return 'OK';
+                    }
+                    if (typeof setOperationView === 'function') {
+                        setOperationView($latitude, $longitude, $zoom);
+                        return 'OK';
+                    }
+                    return 'ERROR:centerOnLocation no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
     fun enablePickStart() {
         webView.post {
             webView.evaluateJavascript(

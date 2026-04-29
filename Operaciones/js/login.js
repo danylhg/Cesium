@@ -5,7 +5,21 @@ const passwordInput = document.getElementById("password");
 const loginButton = document.getElementById("btnLogin");
 const msg = document.getElementById("msg");
 
+function dismissKeyboard() {
+  const active = document.activeElement;
+  if (active && typeof active.blur === "function") {
+    active.blur();
+  }
+
+  if (!document.body.hasAttribute("tabindex")) {
+    document.body.setAttribute("tabindex", "-1");
+  }
+  document.body.focus({ preventScroll: true });
+}
+
 async function attemptLogin() {
+  dismissKeyboard();
+
   const u = usernameInput.value.trim();
   const p = passwordInput.value;
   msg.textContent = "";
@@ -52,4 +66,5 @@ passwordInput.addEventListener("keydown", (event) => {
   attemptLogin();
 });
 
+loginButton.addEventListener("pointerdown", dismissKeyboard);
 loginButton.addEventListener("click", attemptLogin);

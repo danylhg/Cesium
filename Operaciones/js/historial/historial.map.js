@@ -1,5 +1,6 @@
 import { dom } from "./historial.dom.js";
 import { replayState } from "./historial.state.js";
+import { configureGoogleLikeCamera } from "../map.camera.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
@@ -29,8 +30,7 @@ export function initHistoryMap() {
   const viewer = replayState.viewer;
   viewer.imageryLayers.removeAll();
   addHybridLayer(viewer);
-  viewer.scene.screenSpaceCameraController.minimumZoomDistance = 500;
-  viewer.scene.screenSpaceCameraController.maximumZoomDistance = 5000000;
+  configureGoogleLikeCamera(viewer);
   viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, 1800000),
   });

@@ -46,16 +46,25 @@ export function closeAllPanels() {
   dom.toggleChatPanel?.classList.remove("active");
 }
 
+export function openPanel(panel, button) {
+  if (!panel) return;
+
+  closeAllPanels();
+  panel.classList.add("open");
+  button?.classList.add("active");
+}
+
 export function togglePanel(panel, button) {
   if (!panel || !button) return;
 
   const wasOpen = panel.classList.contains("open");
-  closeAllPanels();
 
   if (!wasOpen) {
-    panel.classList.add("open");
-    button.classList.add("active");
+    openPanel(panel, button);
+    return;
   }
+
+  closeAllPanels();
 }
 
 function normalizePersonal(personal) {

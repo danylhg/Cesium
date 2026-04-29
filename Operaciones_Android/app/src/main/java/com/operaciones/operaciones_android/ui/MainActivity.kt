@@ -1,16 +1,22 @@
 package com.operaciones.operaciones_android.ui
 
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.InputType
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
+import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -57,6 +63,9 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import kotlin.math.PI
+import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -110,6 +119,24 @@ class MainActivity : AppCompatActivity(),
         val iconoSrc: String? = null
     )
 
+    private data class SelectedMapObject(
+        val kind: String,
+        val id: Int?,
+        val localId: String?,
+        val label: String
+    )
+
+    private enum class ObjectTool {
+        MIL,
+        POI,
+        POLYGON,
+        CIRCLE,
+        ROUTE_START,
+        ROUTE_END,
+        BUILDING,
+        LABEL
+    }
+
     private val personalRepository = PersonalRepository()
     private val vehiculoRepository = VehiculoRepository()
     private val equipoRepository = EquipoRepository()
@@ -118,6 +145,10 @@ class MainActivity : AppCompatActivity(),
     // Map: JS localId → id_dibujo del backend
     private val drawingLocalToBackendId = HashMap<String, Int>()
     private var drawingMode: String? = null  // "pencil" | "eraser" | null
+    private var selectedObjectTool: ObjectTool? = null
+    private var objectToolSelectionView: TextView? = null
+    private val polygonToolPoints = mutableListOf<Pair<Double, Double>>()
+    private var selectedMapObject: SelectedMapObject? = null
 
     private lateinit var webView: WebView
     private lateinit var panelContent: FrameLayout
@@ -127,6 +158,8 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnNavPersonal: LinearLayout
     private lateinit var btnNavVehiculos: LinearLayout
     private lateinit var btnNavEquipos: LinearLayout
+    private lateinit var btnMyLocation: ImageButton
+    private lateinit var btnDeleteSelectedObject: ImageButton
     private lateinit var mapActionController: MapActionController
 
     private var chatSocketManager: ChatSocketManager? = null
@@ -160,6 +193,7 @@ class MainActivity : AppCompatActivity(),
     private var opLon = 0.0
     private var opZoom = 8000
     private var lastRouteId: Int = -1
+    private var centerOnNextLocation = false
 
     // Última posición conocida del usuario — se emite al socket cuando se conecta
     private var lastKnownLat: Double? = null
@@ -219,6 +253,26 @@ class MainActivity : AppCompatActivity(),
     private fun resolveStructureIconUrl(tipoEstructura: String?): String? {
         val tipo = tipoEstructura?.trim()?.uppercase().orEmpty()
         return if (tipo == "ETIQUETA") null else "${ApiConfig.BASE_URL}/img/estructuras/casa.png"
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            hideKeyboardIfTouchOutsideFocusedInput(event)
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    private fun hideKeyboardIfTouchOutsideFocusedInput(event: MotionEvent) {
+        val focusedInput = currentFocus as? EditText ?: return
+        val inputBounds = Rect()
+        focusedInput.getGlobalVisibleRect(inputBounds)
+
+        if (inputBounds.contains(event.rawX.toInt(), event.rawY.toInt())) return
+
+        focusedInput.clearFocus()
+
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(focusedInput.windowToken, 0)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -525,6 +579,8 @@ class MainActivity : AppCompatActivity(),
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
         btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
         btnNavEquipos = findViewById(R.id.btnNavEquipos)
+        btnMyLocation = findViewById(R.id.btnMyLocation)
+        btnDeleteSelectedObject = findViewById(R.id.btnDeleteSelectedObject)
         webView = findViewById(R.id.cesiumWebView)
 
         panelRenderer = MainPanelRenderer(this)
@@ -549,7 +605,13 @@ class MainActivity : AppCompatActivity(),
         locationHelper = LocationHelper(
             activity = this,
             onLocationUpdate = { latitude, longitude ->
+                lastKnownLat = latitude
+                lastKnownLon = longitude
                 cesiumWebController.updateMyPosition(latitude, longitude)
+                if (centerOnNextLocation) {
+                    centerOnNextLocation = false
+                    cesiumWebController.centerOnLocation(latitude, longitude, follow = false)
+                }
             },
             onEmitLocation = { lat, lon ->
                 lastKnownLat = lat
@@ -577,7 +639,9 @@ class MainActivity : AppCompatActivity(),
         )
 
         setupWebView()
-        setupDrawingToolbar()
+        setupMyLocationButton()
+        setupSelectedObjectDeleteButton()
+        setupObjectToolsMenu()
         panelNavigationController.setupNavigation()
         setupBackPress()
         panelNavigationController.showPanel(Panel.NONE)
@@ -593,6 +657,196 @@ class MainActivity : AppCompatActivity(),
             fetchEquiposPanelData()
             startEmergencyService()
         }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupMyLocationButton() {
+        btnMyLocation.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    view.animate().cancel()
+                    view.animate()
+                        .scaleX(0.9f)
+                        .scaleY(0.9f)
+                        .alpha(0.78f)
+                        .setDuration(70L)
+                        .start()
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().cancel()
+                    view.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .alpha(1f)
+                        .setDuration(110L)
+                        .start()
+                }
+            }
+            false
+        }
+
+        btnMyLocation.setOnClickListener {
+            val lat = lastKnownLat
+            val lon = lastKnownLon
+
+            if (lat == null || lon == null) {
+                centerOnNextLocation = true
+                Toast.makeText(this, "Buscando tu ubicacion...", Toast.LENGTH_SHORT).show()
+                locationHelper.requestLocationPermissionOrStart()
+                return@setOnClickListener
+            }
+
+            cesiumWebController.updateMyPosition(lat, lon)
+            cesiumWebController.centerOnLocation(lat, lon, follow = false)
+        }
+    }
+
+    private fun setupSelectedObjectDeleteButton() {
+        btnDeleteSelectedObject.setOnClickListener {
+            deleteSelectedMapObject()
+        }
+    }
+
+    fun onMapObjectSelectedFromBridge(payloadJson: String) {
+        val selected = runCatching {
+            val payload = JSONObject(payloadJson)
+            SelectedMapObject(
+                kind = payload.optString("kind").trim().lowercase(),
+                id = payload.optInt("id", -1).takeIf { it > 0 },
+                localId = payload.optString("localId", "").trim().takeIf { it.isNotBlank() },
+                label = payload.optString("label", "Objeto").trim().ifBlank { "Objeto" }
+            )
+        }.getOrNull() ?: return
+
+        if (selected.kind.isBlank() || (selected.id == null && selected.localId == null)) return
+
+        selectedMapObject = selected
+        btnDeleteSelectedObject.visibility = View.VISIBLE
+        findViewById<View>(R.id.objectToolsMenu)?.visibility = View.GONE
+        Toast.makeText(this, "${selected.label} seleccionado.", Toast.LENGTH_SHORT).show()
+    }
+
+    fun clearSelectedMapObject() {
+        selectedMapObject = null
+        if (::btnDeleteSelectedObject.isInitialized) {
+            btnDeleteSelectedObject.visibility = View.GONE
+        }
+    }
+
+    private fun deleteSelectedMapObject() {
+        val selected = selectedMapObject ?: return
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+
+        when (selected.kind) {
+            "poi" -> selected.id?.let { id ->
+                deleteMapObjectFromBackend(
+                    url = "${ApiConfig.BASE_URL}/ops/$operationId/pois/$id",
+                    successMessage = "Punto eliminado.",
+                    onSuccess = { cesiumWebController.removePoiFromMap(id) }
+                )
+            }
+
+            "area" -> selected.id?.let { id ->
+                deleteMapObjectFromBackend(
+                    url = "${ApiConfig.BASE_URL}/ops/$operationId/areas/$id",
+                    successMessage = "Area eliminada.",
+                    onSuccess = { cesiumWebController.removeAreaFromMap(id) }
+                )
+            }
+
+            "structure" -> selected.id?.let { id ->
+                deleteMapObjectFromBackend(
+                    url = "${ApiConfig.BASE_URL}/ops/$operationId/edificios/$id",
+                    successMessage = "Estructura eliminada.",
+                    onSuccess = { cesiumWebController.removeStructureFromMap(id) }
+                )
+            }
+
+            "route" -> selected.id?.let { id ->
+                deleteMapObjectFromBackend(
+                    url = "${ApiConfig.BASE_URL}/ops/$operationId/rutas/navegacion/$id",
+                    successMessage = "Ruta eliminada.",
+                    onSuccess = {
+                        cesiumWebController.evaluate("if(typeof removeRemoteRoute === 'function') removeRemoteRoute($id);")
+                        if (lastRouteId == id) {
+                            lastRouteId = -1
+                            cesiumWebController.clearRoute()
+                        }
+                    }
+                )
+            }
+
+            "drawing" -> deleteSelectedDrawing(selected, operationId)
+        }
+    }
+
+    private fun deleteSelectedDrawing(selected: SelectedMapObject, operationId: Int) {
+        selected.localId?.let { localId ->
+            cesiumWebController.evaluate("if(typeof removeDrawingByLocalId === 'function') removeDrawingByLocalId('${jsString(localId)}');")
+            onDrawingDeletedFromBridge(localId)
+            clearSelectedMapObject()
+            Toast.makeText(this, "Dibujo eliminado.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val idDibujo = selected.id ?: return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+        drawingRepository.deleteDrawing(
+            operationId = operationId,
+            idDibujo = idDibujo,
+            token = token,
+            onError = { msg ->
+                runOnUiThread {
+                    addMessage(ChatMessage(user = "Sistema", text = msg, type = MessageType.SYSTEM))
+                }
+            }
+        )
+        cesiumWebController.removeDrawingFromMap(idDibujo)
+        clearSelectedMapObject()
+        Toast.makeText(this, "Dibujo eliminado.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun deleteMapObjectFromBackend(
+        url: String,
+        successMessage: String,
+        onSuccess: () -> Unit
+    ) {
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Authorization", "Bearer $token")
+            .delete()
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("MAP_DELETE", "Error eliminando objeto", e)
+                runOnUiThread {
+                    addMessage(ChatMessage(user = "Sistema", text = "Error de conexion al eliminar el objeto.", type = MessageType.SYSTEM))
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (!response.isSuccessful) {
+                    runOnUiThread {
+                        addMessage(ChatMessage(user = "Sistema", text = "No se pudo eliminar el objeto.", type = MessageType.SYSTEM))
+                    }
+                    return
+                }
+
+                runOnUiThread {
+                    onSuccess()
+                    clearSelectedMapObject()
+                    Toast.makeText(this@MainActivity, successMessage, Toast.LENGTH_SHORT).show()
+                }
+            }
+        })
     }
 
     override fun onDestroy() {
@@ -1339,6 +1593,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     fun showMapActionDialogFromBridge(lat: Double, lon: Double) {
+        if (handleSelectedObjectToolTap(lat, lon)) return
         mapActionController.showMapActionDialog(currentUser, lat, lon)
     }
 
@@ -1639,37 +1894,429 @@ class MainActivity : AppCompatActivity(),
 
     // ── Dibujo libre ──────────────────────────────────────────────
 
-    fun setupDrawingToolbar() {
-        val btnPencil = findViewById<TextView>(R.id.btnPencil)
-        val btnEraser = findViewById<TextView>(R.id.btnEraser)
+    fun setupObjectToolsMenu() {
+        val btnObjectTools = findViewById<TextView>(R.id.btnObjectTools)
+        val objectToolsMenu = findViewById<View>(R.id.objectToolsMenu)
+        objectToolSelectionView = findViewById(R.id.objectToolSelection)
 
-        btnPencil.setOnClickListener {
-            if (drawingMode == "pencil") {
-                drawingMode = null
-                cesiumWebController.stopPencilMode()
-                btnPencil.alpha = 1f
-            } else {
-                drawingMode = "pencil"
-                cesiumWebController.startPencilMode()
-                cesiumWebController.stopEraserMode()
-                btnPencil.alpha = 1f
-                btnEraser.alpha = 0.4f
+        fun setMenuVisible(visible: Boolean) {
+            objectToolsMenu.visibility = if (visible) View.VISIBLE else View.GONE
+            btnObjectTools.text = if (visible) "Objetos ▲" else "Objetos ▼"
+        }
+
+        btnObjectTools.setOnClickListener {
+            setMenuVisible(objectToolsMenu.visibility != View.VISIBLE)
+        }
+
+        fun bindItem(id: Int, action: () -> Unit) {
+            findViewById<TextView>(id).setOnClickListener {
+                setMenuVisible(false)
+                action()
             }
         }
 
-        btnEraser.setOnClickListener {
-            if (drawingMode == "eraser") {
-                drawingMode = null
-                cesiumWebController.stopEraserMode()
-                btnEraser.alpha = 1f
-            } else {
-                drawingMode = "eraser"
-                cesiumWebController.startEraserMode()
-                cesiumWebController.stopPencilMode()
-                btnEraser.alpha = 1f
-                btnPencil.alpha = 0.4f
-            }
+        bindItem(R.id.itemToolPencil) {
+            toggleFreeDrawingMode("pencil", "Lapiz (dibujo libre)")
         }
+        bindItem(R.id.itemToolEraser) {
+            toggleFreeDrawingMode("eraser", "Goma de borrar")
+        }
+        bindItem(R.id.itemToolMil) {
+            selectMapObjectTool(ObjectTool.MIL, "Simbolo Militar (MIL)")
+        }
+        bindItem(R.id.itemToolPoi) {
+            selectMapObjectTool(ObjectTool.POI, "Puntos de Interes")
+        }
+        bindItem(R.id.itemToolPolygon) {
+            polygonToolPoints.clear()
+            selectMapObjectTool(ObjectTool.POLYGON, "Poligono Tactico")
+            Toast.makeText(this, "Toca 3 puntos en el mapa para cerrar el poligono.", Toast.LENGTH_LONG).show()
+        }
+        bindItem(R.id.itemToolCircle) {
+            selectMapObjectTool(ObjectTool.CIRCLE, "Circulo de cobertura")
+        }
+        bindItem(R.id.itemToolRoute) {
+            selectMapObjectTool(ObjectTool.ROUTE_START, "Linea Tactica (Ruta): origen")
+            Toast.makeText(this, "Toca el origen de la ruta.", Toast.LENGTH_SHORT).show()
+        }
+        bindItem(R.id.itemToolBuilding) {
+            selectMapObjectTool(ObjectTool.BUILDING, "Edificio / Estructura")
+        }
+        bindItem(R.id.itemToolLabel) {
+            selectMapObjectTool(ObjectTool.LABEL, "Etiqueta")
+        }
+    }
+
+    private fun toggleFreeDrawingMode(mode: String, label: String) {
+        clearSelectedMapObject()
+        selectedObjectTool = null
+        polygonToolPoints.clear()
+
+        if (drawingMode == mode) {
+            stopFreeDrawingMode()
+            updateObjectToolSelection(null)
+            return
+        }
+
+        drawingMode = mode
+        if (mode == "pencil") {
+            cesiumWebController.startPencilMode()
+            cesiumWebController.stopEraserMode()
+        } else {
+            cesiumWebController.startEraserMode()
+            cesiumWebController.stopPencilMode()
+        }
+        updateObjectToolSelection(label)
+        Toast.makeText(this, "$label activo.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopFreeDrawingMode() {
+        drawingMode = null
+        cesiumWebController.stopPencilMode()
+        cesiumWebController.stopEraserMode()
+    }
+
+    private fun selectMapObjectTool(tool: ObjectTool, label: String) {
+        clearSelectedMapObject()
+        stopFreeDrawingMode()
+        selectedObjectTool = tool
+        updateObjectToolSelection(label)
+        Toast.makeText(this, "$label: toca el mapa para colocar.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun clearSelectedObjectTool() {
+        selectedObjectTool = null
+        polygonToolPoints.clear()
+        updateObjectToolSelection(null)
+    }
+
+    private fun updateObjectToolSelection(label: String?) {
+        objectToolSelectionView?.text = label ?: "Selecciona herramienta..."
+    }
+
+    private fun handleSelectedObjectToolTap(lat: Double, lon: Double): Boolean {
+        return when (selectedObjectTool) {
+            ObjectTool.MIL -> {
+                clearSelectedObjectTool()
+                mapActionController.showPoiCreationDialog(lat, lon, currentUser.nombreCompleto, "MIL")
+                true
+            }
+            ObjectTool.POI -> {
+                clearSelectedObjectTool()
+                mapActionController.showPoiCreationDialog(lat, lon, currentUser.nombreCompleto, "PDI")
+                true
+            }
+            ObjectTool.CIRCLE -> {
+                clearSelectedObjectTool()
+                showCoverageCircleDialog(lat, lon)
+                true
+            }
+            ObjectTool.ROUTE_START -> {
+                cesiumWebController.setRouteStart(lat, lon)
+                selectedObjectTool = ObjectTool.ROUTE_END
+                updateObjectToolSelection("Linea Tactica (Ruta): destino")
+                Toast.makeText(this, "Origen listo. Ahora toca el destino.", Toast.LENGTH_SHORT).show()
+                true
+            }
+            ObjectTool.ROUTE_END -> {
+                cesiumWebController.setRouteEnd(lat, lon)
+                clearSelectedObjectTool()
+                Toast.makeText(this, "Ruta marcada.", Toast.LENGTH_SHORT).show()
+                true
+            }
+            ObjectTool.BUILDING -> {
+                clearSelectedObjectTool()
+                showStructureDialog(lat, lon, "EDIFICIO", "Edificio / Estructura")
+                true
+            }
+            ObjectTool.LABEL -> {
+                clearSelectedObjectTool()
+                showStructureDialog(lat, lon, "ETIQUETA", "Etiqueta")
+                true
+            }
+            ObjectTool.POLYGON -> {
+                polygonToolPoints.add(lat to lon)
+                if (polygonToolPoints.size < 3) {
+                    updateObjectToolSelection("Poligono: punto ${polygonToolPoints.size}/3")
+                    Toast.makeText(this, "Punto ${polygonToolPoints.size}/3 agregado.", Toast.LENGTH_SHORT).show()
+                } else {
+                    val points = polygonToolPoints.toList()
+                    clearSelectedObjectTool()
+                    savePolygonArea(points)
+                }
+                true
+            }
+            null -> false
+        }
+    }
+
+    private fun showCoverageCircleDialog(lat: Double, lon: Double) {
+        val dp = (resources.displayMetrics.density * 12).toInt()
+        val layout = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp, dp / 2, dp, 0)
+        }
+        val inputName = EditText(this).apply {
+            hint = "Nombre"
+            setText("Circulo de cobertura")
+            selectAll()
+        }
+        val inputRadius = EditText(this).apply {
+            hint = "Radio en metros"
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText("500")
+        }
+        layout.addView(inputName)
+        layout.addView(inputRadius)
+
+        AlertDialog.Builder(this)
+            .setTitle("Circulo de cobertura")
+            .setView(layout)
+            .setPositiveButton("Agregar") { _, _ ->
+                val name = inputName.text.toString().trim().ifBlank { "Circulo de cobertura" }
+                val radius = inputRadius.text.toString().toDoubleOrNull()?.coerceAtLeast(25.0) ?: 500.0
+                saveCoverageCircle(lat, lon, name, radius)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun showStructureDialog(lat: Double, lon: Double, tipoEstructura: String, defaultName: String) {
+        val dp = (resources.displayMetrics.density * 12).toInt()
+        val inputName = EditText(this).apply {
+            hint = "Nombre"
+            setText(defaultName)
+            selectAll()
+            setPadding(dp, 0, dp, 0)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(defaultName)
+            .setView(inputName)
+            .setPositiveButton("Agregar") { _, _ ->
+                val name = inputName.text.toString().trim().ifBlank { defaultName }
+                saveStructure(lat, lon, name, tipoEstructura)
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun putCreatorPayload(body: JSONObject) {
+        val tipoCreador = if (currentUser.tabla == "personal") "PERSONAL" else "USUARIO"
+        val idKey = if (currentUser.tabla == "personal") "id_personal" else "id_usuario"
+        body.put("tipo_creador", tipoCreador)
+        body.put(idKey, currentUser.id)
+    }
+
+    private fun circleCoordinates(lat: Double, lon: Double, radiusMeters: Double): JSONArray {
+        val earthRadius = 6378137.0
+        val distance = radiusMeters / earthRadius
+        val latRad = Math.toRadians(lat)
+        val lonRad = Math.toRadians(lon)
+        val ring = JSONArray()
+
+        for (i in 0..64) {
+            val bearing = 2.0 * PI * i / 64.0
+            val pointLat = asin(
+                sin(latRad) * cos(distance) +
+                    cos(latRad) * sin(distance) * cos(bearing)
+            )
+            val pointLon = lonRad + atan2(
+                sin(bearing) * sin(distance) * cos(latRad),
+                cos(distance) - sin(latRad) * sin(pointLat)
+            )
+            ring.put(JSONArray().put(Math.toDegrees(pointLon)).put(Math.toDegrees(pointLat)))
+        }
+
+        return JSONArray().put(ring)
+    }
+
+    private fun polygonCoordinates(points: List<Pair<Double, Double>>): JSONArray {
+        val ring = JSONArray()
+        points.forEach { (lat, lon) ->
+            ring.put(JSONArray().put(lon).put(lat))
+        }
+        points.firstOrNull()?.let { (lat, lon) ->
+            ring.put(JSONArray().put(lon).put(lat))
+        }
+        return JSONArray().put(ring)
+    }
+
+    private fun saveCoverageCircle(lat: Double, lon: Double, nombre: String, radiusMeters: Double) {
+        saveArea(
+            nombre = nombre,
+            descripcion = "Circulo de cobertura",
+            color = "#FF4500",
+            geometry = JSONObject()
+                .put("type", "Polygon")
+                .put("coordinates", circleCoordinates(lat, lon, radiusMeters))
+                .put(
+                    "meta",
+                    JSONObject()
+                        .put("shape", "circle")
+                        .put("center", JSONArray().put(lon).put(lat))
+                        .put("radius_m", radiusMeters)
+                        .put("opacity", 0.35)
+                        .put("outline_width", 3)
+                ),
+            onSaved = { idArea ->
+                cesiumWebController.addCoverageCircleToMap(
+                    idArea,
+                    lat,
+                    lon,
+                    radiusMeters,
+                    nombre,
+                    "#FF4500",
+                    0.35,
+                    3.0
+                )
+            }
+        )
+    }
+
+    private fun savePolygonArea(points: List<Pair<Double, Double>>) {
+        saveArea(
+            nombre = "Poligono Tactico",
+            descripcion = "Poligono tactico",
+            color = "#FFD700",
+            geometry = JSONObject()
+                .put("type", "Polygon")
+                .put("coordinates", polygonCoordinates(points))
+                .put(
+                    "meta",
+                    JSONObject()
+                        .put("shape", "polygon")
+                        .put("opacity", 0.35)
+                        .put("outline_width", 3)
+                ),
+            onSaved = { idArea ->
+                cesiumWebController.addAreaPolygonToMap(
+                    idArea,
+                    "Poligono Tactico",
+                    buildPolygonPointsJson(points),
+                    "#FFD700",
+                    0.35,
+                    3.0
+                )
+            }
+        )
+    }
+
+    private fun saveArea(
+        nombre: String,
+        descripcion: String,
+        color: String,
+        geometry: JSONObject,
+        onSaved: (Int) -> Unit
+    ) {
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        val body = JSONObject()
+            .put("nombre", nombre)
+            .put("descripcion", descripcion)
+            .put("color", color)
+            .put("geometria", geometry)
+        putCreatorPayload(body)
+
+        val request = Request.Builder()
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/areas")
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("AREA_ANDROID", "Error guardando area", e)
+                runOnUiThread {
+                    addMessage(ChatMessage(user = "Sistema", text = "Error de conexion al guardar el area.", type = MessageType.SYSTEM))
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val responseBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    runOnUiThread {
+                        addMessage(ChatMessage(user = "Sistema", text = "No se pudo guardar el area.", type = MessageType.SYSTEM))
+                    }
+                    return
+                }
+
+                val idArea = runCatching {
+                    JSONObject(responseBody).optJSONObject("area")?.optInt("id_area", -1) ?: -1
+                }.getOrDefault(-1)
+
+                runOnUiThread {
+                    if (idArea > 0) {
+                        onSaved(idArea)
+                        Toast.makeText(this@MainActivity, "$nombre colocado.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
+    }
+
+    private fun saveStructure(lat: Double, lon: Double, nombre: String, tipoEstructura: String) {
+        val operationId = currentOperation.id
+        if (operationId <= 0) return
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) return
+
+        val body = JSONObject()
+            .put("nombre", nombre)
+            .put("tipo_estructura", tipoEstructura)
+            .put("latitud", lat)
+            .put("longitud", lon)
+        putCreatorPayload(body)
+
+        val request = Request.Builder()
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/edificios")
+            .addHeader("Authorization", "Bearer $token")
+            .addHeader("Content-Type", "application/json")
+            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+            .build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.e("ESTRUCTURA_ANDROID", "Error guardando estructura", e)
+                runOnUiThread {
+                    addMessage(ChatMessage(user = "Sistema", text = "Error de conexion al guardar la estructura.", type = MessageType.SYSTEM))
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val responseBody = response.body?.string().orEmpty()
+                if (!response.isSuccessful) {
+                    val mensaje = runCatching {
+                        JSONObject(responseBody).optString("mensaje", "No se pudo guardar la estructura.")
+                    }.getOrDefault("No se pudo guardar la estructura.")
+                    runOnUiThread {
+                        addMessage(ChatMessage(user = "Sistema", text = mensaje, type = MessageType.SYSTEM))
+                    }
+                    return
+                }
+
+                val structure = runCatching {
+                    JSONObject(responseBody).optJSONObject("edificio")
+                        ?: JSONObject(responseBody).optJSONObject("estructura")
+                }.getOrNull()
+
+                val idMarca = structure?.optInt("id_marca", -1) ?: -1
+                val savedName = structure?.optString("nombre", nombre) ?: nombre
+                val savedType = structure?.optString("tipo_estructura", tipoEstructura) ?: tipoEstructura
+                val iconoSrc = resolveStructureIconUrl(savedType)
+
+                runOnUiThread {
+                    if (idMarca > 0) {
+                        cesiumWebController.addStructureToMap(idMarca, lat, lon, savedName, savedType, iconoSrc)
+                        Toast.makeText(this@MainActivity, "$savedName colocado.", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        })
     }
 
     fun loadDrawingsFromBackend() {

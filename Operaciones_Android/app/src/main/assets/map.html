@@ -27,6 +27,10 @@
       display: none !important;
     }
 
+    #cesiumContainer canvas {
+      touch-action: none;
+    }
+
   </style>
 </head>
 
@@ -56,6 +60,9 @@
     let remoteRoutes = new Map();
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
+    let followMyLocation = false;
+    const MIN_CAMERA_ZOOM_DISTANCE = 50;
+    const FOLLOW_LOCATION_ZOOM = 250;
 
     const OSRM_BASE = "https://router.project-osrm.org";
 
@@ -69,6 +76,42 @@
       }
     }
 
+    function configureGoogleLikeCamera(viewerInstance) {
+      const controller = viewerInstance
+        && viewerInstance.scene
+        && viewerInstance.scene.screenSpaceCameraController;
+      if (!controller) return;
+
+      controller.minimumZoomDistance = MIN_CAMERA_ZOOM_DISTANCE;
+      controller.maximumZoomDistance = 5000000;
+      controller.inertiaSpin = 0.35;
+      controller.inertiaTranslate = 0.35;
+      controller.inertiaZoom = 0.25;
+      controller.maximumMovementRatio = 0.08;
+
+      if ('zoomFactor' in controller) {
+        controller.zoomFactor = 2.2;
+      }
+
+      controller.enableRotate = true;
+      controller.enableTranslate = true;
+      controller.enableZoom = true;
+      controller.enableTilt = true;
+      controller.enableLook = false;
+    }
+
+    function disableFollowMyLocation() {
+      followMyLocation = false;
+    }
+
+    function flyToLocation(lat, lon, zoomMeters, duration) {
+      if (!viewer) return;
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, zoomMeters || FOLLOW_LOCATION_ZOOM),
+        duration: duration === undefined ? 0.55 : duration
+      });
+    }
+
     function notifyMapTap(lat, lon) {
       try {
         if (window.Android && typeof Android.onMapTapped === "function") {
@@ -77,6 +120,84 @@
       } catch (e) {
         console.error("Error notificando tap a Android: " + e.message);
       }
+    }
+
+    function notifyMapObjectSelected(payload) {
+      try {
+        if (window.Android && typeof Android.onMapObjectSelected === "function") {
+          Android.onMapObjectSelected(JSON.stringify(payload));
+        }
+      } catch (e) {
+        console.error("Error notificando objeto seleccionado: " + e.message);
+      }
+    }
+
+    function notifyMapSelectionCleared() {
+      try {
+        if (window.Android && typeof Android.onMapSelectionCleared === "function") {
+          Android.onMapSelectionCleared();
+        }
+      } catch (e) {
+        console.error("Error limpiando seleccion: " + e.message);
+      }
+    }
+
+    function getEntityText(entity) {
+      try {
+        if (!entity) return "";
+        if (entity.label && entity.label.text) {
+          return String(entity.label.text.getValue ? entity.label.text.getValue() : entity.label.text);
+        }
+        return entity.name ? String(entity.name) : "";
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function getEntityProperty(entity, key) {
+      try {
+        if (!entity || !entity.properties || !entity.properties[key]) return "";
+        const prop = entity.properties[key];
+        return prop.getValue ? prop.getValue() : prop;
+      } catch (_) {
+        return "";
+      }
+    }
+
+    function getSelectableObjectAt(position) {
+      if (!viewer) return null;
+      const picked = viewer.scene.pick(position);
+      if (!picked || !picked.id) return null;
+
+      const entity = picked.id;
+      const entityId = String(entity.id || "");
+      const label = getEntityText(entity);
+
+      if (entityId.indexOf("poi_") === 0) {
+        return { kind: "poi", id: Number(entityId.replace("poi_", "")), label: label || "Punto de Interes" };
+      }
+      if (entityId.indexOf("area_") === 0) {
+        return { kind: "area", id: Number(entityId.replace("area_", "")), label: label || "Area de Interes" };
+      }
+      if (entityId.indexOf("estructura_") === 0) {
+        return { kind: "structure", id: Number(entityId.replace("estructura_", "")), label: label || "Estructura" };
+      }
+      if (entityId.indexOf("remote_route_") === 0) {
+        return { kind: "route", id: Number(entityId.replace("remote_route_", "")), label: label || "Ruta" };
+      }
+
+      const tacticalType = String(getEntityProperty(entity, "tacticalType") || "");
+      if (tacticalType === "freehand-drawing") {
+        const match = entityId.match(/^draw_loaded_(\d+)$/);
+        return {
+          kind: "drawing",
+          id: match ? Number(match[1]) : null,
+          localId: entityId,
+          label: "Dibujo libre"
+        };
+      }
+
+      return null;
     }
 
     function notifyRouteCreated(route) {
@@ -142,6 +263,20 @@
       viewer.scene.skyAtmosphere.show = false;
       viewer.scene.sun.show = false;
       viewer.scene.moon.show = false;
+      configureGoogleLikeCamera(viewer);
+
+      const followCancelHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      [
+        Cesium.ScreenSpaceEventType.LEFT_DOWN,
+        Cesium.ScreenSpaceEventType.MIDDLE_DOWN,
+        Cesium.ScreenSpaceEventType.RIGHT_DOWN,
+        Cesium.ScreenSpaceEventType.WHEEL,
+        Cesium.ScreenSpaceEventType.PINCH_START
+      ].forEach((eventType) => {
+        if (eventType !== undefined) {
+          followCancelHandler.setInputAction(disableFollowMyLocation, eventType);
+        }
+      });
 
       // Handler de clicks
       const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
@@ -173,6 +308,20 @@
             notifyAndroid("Destino seleccionado");
             return;
           }
+
+          if (_drawMode) {
+            return;
+          }
+
+          if (!_drawMode) {
+            const selectedObject = getSelectableObjectAt(movement.position);
+            if (selectedObject) {
+              notifyMapObjectSelected(selectedObject);
+              return;
+            }
+          }
+
+          notifyMapSelectionCleared();
 
           // Click normal, se mantiene tu flujo actual
           notifyMapTap(lat, lon);
@@ -208,6 +357,16 @@
       }
     };
 
+    window.centerOnLocation = function (lat, lon, zoomMeters, followMode) {
+      try {
+        if (!viewer) return;
+        followMyLocation = followMode === true;
+        flyToLocation(lat, lon, zoomMeters || FOLLOW_LOCATION_ZOOM, 0.8);
+      } catch (e) {
+        console.error("Error en centerOnLocation: " + e.message);
+      }
+    };
+
     window.updateMyPosition = function (lat, lon) {
       try {
         if (!viewer) return;
@@ -224,6 +383,10 @@
             scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
           }
         });
+
+        if (followMyLocation) {
+          flyToLocation(lat, lon, FOLLOW_LOCATION_ZOOM, 0.45);
+        }
       } catch (e) {
         console.error("Error en updateMyPosition: " + e.message);
       }
@@ -1087,82 +1250,198 @@
     let _previewEnt = null;
     let _drawHandler = null;
     let _drawCounter = 0;
+    let _drawDomHandlers = null;
 
     function _destroyDrawHandler() {
       if (_drawHandler) { _drawHandler.destroy(); _drawHandler = null; }
+      _unbindPencilDomEvents();
+    }
+
+    function _setDrawCameraEnabled(enabled) {
+      if (!viewer || !viewer.scene || !viewer.scene.screenSpaceCameraController) return;
+      viewer.scene.screenSpaceCameraController.enableRotate    = enabled;
+      viewer.scene.screenSpaceCameraController.enableTranslate = enabled;
+      viewer.scene.screenSpaceCameraController.enableZoom      = enabled;
+    }
+
+    function _canvasPositionFromClient(clientX, clientY) {
+      if (!viewer || !viewer.scene || !viewer.scene.canvas) return null;
+      const rect = viewer.scene.canvas.getBoundingClientRect();
+      return new Cesium.Cartesian2(clientX - rect.left, clientY - rect.top);
+    }
+
+    function _coordFromCanvasPosition(position) {
+      if (!viewer || !position) return null;
+      const cart = viewer.camera.pickEllipsoid(position, viewer.scene.globe.ellipsoid);
+      if (!cart) return null;
+      const c = Cesium.Cartographic.fromCartesian(cart);
+      return {
+        lat: Cesium.Math.toDegrees(c.latitude),
+        lng: Cesium.Math.toDegrees(c.longitude)
+      };
+    }
+
+    function _renderPencilPreview() {
+      if (!viewer || _drawCoords.length < 2) return;
+      if (_previewEnt) viewer.entities.remove(_previewEnt);
+      _previewEnt = viewer.entities.add({
+        polyline: {
+          positions: _drawCoords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
+          width: 4,
+          material: Cesium.Color.fromCssColorString('#00ffa6'),
+          clampToGround: true
+        }
+      });
+    }
+
+    function _appendPencilPoint(position) {
+      const point = _coordFromCanvasPosition(position);
+      if (!point) return;
+
+      const last = _drawCoords[_drawCoords.length - 1];
+      if (last && Math.abs(last.lat - point.lat) < 0.0000001 && Math.abs(last.lng - point.lng) < 0.0000001) {
+        return;
+      }
+
+      _drawCoords.push(point);
+      _renderPencilPreview();
+    }
+
+    function _startPencilStroke(position) {
+      if (_drawMode !== 'pencil') return;
+      _isDrawing = true;
+      _drawCoords = [];
+      _setDrawCameraEnabled(false);
+      _appendPencilPoint(position);
+    }
+
+    function _finishPencilStroke() {
+      if (!_isDrawing) return;
+      _isDrawing = false;
+      _setDrawCameraEnabled(true);
+
+      if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
+
+      if (_drawCoords.length >= 2) {
+        var localId = 'draw_' + (++_drawCounter) + '_' + Date.now();
+        var color   = '#00ffa6';
+        var grosor  = 4;
+
+        var ent = viewer.entities.add({
+          id: localId,
+          polyline: {
+            positions: _drawCoords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
+            width: grosor,
+            material: Cesium.Color.fromCssColorString(color),
+            clampToGround: true
+          },
+          properties: { tacticalType: 'freehand-drawing' }
+        });
+
+        drawingEntities.set(localId, ent);
+
+        if (typeof Android !== 'undefined' && typeof Android.onDrawingSaved === 'function') {
+          Android.onDrawingSaved(JSON.stringify({ localId: localId, coords: _drawCoords, color: color, grosor: grosor }));
+        }
+      }
+
+      _drawCoords = [];
+    }
+
+    function _bindPencilDomEvents() {
+      const canvas = viewer && viewer.scene && viewer.scene.canvas;
+      if (!canvas) return;
+      _unbindPencilDomEvents();
+
+      if (window.PointerEvent) {
+        const onPointerDown = function (ev) {
+          if (_drawMode !== 'pencil') return;
+          if (ev.button !== undefined && ev.button !== 0) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (canvas.setPointerCapture && ev.pointerId !== undefined) {
+            try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
+          }
+          _startPencilStroke(_canvasPositionFromClient(ev.clientX, ev.clientY));
+        };
+        const onPointerMove = function (ev) {
+          if (_drawMode !== 'pencil' || !_isDrawing) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          _appendPencilPoint(_canvasPositionFromClient(ev.clientX, ev.clientY));
+        };
+        const onPointerUp = function (ev) {
+          if (_drawMode !== 'pencil') return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (canvas.releasePointerCapture && ev.pointerId !== undefined) {
+            try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
+          }
+          _finishPencilStroke();
+        };
+
+        canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+        canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+        canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+        canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+        _drawDomHandlers = { type: 'pointer', canvas, onPointerDown, onPointerMove, onPointerUp };
+        return;
+      }
+
+      const firstTouch = function (ev) {
+        return (ev.changedTouches && ev.changedTouches[0]) || (ev.touches && ev.touches[0]) || null;
+      };
+      const onTouchStart = function (ev) {
+        if (_drawMode !== 'pencil') return;
+        const touch = firstTouch(ev);
+        if (!touch) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        _startPencilStroke(_canvasPositionFromClient(touch.clientX, touch.clientY));
+      };
+      const onTouchMove = function (ev) {
+        if (_drawMode !== 'pencil' || !_isDrawing) return;
+        const touch = firstTouch(ev);
+        if (!touch) return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        _appendPencilPoint(_canvasPositionFromClient(touch.clientX, touch.clientY));
+      };
+      const onTouchEnd = function (ev) {
+        if (_drawMode !== 'pencil') return;
+        ev.preventDefault();
+        ev.stopPropagation();
+        _finishPencilStroke();
+      };
+
+      canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+      canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+      canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+      _drawDomHandlers = { type: 'touch', canvas, onTouchStart, onTouchMove, onTouchEnd };
+    }
+
+    function _unbindPencilDomEvents() {
+      if (!_drawDomHandlers) return;
+      const h = _drawDomHandlers;
+      if (h.type === 'pointer') {
+        h.canvas.removeEventListener('pointerdown', h.onPointerDown);
+        h.canvas.removeEventListener('pointermove', h.onPointerMove);
+        h.canvas.removeEventListener('pointerup', h.onPointerUp);
+        h.canvas.removeEventListener('pointercancel', h.onPointerUp);
+      } else {
+        h.canvas.removeEventListener('touchstart', h.onTouchStart);
+        h.canvas.removeEventListener('touchmove', h.onTouchMove);
+        h.canvas.removeEventListener('touchend', h.onTouchEnd);
+        h.canvas.removeEventListener('touchcancel', h.onTouchEnd);
+      }
+      _drawDomHandlers = null;
     }
 
     window.startPencilMode = function () {
       _drawMode = 'pencil';
       _destroyDrawHandler();
-      _drawHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-
-      _drawHandler.setInputAction(function (e) {
-        _isDrawing = true;
-        _drawCoords = [];
-        viewer.scene.screenSpaceCameraController.enableRotate    = false;
-        viewer.scene.screenSpaceCameraController.enableTranslate = false;
-        viewer.scene.screenSpaceCameraController.enableZoom      = false;
-        var cart = viewer.camera.pickEllipsoid(e.position, viewer.scene.globe.ellipsoid);
-        if (cart) {
-          var c = Cesium.Cartographic.fromCartesian(cart);
-          _drawCoords.push({ lat: Cesium.Math.toDegrees(c.latitude), lng: Cesium.Math.toDegrees(c.longitude) });
-        }
-      }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
-
-      _drawHandler.setInputAction(function (e) {
-        if (!_isDrawing) return;
-        var cart = viewer.camera.pickEllipsoid(e.endPosition, viewer.scene.globe.ellipsoid);
-        if (!cart) return;
-        var c = Cesium.Cartographic.fromCartesian(cart);
-        _drawCoords.push({ lat: Cesium.Math.toDegrees(c.latitude), lng: Cesium.Math.toDegrees(c.longitude) });
-
-        if (_drawCoords.length >= 2) {
-          if (_previewEnt) viewer.entities.remove(_previewEnt);
-          _previewEnt = viewer.entities.add({
-            polyline: {
-              positions: _drawCoords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
-              width: 4,
-              material: Cesium.Color.fromCssColorString('#00ffa6'),
-              clampToGround: true
-            }
-          });
-        }
-      }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
-
-      _drawHandler.setInputAction(function () {
-        if (!_isDrawing) return;
-        _isDrawing = false;
-        viewer.scene.screenSpaceCameraController.enableRotate    = true;
-        viewer.scene.screenSpaceCameraController.enableTranslate = true;
-        viewer.scene.screenSpaceCameraController.enableZoom      = true;
-
-        if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
-
-        if (_drawCoords.length >= 2) {
-          var localId = 'draw_' + (++_drawCounter) + '_' + Date.now();
-          var color   = '#00ffa6';
-          var grosor  = 4;
-
-          var ent = viewer.entities.add({
-            id: localId,
-            polyline: {
-              positions: _drawCoords.map(function (p) { return Cesium.Cartesian3.fromDegrees(p.lng, p.lat); }),
-              width: grosor,
-              material: Cesium.Color.fromCssColorString(color),
-              clampToGround: true
-            },
-            properties: { tacticalType: 'freehand-drawing' }
-          });
-
-          drawingEntities.set(localId, ent);
-
-          if (typeof Android !== 'undefined' && typeof Android.onDrawingSaved === 'function') {
-            Android.onDrawingSaved(JSON.stringify({ localId: localId, coords: _drawCoords, color: color, grosor: grosor }));
-          }
-        }
-        _drawCoords = [];
-      }, Cesium.ScreenSpaceEventType.LEFT_UP);
+      _bindPencilDomEvents();
     };
 
     window.stopPencilMode = function () {
@@ -1170,9 +1449,7 @@
       _isDrawing = false;
       _drawCoords = [];
       if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
-      viewer.scene.screenSpaceCameraController.enableRotate    = true;
-      viewer.scene.screenSpaceCameraController.enableTranslate = true;
-      viewer.scene.screenSpaceCameraController.enableZoom      = true;
+      _setDrawCameraEnabled(true);
       if (_drawMode === 'pencil') _drawMode = null;
     };
 
@@ -1240,6 +1517,18 @@
         }
       } catch (e) {
         console.error('Error removeDrawingFromMap: ' + e.message);
+      }
+    };
+
+    window.removeDrawingByLocalId = function (localId) {
+      try {
+        var ent = drawingEntities.get(localId);
+        if (ent) {
+          viewer.entities.remove(ent);
+          drawingEntities.delete(localId);
+        }
+      } catch (e) {
+        console.error('Error removeDrawingByLocalId: ' + e.message);
       }
     };
   </script>

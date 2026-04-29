@@ -8,7 +8,8 @@ import {
 } from "./dashboard.storage.js";
 import {
   renderInfoPanel,
-  updateChatAvailability
+  updateChatAvailability,
+  openPanel
 } from "./dashboard.ui.js";
 import { bindDashboardEvents } from "./dashboard.events.js";
 import { initChat, bindChatEvents } from "./dashboard.chat.js";
@@ -293,8 +294,7 @@ window.addEventListener("load", async () => {
   loadCurrentOperationOnMap();
 
   // Abrir panel de info al cargar
-  if (dom.infoPanel) dom.infoPanel.classList.add("open");
-  if (dom.toggleInfoPanel) dom.toggleInfoPanel.classList.add("active");
+  openPanel(dom.infoPanel, dom.toggleInfoPanel);
 
   // Cargar datos de la operación desde BD
   const bdData = await loadDashboardFromBD();

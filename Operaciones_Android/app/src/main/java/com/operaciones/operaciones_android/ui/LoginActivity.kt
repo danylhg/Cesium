@@ -1,9 +1,12 @@
 package com.operaciones.operaciones_android.ui
 import com.operaciones.operaciones_android.config.ApiConfig
 import android.content.Intent
+import android.graphics.Rect
 import android.os.Bundle
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
@@ -48,12 +51,25 @@ class LoginActivity : AppCompatActivity() {
             if (actionId == EditorInfo.IME_ACTION_DONE) { attemptLogin(); true } else false
         }
 
+        btnLogin.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_DOWN) hideKeyboard()
+            false
+        }
         btnLogin.setOnClickListener { attemptLogin() }
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_DOWN) {
+            hideKeyboardIfTouchOutsideFocusedInput(event)
+        }
+        return super.dispatchTouchEvent(event)
     }
 
     // ── Paso 1: autenticar ────────────────────────────────────────────────────
 
     private fun attemptLogin() {
+        hideKeyboard()
+
         val username = inputUsername.text.toString().trim()
         val password = inputPassword.text.toString()
         tvError.visibility = View.GONE
@@ -247,5 +263,29 @@ class LoginActivity : AppCompatActivity() {
         progress.visibility = if (loading) View.VISIBLE else View.GONE
         btnLogin.isEnabled  = !loading
         btnLogin.alpha      = if (loading) 0.6f else 1f
+    }
+
+    private fun hideKeyboard() {
+        inputUsername.clearFocus()
+        inputPassword.clearFocus()
+        btnLogin.requestFocus()
+
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        val token = currentFocus?.windowToken ?: btnLogin.windowToken
+        imm.hideSoftInputFromWindow(token, 0)
+    }
+
+    private fun hideKeyboardIfTouchOutsideFocusedInput(event: MotionEvent) {
+        val focusedInput = currentFocus as? EditText ?: return
+        val inputBounds = Rect()
+        focusedInput.getGlobalVisibleRect(inputBounds)
+
+        if (inputBounds.contains(event.rawX.toInt(), event.rawY.toInt())) return
+
+        focusedInput.clearFocus()
+        btnLogin.requestFocus()
+
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(focusedInput.windowToken, 0)
     }
 }

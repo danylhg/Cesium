@@ -17,6 +17,20 @@ class MainJsBridge(
     }
 
     @JavascriptInterface
+    fun onMapObjectSelected(payloadJson: String) {
+        activity.runOnUiThread {
+            activity.onMapObjectSelectedFromBridge(payloadJson)
+        }
+    }
+
+    @JavascriptInterface
+    fun onMapSelectionCleared() {
+        activity.runOnUiThread {
+            activity.clearSelectedMapObject()
+        }
+    }
+
+    @JavascriptInterface
     fun sendTrafficAlert(message: String) {
         activity.runOnUiThread {
             if (message == "Mapa listo") {

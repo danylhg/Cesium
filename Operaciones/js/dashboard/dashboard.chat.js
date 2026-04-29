@@ -2,7 +2,7 @@
 
 import { dom } from "./dashboard.dom.js";
 import { escapeHtml } from "./dashboard.storage.js";
-import { formatTime } from "./dashboard.ui.js";
+import { formatTime, openPanel } from "./dashboard.ui.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
@@ -543,8 +543,7 @@ export function bindChatEvents() {
       setChannel("vehiculo", id);
     }
 
-    dom.chatPanel?.classList.add("open");
-    dom.toggleChatPanel?.classList.add("active");
+    openPanel(dom.chatPanel, dom.toggleChatPanel);
     dom.chatInput?.focus();
   });
 
