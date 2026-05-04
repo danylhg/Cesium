@@ -1,6 +1,9 @@
 import { btnBack, btnVolver, btnDashboardGo } from "../../core/dom.js";
 import { state } from "../../core/state.js";
-import { saveOperacionActual } from "../operacion/operacion.service.js";
+import {
+  flushPersistOperacionActualEnBackend,
+  saveOperacionActual
+} from "../operacion/operacion.service.js";
 import { saveOperacionYAsignacion } from "../asignacion/asignacion.service.js";
 import { removeStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL, STORAGE_ASIGNACION_ACTUAL } from "../../core/constants.js";
@@ -46,8 +49,17 @@ export function bindNavigation() {
     window.location.href = "menu_inicial.html";
   });
 
-  btnDashboardGo?.addEventListener("click", () => {
-    saveOperacionYAsignacion(saveOperacionActual);
-    window.location.href = "dashboard.html";
+  btnDashboardGo?.addEventListener("click", async () => {
+    btnDashboardGo.disabled = true;
+
+    try {
+      await flushPersistOperacionActualEnBackend();
+      await saveOperacionYAsignacion(saveOperacionActual);
+      window.location.href = "dashboard.html";
+    } catch (error) {
+      console.error("No se pudo guardar la operacion antes de volver al dashboard:", error);
+      alert("No se pudo guardar la operacion. Revisa los datos e intenta de nuevo.");
+      btnDashboardGo.disabled = false;
+    }
   });
 }

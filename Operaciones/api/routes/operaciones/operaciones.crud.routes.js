@@ -270,7 +270,7 @@ router.put("/ops/:id", requireAuth, async (req, res) => {
 
     // Primero revisa si la operación existe y cuál es su estado
     const { rows: currentRows } = await pool.query(
-      "SELECT id_operacion, estado FROM operacion WHERE id_operacion = $1",
+      "SELECT id_operacion, estado, fecha_fin FROM operacion WHERE id_operacion = $1",
       [id_operacion]
     );
 
@@ -311,18 +311,24 @@ router.put("/ops/:id", requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, mensaje: "fecha_inicio inválida" });
     }
 
+    // Si la nueva fecha_inicio supera la fecha_fin almacenada, limpia fecha_fin para
+    // evitar violar CHECK (fecha_fin >= fecha_inicio). El usuario deberá reasignarla.
+    const currentFechaFin = currentRows[0].fecha_fin ? new Date(currentRows[0].fecha_fin) : null;
+    const newFechaFin = (fi && currentFechaFin && fi > currentFechaFin) ? null : currentFechaFin;
+
     // Actualiza solo los campos permitidos
     const { rows } = await pool.query(
       `UPDATE operacion
-       SET nombre = $1, descripcion = $2, prioridad = $3, fecha_inicio = $4
-       WHERE id_operacion = $5
+       SET nombre = $1, descripcion = $2, prioridad = $3, fecha_inicio = $4, fecha_fin = $5
+       WHERE id_operacion = $6
        RETURNING id_operacion, codigo, nombre, descripcion, prioridad, fecha_inicio, fecha_fin, fecha_creacion, estado`,
       [
-        nombre.trim(),                         // nuevo nombre
-        (descripcion || "").trim() || null,    // nueva descripción o null
-        prio,                                  // prioridad validada
-        fi ? fi.toISOString() : null,          // nueva fecha_inicio
-        id_operacion                           // id a modificar
+        nombre.trim(),                              // nuevo nombre
+        (descripcion || "").trim() || null,         // nueva descripción o null
+        prio,                                       // prioridad validada
+        fi ? fi.toISOString() : null,               // nueva fecha_inicio
+        newFechaFin ? newFechaFin.toISOString() : null, // fecha_fin ajustada
+        id_operacion                                // id a modificar
       ]
     );
 

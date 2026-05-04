@@ -20,7 +20,7 @@ import { validateDateTime } from "./core/utils.js";
 import { showDashboardButton } from "./core/ui.js";
 
 import {
-  saveOperacionActual,
+  schedulePersistOperacionActualEnBackend,
   loadOperacionActualIntoForm,
   cargarOperacionRemota
 } from "./modules/operacion/operacion.service.js";
@@ -30,6 +30,8 @@ import { bindNavigation } from "./modules/navigation/asignacion.navigation.js";
 import { renderHome } from "./views/home.view.js";
 
 function bindFormEvents() {
+  const saveOperacionChange = () => schedulePersistOperacionActualEnBackend();
+
   if (btnHoy && opInicioEl) {
     btnHoy.addEventListener("click", () => {
       const d = new Date();
@@ -37,7 +39,7 @@ function bindFormEvents() {
       const mm = String(d.getMonth() + 1).padStart(2, "0");
       const dd = String(d.getDate()).padStart(2, "0");
       opInicioEl.value = `${yyyy}-${mm}-${dd}`;
-      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
+      saveOperacionChange();
     });
   }
 
@@ -48,7 +50,7 @@ function bindFormEvents() {
         v = v.substring(0, 2) + ":" + v.substring(2, 4);
       }
       e.target.value = v;
-      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
+      saveOperacionChange();
     });
 
     opHoraInicioEl.addEventListener("blur", function (e) {
@@ -59,7 +61,7 @@ function bindFormEvents() {
         m = Math.min(59, parseInt(m) || 0);
         e.target.value = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
         validateDateTime(opInicioEl, opHoraInicioEl);
-        saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
+        saveOperacionChange();
       }
     });
   }
@@ -81,7 +83,7 @@ function bindFormEvents() {
         }
       }
 
-      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
+      saveOperacionChange();
       if (field === opNombreEl && lblOperacion) {
         lblOperacion.textContent = opNombreEl.value || "—";
       }
@@ -167,13 +169,15 @@ async function init() {
       // Cargar operación desde BD y normalizar keys para el formulario
       const opData = await cargarOperacionRemota(opId);
       if (opData) {
+        const fechaInicioRaw = opData.fecha_inicio || "";
         const opNorm = {
           id: opData.id_operacion,
           title: opData.nombre,
           titulo: opData.nombre,
           description: opData.descripcion,
           descripcion: opData.descripcion,
-          fecha_inicio: opData.fecha_inicio ? opData.fecha_inicio.split("T")[0] : "",
+          fecha_inicio: fechaInicioRaw ? String(fechaInicioRaw).split("T")[0] : "",
+          hora_inicio: opData.hora_inicio || (String(fechaInicioRaw).includes("T") ? String(fechaInicioRaw).split("T")[1].slice(0, 5) : ""),
           prioridad: opData.prioridad,
           estado: opData.estado
         };

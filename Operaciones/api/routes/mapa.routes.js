@@ -866,7 +866,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       // 2) Zona principal de la operación
       // -------------------------------------------------
       pool.query(
-        `SELECT id_zona, id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color
+        `SELECT id_zona, id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color,
+                estado_operacion_creacion
          FROM zona_operacion
          WHERE id_operacion = $1
          ORDER BY id_zona ASC
@@ -890,7 +891,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       //    depender del shape de v_capas_mapa_operacion.
       // -------------------------------------------------
       pool.query(
-        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color, icono_src, sidc
+        `SELECT id_poi, nombre, tipo_poi, latitud, longitud, color, icono_src, sidc,
+                estado_operacion_creacion
            FROM v_poi_detalle
           WHERE id_operacion = $1
             AND activo = TRUE
@@ -916,6 +918,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             p.rol,
             p.puesto,
             a.rol_en_operacion,
+            a.estado_operacion_creacion,
             go.id_grupo_operacion,
             go.nombre          AS grupo_nombre,
             go.apodo           AS grupo_apodo,
@@ -1028,6 +1031,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             v.alias,
             v.alias AS nombre,
             vo.estado_asignacion,
+            vo.estado_operacion_creacion,
             vo.nivel_asignacion,
             vo.nivel_asignacion AS tipo_destino,
             vo.id_personal,
@@ -1118,6 +1122,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             oe.cantidad,
             oe.uso_en_operacion,
             oe.estado_asignacion,
+            oe.estado_operacion_creacion,
+            ueo.estado_operacion_creacion AS uso_estado_operacion_creacion,
             COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
             ec.marca,
             ec.modelo,
@@ -1221,7 +1227,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             `SELECT
                 rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
                 rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
-                rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.fecha_creacion,
+                rn.created_by_tipo, rn.id_usuario, rn.id_personal,
+                rn.estado_operacion_creacion, rn.fecha_creacion,
                 COALESCE(u.rol::text, p.rol::text) AS rol_creador
              FROM ruta_navegacion rn
              LEFT JOIN usuario  u ON rn.created_by_tipo = 'USUARIO'   AND rn.id_usuario  = u.id_usuario
@@ -1245,7 +1252,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
           `SELECT
               rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
               rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
-              rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.fecha_creacion,
+              rn.created_by_tipo, rn.id_usuario, rn.id_personal,
+              rn.estado_operacion_creacion, rn.fecha_creacion,
               COALESCE(u.rol::text, p.rol::text) AS rol_creador
            FROM ruta_navegacion rn
            LEFT JOIN usuario  u ON rn.created_by_tipo = 'USUARIO'   AND rn.id_usuario  = u.id_usuario
@@ -1289,7 +1297,7 @@ router.get("/ops/:id/dibujos", requireAuth, async (req, res) => {
   }
   try {
     const { rows } = await pool.query(
-      `SELECT id_dibujo, puntos, color, grosor
+      `SELECT id_dibujo, puntos, color, grosor, estado_operacion_creacion
          FROM dibujo_libre_operacion
         WHERE id_operacion = $1 AND activo = TRUE
         ORDER BY fecha_creacion ASC`,
@@ -1333,7 +1341,8 @@ router.post("/ops/:id/dibujos", requireAuth, async (req, res) => {
       `INSERT INTO dibujo_libre_operacion
          (tipo_creador, id_usuario, id_personal, id_operacion, puntos, color, grosor)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-       RETURNING id_dibujo, id_operacion, puntos, color, grosor, activo, fecha_creacion`,
+       RETURNING id_dibujo, id_operacion, puntos, color, grosor, activo,
+                 fecha_creacion, estado_operacion_creacion`,
       [
         tipo,
         id_usuario ? Number(id_usuario) : null,
@@ -1378,7 +1387,8 @@ router.delete("/ops/:id/dibujos/:id_dibujo", requireAuth, async (req, res) => {
       `UPDATE dibujo_libre_operacion
           SET activo = FALSE
         WHERE id_dibujo = $1 AND id_operacion = $2 AND activo = TRUE
-        RETURNING id_dibujo, id_operacion, puntos, color, grosor, activo, fecha_creacion`,
+        RETURNING id_dibujo, id_operacion, puntos, color, grosor, activo,
+                  fecha_creacion, estado_operacion_creacion`,
       [id_dibujo, id_operacion]
     );
     if (!rows[0]) {
@@ -1496,7 +1506,7 @@ router.patch("/ops/:id/dibujos/:id_dibujo/restore", requireAuth, async (req, res
       `UPDATE dibujo_libre_operacion
           SET activo = TRUE
         WHERE id_dibujo = $1 AND id_operacion = $2
-        RETURNING id_dibujo`,
+        RETURNING id_dibujo, estado_operacion_creacion`,
       [id_dibujo, id_operacion]
     );
     if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Dibujo no existe" });

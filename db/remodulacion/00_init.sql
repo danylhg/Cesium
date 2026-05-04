@@ -25,3 +25,4 @@
 \ir 19_patch_poi_sidc.sql
 \ir 20_patch_dibujo_libre.sql
 \ir 21_patch_operacion_evento.sql
+\ir 22_patch_estado_operacion_creacion.sql

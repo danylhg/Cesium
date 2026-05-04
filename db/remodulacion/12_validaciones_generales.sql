@@ -386,26 +386,28 @@ BEGIN
 
   IF v_estado IN ('CERRADA','CANCELADA') THEN
 
-    IF TG_TABLE_NAME = 'mensaje_chat' AND NEW.tipo_mensaje = 'SISTEMA' THEN
-      RETURN NEW;
+    IF TG_TABLE_NAME = 'mensaje_chat' THEN
+      IF NEW.tipo_mensaje = 'SISTEMA' THEN
+        RETURN NEW;
+      END IF;
     END IF;
 
-    IF TG_TABLE_NAME = 'asignacion_operacion_personal'
-       AND TG_OP = 'UPDATE'
-       AND NEW.estado_asignacion = 'LIBERADO' THEN
-      RETURN NEW;
+    IF TG_TABLE_NAME = 'asignacion_operacion_personal' THEN
+      IF TG_OP = 'UPDATE' AND NEW.estado_asignacion = 'LIBERADO' THEN
+        RETURN NEW;
+      END IF;
     END IF;
 
-    IF TG_TABLE_NAME = 'vehiculo_operacion'
-       AND TG_OP = 'UPDATE'
-       AND NEW.estado_asignacion = 'LIBERADO' THEN
-      RETURN NEW;
+    IF TG_TABLE_NAME = 'vehiculo_operacion' THEN
+      IF TG_OP = 'UPDATE' AND NEW.estado_asignacion = 'LIBERADO' THEN
+        RETURN NEW;
+      END IF;
     END IF;
 
-    IF TG_TABLE_NAME = 'operacion_equipo'
-       AND TG_OP = 'UPDATE'
-       AND NEW.estado_asignacion = 'LIBERADO' THEN
-      RETURN NEW;
+    IF TG_TABLE_NAME = 'operacion_equipo' THEN
+      IF TG_OP = 'UPDATE' AND NEW.estado_asignacion = 'LIBERADO' THEN
+        RETURN NEW;
+      END IF;
     END IF;
 
     RAISE EXCEPTION

@@ -46,7 +46,8 @@ router.get("/ops/personal/:id_personal", requireAuth, async (req, res) => {
       `SELECT
          o.id_operacion, o.codigo, o.nombre, o.descripcion,
          o.prioridad, o.estado, o.fecha_inicio, o.fecha_fin,
-         a.rol_en_operacion, a.estado_asignacion
+         a.rol_en_operacion, a.estado_asignacion,
+         a.estado_operacion_creacion
        FROM asignacion_operacion_personal a
        JOIN operacion o ON o.id_operacion = a.id_operacion
        WHERE a.id_personal = $1
@@ -72,7 +73,8 @@ router.get("/ops/personal/:id_personal", requireAuth, async (req, res) => {
 
     // Busca la zona geográfica principal asociada a esa operación
     const zonaRes = await pool.query(
-      `SELECT centroide_lat, centroide_lon, zoom_inicial, color, geometria
+      `SELECT centroide_lat, centroide_lon, zoom_inicial, color, geometria,
+              estado_operacion_creacion
        FROM zona_operacion WHERE id_operacion = $1 LIMIT 1`,
       [operacion.id_operacion]
     );
@@ -92,6 +94,7 @@ router.get("/ops/personal/:id_personal", requireAuth, async (req, res) => {
             zoom_inicial: zona.zoom_inicial,
             color: zona.color,
             geometria: zona.geometria,
+            estado_operacion_creacion: zona.estado_operacion_creacion,
           }
           : null,
       },
@@ -146,6 +149,7 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         -- Datos de la asignación dentro de la operación
         a.rol_en_operacion,
         a.estado_asignacion,
+        a.estado_operacion_creacion,
 
         -- Grupo al que pertenece directamente el personal
         go.id_grupo_operacion,
@@ -404,6 +408,7 @@ router.get("/ops/:id/vehiculos-asignados", requireAuth, async (req, res) => {
         vo.nivel_asignacion AS tipo_destino,
         vo.nivel_asignacion AS uso_en_operacion,
         vo.estado_asignacion,
+        vo.estado_operacion_creacion,
         vo.id_grupo_operacion,
 
         -- Grupo efectivo del vehículo: si tiene grupo explícito se usa ese;
@@ -517,6 +522,8 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
          oe.cantidad,
          oe.uso_en_operacion,
          oe.estado_asignacion,
+         oe.estado_operacion_creacion,
+         ueo.estado_operacion_creacion AS uso_estado_operacion_creacion,
          COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
          ec.marca,
          ec.modelo,

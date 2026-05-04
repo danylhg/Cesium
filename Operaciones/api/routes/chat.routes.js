@@ -165,6 +165,7 @@ router.get("/ops/:id/chat", requireAuth, async (req, res) => {
         m.destino_tipo,
         m.destino_id,
         m.destino_label,
+        m.estado_operacion_creacion,
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
@@ -611,6 +612,7 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
         m.destino_tipo,
         m.destino_id,
         m.destino_label,
+        m.estado_operacion_creacion,
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
@@ -753,7 +755,8 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio,
-                destinatario_rol, destino_tipo, destino_id, destino_label
+                destinatario_rol, destino_tipo, destino_id, destino_label,
+                estado_operacion_creacion
       `,
       [
         id_chat,
