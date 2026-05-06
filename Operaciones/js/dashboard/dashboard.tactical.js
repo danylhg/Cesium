@@ -684,12 +684,79 @@ async function saveStructureToBackend(lat, lng, nombre, tipoEstructura) {
   }
 }
 
+function parseJsonObject(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" ? value : null;
+}
+
+function normalizeAreaGeometry(area) {
+  return parseJsonObject(area?.geometria ?? area?.geometry);
+}
+
+function normalizeAreaMeta(area, geometry) {
+  return parseJsonObject(geometry?.meta)
+    || parseJsonObject(geometry?.metadata)
+    || parseJsonObject(geometry?.properties)
+    || parseJsonObject(area?.meta)
+    || parseJsonObject(area?.metadata)
+    || {};
+}
+
+function getCircleCenter(area, meta) {
+  const center = Array.isArray(meta.center) ? meta.center : null;
+  if (center && center.length >= 2) {
+    return {
+      lng: Number(center[0]),
+      lat: Number(center[1])
+    };
+  }
+
+  return {
+    lng: Number(area?.center_lon ?? area?.centroide_lon ?? area?.longitud ?? area?.lon ?? area?.lng),
+    lat: Number(area?.center_lat ?? area?.centroide_lat ?? area?.latitud ?? area?.lat)
+  };
+}
+
+function makeCircleAreaData(idArea, lat, lng, radius, nombre, colorName) {
+  return {
+    id_area: idArea,
+    nombre: nombre || "Círculo de cobertura",
+    color: COLOR_HEX_MAP[colorName] || "#FF4500",
+    geometria: {
+      type: "Polygon",
+      coordinates: circleToPolygonCoordinates(lat, lng, radius),
+      meta: {
+        shape: "circle",
+        center: [lng, lat],
+        radius_m: radius,
+        opacity: getOpacity(),
+        outline_width: getLineWidth()
+      }
+    }
+  };
+}
+
+function removeTacticalEntity(entity) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !entity) return;
+  viewer.entities.remove(entity);
+  dashboardState.tacticalEntities = (dashboardState.tacticalEntities || [])
+    .filter(ent => ent !== entity);
+}
+
 function buildAreaEntity(area) {
   const viewer = dashboardState.viewer;
   if (!viewer) return null;
 
-  const geometry = area?.geometria;
-  const meta = geometry?.meta || {};
+  const geometry = normalizeAreaGeometry(area);
+  const meta = normalizeAreaMeta(area, geometry);
   if (geometry?.type !== "Polygon") return null;
 
   const opacity = Number(meta.opacity ?? 0.35);
@@ -701,15 +768,15 @@ function buildAreaEntity(area) {
 
   if (entityId && viewer.entities.getById(entityId)) return null;
 
-  if (meta?.shape === "circle") {
-    const center = Array.isArray(meta.center) ? meta.center : null;
-    const radius = Number(meta.radius_m);
+  if (String(meta?.shape || "").toLowerCase() === "circle") {
+    const center = getCircleCenter(area, meta);
+    const radius = Number(meta.radius_m ?? area?.radius_m ?? area?.radio_m);
 
-    if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) {
+    if (!Number.isFinite(radius) || radius <= 0) {
       return null;
     }
 
-    const [lng, lat] = center;
+    const { lng, lat } = center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
     return viewer.entities.add({
@@ -742,7 +809,7 @@ function buildAreaEntity(area) {
     });
   }
 
-  if (meta?.shape !== "polygon") return null;
+  if (String(meta?.shape || "polygon").toLowerCase() !== "polygon") return null;
 
   const coordinates = Array.isArray(geometry?.coordinates?.[0]) ? geometry.coordinates[0] : null;
   if (!coordinates || coordinates.length < 4) return null;
@@ -1481,12 +1548,37 @@ export async function createLabel(lat, lng) {
 }
 
 export async function createCircle(lat, lng) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
+
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
   const radius = getRadius();
-  let savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
-  
+  const localArea = makeCircleAreaData(`local_${Date.now()}`, lat, lng, radius, label, colorName);
+  const localEntity = buildAreaEntity(localArea);
+  if (localEntity) dashboardState.tacticalEntities.push(localEntity);
+  if (dom.tbHint) dom.tbHint.textContent = "CÃ­rculo de cobertura colocado.";
+
+  const savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
   if (!savedArea) {
+    if (localEntity?.id) {
+      saveTacticalData();
+      pushUndoAction({
+        type: "add",
+        entityId: localEntity.id,
+        entityRef: localEntity,
+        source: "tactical"
+      });
+    }
+    return;
+  }
+  
+  if (localEntity) removeTacticalEntity(localEntity);
+
+  const existing = viewer.entities.getById(`area_${savedArea.id_area}`);
+  if (existing) return;
+
+  /*
     // Fallback local
     const fallbackId = `local_${Date.now()}`;
     savedArea = {
@@ -1506,6 +1598,8 @@ export async function createCircle(lat, lng) {
         }
     };
   }
+
+  */
 
   const entFromBackend = buildAreaEntity(savedArea);
   if (!entFromBackend) return;
@@ -1823,15 +1917,16 @@ function applyStructureUpdateToEntity(entity, estructura) {
 }
 
 function applyAreaUpdateToEntity(entity, area) {
-  const geometry = area?.geometria;
-  const meta = geometry?.meta || {};
-  if (meta?.shape !== "circle") return;
+  const geometry = normalizeAreaGeometry(area);
+  const meta = normalizeAreaMeta(area, geometry);
+  if (String(meta?.shape || "").toLowerCase() !== "circle") return;
 
-  const center = Array.isArray(meta.center) ? meta.center : null;
-  const radius = Number(meta.radius_m);
-  if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) return;
+  const center = getCircleCenter(area, meta);
+  const radius = Number(meta.radius_m ?? area?.radius_m ?? area?.radio_m);
+  if (!Number.isFinite(radius) || radius <= 0) return;
 
-  const [lng, lat] = center;
+  const { lng, lat } = center;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   entity.position = Cesium.Cartesian3.fromDegrees(lng, lat);
 }
 

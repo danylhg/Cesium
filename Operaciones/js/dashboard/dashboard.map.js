@@ -639,7 +639,11 @@ export function initCesium() {
   });
 
   dashboardState.viewer = viewer;
-  configureGoogleLikeCamera(viewer);
+  configureGoogleLikeCamera(viewer, {
+    inertiaZoom: 0.08,
+    maximumMovementRatio: 0.18,
+    zoomFactor: 4.8
+  });
 
   viewer.geocoder.viewModel.destinationFound = function (_viewModel, destination) {
     viewer.camera.flyTo({ destination });

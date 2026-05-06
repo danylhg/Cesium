@@ -34,8 +34,6 @@ import {
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
 
-Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
-
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";
 let connectionBanner = null;
@@ -72,6 +70,20 @@ function setServerConnectionState(isConnected, message = CONNECTION_LOST_MESSAGE
   const banner = ensureConnectionBanner();
   banner.textContent = message;
   banner.style.display = isConnected ? "none" : "block";
+}
+
+async function loadCesiumToken() {
+  const data = await apiFetch("/config/cesium-token");
+
+  if (data?.token) {
+    Cesium.Ion.defaultAccessToken = data.token;
+    localStorage.setItem("CESIUM_TOKEN", data.token);
+    return true;
+  }
+
+  localStorage.removeItem("CESIUM_TOKEN");
+  setServerConnectionState(false, "Token de Cesium no configurado en el servidor.");
+  return false;
 }
 
 async function apiFetchEstado(opId, nuevoEstado) {
@@ -284,6 +296,7 @@ function bindPlanningLogoutChoice() {
 window.addEventListener("load", async () => {
   ensureConnectionBanner();
   bindPlanningLogoutChoice();
+  await loadCesiumToken();
   initCesium();
   bindChatEvents();
   bindTacticalEvents();

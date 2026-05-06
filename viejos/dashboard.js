@@ -2,7 +2,7 @@
 // 🔥 Seguridad: el token se carga desde el backend para no exponerlo en el JS público.
 let CESIUM_ACCESS_TOKEN = null;
 // Token de reserva (se usará solo si el backend no está disponible)
-const _CESIUM_FALLBACK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
+const _CESIUM_FALLBACK = "";
 async function loadCesiumToken() {
   try {
     const base = typeof API_BASE !== "undefined" ? API_BASE : `http://${window.location.hostname}:3001`;

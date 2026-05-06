@@ -134,6 +134,29 @@ class CesiumWebController(
         }
     }
 
+    fun followTrackingPersonal(idPersonal: Int, latitude: Double, longitude: Double, zoom: Int = 500) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function(){
+                    if (typeof followTrackingPersonal === 'function') {
+                        followTrackingPersonal($idPersonal, $latitude, $longitude, $zoom);
+                        return 'OK';
+                    }
+                    if (typeof selectTrackingPersonal === 'function') {
+                        selectTrackingPersonal($idPersonal);
+                    }
+                    if (typeof centerOnLocation === 'function') {
+                        centerOnLocation($latitude, $longitude, $zoom, false);
+                    }
+                    return 'OK';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
     fun clearTrackingSelection() {
         webView.post {
             webView.evaluateJavascript(

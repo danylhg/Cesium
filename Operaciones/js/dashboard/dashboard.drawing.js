@@ -372,6 +372,26 @@ export function startPencilMode() {
       const pos = cartesianToLatLng(cartesian);
       _currentDrawCoords.push(pos);
     }
+
+    const colorName = getCurrentColorName();
+    const cesiumColor = getCesiumColor(colorName, 1);
+    _currentPreviewEntity = viewer.entities.add({
+      polyline: {
+        positions: new Cesium.CallbackProperty(() => {
+          if (_currentDrawCoords.length < 2) return [];
+          return _currentDrawCoords.map(c =>
+            Cesium.Cartesian3.fromDegrees(c.lng, c.lat)
+          );
+        }, false),
+        width: getLineWidth(),
+        material: cesiumColor,
+        clampToGround: true
+      },
+      properties: {
+        tacticalType: "freehand-drawing-preview",
+        draggable: false
+      }
+    });
   }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
 
   _pencilHandler.setInputAction((movement) => {
@@ -385,26 +405,7 @@ export function startPencilMode() {
     const pos = cartesianToLatLng(cartesian);
     _currentDrawCoords.push(pos);
 
-    // Update live preview
-    if (_currentDrawCoords.length >= 2) {
-      if (_currentPreviewEntity) viewer.entities.remove(_currentPreviewEntity);
-
-      const positions = _currentDrawCoords.map(c =>
-        Cesium.Cartesian3.fromDegrees(c.lng, c.lat)
-      );
-
-      const colorName = getCurrentColorName();
-      const cesiumColor = getCesiumColor(colorName, 1);
-
-      _currentPreviewEntity = viewer.entities.add({
-        polyline: {
-          positions,
-          width: getLineWidth(),
-          material: cesiumColor,
-          clampToGround: true
-        }
-      });
-    }
+    viewer.scene.requestRender?.();
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
   _pencilHandler.setInputAction(() => {

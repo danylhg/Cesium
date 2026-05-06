@@ -194,6 +194,7 @@ class MainActivity : AppCompatActivity(),
     private var opZoom = 8000
     private var lastRouteId: Int = -1
     private var centerOnNextLocation = false
+    private var followedPersonalId: Int? = null
 
     // Última posición conocida del usuario — se emite al socket cuando se conecta
     private var lastKnownLat: Double? = null
@@ -211,9 +212,17 @@ class MainActivity : AppCompatActivity(),
     private val simulationReturnStartPersonPoints = mutableMapOf<Int, SimulationRoutePoint>()
     private var simulationLastVehiclePoint: SimulationRoutePoint? = null
     private var simulationReturnVehiclePoint: SimulationRoutePoint? = null
+    private val simulationPersonToVehicleRoutes = mutableMapOf<Int, List<SimulationRoutePoint>>()
+    private val simulationPersonReturnRoutes = mutableMapOf<Int, List<SimulationRoutePoint>>()
+    private var simulationVehicleToRoutePoints: List<SimulationRoutePoint> = emptyList()
+    private var simulationVehicleReturnPoints: List<SimulationRoutePoint> = emptyList()
+    private var simulationVehicleStartPoint: SimulationRoutePoint? = null
+    private var simulationRoutePlanGeneration = 0
+    private var simulationTargetsSnapshot: List<PersonalItem> = emptyList()
+    private var simulationVehicleTargetSnapshot: VehiculoItem? = null
     private var simulationRouteDistanceSq = Double.POSITIVE_INFINITY
-    private val simulationAnchorLat = 19.04502
-    private val simulationAnchorLon = -95.97207
+    private val simulationAnchorLat = 19.04497
+    private val simulationAnchorLon = -95.97219
 
     // POIs pendientes de dibujar hasta que Cesium esté listo
     private var pendingPoisJson: String? = null
@@ -611,6 +620,9 @@ class MainActivity : AppCompatActivity(),
                 cesiumWebController.updateMyPosition(latitude, longitude)
                 if (::currentUser.isInitialized) {
                     panelRenderer.updatePersonalLocation(currentUser.id, latitude, longitude)
+                    if (followedPersonalId == currentUser.id) {
+                        cesiumWebController.centerOnLocation(latitude, longitude, zoom = 500, follow = true)
+                    }
                 }
                 if (centerOnNextLocation) {
                     centerOnNextLocation = false
@@ -1027,9 +1039,14 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun selectPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String) {
+        followedPersonalId = idPersonal
         panelRenderer.selectPersonal(idPersonal)
-        cesiumWebController.selectTrackingPersonal(idPersonal)
-        cesiumWebController.centerOnLocation(lat, lon, zoom = 500)
+        if (::currentUser.isInitialized && idPersonal == currentUser.id) {
+            cesiumWebController.selectTrackingPersonal(idPersonal)
+            cesiumWebController.centerOnLocation(lat, lon, zoom = 500, follow = true)
+        } else {
+            cesiumWebController.followTrackingPersonal(idPersonal, lat, lon, zoom = 500)
+        }
     }
 
     override fun refreshPersonalPanelIfActive() {
@@ -1465,6 +1482,11 @@ class MainActivity : AppCompatActivity(),
                 simulationRouteDistanceSq = selectedDistanceSq
                 simulationRouteStartTick = null
                 simulationRouteDeletedTick = null
+                simulationReturnStartPersonPoints.clear()
+                simulationReturnVehiclePoint = null
+                if (simulationActive) {
+                    prepareSimulationActiveRouteLegs()
+                }
             }
         } catch (e: Exception) {
             Log.w("SIMULATION", "No se pudo cargar ruta para simulacion: ${e.message}")
@@ -1481,6 +1503,11 @@ class MainActivity : AppCompatActivity(),
                 simulationRouteDistanceSq = distanceSq
                 simulationRouteStartTick = null
                 simulationRouteDeletedTick = null
+                simulationReturnStartPersonPoints.clear()
+                simulationReturnVehiclePoint = null
+                if (simulationActive) {
+                    prepareSimulationActiveRouteLegs()
+                }
             }
         } catch (e: Exception) {
             Log.w("SIMULATION", "No se pudo actualizar ruta para simulacion: ${e.message}")
@@ -1496,10 +1523,12 @@ class MainActivity : AppCompatActivity(),
             simulationReturnStartPersonPoints.clear()
             simulationReturnStartPersonPoints.putAll(simulationLastPersonPoints)
             simulationReturnVehiclePoint = simulationLastVehiclePoint
+            prepareSimulationReturnRouteLegs()
         } else {
             simulationRouteDeletedTick = null
             simulationReturnStartPersonPoints.clear()
             simulationReturnVehiclePoint = null
+            clearSimulationRouteLegs()
         }
     }
 
@@ -1537,6 +1566,194 @@ class MainActivity : AppCompatActivity(),
                     lon = coord.optDouble(0)
                 )
             )
+        }
+        return points
+    }
+
+    private fun clearSimulationRouteLegs() {
+        simulationRoutePlanGeneration += 1
+        simulationPersonToVehicleRoutes.clear()
+        simulationPersonReturnRoutes.clear()
+        simulationVehicleToRoutePoints = emptyList()
+        simulationVehicleReturnPoints = emptyList()
+    }
+
+    private fun simulationDefaultVehicleStartPoint(): SimulationRoutePoint {
+        val vehicleStartDistanceM = 85.0
+        return SimulationRoutePoint(
+            lat = simulationAnchorLat + (vehicleStartDistanceM / 111_320.0),
+            lon = simulationAnchorLon + (vehicleStartDistanceM / 104_500.0)
+        )
+    }
+
+    private fun simulationVehicleHomePoint(
+        vehicle: VehiculoItem? = simulationVehicleTargetSnapshot
+    ): SimulationRoutePoint {
+        val lat = vehicle?.lat
+        val lon = vehicle?.lon
+        return if (lat != null && lon != null) {
+            SimulationRoutePoint(lat = lat, lon = lon)
+        } else {
+            simulationVehicleStartPoint ?: simulationDefaultVehicleStartPoint()
+        }
+    }
+
+    private fun fallbackSimulationRoute(
+        from: SimulationRoutePoint,
+        to: SimulationRoutePoint
+    ): List<SimulationRoutePoint> = listOf(from, to)
+
+    private fun normalizeSimulationRoute(
+        from: SimulationRoutePoint,
+        to: SimulationRoutePoint,
+        points: List<SimulationRoutePoint>
+    ): List<SimulationRoutePoint> {
+        if (points.isEmpty()) return fallbackSimulationRoute(from, to)
+        val normalized = mutableListOf<SimulationRoutePoint>()
+        normalized.add(from)
+        normalized.addAll(points)
+        normalized.add(to)
+        return normalized
+    }
+
+    private fun simulationRoutePointAtTick(
+        points: List<SimulationRoutePoint>,
+        tick: Int,
+        fallback: SimulationRoutePoint
+    ): SimulationRoutePoint {
+        if (points.isEmpty()) return fallback
+        return points[tick.coerceIn(0, points.lastIndex)]
+    }
+
+    private fun simulationRouteTickCount(points: List<SimulationRoutePoint>): Int =
+        points.size.coerceAtLeast(2)
+
+    private fun simulationMaxRouteTickCount(routes: Collection<List<SimulationRoutePoint>>): Int =
+        routes.maxOfOrNull { simulationRouteTickCount(it) } ?: 2
+
+    private fun prepareSimulationActiveRouteLegs() {
+        val routeStart = simulationRoutePoints.firstOrNull() ?: return
+        val vehicleHome = simulationVehicleHomePoint()
+        val generation = ++simulationRoutePlanGeneration
+
+        simulationPersonToVehicleRoutes.clear()
+        simulationPersonReturnRoutes.clear()
+        simulationVehicleReturnPoints = emptyList()
+        simulationVehicleToRoutePoints = fallbackSimulationRoute(vehicleHome, routeStart)
+
+        simulationTargetsSnapshot.forEach { person ->
+            val personStart = simulationPersonStartPoints[person.idPersonal] ?: vehicleHome
+            simulationPersonToVehicleRoutes[person.idPersonal] =
+                fallbackSimulationRoute(personStart, vehicleHome)
+            requestSimulationOsrmRoute(
+                from = personStart,
+                to = vehicleHome,
+                generation = generation
+            ) { points ->
+                simulationPersonToVehicleRoutes[person.idPersonal] = points
+            }
+        }
+
+        requestSimulationOsrmRoute(
+            from = vehicleHome,
+            to = routeStart,
+            generation = generation
+        ) { points ->
+            simulationVehicleToRoutePoints = points
+        }
+    }
+
+    private fun prepareSimulationReturnRouteLegs() {
+        val vehicleHome = simulationVehicleHomePoint()
+        val vehicleReturnStart = simulationReturnVehiclePoint ?: simulationLastVehiclePoint ?: vehicleHome
+        val generation = ++simulationRoutePlanGeneration
+
+        simulationPersonToVehicleRoutes.clear()
+        simulationVehicleToRoutePoints = emptyList()
+        simulationPersonReturnRoutes.clear()
+        simulationVehicleReturnPoints = fallbackSimulationRoute(vehicleReturnStart, vehicleHome)
+
+        requestSimulationOsrmRoute(
+            from = vehicleReturnStart,
+            to = vehicleHome,
+            generation = generation
+        ) { points ->
+            simulationVehicleReturnPoints = points
+        }
+
+        simulationTargetsSnapshot.forEach { person ->
+            val personHome = simulationPersonStartPoints[person.idPersonal] ?: vehicleHome
+            simulationPersonReturnRoutes[person.idPersonal] =
+                fallbackSimulationRoute(vehicleHome, personHome)
+            requestSimulationOsrmRoute(
+                from = vehicleHome,
+                to = personHome,
+                generation = generation
+            ) { points ->
+                simulationPersonReturnRoutes[person.idPersonal] = points
+            }
+        }
+    }
+
+    private fun requestSimulationOsrmRoute(
+        from: SimulationRoutePoint,
+        to: SimulationRoutePoint,
+        generation: Int,
+        onRoute: (List<SimulationRoutePoint>) -> Unit
+    ) {
+        val fallback = fallbackSimulationRoute(from, to)
+        val url = "https://router.project-osrm.org/route/v1/driving/" +
+            "${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson"
+        val request = Request.Builder().url(url).get().build()
+
+        httpClient.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                Log.w("SIMULATION", "OSRM no disponible para simulacion: ${e.message}")
+                runOnUiThread {
+                    if (simulationActive && generation == simulationRoutePlanGeneration) {
+                        onRoute(fallback)
+                    }
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                response.use {
+                    val body = it.body?.string().orEmpty()
+                    val points = if (it.isSuccessful) {
+                        try {
+                            parseOsrmRoutePoints(body)
+                        } catch (e: Exception) {
+                            Log.w("SIMULATION", "Respuesta OSRM invalida: ${e.message}")
+                            emptyList()
+                        }
+                    } else {
+                        Log.w("SIMULATION", "OSRM rechazo ruta de simulacion: ${it.code}")
+                        emptyList()
+                    }
+                    val route = normalizeSimulationRoute(from, to, points)
+                    runOnUiThread {
+                        if (simulationActive && generation == simulationRoutePlanGeneration) {
+                            onRoute(route)
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    private fun parseOsrmRoutePoints(body: String): List<SimulationRoutePoint> {
+        if (body.isBlank()) return emptyList()
+        val routes = JSONObject(body).optJSONArray("routes") ?: return emptyList()
+        val geometry = routes.optJSONObject(0)?.optJSONObject("geometry") ?: return emptyList()
+        val coordinates = geometry.optJSONArray("coordinates") ?: return emptyList()
+        val points = mutableListOf<SimulationRoutePoint>()
+        for (i in 0 until coordinates.length()) {
+            val coord = coordinates.optJSONArray(i) ?: continue
+            if (coord.length() < 2) continue
+            val lon = coord.optDouble(0)
+            val lat = coord.optDouble(1)
+            if (lat.isNaN() || lon.isNaN()) continue
+            points.add(SimulationRoutePoint(lat = lat, lon = lon))
         }
         return points
     }
@@ -2482,7 +2699,7 @@ class MainActivity : AppCompatActivity(),
 
         val vehicleTarget = getSimulationVehicleTarget()
         if (vehicleTarget == null) {
-            Toast.makeText(this, "No se encontro un vehiculo sin ubicacion real para simular.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "No se encontro un vehiculo asignado para simular.", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -2494,7 +2711,14 @@ class MainActivity : AppCompatActivity(),
         simulationReturnStartPersonPoints.clear()
         simulationLastVehiclePoint = null
         simulationReturnVehiclePoint = null
+        clearSimulationRouteLegs()
+        simulationTargetsSnapshot = targets
+        simulationVehicleTargetSnapshot = vehicleTarget
+        simulationVehicleStartPoint = simulationVehicleHomePoint(vehicleTarget)
         prepareSimulationStartPoints(targets)
+        if (simulationRoutePoints.size >= 2) {
+            prepareSimulationActiveRouteLegs()
+        }
         simulationRunnable?.let { simulationHandler.removeCallbacks(it) }
         simulationRunnable = object : Runnable {
             override fun run() {
@@ -2518,6 +2742,10 @@ class MainActivity : AppCompatActivity(),
         simulationReturnStartPersonPoints.clear()
         simulationLastVehiclePoint = null
         simulationReturnVehiclePoint = null
+        clearSimulationRouteLegs()
+        simulationVehicleStartPoint = null
+        simulationTargetsSnapshot = emptyList()
+        simulationVehicleTargetSnapshot = null
     }
 
     private fun getSimulationTargets(): List<PersonalItem> {
@@ -2539,12 +2767,12 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun getSimulationVehicleTarget(): VehiculoItem? =
-        vehiculosList.firstOrNull { it.lat == null && it.lon == null }
+        vehiculosList.firstOrNull { it.lat == null && it.lon == null } ?: vehiculosList.firstOrNull()
 
     private fun prepareSimulationStartPoints(targets: List<PersonalItem>) {
         simulationPersonStartPoints.clear()
-        val radiusLat = 55.0 / 111_320.0
-        val radiusLon = 55.0 / 104_500.0
+        val radiusLat = 8.0 / 111_320.0
+        val radiusLon = 8.0 / 104_500.0
         targets.forEachIndexed { index, person ->
             val angle = Math.PI * 2.0 * index / targets.size.coerceAtLeast(1)
             simulationPersonStartPoints[person.idPersonal] = SimulationRoutePoint(
@@ -2593,36 +2821,47 @@ class MainActivity : AppCompatActivity(),
         vehicleTarget: VehiculoItem
     ) {
         val routePoints = simulationRoutePoints.toList()
-        val approachTicks = 4
-        val vehicleToRouteTicks = 4
-        val returnTicks = 4
-        val vehicleStartDistanceM = 85.0
         val hasRoute = routePoints.size >= 2
         if (hasRoute && simulationRouteStartTick == null) {
             simulationRouteStartTick = simulationTick
+            if (simulationPersonToVehicleRoutes.isEmpty() && simulationVehicleToRoutePoints.isEmpty()) {
+                prepareSimulationActiveRouteLegs()
+            }
         }
         val phaseTick = if (hasRoute) {
             simulationTick - (simulationRouteStartTick ?: simulationTick)
         } else {
             0
         }
-        val vehicleStart = SimulationRoutePoint(
-            lat = simulationAnchorLat + (vehicleStartDistanceM / 111_320.0),
-            lon = simulationAnchorLon + (vehicleStartDistanceM / 104_500.0)
-        )
+        val vehicleStart = simulationVehicleStartPoint ?: simulationVehicleHomePoint(vehicleTarget)
+        val routeStart = routePoints.firstOrNull() ?: vehicleStart
+        val personToVehicleTicks = simulationMaxRouteTickCount(simulationPersonToVehicleRoutes.values)
+        val vehicleToRouteRoute = simulationVehicleToRoutePoints.ifEmpty {
+            fallbackSimulationRoute(vehicleStart, routeStart)
+        }
+        val vehicleToRouteTicks = simulationRouteTickCount(vehicleToRouteRoute)
+        val vehicleReturnStart = simulationReturnVehiclePoint ?: simulationLastVehiclePoint ?: vehicleStart
+        val vehicleReturnRoute = simulationVehicleReturnPoints.ifEmpty {
+            fallbackSimulationRoute(vehicleReturnStart, vehicleStart)
+        }
+        val vehicleReturnTicks = simulationRouteTickCount(vehicleReturnRoute)
+        val personReturnTicks = simulationMaxRouteTickCount(simulationPersonReturnRoutes.values)
         val isReturning = !hasRoute && simulationRouteDeletedTick != null
         val returnTick = simulationTick - (simulationRouteDeletedTick ?: simulationTick)
-        val routeStart = routePoints.firstOrNull() ?: vehicleStart
         val vehiclePosition = when {
-            isReturning -> simulationReturnVehiclePoint ?: simulationLastVehiclePoint ?: vehicleStart
+            isReturning && returnTick < vehicleReturnTicks ->
+                simulationRoutePointAtTick(vehicleReturnRoute, returnTick, vehicleStart)
+            isReturning -> vehicleStart
             !hasRoute -> vehicleStart
-            phaseTick < approachTicks -> vehicleStart
-            phaseTick < approachTicks + vehicleToRouteTicks -> {
-                val t = (phaseTick - approachTicks).toDouble() / vehicleToRouteTicks
-                interpolatePoint(vehicleStart, routeStart, t.coerceIn(0.0, 1.0))
-            }
+            phaseTick < personToVehicleTicks -> vehicleStart
+            phaseTick < personToVehicleTicks + vehicleToRouteTicks ->
+                simulationRoutePointAtTick(
+                    points = vehicleToRouteRoute,
+                    tick = phaseTick - personToVehicleTicks,
+                    fallback = routeStart
+                )
             else -> {
-                val routeTick = phaseTick - approachTicks - vehicleToRouteTicks
+                val routeTick = phaseTick - personToVehicleTicks - vehicleToRouteTicks
                 routePoints[routeTick.coerceIn(0, routePoints.lastIndex)]
             }
         }
@@ -2634,7 +2873,10 @@ class MainActivity : AppCompatActivity(),
 
         targets.forEachIndexed { index, person ->
             val baseAngle = Math.PI * 2.0 * index / targets.size.coerceAtLeast(1)
-            val angle = if (hasRoute && phaseTick >= approachTicks + vehicleToRouteTicks) {
+            val angle = if (
+                isReturning ||
+                (hasRoute && phaseTick >= personToVehicleTicks + vehicleToRouteTicks)
+            ) {
                 baseAngle + phase
             } else {
                 baseAngle
@@ -2645,10 +2887,16 @@ class MainActivity : AppCompatActivity(),
             )
             val startPoint = simulationPersonStartPoints[person.idPersonal] ?: groupedPoint
             val personPosition = if (isReturning) {
-                val returnStart = simulationReturnStartPersonPoints[person.idPersonal] ?: startPoint
-                if (returnTick < returnTicks) {
-                    val t = returnTick.toDouble() / returnTicks
-                    interpolatePoint(returnStart, startPoint, t.coerceIn(0.0, 1.0))
+                if (returnTick < vehicleReturnTicks) {
+                    groupedPoint
+                } else if (returnTick - vehicleReturnTicks < personReturnTicks) {
+                    val personReturnRoute = simulationPersonReturnRoutes[person.idPersonal].orEmpty()
+                        .ifEmpty { fallbackSimulationRoute(vehicleStart, startPoint) }
+                    simulationRoutePointAtTick(
+                        points = personReturnRoute,
+                        tick = returnTick - vehicleReturnTicks,
+                        fallback = startPoint
+                    )
                 } else {
                     val orbitRadiusLat = 1.4 / 111_320.0
                     val orbitRadiusLon = 1.4 / 104_500.0
@@ -2659,9 +2907,14 @@ class MainActivity : AppCompatActivity(),
                 }
             } else if (!hasRoute) {
                 startPoint
-            } else if (phaseTick < approachTicks) {
-                val t = phaseTick.toDouble() / approachTicks
-                interpolatePoint(startPoint, groupedPoint, t.coerceIn(0.0, 1.0))
+            } else if (phaseTick < personToVehicleTicks) {
+                val personToVehicleRoute = simulationPersonToVehicleRoutes[person.idPersonal].orEmpty()
+                    .ifEmpty { fallbackSimulationRoute(startPoint, vehicleStart) }
+                simulationRoutePointAtTick(
+                    points = personToVehicleRoute,
+                    tick = phaseTick,
+                    fallback = groupedPoint
+                )
             } else {
                 groupedPoint
             }

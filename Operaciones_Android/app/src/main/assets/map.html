@@ -61,9 +61,11 @@
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
     let selectedTrackingPersonalId = null;
+    let followedTrackingPersonalId = null;
     let followMyLocation = false;
     const MIN_CAMERA_ZOOM_DISTANCE = 50;
     const FOLLOW_LOCATION_ZOOM = 250;
+    const FOLLOW_TRACKING_ZOOM = 500;
     const TRACKING_PERSONAL_COLOR = Cesium.Color.fromCssColorString("#00BFFF");
     const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
@@ -247,8 +249,6 @@
     }
 
     try {
-      // =================== TOKEN CESIUM ION ===================
-      Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
       viewer = new Cesium.Viewer('cesiumContainer', {
         baseLayer: new Cesium.ImageryLayer(
           new Cesium.UrlTemplateImageryProvider({
@@ -379,6 +379,7 @@
       try {
         if (!viewer) return;
         followMyLocation = followMode === true;
+        if (followMyLocation) followedTrackingPersonalId = null;
         flyToLocation(lat, lon, zoomMeters || FOLLOW_LOCATION_ZOOM, 0.8);
       } catch (e) {
         console.error("Error en centerOnLocation: " + e.message);
@@ -447,7 +448,33 @@
       setSelectedTrackingPersonal(idPersonal);
     };
 
+    window.followTrackingPersonal = function (idPersonal, lat, lon, zoomMeters) {
+      if (!viewer) return;
+      const id = String(idPersonal || "");
+      followedTrackingPersonalId = id || null;
+      followMyLocation = false;
+      setSelectedTrackingPersonal(id || null);
+
+      const live = id ? trackingPersonalEntities.get(id) : null;
+      let destLat = Number(lat);
+      let destLon = Number(lon);
+      const livePosition = live && (live.position && live.position.getValue
+        ? live.position.getValue(viewer.clock.currentTime)
+        : live.position);
+
+      if (livePosition) {
+        const carto = Cesium.Cartographic.fromCartesian(livePosition);
+        destLat = Cesium.Math.toDegrees(carto.latitude);
+        destLon = Cesium.Math.toDegrees(carto.longitude);
+      }
+
+      if (Number.isFinite(destLat) && Number.isFinite(destLon)) {
+        flyToLocation(destLat, destLon, zoomMeters || FOLLOW_TRACKING_ZOOM, 0.45);
+      }
+    };
+
     window.clearTrackingSelection = function () {
+      followedTrackingPersonalId = null;
       setSelectedTrackingPersonal(null);
     };
 
@@ -501,11 +528,13 @@
     window.updateTrackingPersonal = function (idPersonal, lat, lon, label) {
       try {
         const id = String(idPersonal || "");
+        const nextLat = Number(lat);
+        const nextLon = Number(lon);
         upsertTrackingEntity(
           trackingPersonalEntities,
           id,
-          Number(lat),
-          Number(lon),
+          nextLat,
+          nextLon,
           label || ("P-" + id),
           TRACKING_PERSONAL_COLOR,
           {
@@ -515,6 +544,9 @@
             active: true
           }
         );
+        if (followedTrackingPersonalId === id && Number.isFinite(nextLat) && Number.isFinite(nextLon)) {
+          flyToLocation(nextLat, nextLon, FOLLOW_TRACKING_ZOOM, 0.3);
+        }
       } catch (e) {
         console.error("Error en updateTrackingPersonal: " + e.message);
       }

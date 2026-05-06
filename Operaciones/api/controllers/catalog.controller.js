@@ -8,8 +8,10 @@ import {
   generateUniqueApodo,
 } from "../utils/usernames.js";
 
+// Lista personal filtrado por rol y marca si ya esta ocupado en otra operacion.
 export async function listPersonal(req, res) {
   try {
+    // El catalogo se consulta por rol operativo: CUT, CET o CELL.
     const rol = (req.query.rol || "").toString().toUpperCase();
 
     if (!["CUT", "CET", "CELL"].includes(rol)) {
@@ -19,6 +21,8 @@ export async function listPersonal(req, res) {
     // Operación a excluir del chequeo de ocupación (modo edición)
     const excludeOp = req.query.exclude_op ? Number(req.query.exclude_op) : null;
 
+    // LEFT JOIN LATERAL calcula, por cada persona, si esta en otra
+    // operacion ACTIVA o PLANIFICADA distinta de excludeOp.
     const { rows } = await pool.query(
       `SELECT
          p.id_personal, p.rol, p.apodo, p.nombre, p.apellido,
@@ -49,6 +53,7 @@ export async function listPersonal(req, res) {
   }
 }
 
+// Devuelve todos los vehiculos del inventario para catalogos y asignaciones.
 export async function listVehiculos(req, res) {
   try {
     const { rows } = await pool.query(`
@@ -72,8 +77,10 @@ export async function listVehiculos(req, res) {
   }
 }
 
+// Crea personal operativo con username/apodo unicos y password inicial.
 export async function createPersonal(req, res) {
   try {
+    // Normaliza campos de entrada antes de validarlos.
     const rol = (req.body?.rol || "").toString().toUpperCase();
     const nombre = (req.body?.nombre || "").toString().trim();
     const apellido = (req.body?.apellido || "").toString().trim();
@@ -90,22 +97,27 @@ export async function createPersonal(req, res) {
       return res.status(400).json({ ok: false, mensaje: "Falta apellido" });
     }
 
+    // El usuario autenticado queda como responsable de la creacion.
     const creado_por = Number(req.user.sub);
     if (!isInt(creado_por)) {
       return res.status(401).json({ ok: false, mensaje: "Usuario inválido" });
     }
 
+    // La transaccion mantiene atomica la creacion y las validaciones de unicidad.
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
+      // Base sugerida para username: inicial del nombre + apellido normalizado.
       const nombreSlug = slug(nombre);
       const apellidoSlug = slug(apellido);
       const base = `${(nombreSlug[0] || "")}${apellidoSlug}`.slice(0, 35);
 
+      // Si no se envia apodo, se deriva del nombre completo.
       const apodoBase = apodoIn || `${nombre} ${apellido}`;
       const apodo = await generateUniqueApodo(apodoBase, client);
 
+      // Username opcional propuesto por el cliente.
       const usernameIn = (req.body?.username || "").toString().trim();
       if (usernameIn && !/^[a-zA-Z0-9._-]+$/.test(usernameIn)) {
         await client.query("ROLLBACK");
@@ -115,10 +127,12 @@ export async function createPersonal(req, res) {
         });
       }
 
+      // Asegura que el username final no choque con registros existentes.
       const finalUsername = usernameIn
         ? await generateUniqueUsername(usernameIn, client)
         : await generateUniqueUsername(base, client);
 
+      // Si no se envia password, se genera una temporal para entregar al usuario.
       const passwordIn = (req.body?.password || "").toString();
       const tempPassword = passwordIn || `Temp-${Math.floor(100000 + Math.random() * 900000)}`;
       const password_hash = await bcrypt.hash(tempPassword, 10);
@@ -144,16 +158,20 @@ export async function createPersonal(req, res) {
   }
 }
 
+// Actualiza datos editables de personal y recalcula username si aplica.
 export async function updatePersonal(req, res) {
+  // El id llega por parametro de ruta y debe ser entero.
   const id_personal = Number(req.params.id);
   if (!isInt(id_personal)) {
     return res.status(400).json({ ok: false, mensaje: "id inválido" });
   }
 
+  // La transaccion protege la lectura actual, validaciones y UPDATE final.
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
+    // Carga el estado actual para combinarlo con campos parciales del body.
     const { rows: currentRows } = await client.query(
       `SELECT * FROM personal WHERE id_personal = $1`,
       [id_personal]
@@ -166,6 +184,7 @@ export async function updatePersonal(req, res) {
 
     const current = currentRows[0];
 
+    // null significa "no actualizar"; valores presentes se validan abajo.
     const apodo = req.body?.apodo != null ? String(req.body.apodo).trim() : null;
     const nombre = req.body?.nombre != null ? String(req.body.nombre).trim() : null;
     const apellido = req.body?.apellido != null ? String(req.body.apellido).trim() : null;
@@ -201,6 +220,7 @@ export async function updatePersonal(req, res) {
     const finalNombre = nombre ?? current.nombre;
     const finalApellido = apellido ?? current.apellido;
 
+    // Construye dinamicamente el SET para modificar solo campos enviados.
     const sets = [];
     const vals = [];
     let i = 1;
@@ -232,10 +252,12 @@ export async function updatePersonal(req, res) {
     }
 
     if (usernameIn !== null) {
+      // Username explicito: se respeta, ajustandolo si ya existe.
       const usernameUnique = await generateUniqueUsername(usernameIn, client, id_personal);
       sets.push(`username = $${i++}`);
       vals.push(usernameUnique);
     } else if (nombre !== null || apellido !== null) {
+      // Si cambia nombre/apellido y no hay username explicito, se recalcula.
       const nombreSlug = slug(finalNombre);
       const apellidoSlug = slug(finalApellido);
       const base = `${(nombreSlug[0] || "")}${apellidoSlug}`.slice(0, 35);
@@ -245,6 +267,7 @@ export async function updatePersonal(req, res) {
     }
 
     if (passwordIn) {
+      // Solo actualiza password cuando llega uno nuevo en el body.
       const newHash = await bcrypt.hash(passwordIn, 10);
       sets.push(`password_hash = $${i++}`);
       vals.push(newHash);
@@ -276,6 +299,7 @@ export async function updatePersonal(req, res) {
   }
 }
 
+// Elimina personal: por default desactiva; con ?hard=1 intenta borrado fisico.
 export async function deletePersonal(req, res) {
   const id_personal = Number(req.params.id);
   if (!isInt(id_personal)) {
@@ -285,11 +309,13 @@ export async function deletePersonal(req, res) {
   const hard = String(req.query.hard || "").trim() === "1";
 
   try {
+    // Borrado fisico solo para casos controlados; puede fallar por referencias.
     if (hard) {
       await pool.query(`DELETE FROM personal WHERE id_personal = $1`, [id_personal]);
       return res.json({ ok: true, deleted: true, hard: true, id_personal });
     }
 
+    // Borrado logico: conserva historial y relaciones, pero desactiva acceso.
     const { rows } = await pool.query(
       `UPDATE personal
        SET activo = FALSE
@@ -304,6 +330,7 @@ export async function deletePersonal(req, res) {
 
     return res.json({ ok: true, item: rows[0], hard: false });
   } catch (err) {
+    // 23503 indica FK: el personal esta referenciado por otras tablas.
     if (err.code === "23503") {
       return res.status(409).json({
         ok: false,

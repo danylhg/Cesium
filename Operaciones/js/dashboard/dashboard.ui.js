@@ -134,6 +134,63 @@ export function activatePersonalLocation(id, lat, lon) {
   });
 }
 
+function getPersonalEntityCoordinates(id) {
+  const viewer = dashboardState.viewer;
+  const entity = dashboardState.trackingEntities?.get(`P:${id}`);
+  const position = entity?.position?.getValue?.(viewer?.clock?.currentTime) ?? entity?.position;
+  if (!position) return null;
+
+  const carto = Cesium.Cartographic.fromCartesian(position);
+  return {
+    lat: Cesium.Math.toDegrees(carto.latitude),
+    lon: Cesium.Math.toDegrees(carto.longitude)
+  };
+}
+
+function setFollowedPersonalStyle(id) {
+  document.querySelectorAll(".personal-locatable").forEach(span => {
+    const selected = String(span.dataset.pid || "") === String(id || "");
+    span.style.color = selected ? "#38bdf8" : "#00BFFF";
+    span.style.borderBottom = selected ? "1px solid #38bdf8" : "1px dotted #00BFFF";
+    span.title = selected ? "Siguiendo ubicacion" : "Seguir ubicacion";
+  });
+}
+
+export function followPersonalLocation(id, lat, lon) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || id == null) return;
+
+  dashboardState.followedPersonalId = String(id);
+  setFollowedPersonalStyle(id);
+
+  const liveCoords = getPersonalEntityCoordinates(id);
+  const destLat = liveCoords?.lat ?? lat;
+  const destLon = liveCoords?.lon ?? lon;
+  updateFollowedPersonalLocation(id, destLat, destLon, 0.45);
+}
+
+export function updateFollowedPersonalLocation(id, lat, lon, duration = 0.28) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || String(dashboardState.followedPersonalId || "") !== String(id || "")) return;
+  const destLat = Number(lat);
+  const destLon = Number(lon);
+  if (!Number.isFinite(destLat) || !Number.isFinite(destLon)) return;
+
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(
+      destLon,
+      destLat,
+      dashboardState.followedPersonalZoom || 800
+    ),
+    orientation: {
+      heading: viewer.camera.heading,
+      pitch: viewer.camera.pitch,
+      roll: viewer.camera.roll
+    },
+    duration
+  });
+}
+
 function renderPersonalHtml(personalNorm) {
   if (!personalNorm.length) return "<p>Sin personal asignado.</p>";
 
@@ -561,28 +618,7 @@ export function renderInfoPanel(bdData = null) {
     const lat = parseFloat(el.dataset.lat);
     const lon = parseFloat(el.dataset.lon);
     if (isNaN(lat) || isNaN(lon)) return;
-    const viewer = dashboardState.viewer;
-    if (!viewer) return;
-    const orientation = {
-      heading: viewer.camera.heading,
-      pitch: viewer.camera.pitch,
-      roll: viewer.camera.roll
-    };
-    const entity = dashboardState.trackingEntities?.get(`P:${id}`);
-    let destLat = lat;
-    let destLon = lon;
-    if (entity) {
-      const pos = entity.position?.getValue(viewer.clock.currentTime);
-      if (pos) {
-        const carto = Cesium.Cartographic.fromCartesian(pos);
-        destLat = Cesium.Math.toDegrees(carto.latitude);
-        destLon = Cesium.Math.toDegrees(carto.longitude);
-      }
-    }
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(destLon, destLat, 800),
-      orientation
-    });
+    followPersonalLocation(id, lat, lon);
   });
 }
 

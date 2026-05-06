@@ -77,7 +77,7 @@ Kotlin app that sends GPS positions to the API and receives Socket.IO events. Bu
 
 ## Key Configuration
 
-- **`Operaciones/api/.env`** — `JWT_SECRET`, `CESIUM_ION_TOKEN`, DB credentials
+- **`Operaciones/api/.env`** — `JWT_SECRET`, `CESIUM_TOKEN`, DB credentials
 - **`docker-compose.yml`** — PostgreSQL service + DB init script, API service
 - **Port 3001** — API & WebSocket
 - **Port 5433** — PostgreSQL (host-mapped from container 5432)

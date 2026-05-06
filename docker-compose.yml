@@ -22,6 +22,8 @@ services:
       context: ./Operaciones/api
       dockerfile: Dockerfile
     container_name: ops_api
+    env_file:
+      - ./Operaciones/api/.env
     environment:
       PORT: 3000
       PGHOST: postgres

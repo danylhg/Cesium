@@ -1,5 +1,30 @@
-import "dotenv/config";
+import { config } from "dotenv";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export const JWT_SECRET = process.env.JWT_SECRET || "cambia_esto";
-export const PORT = process.env.PORT || 3001;
-export const CESIUM_TOKEN = process.env.CESIUM_TOKEN || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
+// Resuelve el archivo .env ubicado en la raiz de Operaciones/api,
+// sin depender del directorio desde donde se arranque Node.
+const envPath = resolve(dirname(fileURLToPath(import.meta.url)), "../.env");
+
+// Carga las variables de entorno antes de exportar la configuracion.
+config({ path: envPath });
+
+// Lee una variable obligatoria y falla temprano si no existe o esta vacia.
+function requireEnv(name) {
+  const value = process.env[name]?.trim();
+
+  if (!value) {
+    throw new Error(`Falta configurar la variable de entorno ${name}`);
+  }
+
+  return value;
+}
+
+// Clave usada para firmar y verificar tokens JWT.
+export const JWT_SECRET = requireEnv("JWT_SECRET");
+
+// Puerto HTTP del API. Si no se define PORT, usa 3001 para desarrollo local.
+export const PORT = Number(process.env.PORT || 3001);
+
+// Token de Cesium usado por los clientes que consumen mapas/visualizacion.
+export const CESIUM_TOKEN = requireEnv("CESIUM_TOKEN");
