@@ -55,6 +55,29 @@ async function deleteDrawingFromBackend(id_dibujo) {
 
 // Map: cesium entity id → id_dibujo del backend
 const _drawingBackendIds = new Map();
+const _drawingPendingDeletes = new Set();
+const _drawingPendingSaves = new Map();
+
+function sameCoord(a, b) {
+  return Math.abs(Number(a?.lat) - Number(b?.lat)) < 0.000001 &&
+    Math.abs(Number(a?.lng) - Number(b?.lng)) < 0.000001;
+}
+
+function isSameDrawingPayload(localData, dibujo) {
+  const puntos = dibujo?.puntos;
+  if (!localData || !Array.isArray(localData.coords) || !Array.isArray(puntos)) return false;
+  if (localData.coords.length !== puntos.length) return false;
+  if (String(localData.color || "").toLowerCase() !== String(dibujo.color || "").toLowerCase()) return false;
+  if (Number(localData.width || 3) !== Number(dibujo.grosor || 3)) return false;
+  return localData.coords.every((coord, index) => sameCoord(coord, puntos[index]));
+}
+
+function findPendingDrawingEntityId(dibujo) {
+  for (const [entityId, data] of _drawingPendingSaves.entries()) {
+    if (isSameDrawingPayload(data, dibujo)) return entityId;
+  }
+  return null;
+}
 
 /* ─── Backend sync helpers for undo/redo ────────────────────── */
 
@@ -209,6 +232,9 @@ export function undo() {
 
     // Re-add to appropriate list
     if (action.entityRef) {
+      if (action.source === "drawing") {
+        _drawingPendingDeletes.delete(action.entityId);
+      }
       if (action.source === "tactical") {
         dashboardState.tacticalEntities = dashboardState.tacticalEntities || [];
         if (!dashboardState.tacticalEntities.includes(action.entityRef)) {
@@ -450,16 +476,29 @@ export function startPencilMode() {
           source: "drawing"
         });
 
+        _drawingPendingSaves.set(ent.id, data);
+
         // Guardar en backend y registrar el id_dibujo devuelto.
         // Si el usuario hizo undo antes de que la respuesta llegara,
         // la entidad ya no está visible → borramos del backend en lugar de registrar.
         saveDrawingToBackend(data.coords, colorCss, width).then(dibujo => {
           if (dibujo?.id_dibujo) {
-            if (ent.show === false) {
+            const currentEntity = viewer.entities.getById(ent.id);
+            const wasRemovedBeforeSave =
+              _drawingPendingDeletes.has(ent.id) ||
+              ent.show === false ||
+              !currentEntity;
+
+            _drawingPendingSaves.delete(ent.id);
+
+            if (wasRemovedBeforeSave) {
               deleteDrawingFromBackend(dibujo.id_dibujo);
+              _drawingPendingDeletes.delete(ent.id);
             } else {
-              _drawingBackendIds.set(ent.id, dibujo.id_dibujo);
+              _drawingBackendIds.set(currentEntity.id, dibujo.id_dibujo);
             }
+          } else {
+            _drawingPendingSaves.delete(ent.id);
           }
         });
       }
@@ -527,6 +566,8 @@ export function startEraserMode() {
       if (id_dibujo) {
         deleteDrawingFromBackend(id_dibujo);
         _drawingBackendIds.delete(entity.id);
+      } else {
+        _drawingPendingDeletes.add(entity.id);
       }
 
       viewer.entities.remove(entity);
@@ -608,6 +649,23 @@ export async function loadDrawingsFromBackend() {
 export function initDrawingSocket(socket) {
   socket.on("dibujo_creado", ({ dibujo }) => {
     if (!dibujo?.id_dibujo) return;
+
+    const pendingEntityId = findPendingDrawingEntityId(dibujo);
+    if (pendingEntityId) {
+      _drawingPendingSaves.delete(pendingEntityId);
+
+      if (_drawingPendingDeletes.has(pendingEntityId)) {
+        deleteDrawingFromBackend(dibujo.id_dibujo);
+        return;
+      }
+
+      const viewer = dashboardState.viewer;
+      if (viewer?.entities?.getById(pendingEntityId)) {
+        _drawingBackendIds.set(pendingEntityId, dibujo.id_dibujo);
+        return;
+      }
+    }
+
     // Ignorar eco: si yo ya tengo ese id_dibujo mapeado, no lo redibujamos
     if ([..._drawingBackendIds.values()].includes(dibujo.id_dibujo)) return;
 
@@ -706,6 +764,8 @@ export async function clearAllDrawings() {
         failures.push(`Dibujo ${id_dibujo}`);
         continue;
       }
+    } else {
+      _drawingPendingDeletes.add(entity.id);
     }
     viewer.entities.remove(entity);
   }
