@@ -1,32 +1,18 @@
 import pg from "pg";
+import { DB_CONFIG } from "./config/env.js";
 
 const { Pool } = pg;
 
-export const pool = new Pool({
-  host: "localhost",
-  port: 5433,
-  user: "postgres",
-  password: "pollito",
-  database: "ops_db",
-});
+export const pool = new Pool(DB_CONFIG);
 
 console.log("DB CONFIG TEST:", {
-  host: "localhost",
-  port: 5433,
-  user: "postgres",
-  password: "pollito",
-  database: "ops_db",
+  host: DB_CONFIG.host,
+  port: DB_CONFIG.port,
+  user: DB_CONFIG.user,
+  database: DB_CONFIG.database,
 });
 
 pool
   .query("SELECT current_user, current_database()")
   .then((r) => console.log("DB OK:", r.rows[0]))
   .catch((e) => console.error("DB TEST ERROR:", e));
-
-//export const pool = new Pool({
-//host: process.env.PGHOST || "postgres",
-//port: Number(process.env.PGPORT || 5432),
-//user: process.env.PGUSER || "operaciones",
-//password: process.env.PGPASSWORD || "operaciones123",
-//database: process.env.PGDATABASE || "operaciones_db",
-// });

@@ -20,6 +20,8 @@ class ChatSocketManager(
     private val onStructureEliminada: ((JSONObject) -> Unit)? = null,
     private val onDibujoCreado: ((JSONObject) -> Unit)? = null,
     private val onDibujoEliminado: ((JSONObject) -> Unit)? = null,
+    private val onTacticalRouteCreada: ((JSONObject) -> Unit)? = null,
+    private val onTacticalRouteEliminada: ((JSONObject) -> Unit)? = null,
     private val onConnected: (() -> Unit)? = null,
     private val onDisconnected: ((String) -> Unit)? = null,
     private val onConnectionError: ((String) -> Unit)? = null,
@@ -71,6 +73,16 @@ class ChatSocketManager(
             onNavigationRouteEvt?.invoke("eliminada", data)
         }
 
+        socket?.on("ruta_operacion_creada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onTacticalRouteCreada?.invoke(data)
+        }
+
+        socket?.on("ruta_operacion_eliminada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onTacticalRouteEliminada?.invoke(data)
+        }
+
         socket?.on("tracking_personal") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onTrackingPersonal?.invoke(data)
@@ -86,6 +98,11 @@ class ChatSocketManager(
             onPoiCreado?.invoke(data)
         }
 
+        socket?.on("poi_actualizado") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onPoiCreado?.invoke(data)
+        }
+
         socket?.on("poi_eliminado") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onPoiEliminado?.invoke(data)
@@ -96,12 +113,22 @@ class ChatSocketManager(
             onAreaCreada?.invoke(data)
         }
 
+        socket?.on("area_actualizada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onAreaCreada?.invoke(data)
+        }
+
         socket?.on("area_eliminada") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onAreaEliminada?.invoke(data)
         }
 
         socket?.on("estructura_creada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onStructureCreada?.invoke(data)
+        }
+
+        socket?.on("estructura_actualizada") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onStructureCreada?.invoke(data)
         }

@@ -58,6 +58,7 @@
     let routeEntity = null;
 
     let remoteRoutes = new Map();
+    let tacticalRoutes = new Map();
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
     let selectedTrackingPersonalId = null;
@@ -190,6 +191,9 @@
       }
       if (entityId.indexOf("remote_route_") === 0) {
         return { kind: "route", id: Number(entityId.replace("remote_route_", "")), label: label || "Ruta" };
+      }
+      if (entityId.indexOf("ruta_operacion_") === 0) {
+        return { kind: "tactical_route", id: Number(entityId.replace("ruta_operacion_", "")), label: label || "Linea tactica" };
       }
 
       const trackingKind = String(getEntityProperty(entity, "trackingKind") || "");
@@ -837,12 +841,22 @@
     // =========================
     // Rutas Remotas (Sincronización)
     // =========================
-    window.loadRemoteRoutes = function (routesArray) {
+    window.loadRemoteRoutes = function (routesArray, replace) {
       if (!Array.isArray(routesArray)) return;
+      const incomingIds = new Set(
+        routesArray
+          .map(ruta => Number(ruta && ruta.id_ruta))
+          .filter(id => Number.isFinite(id) && id > 0)
+      );
+      if (replace) {
+        Array.from(remoteRoutes.keys()).forEach(function (id) {
+          if (!incomingIds.has(Number(id))) {
+            removeRemoteRoute(id);
+          }
+        });
+      }
       routesArray.forEach(ruta => {
-        if (!remoteRoutes.has(ruta.id_ruta)) {
-          drawRemoteRoute(ruta);
-        }
+        drawRemoteRoute(ruta);
       });
     };
 
@@ -852,6 +866,12 @@
       const geojson = typeof rutaObj.geojson === 'string' ? JSON.parse(rutaObj.geojson) : rutaObj.geojson;
       const id = rutaObj.id_ruta;
       const rol = (rutaObj.rol_creador || "").toUpperCase();
+      if (!id) return;
+
+      if (remoteRoutes.has(id)) {
+        viewer.entities.remove(remoteRoutes.get(id));
+        remoteRoutes.delete(id);
+      }
 
       // Color logic: ADMIN/CUT = rojo, CET = naranja, CELL = azul, resto = violeta
       let colorCesium = Cesium.Color.PURPLE;
@@ -988,10 +1008,25 @@
       }
     };
 
-    window.loadPois = function (poisArray) {
+    window.loadPois = function (poisArray, replace) {
       try {
         if (!Array.isArray(poisArray)) return;
         console.log('[POI][WEB] loadPois count=' + poisArray.length);
+        const incomingIds = new Set(
+          poisArray
+            .map(poi => Number(poi && poi.id_poi))
+            .filter(id => Number.isFinite(id) && id > 0)
+        );
+        if (replace) {
+          Array.from(poiEntities.keys()).forEach(function (entityId) {
+            const id = Number(String(entityId).replace('poi_', ''));
+            if (!incomingIds.has(id)) {
+              const entity = poiEntities.get(entityId);
+              if (entity) viewer.entities.remove(entity);
+              poiEntities.delete(entityId);
+            }
+          });
+        }
         poisArray.forEach(function (poi) {
           addPoiToMap(
             poi.id_poi,
@@ -1079,9 +1114,24 @@
       }
     };
 
-    window.loadStructures = function (structuresArray) {
+    window.loadStructures = function (structuresArray, replace) {
       try {
         if (!Array.isArray(structuresArray)) return;
+        const incomingIds = new Set(
+          structuresArray
+            .map(structure => Number(structure && structure.id_marca))
+            .filter(id => Number.isFinite(id) && id > 0)
+        );
+        if (replace) {
+          Array.from(structureEntities.keys()).forEach(function (entityId) {
+            const id = Number(String(entityId).replace('estructura_', ''));
+            if (!incomingIds.has(id)) {
+              const entity = structureEntities.get(entityId);
+              if (entity) viewer.entities.remove(entity);
+              structureEntities.delete(entityId);
+            }
+          });
+        }
         structuresArray.forEach(function (structure) {
           addStructureToMap(
             structure.id_marca,
@@ -1354,6 +1404,37 @@
       }
     };
 
+    window.syncAreas = function (circlesArray, polygonsArray) {
+      try {
+        const circles = Array.isArray(circlesArray) ? circlesArray : [];
+        const polygons = Array.isArray(polygonsArray) ? polygonsArray : [];
+        const incomingIds = new Set();
+
+        circles.forEach(function (circle) {
+          const id = Number(circle && circle.id_area);
+          if (Number.isFinite(id) && id > 0) incomingIds.add(id);
+        });
+        polygons.forEach(function (polygon) {
+          const id = Number(polygon && polygon.id_area);
+          if (Number.isFinite(id) && id > 0) incomingIds.add(id);
+        });
+
+        Array.from(areaEntities.keys()).forEach(function (entityId) {
+          const id = Number(String(entityId).replace('area_', ''));
+          if (!incomingIds.has(id)) {
+            const entity = areaEntities.get(entityId);
+            if (entity) viewer.entities.remove(entity);
+            areaEntities.delete(entityId);
+          }
+        });
+
+        loadCoverageCircles(circles);
+        loadAreaPolygons(polygons);
+      } catch (e) {
+        console.error('Error syncAreas: ' + e.message);
+      }
+    };
+
     window.removeAreaFromMap = function (id) {
       removeCoverageCircleFromMap(id);
     };
@@ -1601,13 +1682,31 @@
       if (_drawMode === 'eraser') _drawMode = null;
     };
 
-    window.loadDrawings = function (drawingsArray) {
+    window.loadDrawings = function (drawingsArray, replace) {
       try {
         if (!Array.isArray(drawingsArray)) return;
+        const incomingIds = new Set(
+          drawingsArray
+            .map(d => Number(d && d.id_dibujo))
+            .filter(id => Number.isFinite(id) && id > 0)
+            .map(id => 'draw_loaded_' + id)
+        );
+        if (replace) {
+          Array.from(drawingEntities.keys()).forEach(function (localId) {
+            if (!incomingIds.has(localId)) {
+              const entity = drawingEntities.get(localId);
+              if (entity) viewer.entities.remove(entity);
+              drawingEntities.delete(localId);
+            }
+          });
+        }
         drawingsArray.forEach(function (d) {
           if (!Array.isArray(d.coords) || d.coords.length < 2) return;
           var localId = 'draw_loaded_' + d.id_dibujo;
-          if (drawingEntities.has(localId)) return;
+          if (drawingEntities.has(localId)) {
+            viewer.entities.remove(drawingEntities.get(localId));
+            drawingEntities.delete(localId);
+          }
 
           var ent = viewer.entities.add({
             id: localId,
@@ -1636,6 +1735,104 @@
         }
       } catch (e) {
         console.error('Error removeDrawingFromMap: ' + e.message);
+      }
+    };
+
+    function tacticalRouteCoordinates(geometry) {
+      if (!geometry) return [];
+      let geo = geometry;
+      if (typeof geo === 'string') {
+        try { geo = JSON.parse(geo); } catch (_) { return []; }
+      }
+
+      if (geo.type === 'LineString' && Array.isArray(geo.coordinates)) {
+        return geo.coordinates;
+      }
+
+      if (geo.type === 'MultiLineString' && Array.isArray(geo.coordinates)) {
+        var merged = [];
+        geo.coordinates.forEach(function (line) {
+          if (Array.isArray(line)) merged = merged.concat(line);
+        });
+        return merged;
+      }
+
+      return [];
+    }
+
+    window.drawTacticalRoute = function (rutaObj) {
+      try {
+        if (!viewer || !rutaObj) return;
+
+        const id = Number(rutaObj.id_ruta || rutaObj.id_elemento);
+        if (!Number.isFinite(id) || id <= 0) return;
+
+        const coords = tacticalRouteCoordinates(rutaObj.geometria || rutaObj.geometry || rutaObj.geojson)
+          .map(function (coord) {
+            return Cesium.Cartesian3.fromDegrees(Number(coord[0]), Number(coord[1]));
+          });
+        if (coords.length < 2) return;
+
+        if (tacticalRoutes.has(id)) {
+          viewer.entities.remove(tacticalRoutes.get(id));
+          tacticalRoutes.delete(id);
+        }
+
+        const color = (rutaObj.color && String(rutaObj.color).startsWith('#')) ? rutaObj.color : '#1E90FF';
+        const entity = viewer.entities.add({
+          id: 'ruta_operacion_' + id,
+          name: rutaObj.nombre || 'Linea tactica',
+          polyline: {
+            positions: coords,
+            width: Number(rutaObj.grosor || rutaObj.width || 4),
+            material: Cesium.Color.fromCssColorString(color),
+            clampToGround: true
+          },
+          properties: {
+            tacticalType: 'tactical-route',
+            id_ruta: id
+          }
+        });
+
+        tacticalRoutes.set(id, entity);
+      } catch (e) {
+        console.error('Error drawTacticalRoute: ' + e.message);
+      }
+    };
+
+    window.loadTacticalRoutes = function (routesArray, replace) {
+      try {
+        if (!Array.isArray(routesArray)) return;
+        const incomingIds = new Set(
+          routesArray
+            .map(route => Number(route && (route.id_ruta || route.id_elemento)))
+            .filter(id => Number.isFinite(id) && id > 0)
+        );
+        if (replace) {
+          Array.from(tacticalRoutes.keys()).forEach(function (id) {
+            if (!incomingIds.has(Number(id))) {
+              removeTacticalRouteFromMap(id);
+            }
+          });
+        }
+        routesArray.forEach(function (route) {
+          drawTacticalRoute(route);
+        });
+      } catch (e) {
+        console.error('Error loadTacticalRoutes: ' + e.message);
+      }
+    };
+
+    window.removeTacticalRouteFromMap = function (idRuta) {
+      try {
+        const id = Number(idRuta);
+        const entity = tacticalRoutes.get(id);
+        if (entity) {
+          viewer.entities.remove(entity);
+          tacticalRoutes.delete(id);
+        }
+      } catch (e) {
+        console.error('Error removeTacticalRouteFromMap: ' + e.message);
       }
     };
 

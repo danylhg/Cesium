@@ -268,13 +268,13 @@ class CesiumWebController(
         }
     }
 
-    fun loadPois(poisJson: String) {
+    fun loadPois(poisJson: String, replace: Boolean = false) {
         webView.post {
             webView.evaluateJavascript(
                 """
                 (function() {
                     if (typeof loadPois === 'function') {
-                        loadPois($poisJson);
+                        loadPois($poisJson, $replace);
                         return 'OK';
                     }
                     return 'ERROR:loadPois no existe';
@@ -319,13 +319,32 @@ class CesiumWebController(
         }
     }
 
-    fun loadStructures(structuresJson: String) {
+    fun syncAreas(circlesJson: String, polygonsJson: String) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof syncAreas === 'function') {
+                        syncAreas($circlesJson, $polygonsJson);
+                        return 'OK';
+                    }
+                    if (typeof loadCoverageCircles === 'function') loadCoverageCircles($circlesJson);
+                    if (typeof loadAreaPolygons === 'function') loadAreaPolygons($polygonsJson);
+                    return 'OK';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun loadStructures(structuresJson: String, replace: Boolean = false) {
         webView.post {
             webView.evaluateJavascript(
                 """
                 (function() {
                     if (typeof loadStructures === 'function') {
-                        loadStructures($structuresJson);
+                        loadStructures($structuresJson, $replace);
                         return 'OK';
                     }
                     return 'ERROR:loadStructures no existe';
@@ -557,10 +576,37 @@ class CesiumWebController(
         }
     }
 
-    fun loadDrawings(drawingsJson: String) {
+    fun loadRemoteRoutes(routesJson: String, replace: Boolean = false) {
         webView.post {
             webView.evaluateJavascript(
-                "(function(){ if(typeof loadDrawings==='function') loadDrawings($drawingsJson); })();",
+                "(function(){ if(typeof loadRemoteRoutes==='function') loadRemoteRoutes($routesJson, $replace); })();",
+                null
+            )
+        }
+    }
+
+    fun loadTacticalRoutes(routesJson: String, replace: Boolean = false) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof loadTacticalRoutes==='function') loadTacticalRoutes($routesJson, $replace); })();",
+                null
+            )
+        }
+    }
+
+    fun removeTacticalRouteFromMap(idRuta: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof removeTacticalRouteFromMap==='function') removeTacticalRouteFromMap($idRuta); })();",
+                null
+            )
+        }
+    }
+
+    fun loadDrawings(drawingsJson: String, replace: Boolean = false) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof loadDrawings==='function') loadDrawings($drawingsJson, $replace); })();",
                 null
             )
         }

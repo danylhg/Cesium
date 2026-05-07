@@ -26,6 +26,14 @@ import com.operaciones.operaciones_android.model.User
 import com.operaciones.operaciones_android.model.VehiculoItem
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
 
+data class ChatChannelSelection(
+    val type: String,
+    val destinatarioRol: String,
+    val destinoTipo: String? = null,
+    val destinoId: String? = null,
+    val destinoLabel: String? = null
+)
+
 class MainPanelRenderer(
     private val host: Host
 ) {
@@ -145,7 +153,8 @@ class MainPanelRenderer(
         panelContent: FrameLayout,
         messages: MutableList<ChatMessage>,
         currentUser: User,
-        personalList: List<PersonalItem>
+        personalList: List<PersonalItem>,
+        onFilterChanged: (ChatChannelSelection) -> Unit = {}
     ): ChatPanelRefs {
         val view = host.getLayoutInflater().inflate(R.layout.panel_chat, panelContent, false)
         panelContent.addView(view)
@@ -275,6 +284,17 @@ class MainPanelRenderer(
             }
         }
 
+        fun currentSelection(): ChatChannelSelection {
+            val (tipo, id, label) = buildPayload()
+            return ChatChannelSelection(
+                type = selectedChannel.type,
+                destinatarioRol = selectedChannel.destinatarioRol,
+                destinoTipo = tipo,
+                destinoId = id,
+                destinoLabel = label
+            )
+        }
+
         fun send(text: String, isAlert: Boolean) {
             val (tipo, id, label) = buildPayload()
             host.sendChatMessage(
@@ -368,6 +388,7 @@ class MainPanelRenderer(
                 selectedChannel   = tempChannel
                 selectedTargetIdx = tempTargetIdx
                 destBtn.text      = destLabel()
+                onFilterChanged(currentSelection())
                 sheet.dismiss()
             }
 
@@ -389,6 +410,8 @@ class MainPanelRenderer(
             val t = msgInput.text.toString().trim()
             if (t.isNotEmpty()) { send(t, false); msgInput.text.clear() }
         }
+        onFilterChanged(currentSelection())
+
         alertBtn.setOnClickListener {
             val t = msgInput.text.toString().trim().ifEmpty { "Aviso de posición" }
             send(t, true); msgInput.text.clear()

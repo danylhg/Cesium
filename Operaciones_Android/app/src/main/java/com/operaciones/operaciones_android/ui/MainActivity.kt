@@ -1,5 +1,6 @@
 package com.operaciones.operaciones_android.ui
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -22,6 +23,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
@@ -34,6 +36,7 @@ import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.MessageType
 import com.operaciones.operaciones_android.model.Operation
+import com.operaciones.operaciones_android.model.OperationMapData
 import com.operaciones.operaciones_android.model.OperationStatus
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
@@ -46,7 +49,9 @@ import com.operaciones.operaciones_android.network.OperationMapRepository
 import com.operaciones.operaciones_android.network.OperationStatusRepository
 import com.operaciones.operaciones_android.network.PersonalRepository
 import com.operaciones.operaciones_android.network.VehiculoRepository
+import com.operaciones.operaciones_android.streaming.MediaStreamingService
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
+import com.operaciones.operaciones_android.ui.panel.ChatChannelSelection
 import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController
 import com.operaciones.operaciones_android.ui.navigation.PanelNavigationController.Panel
 import com.operaciones.operaciones_android.ui.panel.ChatPanelRefs
@@ -159,6 +164,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnNavVehiculos: LinearLayout
     private lateinit var btnNavEquipos: LinearLayout
     private lateinit var btnMyLocation: ImageButton
+    private lateinit var btnStreamMedia: ImageButton
     private lateinit var btnDeleteSelectedObject: ImageButton
     private lateinit var mapActionController: MapActionController
 
@@ -176,6 +182,11 @@ class MainActivity : AppCompatActivity(),
     private lateinit var locationHelper: LocationHelper
 
     private val messages = mutableListOf<ChatMessage>()
+    private val visibleMessages = mutableListOf<ChatMessage>()
+    private var activeChatSelection = ChatChannelSelection(
+        type = "GLOBAL",
+        destinatarioRol = "GLOBAL"
+    )
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatRecycler: RecyclerView
     private lateinit var msgInput: EditText
@@ -226,6 +237,8 @@ class MainActivity : AppCompatActivity(),
 
     // POIs pendientes de dibujar hasta que Cesium esté listo
     private var pendingPoisJson: String? = null
+    private var pendingRemoteRoutesJson: String? = null
+    private var pendingTacticalRoutesJson: String? = null
     private var pendingOperationZoneJson: String? = null
     private var pendingCoverageCirclesJson: String? = null
     private var pendingAreaPolygonsJson: String? = null
@@ -236,6 +249,9 @@ class MainActivity : AppCompatActivity(),
     private val pendingAreaPolygonAdditions = mutableListOf<PendingAreaPolygonAddition>()
     private val pendingStructureAdditions = mutableListOf<PendingStructureAddition>()
     private var emergencyServiceStarted = false
+    private var mediaStreamingActive = false
+    private val mediaStreamPermissionRequest = 202
+    private var lastMapSyncAt = 0L
     private val connectionMonitorHandler = Handler(Looper.getMainLooper())
     private val connectionMonitorRunnable = object : Runnable {
         override fun run() {
@@ -333,7 +349,14 @@ class MainActivity : AppCompatActivity(),
                             val rutaJson = data.optJSONObject("ruta")?.toString()
                             if (rutaJson != null) {
                                 updateSimulationRouteFromRouteJson(rutaJson)
-                                cesiumWebController.evaluate("if(typeof drawRemoteRoute === 'function') drawRemoteRoute($rutaJson)")
+                                if (isCesiumReady) {
+                                    cesiumWebController.loadRemoteRoutes("[$rutaJson]")
+                                } else {
+                                    pendingRemoteRoutesJson = mergePendingRouteJson(
+                                        pendingRemoteRoutesJson,
+                                        JSONObject(rutaJson)
+                                    )
+                                }
                             }
                         } else if (event == "eliminada") {
                             val idRuta = data.optInt("id_ruta", -1)
@@ -341,6 +364,27 @@ class MainActivity : AppCompatActivity(),
                                 handleSimulationRouteDeleted()
                                 cesiumWebController.evaluate("if(typeof removeRemoteRoute === 'function') removeRemoteRoute($idRuta)")
                             }
+                        }
+                    }
+                },
+                onTacticalRouteCreada = { data ->
+                    runOnUiThread {
+                        val ruta = data.optJSONObject("ruta") ?: return@runOnUiThread
+                        val idRuta = ruta.optInt("id_ruta", -1)
+                        if (idRuta <= 0) return@runOnUiThread
+                        val rutaJson = ruta.toString()
+                        if (isCesiumReady) {
+                            cesiumWebController.loadTacticalRoutes("[$rutaJson]")
+                        } else {
+                            pendingTacticalRoutesJson = mergePendingRouteJson(pendingTacticalRoutesJson, ruta)
+                        }
+                    }
+                },
+                onTacticalRouteEliminada = { data ->
+                    runOnUiThread {
+                        val idRuta = data.optInt("id_ruta", -1)
+                        if (idRuta > 0 && isCesiumReady) {
+                            cesiumWebController.removeTacticalRouteFromMap(idRuta)
                         }
                     }
                 },
@@ -553,6 +597,7 @@ class MainActivity : AppCompatActivity(),
                 onConnected = {
                     runOnUiThread {
                         setServerConnectionBanner(false)
+                        syncMapStateFromBackend()
                     }
                     // Socket conectado y unido al room — emitir posición inmediatamente
                     val lat = lastKnownLat ?: return@ChatSocketManager
@@ -590,6 +635,7 @@ class MainActivity : AppCompatActivity(),
         btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
         btnNavEquipos = findViewById(R.id.btnNavEquipos)
         btnMyLocation = findViewById(R.id.btnMyLocation)
+        btnStreamMedia = findViewById(R.id.btnStreamMedia)
         btnDeleteSelectedObject = findViewById(R.id.btnDeleteSelectedObject)
         webView = findViewById(R.id.cesiumWebView)
 
@@ -656,6 +702,7 @@ class MainActivity : AppCompatActivity(),
 
         setupWebView()
         setupMyLocationButton()
+        setupMediaStreamButton()
         setupSelectedObjectDeleteButton()
         setupObjectToolsMenu()
         panelNavigationController.setupNavigation()
@@ -717,6 +764,46 @@ class MainActivity : AppCompatActivity(),
             cesiumWebController.updateMyPosition(lat, lon)
             cesiumWebController.centerOnLocation(lat, lon, follow = false)
         }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupMediaStreamButton() {
+        btnStreamMedia.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    view.animate().cancel()
+                    view.animate()
+                        .scaleX(0.9f)
+                        .scaleY(0.9f)
+                        .alpha(0.78f)
+                        .setDuration(70L)
+                        .start()
+                }
+
+                MotionEvent.ACTION_UP,
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().cancel()
+                    view.animate()
+                        .scaleX(1f)
+                        .scaleY(1f)
+                        .alpha(if (mediaStreamingActive) 0.82f else 1f)
+                        .setDuration(110L)
+                        .start()
+                }
+            }
+            false
+        }
+
+        btnStreamMedia.setOnClickListener {
+            updateMediaStreamButton()
+            if (mediaStreamingActive) {
+                stopMediaStreamingService()
+            } else {
+                confirmStartMediaStream()
+            }
+        }
+
+        updateMediaStreamButton()
     }
 
     private fun setupSelectedObjectDeleteButton() {
@@ -808,6 +895,14 @@ class MainActivity : AppCompatActivity(),
                             cesiumWebController.clearRoute()
                         }
                     }
+                )
+            }
+
+            "tactical_route" -> selected.id?.let { id ->
+                deleteMapObjectFromBackend(
+                    url = "${ApiConfig.BASE_URL}/ops/$operationId/rutas/$id",
+                    successMessage = "Linea tactica eliminada.",
+                    onSuccess = { cesiumWebController.removeTacticalRouteFromMap(id) }
                 )
             }
 
@@ -966,6 +1061,7 @@ class MainActivity : AppCompatActivity(),
         stopServerConnectionMonitor()
         chatSocketManager?.disconnect()
         stopEmergencyService()
+        stopMediaStreamingService(showToast = false)
 
         val intent = Intent(this, OperationStatusActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -1018,6 +1114,114 @@ class MainActivity : AppCompatActivity(),
         Log.d("EMERGENCY", "EmergencyMonitorService detenido")
     }
 
+    private fun confirmStartMediaStream() {
+        if (!::currentOperation.isInitialized || currentOperation.id <= 0) {
+            Toast.makeText(this, "No hay una operacion activa para transmitir.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Transmitir camara y microfono")
+            .setMessage("La app iniciara una transmision en vivo con camara y microfono. Se mostrara una notificacion mientras este activa.")
+            .setPositiveButton("Iniciar") { _, _ ->
+                if (hasMediaStreamPermissions()) {
+                    startMediaStreamingService()
+                } else {
+                    requestMediaStreamPermissions()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun hasMediaStreamPermissions(): Boolean {
+        val cameraOk = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        val micOk = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val notificationsOk = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        return cameraOk && micOk && notificationsOk
+    }
+
+    private fun requestMediaStreamPermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.RECORD_AUDIO
+        )
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        ActivityCompat.requestPermissions(
+            this,
+            permissions.toTypedArray(),
+            mediaStreamPermissionRequest
+        )
+    }
+
+    private fun buildMediaStreamingServiceIntent(action: String): Intent =
+        Intent(this, MediaStreamingService::class.java).apply {
+            this.action = action
+            putExtra(MediaStreamingService.EXTRA_OPERATION_ID, currentOperation.id)
+            putExtra(MediaStreamingService.EXTRA_TOKEN, AuthManager.getToken(this@MainActivity))
+            putExtra(MediaStreamingService.EXTRA_USER_NAME, currentUser.nombreCompleto)
+            putExtra(MediaStreamingService.EXTRA_USER_ID, currentUser.id)
+            putExtra(MediaStreamingService.EXTRA_USER_ROLE, currentUser.rol.name)
+            putExtra(MediaStreamingService.EXTRA_USER_TABLE, currentUser.tabla)
+        }
+
+    private fun startMediaStreamingService() {
+        if (!::currentOperation.isInitialized || currentOperation.id <= 0) return
+        if (!hasMediaStreamPermissions()) {
+            requestMediaStreamPermissions()
+            return
+        }
+
+        val token = AuthManager.getToken(this)
+        if (token.isBlank()) {
+            Toast.makeText(this, "Sesion invalida. Vuelve a iniciar sesion.", Toast.LENGTH_SHORT).show()
+            goToLogin()
+            return
+        }
+
+        val intent = buildMediaStreamingServiceIntent(MediaStreamingService.ACTION_START)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent)
+        } else {
+            startService(intent)
+        }
+
+        mediaStreamingActive = true
+        updateMediaStreamButton(readServiceState = false)
+        Toast.makeText(this, "Transmision en vivo iniciando...", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun stopMediaStreamingService(showToast: Boolean = true) {
+        val wasActive = mediaStreamingActive || MediaStreamingService.isRunning
+        if (!wasActive) return
+
+        val intent = buildMediaStreamingServiceIntent(MediaStreamingService.ACTION_STOP)
+        startService(intent)
+        mediaStreamingActive = false
+        updateMediaStreamButton(readServiceState = false)
+        if (showToast) {
+            Toast.makeText(this, "Transmision detenida.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun updateMediaStreamButton(readServiceState: Boolean = true) {
+        if (!::btnStreamMedia.isInitialized) return
+        if (readServiceState) {
+            mediaStreamingActive = MediaStreamingService.isRunning
+        }
+        btnStreamMedia.alpha = if (mediaStreamingActive) 0.82f else 1f
+        btnStreamMedia.contentDescription = if (mediaStreamingActive) {
+            "Detener transmision de camara y microfono"
+        } else {
+            "Iniciar transmision de camara y microfono"
+        }
+    }
+
     override fun addMessage(msg: ChatMessage) {
         runOnUiThread {
             val exists = msg.id != null && messages.any { it.id == msg.id }
@@ -1025,10 +1229,16 @@ class MainActivity : AppCompatActivity(),
 
             messages.add(msg)
 
+            if (isVisibleInActiveChatFilter(msg)) {
+                visibleMessages.add(msg)
+            } else {
+                return@runOnUiThread
+            }
+
             if (::chatAdapter.isInitialized) {
-                chatAdapter.notifyItemInserted(messages.size - 1)
+                chatAdapter.notifyItemInserted(visibleMessages.size - 1)
                 if (::chatRecycler.isInitialized) {
-                    chatRecycler.scrollToPosition(messages.size - 1)
+                    chatRecycler.scrollToPosition(visibleMessages.size - 1)
                 }
             }
         }
@@ -1072,6 +1282,14 @@ class MainActivity : AppCompatActivity(),
         if (hasLocationPermission()) {
             startEmergencyService()
         }
+
+        if (requestCode == mediaStreamPermissionRequest) {
+            if (hasMediaStreamPermissions()) {
+                startMediaStreamingService()
+            } else {
+                Toast.makeText(this, "Camara y microfono son necesarios para transmitir.", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun fetchMapaData() {
@@ -1112,6 +1330,20 @@ class MainActivity : AppCompatActivity(),
                         findViewById<WebView>(R.id.cesiumWebView)?.postDelayed({
                             cesiumWebController.evaluate("if(typeof loadRemoteRoutes === 'function') loadRemoteRoutes($jsonString)")
                         }, 2600)
+                    }
+
+                    val remoteRoutesJsonForSync = data.rutasNavegacion ?: "[]"
+                    if (isCesiumReady) {
+                        cesiumWebController.loadRemoteRoutes(remoteRoutesJsonForSync, replace = true)
+                    } else {
+                        pendingRemoteRoutesJson = remoteRoutesJsonForSync
+                    }
+
+                    val tacticalRoutesJson = data.rutasTacticas ?: "[]"
+                    if (isCesiumReady) {
+                        cesiumWebController.loadTacticalRoutes(tacticalRoutesJson, replace = true)
+                    } else {
+                        pendingTacticalRoutesJson = tacticalRoutesJson
                     }
 
                     val trackingDelayMs = if (isCesiumReady) 0L else 2600L
@@ -1220,6 +1452,8 @@ class MainActivity : AppCompatActivity(),
                             pendingStructuresJson = structuresJson
                         }
                     }
+
+                    syncMapObjectLayers(data)
                 }
             },
             onError = { message ->
@@ -1236,6 +1470,96 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
+    private fun syncMapStateFromBackend(force: Boolean = false) {
+        if (!::currentOperation.isInitialized || !::cesiumWebController.isInitialized) return
+        if (currentOperation.id <= 0) return
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastMapSyncAt < 1500L) return
+        lastMapSyncAt = now
+
+        fetchMapaData()
+        if (isCesiumReady) {
+            loadDrawingsFromBackend(replace = true)
+        }
+    }
+
+    private fun syncMapObjectLayers(data: OperationMapData) {
+        val poisJson = JSONArray().apply {
+            data.pois.forEach { poi ->
+                put(JSONObject().apply {
+                    put("id_poi", poi.idPoi)
+                    put("nombre", poi.nombre)
+                    put("tipo_poi", poi.tipoPoi)
+                    put("latitud", poi.lat)
+                    put("longitud", poi.lon)
+                    put("color", poi.color)
+                    poi.iconoSrc?.let { put("icono_src", resolvePoiIconUrl(it)) }
+                    poi.sidc?.let { put("sidc", it) }
+                })
+            }
+        }.toString()
+
+        val circlesJson = JSONArray().apply {
+            data.coverageCircles.forEach { circle ->
+                put(JSONObject().apply {
+                    put("id_area", circle.idArea)
+                    put("nombre", circle.nombre)
+                    put("center_lat", circle.centerLat)
+                    put("center_lon", circle.centerLon)
+                    put("radius_m", circle.radiusM)
+                    put("color", circle.color)
+                    put("opacity", circle.opacity)
+                    put("outline_width", circle.outlineWidth)
+                })
+            }
+        }.toString()
+
+        val polygonsJson = JSONArray().apply {
+            data.areaPolygons.forEach { polygon ->
+                put(JSONObject().apply {
+                    put("id_area", polygon.idArea)
+                    put("nombre", polygon.nombre)
+                    put("color", polygon.color)
+                    put("opacity", polygon.opacity)
+                    put("outline_width", polygon.outlineWidth)
+                    put("points", JSONArray().apply {
+                        polygon.points.forEach { point ->
+                            put(JSONObject().apply {
+                                put("lat", point.first)
+                                put("lon", point.second)
+                            })
+                        }
+                    })
+                })
+            }
+        }.toString()
+
+        val structuresJson = JSONArray().apply {
+            data.structures.forEach { structure ->
+                put(JSONObject().apply {
+                    put("id_marca", structure.idMarca)
+                    put("nombre", structure.nombre)
+                    put("tipo_estructura", structure.tipoEstructura)
+                    put("latitud", structure.lat)
+                    put("longitud", structure.lon)
+                    structure.iconoSrc?.let { put("icono_src", it) }
+                })
+            }
+        }.toString()
+
+        if (isCesiumReady) {
+            cesiumWebController.loadPois(poisJson, replace = true)
+            cesiumWebController.syncAreas(circlesJson, polygonsJson)
+            cesiumWebController.loadStructures(structuresJson, replace = true)
+        } else {
+            pendingPoisJson = poisJson
+            pendingCoverageCirclesJson = circlesJson
+            pendingAreaPolygonsJson = polygonsJson
+            pendingStructuresJson = structuresJson
+        }
+    }
+
     private fun fetchPersonalPanelData() {
         val token = AuthManager.getToken(this)
 
@@ -1249,6 +1573,8 @@ class MainActivity : AppCompatActivity(),
 
                     if (panelNavigationController.activePanel == Panel.PERSONAL) {
                         inflatePersonalPanel()
+                    } else if (panelNavigationController.activePanel == Panel.CHAT) {
+                        refreshVisibleChatMessages()
                     }
                 }
             },
@@ -1360,12 +1686,7 @@ class MainActivity : AppCompatActivity(),
 
                     chatLoaded = true
 
-                    if (::chatAdapter.isInitialized) {
-                        chatAdapter.notifyDataSetChanged()
-                        if (::chatRecycler.isInitialized && messages.isNotEmpty()) {
-                            chatRecycler.scrollToPosition(messages.size - 1)
-                        }
-                    }
+                    refreshVisibleChatMessages()
                 }
             },
             onError = { message ->
@@ -1394,6 +1715,8 @@ class MainActivity : AppCompatActivity(),
 
         return ChatMessage(
             id              = id,
+            idUsuario       = idUsuario,
+            idPersonal      = idPersonal,
             user            = autor,
             text            = contenido,
             type            = messageType,
@@ -1412,12 +1735,209 @@ class MainActivity : AppCompatActivity(),
             .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
     }
 
+    private fun refreshVisibleChatMessages(notify: Boolean = true) {
+        visibleMessages.clear()
+        visibleMessages.addAll(messages.filter { isVisibleInActiveChatFilter(it) })
+
+        if (notify && ::chatAdapter.isInitialized) {
+            chatAdapter.notifyDataSetChanged()
+            if (::chatRecycler.isInitialized && visibleMessages.isNotEmpty()) {
+                chatRecycler.scrollToPosition(visibleMessages.size - 1)
+            }
+        }
+    }
+
+    private fun isVisibleInActiveChatFilter(msg: ChatMessage): Boolean {
+        if (msg.type == MessageType.SYSTEM) return true
+
+        val selection = activeChatSelection
+        val destinatario = msg.destinatarioRol.orEmpty().trim().uppercase().ifBlank { "GLOBAL" }
+        val destinoTipo = msg.destinoTipo.orEmpty().trim().uppercase()
+        val destinoId = msg.destinoId
+
+        return when (selection.type.uppercase()) {
+            "GLOBAL" -> destinatario == "GLOBAL" && (destinoTipo.isBlank() || destinoTipo == "GLOBAL")
+            "CETS" -> (destinatario == "CET" && (destinoTipo.isBlank() || destinoTipo == "CETS")) ||
+                destinoTipo == "CUTS"
+            "CET_SPECIFIC" -> (destinoTipo == "CET" && sameChatValue(destinoId, selection.destinoId)) ||
+                (destinoTipo == "CUT" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
+            "CUTS" -> destinoTipo == "CUTS" || (destinatario == "CUT" && destinoTipo.isBlank())
+            "CUT_SPECIFIC" -> (destinoTipo == "CUT" && sameChatValue(destinoId, selection.destinoId)) ||
+                (destinoTipo == "CET" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
+            "CELL_SPECIFIC" -> destinoTipo == "CELL" && sameChatValue(destinoId, selection.destinoId)
+            "FLOTILLA" -> isFlotillaMessageForSelection(msg, selection)
+            "GRUPO" -> destinoTipo == "GRUPO" && matchesGroupSelection(msg, selection)
+            "VEHICULO" -> destinoTipo == "VEHICULO" && sameChatValue(destinoId, selection.destinoId)
+            else -> destinatario == "GLOBAL" && destinoTipo.isBlank()
+        }
+    }
+
+    private fun isFlotillaMessageForSelection(
+        msg: ChatMessage,
+        selection: ChatChannelSelection
+    ): Boolean {
+        return when (msg.destinoTipo.orEmpty().trim().uppercase()) {
+            "FLOTILLA" -> matchesAnyChatAlias(
+                listOf(msg.destinoId, msg.destinoLabel),
+                flotillaAliasesForSelection(selection)
+            )
+            "CELL" -> cellBelongsToFlotilla(msg.destinoId, selection)
+            else -> false
+        }
+    }
+
+    private fun matchesGroupSelection(
+        msg: ChatMessage,
+        selection: ChatChannelSelection
+    ): Boolean = matchesAnyChatAlias(
+        listOf(msg.destinoId, msg.destinoLabel),
+        groupAliasesForSelection(selection)
+    )
+
+    private fun cellBelongsToFlotilla(cellId: String?, selection: ChatChannelSelection): Boolean {
+        val cell = personalList.firstOrNull {
+            it.rol.equals("CELL", ignoreCase = true) &&
+                sameChatValue(it.idPersonal.toString(), cellId)
+        } ?: return false
+
+        return matchesAnyChatAlias(personalFlotillaAliases(cell), flotillaAliasesForSelection(selection))
+    }
+
+    private fun flotillaAliasesForSelection(selection: ChatChannelSelection): Set<String> {
+        val aliases = linkedSetOf<String>()
+        aliases.addNormalized(selection.destinoId)
+        aliases.addNormalized(selection.destinoLabel)
+
+        personalList.forEach { person ->
+            val personAliases = personalFlotillaAliases(person)
+            if (matchesAnyChatAlias(personAliases, aliases)) {
+                aliases.addNormalized(personAliases)
+            }
+        }
+
+        return aliases
+    }
+
+    private fun groupAliasesForSelection(selection: ChatChannelSelection): Set<String> {
+        val aliases = linkedSetOf<String>()
+        aliases.addNormalized(selection.destinoId)
+        aliases.addNormalized(selection.destinoLabel)
+        selection.destinoLabel
+            ?.substringBefore("(")
+            ?.trim()
+            ?.let { aliases.addNormalized(it) }
+
+        personalList.forEach { person ->
+            val personAliases = personalGroupAliases(person)
+            if (matchesAnyChatAlias(personAliases, aliases)) {
+                aliases.addNormalized(personAliases)
+            }
+        }
+
+        return aliases
+    }
+
+    private fun personalFlotillaAliases(person: PersonalItem): List<String?> {
+        val padre = person.grupoPadreNombre.trim()
+        val padreApodo = person.grupoPadreApodo.trim()
+        val grupo = person.grupoNombre.trim()
+        val grupoApodo = person.grupoApodo.trim()
+        val useParent = (padre.isNotBlank() || padreApodo.isNotBlank()) &&
+            !isRootGroupName(padre) &&
+            !isRootGroupName(padreApodo)
+
+        return if (useParent) {
+            listOf(
+                person.idGrupoPadre?.toString(),
+                padre,
+                padreApodo,
+                person.cetFlotilla
+            )
+        } else {
+            listOf(
+                person.idGrupoOperacion?.toString(),
+                grupo,
+                grupoApodo,
+                person.cetFlotilla
+            )
+        }
+    }
+
+    private fun personalGroupAliases(person: PersonalItem): List<String?> {
+        val grupo = person.grupoNombre.trim()
+        val grupoApodo = person.grupoApodo.trim()
+        val padre = person.grupoPadreNombre.trim()
+        val padreApodo = person.grupoPadreApodo.trim()
+        return listOf(
+            person.idGrupoOperacion?.toString(),
+            grupo,
+            grupoApodo,
+            if (grupo.isNotBlank() && padre.isNotBlank()) "$grupo ($padre)" else null,
+            if (grupoApodo.isNotBlank() && padreApodo.isNotBlank()) "$grupoApodo ($padreApodo)" else null
+        )
+    }
+
+    private fun isRootGroupName(value: String?): Boolean {
+        val normalized = normalizeChatValue(value)
+        return normalized.isBlank() ||
+            normalized == "mando operativo" ||
+            normalized == "sin flotilla" ||
+            normalized == "root"
+    }
+
+    private fun matchesAnyChatAlias(values: Iterable<String?>, aliases: Iterable<String?>): Boolean {
+        val normalizedAliases = aliases
+            .map { normalizeChatValue(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (normalizedAliases.isEmpty()) return false
+        return values.any { normalizeChatValue(it) in normalizedAliases }
+    }
+
+    private fun sameChatValue(a: String?, b: String?): Boolean {
+        val left = normalizeChatValue(a)
+        val right = normalizeChatValue(b)
+        return left.isNotBlank() && left == right
+    }
+
+    private fun normalizeChatValue(value: String?): String =
+        value.orEmpty().trim().lowercase()
+
+    private fun MutableSet<String>.addNormalized(value: String?) {
+        val normalized = value.orEmpty().trim()
+        if (normalized.isNotBlank()) add(normalized)
+    }
+
+    private fun MutableSet<String>.addNormalized(values: Iterable<String?>) {
+        values.forEach { addNormalized(it) }
+    }
+
     private fun jsString(value: String): String =
         value
             .replace("\\", "\\\\")
             .replace("'", "\\'")
             .replace("\n", " ")
             .replace("\r", " ")
+
+    private fun mergePendingRouteJson(currentJson: String?, route: JSONObject): String {
+        val id = route.optInt("id_ruta", -1)
+        val merged = runCatching { JSONArray(currentJson ?: "[]") }.getOrDefault(JSONArray())
+        if (id <= 0) {
+            merged.put(route)
+            return merged.toString()
+        }
+
+        for (i in 0 until merged.length()) {
+            val existing = merged.optJSONObject(i) ?: continue
+            if (existing.optInt("id_ruta", -1) == id) {
+                merged.put(i, route)
+                return merged.toString()
+            }
+        }
+
+        merged.put(route)
+        return merged.toString()
+    }
 
     private fun loadInitialTrackingMarkers(personal: List<PersonalItem>, vehiculos: List<VehiculoItem>) {
         val js = buildString {
@@ -1779,17 +2299,24 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun inflateChatPanel() {
+        refreshVisibleChatMessages(notify = false)
+
         val refs: ChatPanelRefs = panelRenderer.inflateChatPanel(
             panelContent = panelContent,
-            messages = messages,
+            messages = visibleMessages,
             currentUser = currentUser,
-            personalList = personalList
+            personalList = personalList,
+            onFilterChanged = { selection ->
+                activeChatSelection = selection
+                refreshVisibleChatMessages()
+            }
         )
 
         chatRecycler = refs.recyclerView
         chatAdapter = refs.adapter
         msgInput = refs.input
 
+        refreshVisibleChatMessages()
         loadChatHistoryIfNeeded()
     }
 
@@ -1832,6 +2359,10 @@ class MainActivity : AppCompatActivity(),
         if (::locationHelper.isInitialized) {
             locationHelper.requestLocationPermissionOrStart()
         }
+        updateMediaStreamButton()
+        if (isCesiumReady) {
+            syncMapStateFromBackend()
+        }
     }
 
     override fun onStop() {
@@ -1857,24 +2388,32 @@ class MainActivity : AppCompatActivity(),
             cesiumWebController.loadOperationZone(json)
         }
 
+        pendingRemoteRoutesJson?.let { json ->
+            pendingRemoteRoutesJson = null
+            cesiumWebController.loadRemoteRoutes(json, replace = true)
+        }
+
+        pendingTacticalRoutesJson?.let { json ->
+            pendingTacticalRoutesJson = null
+            cesiumWebController.loadTacticalRoutes(json, replace = true)
+        }
+
         pendingPoisJson?.let { json ->
             pendingPoisJson = null
-            cesiumWebController.loadPois(json)
+            cesiumWebController.loadPois(json, replace = true)
         }
 
-        pendingCoverageCirclesJson?.let { json ->
+        if (pendingCoverageCirclesJson != null || pendingAreaPolygonsJson != null) {
+            val circlesJson = pendingCoverageCirclesJson ?: "[]"
+            val polygonsJson = pendingAreaPolygonsJson ?: "[]"
             pendingCoverageCirclesJson = null
-            cesiumWebController.loadCoverageCircles(json)
-        }
-
-        pendingAreaPolygonsJson?.let { json ->
             pendingAreaPolygonsJson = null
-            cesiumWebController.loadAreaPolygons(json)
+            cesiumWebController.syncAreas(circlesJson, polygonsJson)
         }
 
         pendingStructuresJson?.let { json ->
             pendingStructuresJson = null
-            cesiumWebController.loadStructures(json)
+            cesiumWebController.loadStructures(json, replace = true)
         }
 
         if (pendingCoverageCircleAdditions.isNotEmpty()) {
@@ -1940,7 +2479,8 @@ class MainActivity : AppCompatActivity(),
 
         // Cargar dibujos libres guardados en backend
         if (currentOperation.id > 0) {
-            loadDrawingsFromBackend()
+            loadDrawingsFromBackend(replace = true)
+            syncMapStateFromBackend(force = true)
         }
     }
 
@@ -2569,7 +3109,7 @@ class MainActivity : AppCompatActivity(),
         })
     }
 
-    fun loadDrawingsFromBackend() {
+    fun loadDrawingsFromBackend(replace: Boolean = true) {
         val operationId = currentOperation.id
         if (operationId <= 0) return
         val token = AuthManager.getToken(this)
@@ -2579,7 +3119,6 @@ class MainActivity : AppCompatActivity(),
             operationId = operationId,
             token = token,
             onSuccess = { items ->
-                if (items.isEmpty()) return@fetchDrawings
                 val arr = org.json.JSONArray()
                 items.forEach { item ->
                     val localId = "draw_loaded_${item.optInt("id_dibujo")}"
@@ -2603,7 +3142,7 @@ class MainActivity : AppCompatActivity(),
                     arr.put(d)
                 }
                 runOnUiThread {
-                    cesiumWebController.loadDrawings(arr.toString())
+                    cesiumWebController.loadDrawings(arr.toString(), replace = replace)
                 }
             },
             onError = { msg -> Log.w("DRAWING", "Error cargando dibujos: $msg") }
@@ -2975,6 +3514,9 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun goToLogin() {
+        if (::currentOperation.isInitialized && ::currentUser.isInitialized) {
+            stopMediaStreamingService(showToast = false)
+        }
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
     }

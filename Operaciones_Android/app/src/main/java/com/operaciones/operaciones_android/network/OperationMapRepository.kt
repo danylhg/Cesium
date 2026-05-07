@@ -15,6 +15,7 @@ import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
 
@@ -148,6 +149,7 @@ class OperationMapRepository(
 
                     val poisSource = json.optJSONArray("pois") ?: capas
                     val pois = mutableListOf<PoiItem>()
+                    val rutasTacticas = JSONArray()
                     if (poisSource != null) {
                         for (i in 0 until poisSource.length()) {
                             val c = poisSource.getJSONObject(i)
@@ -172,6 +174,31 @@ class OperationMapRepository(
                                     iconoSrc = iconoSrc,
                                     sidc = sidc
                                 )
+                            )
+                        }
+                    }
+
+                    if (capas != null) {
+                        for (i in 0 until capas.length()) {
+                            val c = capas.getJSONObject(i)
+                            if (c.optString("tipo_capa") != "RUTA") continue
+
+                            val idRuta = if (c.has("id_ruta")) c.optInt("id_ruta") else c.optInt("id_elemento")
+                            if (idRuta <= 0) continue
+
+                            val geometria = when (val raw = c.opt("geometria")) {
+                                is JSONObject -> raw
+                                is String -> runCatching { JSONObject(raw) }.getOrNull()
+                                else -> null
+                            } ?: continue
+
+                            rutasTacticas.put(
+                                JSONObject()
+                                    .put("id_ruta", idRuta)
+                                    .put("nombre", c.optString("nombre", "Linea tactica"))
+                                    .put("geometria", geometria)
+                                    .put("color", c.optString("color", "#1E90FF").ifBlank { "#1E90FF" })
+                                    .put("estado", c.optString("estado", "ACTIVA"))
                             )
                         }
                     }
@@ -313,6 +340,7 @@ class OperationMapRepository(
                             vehiculos = vehiculos,
                             equipos = equipos,
                             rutasNavegacion = rutasNav,
+                            rutasTacticas = rutasTacticas.toString(),
                             operationZone = operationZone,
                             pois = pois,
                             coverageCircles = coverageCircles,

@@ -500,4 +500,21 @@
         android:src="@android:drawable/ic_menu_mylocation"
         android:tint="#0f172a" />
 
+    <ImageButton
+        android:id="@+id/btnStreamMedia"
+        android:layout_width="54dp"
+        android:layout_height="54dp"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="154dp"
+        android:background="@drawable/bg_fab_delete"
+        android:clickable="true"
+        android:contentDescription="Iniciar transmision de camara y microfono"
+        android:elevation="5dp"
+        android:focusable="true"
+        android:padding="13dp"
+        android:scaleType="centerInside"
+        android:src="@android:drawable/ic_menu_camera"
+        android:tint="#FFFFFF" />
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

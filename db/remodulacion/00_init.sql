@@ -26,3 +26,4 @@
 \ir 20_patch_dibujo_libre.sql
 \ir 21_patch_operacion_evento.sql
 \ir 22_patch_estado_operacion_creacion.sql
+\ir 23_streaming.sql

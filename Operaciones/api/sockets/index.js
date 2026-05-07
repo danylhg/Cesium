@@ -1,6 +1,47 @@
 import { Server } from "socket.io";
 import { pool } from "../db.js";
 
+function streamRoomName(idStream) {
+  return `media_stream_${idStream}`;
+}
+
+function normalizeStreamRole(value) {
+  const role = String(value || "viewer").trim().toLowerCase();
+  return ["publisher", "viewer"].includes(role) ? role : null;
+}
+
+function publicSocketStream(row) {
+  return {
+    id_stream: Number(row.id_stream),
+    id_operacion: row.id_operacion,
+    id_usuario: row.id_usuario,
+    id_personal: row.id_personal,
+    kind: row.kind,
+    status: row.status,
+    label: row.label,
+    stream_key: row.stream_key,
+    publisher_socket_id: row.publisher_socket_id,
+    viewer_count: row.viewer_count,
+    consent_ack: row.consent_ack,
+    foreground_notice: row.foreground_notice,
+    started_at: row.started_at,
+    last_seen_at: row.last_seen_at,
+    ended_at: row.ended_at,
+    signaling_room: streamRoomName(row.id_stream),
+  };
+}
+
+async function getActiveStream(idOperacion, idStream) {
+  const { rows } = await pool.query(
+    `SELECT *
+     FROM media_stream_session
+     WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+     LIMIT 1`,
+    [idOperacion, idStream]
+  );
+  return rows[0] || null;
+}
+
 export function initSocket(server) {
   const io = new Server(server, {
     cors: {
@@ -107,7 +148,243 @@ export function initSocket(server) {
       socket.to(`op_${opId}`).emit("tracking_vehiculo", { ...data, id_operacion: opId });
     });
 
-    socket.on("disconnect", () => {
+    socket.on("stream_join", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const role = normalizeStreamRole(payload?.role);
+
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0 || !role) {
+        const error = { ok: false, mensaje: "stream_join invalido" };
+        if (typeof ack === "function") ack(error);
+        return;
+      }
+
+      try {
+        const streamRow = await getActiveStream(idOperacion, idStream);
+        if (!streamRow) {
+          const error = { ok: false, mensaje: "Transmision no existe o no esta activa" };
+          if (typeof ack === "function") ack(error);
+          return;
+        }
+
+        const room = streamRoomName(idStream);
+        socket.join(`op_${idOperacion}`);
+        socket.join(room);
+        socket.operationId = idOperacion;
+        socket.mediaStreamMemberships ||= new Map();
+        socket.mediaStreamMemberships.set(`${idStream}:${role}`, { idOperacion, idStream, role });
+
+        let updatedRow = streamRow;
+        if (role === "publisher") {
+          const { rows } = await pool.query(
+            `UPDATE media_stream_session
+             SET publisher_socket_id = $3, last_seen_at = NOW()
+             WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+             RETURNING *`,
+            [idOperacion, idStream, socket.id]
+          );
+          updatedRow = rows[0] || streamRow;
+          socket.to(`op_${idOperacion}`).emit("media_stream_publisher_ready", publicSocketStream(updatedRow));
+          socket.to(room).emit("webrtc_publisher_joined", {
+            id_operacion: idOperacion,
+            id_stream: idStream,
+            publisher_socket_id: socket.id,
+          });
+        } else {
+          const { rows } = await pool.query(
+            `UPDATE media_stream_session
+             SET viewer_count = viewer_count + 1, last_seen_at = NOW()
+             WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+             RETURNING *`,
+            [idOperacion, idStream]
+          );
+          updatedRow = rows[0] || streamRow;
+
+          if (updatedRow.publisher_socket_id) {
+            socket.to(updatedRow.publisher_socket_id).emit("webrtc_viewer_joined", {
+              id_operacion: idOperacion,
+              id_stream: idStream,
+              viewer_socket_id: socket.id,
+              viewer: socket.userData || {},
+            });
+          } else {
+            socket.emit("media_stream_waiting_for_publisher", {
+              id_operacion: idOperacion,
+              id_stream: idStream,
+            });
+          }
+        }
+
+        const stream = publicSocketStream(updatedRow);
+        socket.to(`op_${idOperacion}`).emit("media_stream_viewer_count", stream);
+        if (typeof ack === "function") ack({ ok: true, socket_id: socket.id, stream });
+      } catch (err) {
+        console.error("[SOCKET] stream_join:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error uniendo stream" });
+      }
+    });
+
+    async function leaveStreamMembership(idOperacion, idStream, role, notify = true) {
+      const room = streamRoomName(idStream);
+      socket.leave(room);
+      socket.mediaStreamMemberships?.delete(`${idStream}:${role}`);
+
+      if (role === "viewer") {
+        const { rows } = await pool.query(
+          `UPDATE media_stream_session
+           SET viewer_count = GREATEST(viewer_count - 1, 0), last_seen_at = NOW()
+           WHERE id_operacion = $1 AND id_stream = $2
+           RETURNING *`,
+          [idOperacion, idStream]
+        );
+        const stream = rows[0] ? publicSocketStream(rows[0]) : null;
+        if (notify) {
+          socket.to(room).emit("webrtc_viewer_left", {
+            id_operacion: idOperacion,
+            id_stream: idStream,
+            viewer_socket_id: socket.id,
+          });
+          if (stream) socket.to(`op_${idOperacion}`).emit("media_stream_viewer_count", stream);
+        }
+        return;
+      }
+
+      if (role === "publisher") {
+        const { rows } = await pool.query(
+          `UPDATE media_stream_session
+           SET status = 'STOPPED',
+               ended_at = COALESCE(ended_at, NOW()),
+               publisher_socket_id = NULL,
+               viewer_count = 0,
+               last_seen_at = NOW()
+           WHERE id_operacion = $1
+             AND id_stream = $2
+             AND publisher_socket_id = $3
+             AND status = 'ACTIVE'
+           RETURNING *`,
+          [idOperacion, idStream, socket.id]
+        );
+        const stream = rows[0] ? publicSocketStream(rows[0]) : null;
+        if (notify && stream) {
+          socket.to(room).emit("media_stream_stopped", stream);
+          socket.to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
+        }
+      }
+    }
+
+    socket.on("stream_leave", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const role = normalizeStreamRole(payload?.role);
+
+      try {
+        if (Number.isFinite(idStream) && idStream > 0 && role) {
+          await leaveStreamMembership(idOperacion, idStream, role);
+        } else {
+          const memberships = Array.from(socket.mediaStreamMemberships?.values() || []);
+          for (const membership of memberships) {
+            await leaveStreamMembership(membership.idOperacion, membership.idStream, membership.role);
+          }
+        }
+        if (typeof ack === "function") ack({ ok: true });
+      } catch (err) {
+        console.error("[SOCKET] stream_leave:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error saliendo del stream" });
+      }
+    });
+
+    socket.on("stream_stop", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const status = String(payload?.status || "STOPPED").trim().toUpperCase();
+
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0) {
+        if (typeof ack === "function") ack({ ok: false, mensaje: "stream_stop invalido" });
+        return;
+      }
+
+      try {
+        const { rows } = await pool.query(
+          `UPDATE media_stream_session
+           SET status = $3,
+               ended_at = COALESCE(ended_at, NOW()),
+               publisher_socket_id = NULL,
+               viewer_count = 0,
+               last_seen_at = NOW()
+           WHERE id_operacion = $1 AND id_stream = $2
+           RETURNING *`,
+          [idOperacion, idStream, status === "ERROR" ? "ERROR" : "STOPPED"]
+        );
+        const stream = rows[0] ? publicSocketStream(rows[0]) : null;
+        if (!stream) {
+          if (typeof ack === "function") ack({ ok: false, mensaje: "Transmision no existe" });
+          return;
+        }
+        io.to(stream.signaling_room).emit("media_stream_stopped", stream);
+        io.to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
+        if (typeof ack === "function") ack({ ok: true, stream });
+      } catch (err) {
+        console.error("[SOCKET] stream_stop:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error cerrando stream" });
+      }
+    });
+
+    socket.on("stream_ping", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0) {
+        if (typeof ack === "function") ack({ ok: false, mensaje: "stream_ping invalido" });
+        return;
+      }
+
+      try {
+        await pool.query(
+          `UPDATE media_stream_session
+           SET last_seen_at = NOW()
+           WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'`,
+          [idOperacion, idStream]
+        );
+        if (typeof ack === "function") ack({ ok: true });
+      } catch (err) {
+        console.error("[SOCKET] stream_ping:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error actualizando stream" });
+      }
+    });
+
+    function relayWebRtc(eventName, payload, ack) {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const to = String(payload?.to || payload?.to_socket_id || "").trim();
+
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0 || !to) {
+        if (typeof ack === "function") ack({ ok: false, mensaje: `${eventName} invalido` });
+        return;
+      }
+
+      socket.to(to).emit(eventName, {
+        ...payload,
+        id_operacion: idOperacion,
+        id_stream: idStream,
+        from: socket.id,
+        from_socket_id: socket.id,
+      });
+
+      if (typeof ack === "function") ack({ ok: true });
+    }
+
+    socket.on("webrtc_offer", (payload, ack) => relayWebRtc("webrtc_offer", payload, ack));
+    socket.on("webrtc_answer", (payload, ack) => relayWebRtc("webrtc_answer", payload, ack));
+    socket.on("webrtc_ice_candidate", (payload, ack) => relayWebRtc("webrtc_ice_candidate", payload, ack));
+
+    socket.on("disconnect", async () => {
+      const memberships = Array.from(socket.mediaStreamMemberships?.values() || []);
+      for (const membership of memberships) {
+        try {
+          await leaveStreamMembership(membership.idOperacion, membership.idStream, membership.role);
+        } catch (err) {
+          console.error("[SOCKET] stream disconnect cleanup:", err.message);
+        }
+      }
       console.log("🔴 Cliente desconectado:", socket.id);
     });
   });

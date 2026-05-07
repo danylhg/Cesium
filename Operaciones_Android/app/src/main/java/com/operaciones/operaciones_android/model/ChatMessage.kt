@@ -2,6 +2,8 @@ package com.operaciones.operaciones_android.model
 
 data class ChatMessage(
     val id: Int? = null,
+    val idUsuario: Int? = null,
+    val idPersonal: Int? = null,
     val user: String,
     val text: String,
     val type: MessageType = MessageType.NORMAL,
