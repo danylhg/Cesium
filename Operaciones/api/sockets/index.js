@@ -266,8 +266,7 @@ export function initSocket(server) {
         );
         const stream = rows[0] ? publicSocketStream(rows[0]) : null;
         if (notify && stream) {
-          socket.to(room).emit("media_stream_stopped", stream);
-          socket.to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
+          socket.to(room).to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
         }
       }
     }
@@ -320,8 +319,7 @@ export function initSocket(server) {
           if (typeof ack === "function") ack({ ok: false, mensaje: "Transmision no existe" });
           return;
         }
-        io.to(stream.signaling_room).emit("media_stream_stopped", stream);
-        io.to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
+        io.to(stream.signaling_room).to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
         if (typeof ack === "function") ack({ ok: true, stream });
       } catch (err) {
         console.error("[SOCKET] stream_stop:", err.message);

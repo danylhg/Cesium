@@ -515,6 +515,7 @@
         android:padding="13dp"
         android:scaleType="centerInside"
         android:src="@android:drawable/ic_menu_camera"
-        android:tint="#FFFFFF" />
+        android:tint="#FFFFFF"
+        android:visibility="gone" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -76,6 +76,60 @@
   overflow-wrap: anywhere;
 }
 
+.historyRecordingList {
+  display: grid;
+  gap: 10px;
+}
+
+.historyRecordingItem {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid rgba(0, 255, 170, 0.12);
+}
+
+.historyRecordingItem:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.historyRecordingInfo {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.historyRecordingInfo strong {
+  color: #eaf8ff;
+  font-size: 13px;
+}
+
+.historyRecordingInfo span,
+.historyRecordingInfo small {
+  color: #9fb0c3;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.historyRecordingDownload {
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid rgba(0, 255, 170, 0.24);
+  border-radius: 10px;
+  background: rgba(0, 255, 170, 0.12);
+  color: #adffe2;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.historyRecordingDownload:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .historyChatMessages {
   display: flex;
   flex-direction: column;

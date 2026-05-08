@@ -250,6 +250,7 @@ class MainActivity : AppCompatActivity(),
     private val pendingStructureAdditions = mutableListOf<PendingStructureAddition>()
     private var emergencyServiceStarted = false
     private var mediaStreamingActive = false
+    private var mediaStreamPromptShown = false
     private val mediaStreamPermissionRequest = 202
     private var lastMapSyncAt = 0L
     private val connectionMonitorHandler = Handler(Looper.getMainLooper())
@@ -719,6 +720,7 @@ class MainActivity : AppCompatActivity(),
             fetchVehiculosPanelData()
             fetchEquiposPanelData()
             startEmergencyService()
+            requestMediaStreamForOperation()
         }
     }
 
@@ -768,42 +770,9 @@ class MainActivity : AppCompatActivity(),
 
     @SuppressLint("ClickableViewAccessibility")
     private fun setupMediaStreamButton() {
-        btnStreamMedia.setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    view.animate().cancel()
-                    view.animate()
-                        .scaleX(0.9f)
-                        .scaleY(0.9f)
-                        .alpha(0.78f)
-                        .setDuration(70L)
-                        .start()
-                }
-
-                MotionEvent.ACTION_UP,
-                MotionEvent.ACTION_CANCEL -> {
-                    view.animate().cancel()
-                    view.animate()
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .alpha(if (mediaStreamingActive) 0.82f else 1f)
-                        .setDuration(110L)
-                        .start()
-                }
-            }
-            false
-        }
-
-        btnStreamMedia.setOnClickListener {
-            updateMediaStreamButton()
-            if (mediaStreamingActive) {
-                stopMediaStreamingService()
-            } else {
-                confirmStartMediaStream()
-            }
-        }
-
-        updateMediaStreamButton()
+        btnStreamMedia.visibility = View.GONE
+        btnStreamMedia.setOnTouchListener(null)
+        btnStreamMedia.setOnClickListener(null)
     }
 
     private fun setupSelectedObjectDeleteButton() {
@@ -982,6 +951,7 @@ class MainActivity : AppCompatActivity(),
         stopServerConnectionMonitor()
         chatSocketManager?.disconnect()
         stopEmergencyService()
+        stopMediaStreamingService(showToast = false)
     }
 
     // ── EmergencyMonitorService ──────────────────────────────────────────────
@@ -1114,24 +1084,22 @@ class MainActivity : AppCompatActivity(),
         Log.d("EMERGENCY", "EmergencyMonitorService detenido")
     }
 
-    private fun confirmStartMediaStream() {
+    private fun requestMediaStreamForOperation() {
         if (!::currentOperation.isInitialized || currentOperation.id <= 0) {
-            Toast.makeText(this, "No hay una operacion activa para transmitir.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (mediaStreamPromptShown || mediaStreamingActive || MediaStreamingService.isRunning) {
+            updateMediaStreamButton()
             return
         }
 
-        AlertDialog.Builder(this)
-            .setTitle("Transmitir camara y microfono")
-            .setMessage("La app iniciara una transmision en vivo con camara y microfono. Se mostrara una notificacion mientras este activa.")
-            .setPositiveButton("Iniciar") { _, _ ->
-                if (hasMediaStreamPermissions()) {
-                    startMediaStreamingService()
-                } else {
-                    requestMediaStreamPermissions()
-                }
-            }
-            .setNegativeButton("Cancelar", null)
-            .show()
+        mediaStreamPromptShown = true
+        if (hasMediaStreamPermissions()) {
+            startMediaStreamingService()
+        } else {
+            Toast.makeText(this, "Autoriza camara y microfono para la transmision operativa.", Toast.LENGTH_LONG).show()
+            requestMediaStreamPermissions()
+        }
     }
 
     private fun hasMediaStreamPermissions(): Boolean {

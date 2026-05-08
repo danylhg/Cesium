@@ -44,6 +44,10 @@ export function renderOperationInfo(replay) {
         ${metaRow("Dibujos", countOf(snapshots.dibujos))}
       </div>
     </section>
+    <section class="historyOpCard">
+      <h3 class="historyOpCardTitle">Grabaciones</h3>
+      ${renderRecordingList(replay?.recordings || [], replay?.recordingsError)}
+    </section>
   `;
 }
 
@@ -104,6 +108,47 @@ function metaRow(label, value) {
 
 function countOf(value) {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function renderRecordingList(recordings, error) {
+  if (error) {
+    return `<div class="historyEmpty">No se pudieron cargar las grabaciones: ${escapeHtml(error)}</div>`;
+  }
+
+  if (!recordings.length) {
+    return '<div class="historyEmpty">Sin grabaciones guardadas.</div>';
+  }
+
+  return `
+    <div class="historyRecordingList">
+      ${recordings.map(recording => `
+        <article class="historyRecordingItem">
+          <div class="historyRecordingInfo">
+            <strong>Stream #${escapeHtml(recording.id_stream)}</strong>
+            <span>${escapeHtml(recording.stream_label || recording.stream_kind || "Grabacion")}</span>
+            <small>${escapeHtml(formatDateTime(recording.created_at))} | ${escapeHtml(formatBytes(recording.size_bytes))} | ${escapeHtml(formatDuration(recording.duration_ms))}</small>
+          </div>
+          <button class="historyRecordingDownload" type="button" data-recording-id="${escapeHtml(recording.id_recording)}">Descargar</button>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(value) {
+  const ms = Number(value || 0);
+  if (!Number.isFinite(ms) || ms <= 0) return "--:--";
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${seconds}`;
 }
 
 export function renderChatMessages(events) {

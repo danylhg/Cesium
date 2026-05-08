@@ -1,5 +1,8 @@
-import { Router } from "express";
+import { Router, raw } from "express";
 import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
 import { WEBRTC_ICE_SERVERS } from "../config/env.js";
 import { requireAuth } from "../middlewares/auth.js";
@@ -9,6 +12,16 @@ import { isInt } from "../utils/validators.js";
 
 const router = Router();
 let streamingTablesReady = false;
+const routesDir = dirname(fileURLToPath(import.meta.url));
+const apiRoot = resolve(routesDir, "..");
+const streamStorageRoot = resolve(apiRoot, "storage", "streams");
+const recordingContentTypes = new Set(["video/webm", "audio/webm", "application/octet-stream"]);
+
+function isRecordingContentType(req) {
+  const contentType = String(req.headers["content-type"] || "").toLowerCase();
+  const mediaType = contentType.split(";")[0].trim();
+  return recordingContentTypes.has(mediaType);
+}
 
 function normalizeKind(value) {
   const kind = String(value || "AUDIO_VIDEO").trim().toUpperCase().replace("-", "_");
@@ -88,9 +101,48 @@ async function ensureStreamingTables() {
 
     CREATE INDEX IF NOT EXISTS idx_media_stream_session_operacion
       ON media_stream_session(id_operacion, status, started_at DESC);
+
+    CREATE TABLE IF NOT EXISTS media_stream_recording (
+      id_recording BIGSERIAL PRIMARY KEY,
+      id_stream BIGINT NOT NULL REFERENCES media_stream_session(id_stream) ON DELETE CASCADE,
+      id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+      mime_type TEXT NOT NULL DEFAULT 'video/webm',
+      storage_path TEXT NOT NULL,
+      original_filename TEXT,
+      size_bytes BIGINT NOT NULL DEFAULT 0 CHECK (size_bytes >= 0),
+      duration_ms BIGINT,
+      recorded_by_tabla TEXT,
+      recorded_by_id INT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_media_stream_recording_stream
+      ON media_stream_recording(id_stream, created_at DESC);
   `);
 
   streamingTablesReady = true;
+}
+
+function publicRecording(row) {
+  const recording = {
+    id_recording: Number(row.id_recording),
+    id_stream: Number(row.id_stream),
+    id_operacion: row.id_operacion,
+    mime_type: row.mime_type,
+    original_filename: row.original_filename,
+    size_bytes: Number(row.size_bytes || 0),
+    duration_ms: row.duration_ms != null ? Number(row.duration_ms) : null,
+    created_at: row.created_at,
+    download_url: `/ops/${row.id_operacion}/streams/${row.id_stream}/recordings/${row.id_recording}/download`,
+  };
+
+  if (row.stream_kind != null) recording.stream_kind = row.stream_kind;
+  if (row.stream_status != null) recording.stream_status = row.stream_status;
+  if (row.stream_label != null) recording.stream_label = row.stream_label;
+  if (row.stream_started_at != null) recording.stream_started_at = row.stream_started_at;
+  if (row.stream_ended_at != null) recording.stream_ended_at = row.stream_ended_at;
+
+  return recording;
 }
 
 function publicStream(row) {
@@ -172,6 +224,33 @@ router.get("/ops/:id/streams", requireAuth, async (req, res) => {
     return res.json({ ok: true, items: rows.map(publicStream) });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo transmisiones en vivo");
+  }
+});
+
+router.get("/ops/:id/streams/recordings", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return sendError(res, 400, "id invalido");
+
+  try {
+    await ensureStreamingTables();
+    const { rows } = await pool.query(
+      `SELECT r.*,
+              s.kind AS stream_kind,
+              s.status AS stream_status,
+              s.label AS stream_label,
+              s.started_at AS stream_started_at,
+              s.ended_at AS stream_ended_at
+       FROM media_stream_recording r
+       LEFT JOIN media_stream_session s
+         ON s.id_stream = r.id_stream
+        AND s.id_operacion = r.id_operacion
+       WHERE r.id_operacion = $1
+       ORDER BY r.created_at DESC`,
+      [id_operacion]
+    );
+    return res.json({ ok: true, items: rows.map(publicRecording) });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo grabaciones");
   }
 });
 
@@ -266,11 +345,118 @@ router.patch("/ops/:id/streams/:streamId/stop", requireAuth, async (req, res) =>
     if (!rows[0]) return sendError(res, 404, "Transmision no existe");
     const stream = publicStream(rows[0]);
     const io = req.app.get("io");
-    io?.to(stream.signaling_room).emit("media_stream_stopped", stream);
-    io?.to(`op_${id_operacion}`).emit("media_stream_stopped", stream);
+    io?.to(stream.signaling_room).to(`op_${id_operacion}`).emit("media_stream_stopped", stream);
     return res.json({ ok: true, stream });
   } catch (err) {
     return sendDbError(res, err, "Error cerrando transmision en vivo");
+  }
+});
+
+router.get("/ops/:id/streams/:streamId/recordings", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_stream = Number(req.params.streamId);
+  if (!isInt(id_operacion) || !isInt(id_stream)) return sendError(res, 400, "id invalido");
+
+  try {
+    await ensureStreamingTables();
+    const { rows } = await pool.query(
+      `SELECT *
+       FROM media_stream_recording
+       WHERE id_operacion = $1 AND id_stream = $2
+       ORDER BY created_at DESC`,
+      [id_operacion, id_stream]
+    );
+    return res.json({ ok: true, items: rows.map(publicRecording) });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo grabaciones");
+  }
+});
+
+router.post(
+  "/ops/:id/streams/:streamId/recordings",
+  requireAuth,
+  raw({ type: isRecordingContentType, limit: "500mb" }),
+  async (req, res) => {
+    const id_operacion = Number(req.params.id);
+    const id_stream = Number(req.params.streamId);
+    if (!isInt(id_operacion) || !isInt(id_stream)) return sendError(res, 400, "id invalido");
+
+    const buffer = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buffer || buffer.length === 0) return sendError(res, 400, "archivo vacio");
+
+    const mime_type = String(req.headers["content-type"] || "video/webm").split(";")[0].trim();
+    const duration_ms = req.query.duration_ms ? Number(req.query.duration_ms) : null;
+    const safeDuration = Number.isFinite(duration_ms) && duration_ms >= 0 ? Math.round(duration_ms) : null;
+
+    try {
+      await ensureStreamingTables();
+      const stream = await getStream(id_operacion, id_stream);
+      if (!stream) return sendError(res, 404, "Transmision no existe");
+
+      const actor = getActorColumns(req);
+      const dir = resolve(streamStorageRoot, `op_${id_operacion}`, `stream_${id_stream}`);
+      await mkdir(dir, { recursive: true });
+
+      const filename = `recording_${Date.now()}_${randomUUID()}.webm`;
+      const storagePath = resolve(dir, filename);
+      await writeFile(storagePath, buffer);
+
+      const { rows } = await pool.query(
+        `INSERT INTO media_stream_recording (
+           id_stream, id_operacion, mime_type, storage_path, original_filename,
+           size_bytes, duration_ms, recorded_by_tabla, recorded_by_id
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING *`,
+        [
+          id_stream,
+          id_operacion,
+          mime_type,
+          storagePath,
+          filename,
+          buffer.length,
+          safeDuration,
+          actor.created_by_tabla,
+          actor.created_by_id,
+        ]
+      );
+
+      return res.status(201).json({ ok: true, recording: publicRecording(rows[0]) });
+    } catch (err) {
+      return sendDbError(res, err, "Error guardando grabacion");
+    }
+  }
+);
+
+router.get("/ops/:id/streams/:streamId/recordings/:recordingId/download", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_stream = Number(req.params.streamId);
+  const id_recording = Number(req.params.recordingId);
+  if (!isInt(id_operacion) || !isInt(id_stream) || !isInt(id_recording)) {
+    return sendError(res, 400, "id invalido");
+  }
+
+  try {
+    await ensureStreamingTables();
+    const { rows } = await pool.query(
+      `SELECT *
+       FROM media_stream_recording
+       WHERE id_operacion = $1 AND id_stream = $2 AND id_recording = $3
+       LIMIT 1`,
+      [id_operacion, id_stream, id_recording]
+    );
+
+    const recording = rows[0];
+    if (!recording) return sendError(res, 404, "Grabacion no existe");
+
+    res.setHeader("Content-Type", recording.mime_type || "video/webm");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${recording.original_filename || `stream_${id_stream}.webm`}"`
+    );
+    return res.sendFile(recording.storage_path);
+  } catch (err) {
+    return sendDbError(res, err, "Error descargando grabacion");
   }
 });
 

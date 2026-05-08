@@ -268,10 +268,10 @@ class EmergencyMonitorService : Service(), SensorEventListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Monitor de emergencia",
+                "Servicio SEDAM",
                 NotificationManager.IMPORTANCE_LOW   // discreta, sin sonido
             ).apply {
-                description = "Canal del monitor de emergencia SEDAM"
+                description = "Canal operativo SEDAM"
             }
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
@@ -281,7 +281,8 @@ class EmergencyMonitorService : Service(), SensorEventListener {
     private fun buildNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SEDAM – Monitor activo")
-            .setContentText("Agita dos veces en caso de emergencia")
+            .setContentTitle("SEDAM - Servicio activo")
+            .setContentText("Operacion en curso")
             .setSmallIcon(R.mipmap.ic_launcher)   // ícono existente
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)    // no se puede cerrar con swipe

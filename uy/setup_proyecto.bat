@@ -88,8 +88,8 @@ echo.
 :: ============================================================
 echo [4/4] Iniciando servidores ...
 
-:: Ventana 1 - npx serve (frontend estatico)
-start "Frontend" cmd /k "cd /d %PROYECTO% && npx serve"
+:: Ventana 1 - npx serve (frontend estatico en puerto 3000)
+start "Frontend" cmd /k "cd /d %PROYECTO% && npx serve -l 3000"
 timeout /t 2 /nobreak >nul
 
 :: Ventana 2 - node server.js (API - lee Operaciones\api\.env)
