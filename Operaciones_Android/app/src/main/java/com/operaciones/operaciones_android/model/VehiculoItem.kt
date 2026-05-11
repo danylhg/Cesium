@@ -15,6 +15,7 @@ data class VehiculoItem(
     val tipo: String,
     val alias: String = "",
     val detalle: String = "",
+    val idPersonalAsignado: Int? = null,
 
     // Jerarquía real del backend (tipo_destino / nivel_asignacion)
     val tipoDestino: String = "",       // "PERSONAL" | "GRUPO" | "FLOTILLA" | ""

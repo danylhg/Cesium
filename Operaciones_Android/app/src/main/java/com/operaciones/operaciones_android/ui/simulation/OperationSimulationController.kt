@@ -52,12 +52,43 @@ class OperationSimulationController(
         val lon: Double
     )
 
+    private data class SimulationRoutePlan(
+        val idRoute: Int?,
+        val vehicleId: Int?,
+        val points: List<SimulationRoutePoint>,
+        val distanceSq: Double
+    )
+
+    private data class SimulationVehicleGroup(
+        val vehicle: VehiculoItem,
+        val assignedPersonalIds: Set<Int>,
+        val targets: List<PersonalItem>,
+        val routePlan: SimulationRoutePlan?
+    )
+
+    private data class SimulationVehicleRuntime(
+        val group: SimulationVehicleGroup,
+        val homePoint: SimulationRoutePoint,
+        var routePlan: SimulationRoutePlan?,
+        var routeStartTick: Int? = null,
+        var routeDeletedTick: Int? = null,
+        var lastVehiclePoint: SimulationRoutePoint? = null,
+        var returnVehiclePoint: SimulationRoutePoint? = null,
+        val personToVehicleRoutes: MutableMap<Int, List<SimulationRoutePoint>> = mutableMapOf(),
+        val personReturnRoutes: MutableMap<Int, List<SimulationRoutePoint>> = mutableMapOf(),
+        var vehicleToRoutePoints: List<SimulationRoutePoint> = emptyList(),
+        var vehicleReturnPoints: List<SimulationRoutePoint> = emptyList()
+    )
+
     private var simulationRunnable: Runnable? = null
     private var simulationTick = 0
     private var simulationActive = false
     private val simulationRoutePoints = mutableListOf<SimulationRoutePoint>()
     private var simulationRouteStartTick: Int? = null
     private var simulationRouteDeletedTick: Int? = null
+    private var simulationActiveRouteId: Int? = null
+    private val simulationRoutesByVehicle = mutableMapOf<Int, SimulationRoutePlan>()
+    private var simulationGlobalRoutePlan: SimulationRoutePlan? = null
     private val simulationPersonStartPoints = mutableMapOf<Int, SimulationRoutePoint>()
     private val simulationLastPersonPoints = mutableMapOf<Int, SimulationRoutePoint>()
     private val simulationReturnStartPersonPoints = mutableMapOf<Int, SimulationRoutePoint>()
@@ -68,6 +99,7 @@ class OperationSimulationController(
     private var simulationVehicleToRoutePoints: List<SimulationRoutePoint> = emptyList()
     private var simulationVehicleReturnPoints: List<SimulationRoutePoint> = emptyList()
     private var simulationVehicleStartPoint: SimulationRoutePoint? = null
+    private val simulationVehicleRuntimes = mutableMapOf<Int, SimulationVehicleRuntime>()
     private var simulationRoutePlanGeneration = 0
     private var simulationTargetsSnapshot: List<PersonalItem> = emptyList()
     private var simulationVehicleTargetSnapshot: VehiculoItem? = null
@@ -95,29 +127,23 @@ class OperationSimulationController(
     fun updateRoutesFromJson(routesJson: String) {
         try {
             val routes = JSONArray(routesJson)
-            var selectedDistanceSq = Double.POSITIVE_INFINITY
-            var selectedPoints: List<SimulationRoutePoint> = emptyList()
+            simulationRoutesByVehicle.clear()
+            simulationGlobalRoutePlan = null
 
             for (i in 0 until routes.length()) {
                 val route = routes.optJSONObject(i) ?: continue
-                val points = parseSimulationRoutePoints(route)
-                val distanceSq = routeDistanceToSimulationAnchorSq(points)
-                if (points.size >= 2 && distanceSq < selectedDistanceSq) {
-                    selectedDistanceSq = distanceSq
-                    selectedPoints = points
-                }
+                val plan = parseSimulationRoutePlan(route) ?: continue
+                storeSimulationRoutePlan(plan)
             }
 
-            if (selectedPoints.isNotEmpty()) {
-                simulationRoutePoints.clear()
-                simulationRoutePoints.addAll(selectedPoints)
-                simulationRouteDistanceSq = selectedDistanceSq
-                simulationRouteStartTick = null
-                simulationRouteDeletedTick = null
-                simulationReturnStartPersonPoints.clear()
-                simulationReturnVehiclePoint = null
-                if (simulationActive) {
-                    prepareSimulationActiveRouteLegs()
+            if (simulationActive && simulationVehicleRuntimes.isNotEmpty()) {
+                refreshSimulationRuntimeRoutePlans(resetTicks = true)
+            } else {
+                val activeVehicle = simulationVehicleTargetSnapshot
+                if (activeVehicle != null) {
+                    applySimulationRoutePlan(selectRoutePlanForVehicle(activeVehicle), resetTicks = true)
+                } else {
+                    applySimulationRoutePlan(selectDefaultRoutePlan(), resetTicks = true)
                 }
             }
         } catch (e: Exception) {
@@ -127,18 +153,20 @@ class OperationSimulationController(
 
     fun updateRouteFromJson(routeJson: String) {
         try {
-            val points = parseSimulationRoutePoints(JSONObject(routeJson))
-            val distanceSq = routeDistanceToSimulationAnchorSq(points)
-            if (points.size >= 2 && distanceSq <= simulationRouteDistanceSq) {
-                simulationRoutePoints.clear()
-                simulationRoutePoints.addAll(points)
-                simulationRouteDistanceSq = distanceSq
-                simulationRouteStartTick = null
-                simulationRouteDeletedTick = null
-                simulationReturnStartPersonPoints.clear()
-                simulationReturnVehiclePoint = null
-                if (simulationActive) {
-                    prepareSimulationActiveRouteLegs()
+            val plan = parseSimulationRoutePlan(JSONObject(routeJson)) ?: return
+            storeSimulationRoutePlan(plan)
+
+            if (simulationActive && simulationVehicleRuntimes.isNotEmpty()) {
+                refreshSimulationRuntimeRoutePlans(resetTicks = true)
+            } else {
+                val activeVehicle = simulationVehicleTargetSnapshot
+                val shouldApply = when {
+                    activeVehicle != null -> selectRoutePlanForVehicle(activeVehicle)?.idRoute == plan.idRoute
+                    plan.vehicleId != null -> true
+                    else -> plan.distanceSq <= simulationRouteDistanceSq
+                }
+                if (shouldApply) {
+                    applySimulationRoutePlan(plan, resetTicks = true)
                 }
             }
         } catch (e: Exception) {
@@ -146,9 +174,50 @@ class OperationSimulationController(
         }
     }
 
-    fun handleRouteDeleted() {
+    fun handleRouteDeleted(idRoute: Int = -1) {
+        val deletedRouteId = idRoute.takeIf { it > 0 }
+        if (deletedRouteId != null) {
+            removeSimulationRoutePlan(deletedRouteId)
+        }
+
+        if (simulationActive && simulationVehicleRuntimes.isNotEmpty()) {
+            val generation = ++simulationRoutePlanGeneration
+            var handledByRuntime = false
+
+            simulationVehicleRuntimes.values.forEach { runtime ->
+                val routeMatches = deletedRouteId == null || runtime.routePlan?.idRoute == deletedRouteId
+                if (!routeMatches) return@forEach
+
+                val replacementPlan = selectRoutePlanForVehicle(runtime.group.vehicle)
+                if (deletedRouteId != null && replacementPlan != null && replacementPlan.idRoute != deletedRouteId) {
+                    runtime.routePlan = replacementPlan
+                    runtime.routeStartTick = null
+                    runtime.routeDeletedTick = null
+                    runtime.returnVehiclePoint = null
+                    prepareSimulationRuntimeActiveRouteLegs(runtime, generation)
+                } else {
+                    runtime.routePlan = null
+                    prepareSimulationRuntimeReturnRouteLegs(runtime, generation)
+                }
+                handledByRuntime = true
+            }
+
+            if (handledByRuntime) return
+        }
+
+        if (deletedRouteId != null && deletedRouteId != simulationActiveRouteId) {
+            return
+        }
+
+        val replacementPlan = simulationVehicleTargetSnapshot?.let { selectRoutePlanForVehicle(it) }
+        if (replacementPlan != null && replacementPlan.idRoute != deletedRouteId) {
+            applySimulationRoutePlan(replacementPlan, resetTicks = true)
+            return
+        }
+
         simulationRoutePoints.clear()
         simulationRouteDistanceSq = Double.POSITIVE_INFINITY
+        simulationActiveRouteId = null
         simulationRouteStartTick = null
         if (simulationActive) {
             simulationRouteDeletedTick = simulationTick
@@ -177,6 +246,7 @@ class OperationSimulationController(
         simulationReturnVehiclePoint = null
         clearSimulationRouteLegs()
         simulationVehicleStartPoint = null
+        simulationVehicleRuntimes.clear()
         simulationTargetsSnapshot = emptyList()
         simulationVehicleTargetSnapshot = null
     }
@@ -206,19 +276,16 @@ class OperationSimulationController(
             return
         }
 
-        val targets = getSimulationTargets(personalList)
-        if (targets.isEmpty()) {
-            showToast("No se encontro personal de la flotilla para simular.")
+        val vehicleGroups = buildSimulationVehicleGroups(personalList, vehiculosList)
+        if (vehicleGroups.isEmpty()) {
+            showToast("No se encontraron vehiculos asignados para simular.")
             return
         }
 
-        val vehicleTarget = getSimulationVehicleTarget(vehiculosList)
-        if (vehicleTarget == null) {
-            showToast("No se encontro un vehiculo asignado para simular.")
-            return
-        }
+        val targets = vehicleGroups
+            .flatMap { it.targets }
+            .distinctBy { it.idPersonal }
 
-        simulationActive = true
         simulationTick = 0
         simulationRouteStartTick = null
         simulationRouteDeletedTick = null
@@ -228,22 +295,143 @@ class OperationSimulationController(
         simulationReturnVehiclePoint = null
         clearSimulationRouteLegs()
         simulationTargetsSnapshot = targets
-        simulationVehicleTargetSnapshot = vehicleTarget
-        simulationVehicleStartPoint = simulationVehicleHomePoint(vehicleTarget)
+        simulationVehicleTargetSnapshot = vehicleGroups.firstOrNull { it.routePlan != null }?.vehicle
+            ?: vehicleGroups.first().vehicle
+        simulationVehicleStartPoint = null
         prepareSimulationStartPoints(targets)
-        if (simulationRoutePoints.size >= 2) {
-            prepareSimulationActiveRouteLegs()
+
+        simulationVehicleRuntimes.clear()
+        vehicleGroups.forEachIndexed { index, group ->
+            simulationVehicleRuntimes[group.vehicle.idVehiculo] = SimulationVehicleRuntime(
+                group = group,
+                homePoint = simulationVehicleHomePoint(group.vehicle, index),
+                routePlan = group.routePlan
+            )
         }
+
+        simulationActive = true
+        refreshSimulationRuntimeRoutePlans(resetTicks = true)
+
         simulationRunnable?.let { mainHandler.removeCallbacks(it) }
         simulationRunnable = object : Runnable {
             override fun run() {
-                emitSimulationPositions(targets, vehicleTarget)
+                emitSimulationPositions()
                 simulationTick += 1
                 if (simulationActive) mainHandler.postDelayed(this, 2500)
             }
         }
         simulationRunnable?.run()
-        showToast("Simulacion activada")
+        showToast("Simulacion activada: ${vehicleGroups.size} vehiculos, ${targets.size} personal")
+    }
+
+    private fun selectSimulationVehicleGroup(
+        personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>
+    ): SimulationVehicleGroup? {
+        val groups = buildSimulationVehicleGroups(personalList, vehiculosList)
+        val currentUserId = host.getSimulationUser().id
+        val routedAssignedGroups = groups.filter {
+            it.assignedPersonalIds.isNotEmpty() && it.routePlan?.vehicleId != null
+        }
+
+        return routedAssignedGroups.firstOrNull {
+            currentUserId in it.assignedPersonalIds && it.targets.isNotEmpty()
+        } ?: routedAssignedGroups.firstOrNull {
+            it.targets.isNotEmpty()
+        } ?: routedAssignedGroups.firstOrNull {
+            currentUserId in it.assignedPersonalIds
+        } ?: routedAssignedGroups.firstOrNull()
+            ?: groups.firstOrNull { it.routePlan != null && it.targets.isNotEmpty() }
+            ?: fallbackSimulationVehicleGroup(personalList, vehiculosList)
+    }
+
+    private fun buildSimulationVehicleGroups(
+        personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>
+    ): List<SimulationVehicleGroup> {
+        val candidates = personalList.filter(::isSimulationCandidate)
+        val rawGroups = vehiculosList
+            .groupBy { it.idVehiculo }
+            .values
+            .mapNotNull { vehicleRows ->
+                val vehicle = vehicleRows.firstOrNull() ?: return@mapNotNull null
+                val assignedIds = vehicleRows.mapNotNull { it.idPersonalAsignado }.toSet()
+                val targets = candidates.filter { person ->
+                    person.idPersonal in assignedIds || vehicleMatchesPersonScope(vehicle, person)
+                }.distinctBy { it.idPersonal }
+                SimulationVehicleGroup(
+                    vehicle = vehicle,
+                    assignedPersonalIds = assignedIds,
+                    targets = targets,
+                    routePlan = selectRoutePlanForVehicle(vehicle)
+                )
+            }
+
+        val orderedGroups = rawGroups.sortedWith(
+            compareByDescending<SimulationVehicleGroup> { it.assignedPersonalIds.isNotEmpty() }
+                .thenByDescending { it.routePlan != null }
+                .thenBy { it.vehicle.idVehiculo }
+        )
+        val allocatedPersonalIds = mutableSetOf<Int>()
+        val uniqueGroups = orderedGroups.map { group ->
+            val uniqueTargets = group.targets.filter { allocatedPersonalIds.add(it.idPersonal) }
+            group.copy(targets = uniqueTargets)
+        }.toMutableList()
+        val unassignedTargets = candidates.filter { it.idPersonal !in allocatedPersonalIds }
+
+        if (unassignedTargets.isNotEmpty() && uniqueGroups.isNotEmpty()) {
+            val currentUserId = host.getSimulationUser().id
+            val fallbackIndex = uniqueGroups.indexOfFirst {
+                currentUserId in it.assignedPersonalIds || it.targets.any { target -> target.idPersonal == currentUserId }
+            }.takeIf { it >= 0 }
+                ?: uniqueGroups.indexOfFirst { it.routePlan != null }.takeIf { it >= 0 }
+                ?: 0
+            val fallbackGroup = uniqueGroups[fallbackIndex]
+            uniqueGroups[fallbackIndex] = fallbackGroup.copy(
+                targets = (fallbackGroup.targets + unassignedTargets).distinctBy { it.idPersonal }
+            )
+        }
+
+        return uniqueGroups
+    }
+
+    private fun vehicleMatchesPersonScope(vehicle: VehiculoItem, person: PersonalItem): Boolean {
+        val destinationType = vehicle.tipoDestino.trim().uppercase()
+        val vehicleGroup = vehicle.grupoNombre.trim()
+        val vehicleParentGroup = vehicle.grupoPadreNombre.trim()
+        val personGroup = person.grupoNombre.trim()
+        val personParentGroup = person.grupoPadreNombre.trim()
+        val personFleet = simulationFlotillaName(person)
+
+        return when (destinationType) {
+            "GRUPO" -> vehicleGroup.isNotBlank() &&
+                (vehicleGroup.equals(personGroup, ignoreCase = true) ||
+                    vehicleGroup.equals(personParentGroup, ignoreCase = true))
+            "FLOTILLA" -> {
+                val fleetName = vehicleParentGroup.ifBlank { vehicleGroup }
+                fleetName.isNotBlank() && fleetName.equals(personFleet, ignoreCase = true)
+            }
+            else -> {
+                vehicleGroup.isNotBlank() && vehicleGroup.equals(personGroup, ignoreCase = true) ||
+                    vehicleParentGroup.isNotBlank() && vehicleParentGroup.equals(personFleet, ignoreCase = true)
+            }
+        }
+    }
+
+    private fun fallbackSimulationVehicleGroup(
+        personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>
+    ): SimulationVehicleGroup? {
+        val vehicle = getSimulationVehicleTarget(vehiculosList) ?: return null
+        return SimulationVehicleGroup(
+            vehicle = vehicle,
+            assignedPersonalIds = vehiculosList
+                .filter { it.idVehiculo == vehicle.idVehiculo }
+                .mapNotNull { it.idPersonalAsignado }
+                .toSet(),
+            targets = getSimulationTargets(personalList),
+            routePlan = selectRoutePlanForVehicle(vehicle) ?: selectDefaultRoutePlan()
+        )
     }
 
     private fun getSimulationTargets(personalList: List<PersonalItem>): List<PersonalItem> {
@@ -289,13 +477,12 @@ class OperationSimulationController(
                 person.rol.equals("CET", ignoreCase = true)
         if (!isOperationalRole) return false
 
-        val hasRealBackendLocation = person.lat != null && person.lon != null
         val isCurrentDevice = person.idPersonal == host.getSimulationUser().id
         val currentDeviceHasGps = isCurrentDevice &&
             host.getSimulationLastKnownLat() != null &&
             host.getSimulationLastKnownLon() != null
 
-        return !hasRealBackendLocation && !currentDeviceHasGps
+        return !currentDeviceHasGps
     }
 
     private fun simulationFlotillaName(person: PersonalItem): String {
@@ -306,6 +493,158 @@ class OperationSimulationController(
             parent.isNotBlank() && !parent.equals("Mando Operativo", ignoreCase = true) -> parent
             group.isNotBlank() -> group
             else -> ""
+        }
+    }
+
+    private fun emitSimulationPositions() {
+        simulationVehicleRuntimes.values.forEachIndexed { index, runtime ->
+            emitSimulationRuntimePositions(runtime, index)
+        }
+    }
+
+    private fun emitSimulationRuntimePositions(
+        runtime: SimulationVehicleRuntime,
+        runtimeIndex: Int
+    ) {
+        val routePoints = runtime.routePlan?.points.orEmpty()
+        val hasRoute = routePoints.size >= 2
+        if (hasRoute && runtime.routeStartTick == null) {
+            runtime.routeStartTick = simulationTick
+            if (runtime.personToVehicleRoutes.isEmpty() && runtime.vehicleToRoutePoints.isEmpty()) {
+                prepareSimulationRuntimeActiveRouteLegs(runtime, simulationRoutePlanGeneration)
+            }
+        }
+
+        val phaseTick = if (hasRoute) {
+            simulationTick - (runtime.routeStartTick ?: simulationTick)
+        } else {
+            0
+        }
+        val vehicleStart = runtime.homePoint
+        val routeStart = routePoints.firstOrNull() ?: vehicleStart
+        val personToVehicleTicks = if (runtime.group.targets.isEmpty()) {
+            0
+        } else {
+            simulationMaxRouteTickCount(runtime.personToVehicleRoutes.values)
+        }
+        val vehicleToRouteRoute = runtime.vehicleToRoutePoints.ifEmpty {
+            fallbackSimulationRoute(vehicleStart, routeStart)
+        }
+        val vehicleToRouteTicks = simulationRouteTickCount(vehicleToRouteRoute)
+        val vehicleReturnStart = runtime.returnVehiclePoint ?: runtime.lastVehiclePoint ?: vehicleStart
+        val vehicleReturnRoute = runtime.vehicleReturnPoints.ifEmpty {
+            fallbackSimulationRoute(vehicleReturnStart, vehicleStart)
+        }
+        val vehicleReturnTicks = simulationRouteTickCount(vehicleReturnRoute)
+        val personReturnTicks = if (runtime.group.targets.isEmpty()) {
+            0
+        } else {
+            simulationMaxRouteTickCount(runtime.personReturnRoutes.values)
+        }
+        val isReturning = !hasRoute && runtime.routeDeletedTick != null
+        val returnTick = simulationTick - (runtime.routeDeletedTick ?: simulationTick)
+        val vehiclePosition = when {
+            isReturning && returnTick < vehicleReturnTicks ->
+                simulationRoutePointAtTick(vehicleReturnRoute, returnTick, vehicleStart)
+            isReturning -> vehicleStart
+            !hasRoute -> vehicleStart
+            phaseTick < personToVehicleTicks -> vehicleStart
+            phaseTick < personToVehicleTicks + vehicleToRouteTicks ->
+                simulationRoutePointAtTick(
+                    points = vehicleToRouteRoute,
+                    tick = phaseTick - personToVehicleTicks,
+                    fallback = routeStart
+                )
+            else -> {
+                val routeTick = phaseTick - personToVehicleTicks - vehicleToRouteTicks
+                routePoints[routeTick.coerceIn(0, routePoints.lastIndex)]
+            }
+        }
+        val vehicleLat = vehiclePosition.lat
+        val vehicleLon = vehiclePosition.lon
+        val targets = runtime.group.targets
+        val groupRadiusLat = 1.6 / 111_320.0
+        val groupRadiusLon = 1.6 / 104_500.0
+        val phase = simulationTick * 0.22 + runtimeIndex * 0.37
+
+        targets.forEachIndexed { index, person ->
+            val baseAngle = Math.PI * 2.0 * index / targets.size.coerceAtLeast(1)
+            val angle = if (
+                isReturning ||
+                (hasRoute && phaseTick >= personToVehicleTicks + vehicleToRouteTicks)
+            ) {
+                baseAngle + phase
+            } else {
+                baseAngle
+            }
+            val groupedPoint = SimulationRoutePoint(
+                lat = vehicleLat + sin(angle) * groupRadiusLat,
+                lon = vehicleLon + cos(angle) * groupRadiusLon
+            )
+            val startPoint = simulationPersonStartPoints[person.idPersonal] ?: groupedPoint
+            val personPosition = if (isReturning) {
+                if (returnTick < vehicleReturnTicks) {
+                    groupedPoint
+                } else if (returnTick - vehicleReturnTicks < personReturnTicks) {
+                    val personReturnRoute = runtime.personReturnRoutes[person.idPersonal].orEmpty()
+                        .ifEmpty { fallbackSimulationRoute(vehicleStart, startPoint) }
+                    simulationRoutePointAtTick(
+                        points = personReturnRoute,
+                        tick = returnTick - vehicleReturnTicks,
+                        fallback = startPoint
+                    )
+                } else {
+                    val orbitRadiusLat = 1.4 / 111_320.0
+                    val orbitRadiusLon = 1.4 / 104_500.0
+                    SimulationRoutePoint(
+                        lat = startPoint.lat + sin(baseAngle + phase) * orbitRadiusLat,
+                        lon = startPoint.lon + cos(baseAngle + phase) * orbitRadiusLon
+                    )
+                }
+            } else if (!hasRoute) {
+                startPoint
+            } else if (phaseTick < personToVehicleTicks) {
+                val personToVehicleRoute = runtime.personToVehicleRoutes[person.idPersonal].orEmpty()
+                    .ifEmpty { fallbackSimulationRoute(startPoint, vehicleStart) }
+                simulationRoutePointAtTick(
+                    points = personToVehicleRoute,
+                    tick = phaseTick,
+                    fallback = groupedPoint
+                )
+            } else {
+                groupedPoint
+            }
+            val lat = personPosition.lat
+            val lon = personPosition.lon
+            simulationLastPersonPoints[person.idPersonal] = personPosition
+            val name = person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
+                .ifBlank { "Personal ${person.idPersonal}" }
+
+            host.emitSimulationPersonalTracking(
+                idPersonal = person.idPersonal,
+                lat = lat,
+                lon = lon,
+                apodo = name,
+                rol = person.rol
+            )
+
+            if (host.isSimulationCesiumReady()) {
+                host.updateSimulationPersonalOnMap(person.idPersonal, lat, lon, name)
+            }
+            host.updateSimulationPersonalPanel(person.idPersonal, lat, lon)
+        }
+
+        val vehicleName = vehicleDisplayName(runtime.group.vehicle)
+        runtime.lastVehiclePoint = vehiclePosition
+        host.emitSimulationVehiculoTracking(
+            idVehiculo = runtime.group.vehicle.idVehiculo,
+            lat = vehicleLat,
+            lon = vehicleLon,
+            alias = vehicleName
+        )
+
+        if (host.isSimulationCesiumReady()) {
+            host.updateSimulationVehiculoOnMap(runtime.group.vehicle.idVehiculo, vehicleLat, vehicleLon, vehicleName)
         }
     }
 
@@ -431,9 +770,7 @@ class OperationSimulationController(
             host.updateSimulationPersonalPanel(person.idPersonal, lat, lon)
         }
 
-        val vehicleName = vehicleTarget.alias.ifBlank { vehicleTarget.codigoInterno }
-            .ifBlank { vehicleTarget.nombre }
-            .ifBlank { "Vehiculo ${vehicleTarget.idVehiculo}" }
+        val vehicleName = vehicleDisplayName(vehicleTarget)
         simulationLastVehiclePoint = vehiclePosition
         host.emitSimulationVehiculoTracking(
             idVehiculo = vehicleTarget.idVehiculo,
@@ -444,6 +781,74 @@ class OperationSimulationController(
 
         if (host.isSimulationCesiumReady()) {
             host.updateSimulationVehiculoOnMap(vehicleTarget.idVehiculo, vehicleLat, vehicleLon, vehicleName)
+        }
+    }
+
+    private fun vehicleDisplayName(vehicle: VehiculoItem): String =
+        vehicle.alias.ifBlank { vehicle.codigoInterno }
+            .ifBlank { vehicle.nombre }
+            .ifBlank { "Vehiculo ${vehicle.idVehiculo}" }
+
+    private fun parseSimulationRoutePlan(route: JSONObject): SimulationRoutePlan? {
+        val points = parseSimulationRoutePoints(route)
+        if (points.size < 2) return null
+        return SimulationRoutePlan(
+            idRoute = positiveJsonInt(route, "id_ruta"),
+            vehicleId = positiveJsonInt(route, "id_vehiculo"),
+            points = points,
+            distanceSq = routeDistanceToSimulationAnchorSq(points)
+        )
+    }
+
+    private fun storeSimulationRoutePlan(plan: SimulationRoutePlan) {
+        val vehicleId = plan.vehicleId
+        if (vehicleId != null) {
+            simulationRoutesByVehicle[vehicleId] = plan
+            return
+        }
+
+        val currentGlobal = simulationGlobalRoutePlan
+        if (currentGlobal == null || plan.distanceSq <= currentGlobal.distanceSq) {
+            simulationGlobalRoutePlan = plan
+        }
+    }
+
+    private fun removeSimulationRoutePlan(idRoute: Int) {
+        simulationRoutesByVehicle.entries.removeAll { it.value.idRoute == idRoute }
+        if (simulationGlobalRoutePlan?.idRoute == idRoute) {
+            simulationGlobalRoutePlan = null
+        }
+    }
+
+    private fun selectRoutePlanForVehicle(vehicle: VehiculoItem): SimulationRoutePlan? =
+        simulationRoutesByVehicle[vehicle.idVehiculo] ?: simulationGlobalRoutePlan
+
+    private fun selectDefaultRoutePlan(): SimulationRoutePlan? =
+        simulationRoutesByVehicle.values.minByOrNull { it.distanceSq } ?: simulationGlobalRoutePlan
+
+    private fun applySimulationRoutePlan(plan: SimulationRoutePlan?, resetTicks: Boolean) {
+        simulationRoutePoints.clear()
+        simulationRouteDistanceSq = Double.POSITIVE_INFINITY
+        simulationActiveRouteId = null
+        if (plan != null) {
+            simulationRoutePoints.addAll(plan.points)
+            simulationRouteDistanceSq = plan.distanceSq
+            simulationActiveRouteId = plan.idRoute
+        }
+
+        if (resetTicks) {
+            simulationRouteStartTick = null
+            simulationRouteDeletedTick = null
+            simulationReturnStartPersonPoints.clear()
+            simulationReturnVehiclePoint = null
+        }
+
+        if (simulationActive) {
+            if (simulationRoutePoints.size >= 2) {
+                prepareSimulationActiveRouteLegs()
+            } else {
+                clearSimulationRouteLegs()
+            }
         }
     }
 
@@ -464,6 +869,8 @@ class OperationSimulationController(
         val operation = host.getSimulationOperation()
         coordinatePointOrNull(operation.zonaLat, operation.zonaLon)?.let { return it }
         coordinatePointOrNull(host.getSimulationOperationLat(), host.getSimulationOperationLon())?.let { return it }
+        simulationRoutesByVehicle.values.firstOrNull()?.points?.firstOrNull()?.let { return it }
+        simulationGlobalRoutePlan?.points?.firstOrNull()?.let { return it }
         simulationRoutePoints.firstOrNull()?.let { return it }
 
         host.getSimulationPersonal().forEach { person ->
@@ -513,31 +920,53 @@ class OperationSimulationController(
         return points
     }
 
+    private fun positiveJsonInt(json: JSONObject, key: String): Int? {
+        if (!json.has(key) || json.isNull(key)) return null
+        return json.optInt(key, 0).takeIf { it > 0 }
+    }
+
     private fun clearSimulationRouteLegs() {
         simulationRoutePlanGeneration += 1
         simulationPersonToVehicleRoutes.clear()
         simulationPersonReturnRoutes.clear()
         simulationVehicleToRoutePoints = emptyList()
         simulationVehicleReturnPoints = emptyList()
+        simulationVehicleRuntimes.values.forEach { runtime ->
+            runtime.personToVehicleRoutes.clear()
+            runtime.personReturnRoutes.clear()
+            runtime.vehicleToRoutePoints = emptyList()
+            runtime.vehicleReturnPoints = emptyList()
+        }
     }
 
-    private fun simulationDefaultVehicleStartPoint(): SimulationRoutePoint {
-        val vehicleStartDistanceM = 85.0
+    private fun simulationDefaultVehicleStartPoint(
+        vehicle: VehiculoItem? = null,
+        offsetIndex: Int = 0
+    ): SimulationRoutePoint {
+        val seed = (vehicle?.idVehiculo ?: (offsetIndex + 1)).coerceAtLeast(1)
+        val angle = Math.PI * 2.0 * ((seed + offsetIndex) % 12) / 12.0
+        val vehicleStartDistanceM = 65.0 + ((seed + offsetIndex) % 5) * 18.0
         val anchor = simulationAnchorPoint()
         return SimulationRoutePoint(
-            lat = anchor.lat + (vehicleStartDistanceM / 111_320.0),
-            lon = anchor.lon + (vehicleStartDistanceM / 104_500.0)
+            lat = anchor.lat + sin(angle) * (vehicleStartDistanceM / 111_320.0),
+            lon = anchor.lon + cos(angle) * (vehicleStartDistanceM / 104_500.0)
         )
     }
 
     private fun simulationVehicleHomePoint(
-        vehicle: VehiculoItem? = simulationVehicleTargetSnapshot
+        vehicle: VehiculoItem? = simulationVehicleTargetSnapshot,
+        offsetIndex: Int = 0
     ): SimulationRoutePoint {
         val point = coordinatePointOrNull(vehicle?.lat, vehicle?.lon)
         return if (point != null) {
             point
         } else {
-            simulationVehicleStartPoint ?: simulationDefaultVehicleStartPoint()
+            val legacyStart = if (vehicle == simulationVehicleTargetSnapshot && offsetIndex == 0) {
+                simulationVehicleStartPoint
+            } else {
+                null
+            }
+            legacyStart ?: simulationDefaultVehicleStartPoint(vehicle, offsetIndex)
         }
     }
 
@@ -573,6 +1002,101 @@ class OperationSimulationController(
 
     private fun simulationMaxRouteTickCount(routes: Collection<List<SimulationRoutePoint>>): Int =
         routes.maxOfOrNull { simulationRouteTickCount(it) } ?: 2
+
+    private fun refreshSimulationRuntimeRoutePlans(resetTicks: Boolean) {
+        if (simulationVehicleRuntimes.isEmpty()) return
+        val generation = ++simulationRoutePlanGeneration
+        simulationVehicleRuntimes.values.forEach { runtime ->
+            runtime.routePlan = selectRoutePlanForVehicle(runtime.group.vehicle)
+            if (resetTicks) {
+                runtime.routeStartTick = null
+                runtime.routeDeletedTick = null
+                runtime.returnVehiclePoint = null
+            }
+            prepareSimulationRuntimeActiveRouteLegs(runtime, generation)
+        }
+
+        val defaultPlan = selectDefaultRoutePlan()
+        simulationRoutePoints.clear()
+        simulationRouteDistanceSq = Double.POSITIVE_INFINITY
+        simulationActiveRouteId = null
+        if (defaultPlan != null) {
+            simulationRoutePoints.addAll(defaultPlan.points)
+            simulationRouteDistanceSq = defaultPlan.distanceSq
+            simulationActiveRouteId = defaultPlan.idRoute
+        }
+    }
+
+    private fun prepareSimulationRuntimeActiveRouteLegs(
+        runtime: SimulationVehicleRuntime,
+        generation: Int
+    ) {
+        val routeStart = runtime.routePlan?.points?.firstOrNull()
+        runtime.personToVehicleRoutes.clear()
+        runtime.personReturnRoutes.clear()
+        runtime.vehicleReturnPoints = emptyList()
+        runtime.vehicleToRoutePoints = emptyList()
+        if (routeStart == null) return
+
+        val vehicleHome = runtime.homePoint
+        runtime.vehicleToRoutePoints = fallbackSimulationRoute(vehicleHome, routeStart)
+        runtime.group.targets.forEach { person ->
+            val personStart = simulationPersonStartPoints[person.idPersonal] ?: vehicleHome
+            runtime.personToVehicleRoutes[person.idPersonal] =
+                fallbackSimulationRoute(personStart, vehicleHome)
+            requestSimulationOsrmRoute(
+                from = personStart,
+                to = vehicleHome,
+                generation = generation
+            ) { points ->
+                runtime.personToVehicleRoutes[person.idPersonal] = points
+            }
+        }
+
+        requestSimulationOsrmRoute(
+            from = vehicleHome,
+            to = routeStart,
+            generation = generation
+        ) { points ->
+            runtime.vehicleToRoutePoints = points
+        }
+    }
+
+    private fun prepareSimulationRuntimeReturnRouteLegs(
+        runtime: SimulationVehicleRuntime,
+        generation: Int
+    ) {
+        val vehicleHome = runtime.homePoint
+        val vehicleReturnStart = runtime.returnVehiclePoint ?: runtime.lastVehiclePoint ?: vehicleHome
+        runtime.routeStartTick = null
+        runtime.routeDeletedTick = simulationTick
+        runtime.returnVehiclePoint = vehicleReturnStart
+        runtime.personToVehicleRoutes.clear()
+        runtime.vehicleToRoutePoints = emptyList()
+        runtime.personReturnRoutes.clear()
+        runtime.vehicleReturnPoints = fallbackSimulationRoute(vehicleReturnStart, vehicleHome)
+
+        requestSimulationOsrmRoute(
+            from = vehicleReturnStart,
+            to = vehicleHome,
+            generation = generation
+        ) { points ->
+            runtime.vehicleReturnPoints = points
+        }
+
+        runtime.group.targets.forEach { person ->
+            val personHome = simulationPersonStartPoints[person.idPersonal] ?: vehicleHome
+            runtime.personReturnRoutes[person.idPersonal] =
+                fallbackSimulationRoute(vehicleHome, personHome)
+            requestSimulationOsrmRoute(
+                from = vehicleHome,
+                to = personHome,
+                generation = generation
+            ) { points ->
+                runtime.personReturnRoutes[person.idPersonal] = points
+            }
+        }
+    }
 
     private fun prepareSimulationActiveRouteLegs() {
         val routeStart = simulationRoutePoints.firstOrNull() ?: return

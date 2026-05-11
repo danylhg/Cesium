@@ -2,13 +2,15 @@ import { downloadRecording, loadCesiumToken, loadReplay, loadStreamRecordings } 
 import { dom, readHistoryDom } from "./historial/historial.dom.js";
 import { initHistoryMap, buildMapEntities, focusOnReplay } from "./historial/historial.map.js";
 import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
-import { renderError, renderOperationInfo, renderTopbar, renderChatMessages } from "./historial/historial.ui.js";
+import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages } from "./historial/historial.ui.js";
 
 readHistoryDom();
 
 dom.backBtn?.addEventListener("click", () => {
   window.location.href = "menu_inicial.html";
 });
+
+bindTabs();
 
 async function main() {
   const operationId = getOperationId();
@@ -39,14 +41,26 @@ async function main() {
     renderTopbar(replay);
     renderOperationInfo(replay);
     attachRecordingDownloads(replay.recordings || []);
+    renderChatMessages(replay.timeline?.eventos || []);
+    renderEventLog(replay.timeline?.eventos || []);
     setReplayData(replay);
     buildMapEntities(replay);
-    renderChatMessages(replay.timeline?.eventos || []);
     focusOnReplay(replay);
   } catch (error) {
     console.error("Error cargando replay", error);
     renderError(error.message || "No se pudo cargar el historial de la operación.");
   }
+}
+
+function bindTabs() {
+  document.querySelectorAll(".tabBtn").forEach((button) => {
+    button.addEventListener("click", () => {
+      document.querySelectorAll(".tabBtn").forEach(btn => btn.classList.remove("active"));
+      document.querySelectorAll(".tabContent").forEach(content => content.classList.add("hidden"));
+      button.classList.add("active");
+      document.getElementById(`${button.dataset.tab}Tab`)?.classList.remove("hidden");
+    });
+  });
 }
 
 function getOperationId() {

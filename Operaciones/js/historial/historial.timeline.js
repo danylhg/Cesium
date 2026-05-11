@@ -9,6 +9,10 @@ export function initTimeline() {
   dom.playPause?.addEventListener("click", togglePlayback);
   dom.prevEvent?.addEventListener("click", goToPreviousEvent);
   dom.nextEvent?.addEventListener("click", goToNextEvent);
+  dom.reset?.addEventListener("click", () => {
+    pausePlayback();
+    setCurrentTime(replayState.startMs);
+  });
 
   dom.speed?.addEventListener("change", () => {
     replayState.speed = Number(dom.speed.value) || 1;
@@ -95,9 +99,14 @@ function setCurrentTime(value) {
 
   if (dom.range) {
     dom.range.value = String(Math.round((clampedTime - replayState.startMs) / 1000));
+    if (dom.legacyPlaybackLayout) {
+      const duration = Math.max(1, replayState.endMs - replayState.startMs);
+      const percent = ((clampedTime - replayState.startMs) / duration) * 100;
+      dom.range.style.backgroundSize = `${Math.min(100, Math.max(0, percent))}% 100%`;
+    }
   }
 
-  renderTimelineTime(clampedTime, replayState.endMs, replayState.events);
+  renderTimelineTime(clampedTime, replayState.endMs, replayState.events, replayState.startMs);
   updateMapToTime(clampedTime);
   updateChatToTime(clampedTime);
 }

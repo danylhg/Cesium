@@ -1,84 +1,113 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Historial de Operaci&oacute;n - Replay</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Historial de Operación - Replay</title>
+
+  <link rel="stylesheet" href="css/historial.css" />
   <script src="js/auth_check.js"></script>
 
-  <link rel="stylesheet" href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css"/>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800;900&family=Outfit:wght@400;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/dashboard.css"/>
-  <link rel="stylesheet" href="css/historial.css"/>
+  <!-- Cesium JS -->
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
+
+  <!-- MilSymbol -->
+  <script src="https://unpkg.com/milsymbol@2.2.0/dist/milsymbol.js"></script>
+
+  <!-- Font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
 </head>
+
 <body>
-  <header class="topbar historyTopbar">
-    <div class="topbarLeft historyTopbarLeft">
-      <button id="backBtn" class="topBtn historyBackBtn" type="button" title="Volver al menu">&larr;</button>
-      <img src="img/logo_sedam.jpeg" alt="Logo SEDAM" class="historyBrandLogo"/>
-      <div class="historyBrandText">
-        <div class="historyTitleRow">
-          <strong id="historyTitle">Historial de Operaci&oacute;n</strong>
-          <span id="historyStatusBadge" class="historyStatusBadge">Cargando</span>
+
+  <header class="topbar">
+    <div class="topbarLeft">
+      <button id="btnBack" class="btnIconOnly" title="Volver al menú">⬅</button>
+      <div class="brand">
+        <img src="img/logo_sedam.jpeg" alt="Logo" class="logo" />
+        <div class="brandText">
+          <div id="opName" class="opName">Cargando operación...</div>
+          <div id="opMeta" class="opMeta">Historial y Replay</div>
         </div>
-        <span class="historySub">Historial y Replay</span>
       </div>
     </div>
-    <div class="topbarRight historyTopbarRight">
-      <span id="historyWho" class="who"></span>
-      <span class="historyLiveLabel">Replay</span>
+
+    <div class="topbarRight">
+      <div class="timeDisplay">
+        <span id="currentTimeLabel">00:00:00</span>
+        <span class="timeSeparator">/</span>
+        <span id="totalTimeLabel">00:00:00</span>
+      </div>
     </div>
   </header>
 
-  <main class="mapStage playbackStage">
-    <div id="historyMap" class="mapBox"></div>
-  </main>
+  <main class="playbackStage">
+    <!-- Cesium Map Container -->
+    <div id="map" class="mapBox"></div>
 
-  <aside id="historyInfoPanel" class="glassPanel open historyInfoPanel">
-    <div class="historyPanelHeader">
-      <h2 class="panelTitle">Informaci&oacute;n</h2>
-      <span>Backend</span>
-    </div>
-    <div id="historyInfoContent" class="historyInfoContent">
-      <div class="historyLoading">Cargando operaci&oacute;n...</div>
-    </div>
-  </aside>
+    <!-- Right Side Panel: Chat, Events & Info -->
+    <aside id="sidePanel" class="sidePanel">
+      <div class="panelTabs">
+        <button class="tabBtn active" data-tab="info">Información</button>
+        <button class="tabBtn" data-tab="chat">Conversaciones</button>
+        <button class="tabBtn" data-tab="events">Eventos</button>
+      </div>
 
-  <aside id="historyChatPanel" class="glassPanel open chatPanel historyChatPanel">
-    <div class="historyPanelHeader">
-      <h2 class="panelTitle">Chat hist&oacute;rico</h2>
-      <span>Timeline</span>
-    </div>
-    <div id="historyChatMessages" class="chatMessages historyChatMessages">
-      <div class="historyEmpty">Los mensajes se sincronizar&aacute;n con el timeline.</div>
-    </div>
-  </aside>
+      <div class="tabContent" id="infoTab">
+        <div id="opInfoDetails" class="opInfoDetails">
+          <!-- Operation info will be injected here -->
+        </div>
+      </div>
 
-  <section id="historyTimeline" class="historyTimeline" aria-label="Timeline de reproduccion">
-    <div class="historyTimelineControls">
-      <button id="historyPrevEvent" class="historyTimelineBtn" type="button" title="Evento anterior">&#9198;</button>
-      <button id="historyPlayPause" class="historyTimelineBtn historyPlayBtn" type="button" title="Reproducir">&#9654;</button>
-      <button id="historyNextEvent" class="historyTimelineBtn" type="button" title="Evento siguiente">&#9197;</button>
-      <select id="historySpeed" class="historySpeedSelect" title="Velocidad">
-        <option value="1">1x</option>
-        <option value="2">2x</option>
-        <option value="5">5x</option>
-      </select>
-    </div>
-    <div class="historyTimelineMain">
-      <input id="historyTimeRange" class="historyScrubber" type="range" min="0" max="1" value="0" step="1"/>
-      <div class="historyTimeRow">
-        <span id="historyCurrentTime">--:--:--</span>
-        <span id="historyEventCounter">0 eventos</span>
-        <span id="historyTotalTime">--:--:--</span>
+      <div class="tabContent hidden" id="chatTab">
+        <div id="chatMessages" class="chatMessages">
+          <!-- Messages will be injected here -->
+        </div>
+      </div>
+
+      <div class="tabContent hidden" id="eventsTab">
+        <div id="eventLog" class="eventLog">
+          <!-- Events will be injected here -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Bottom Playback Controls -->
+    <div class="playbackControls">
+      <div class="timelineRow">
+        <input type="range" id="timelineSlider" class="timelineSlider" min="0" max="100" value="0" step="0.01">
+      </div>
+
+      <div class="buttonsRow">
+        <div class="leftGroup">
+          <button id="btnPlayPause" class="playBtn">▶</button>
+          <div class="speedSelector">
+            <label>Velocidad:</label>
+            <select id="playbackSpeed">
+              <option value="1">1x</option>
+              <option value="2">2x</option>
+              <option value="5">5x</option>
+              <option value="10">10x</option>
+              <option value="20">20x</option>
+              <option value="50">50x</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="centerGroup">
+          <div id="currentDateDisplay" class="currentDate">--/--/----</div>
+        </div>
+
+        <div class="rightGroup">
+          <button id="btnReset" class="btnSecondary">Reiniciar</button>
+        </div>
       </div>
     </div>
-  </section>
+  </main>
 
-  <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
-  <script src="https://unpkg.com/milsymbol@2.2.0/dist/milsymbol.js"></script>
-  <script type="module" src="js/historial.js"></script>
+  <script src="js/historial.js" type="module"></script>
 </body>
+
 </html>

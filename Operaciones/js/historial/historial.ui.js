@@ -5,11 +5,13 @@ export function renderTopbar(replay) {
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
   if (dom.title) {
-    dom.title.textContent = operation.codigo || operation.nombre || `Operacion ${operation.id_operacion || ""}`;
+    dom.title.textContent = operation.nombre || operation.codigo || `Operacion ${operation.id_operacion || ""}`;
   }
 
   if (dom.statusBadge) {
-    dom.statusBadge.textContent = operation.estado || "Historial";
+    dom.statusBadge.textContent = dom.legacyPlaybackLayout
+      ? "Historial y Replay"
+      : operation.estado || "Historial";
   }
 
   if (dom.who) {
@@ -28,49 +30,53 @@ export function renderOperationInfo(replay) {
   const equipos = assignment.equipos || replay?.equipos || [];
 
   dom.infoContent.innerHTML = `
-    <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">${escapeHtml(operation.nombre || operation.codigo || "Operacion")}</h3>
-      <div class="historyMetaGrid">
-        ${metaRow("Codigo", operation.codigo)}
-        ${metaRow("Estado", operation.estado)}
-        ${metaRow("Prioridad", operation.prioridad)}
-        ${metaRow("Descripcion", operation.descripcion)}
-        ${metaRow("Inicio", formatDateTime(timeline.inicio || operation.fecha_inicio))}
-        ${metaRow("Cierre", formatDateTime(timeline.fin || operation.fecha_fin))}
-        ${metaRow("Eventos", events.length)}
-      </div>
+    <section class="infoSection">
+      <h4>General</h4>
+      <p><strong>Codigo:</strong> ${escapeHtml(operation.codigo || "-")}</p>
+      <p><strong>Nombre:</strong> ${escapeHtml(operation.nombre || "Operacion")}</p>
+      <p><strong>Descripcion:</strong> ${escapeHtml(operation.descripcion || "Sin descripcion disponible.")}</p>
+      <p><strong>Prioridad:</strong> ${escapeHtml(operation.prioridad || "-")}</p>
+      <p><strong>Estado:</strong> <span style="color:var(--accent)">${escapeHtml(operation.estado || "Historial")}</span></p>
+      <p><strong>Inicio:</strong> ${escapeHtml(formatDateTime(timeline.inicio || operation.fecha_inicio))}</p>
+      <p><strong>Cierre:</strong> ${escapeHtml(formatDateTime(timeline.fin || operation.fecha_fin))}</p>
+      <p><strong>Eventos:</strong> ${escapeHtml(events.length)}</p>
     </section>
-    <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">Personal asignado</h3>
+    <section class="infoSection">
+      <h4>Personal asignado</h4>
       ${renderPersonalList(personal)}
     </section>
-    <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">Vehiculos asignados</h3>
+    <section class="infoSection">
+      <h4>Vehiculos</h4>
       ${renderVehicleList(vehiculos)}
     </section>
-    <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">Equipos asignados</h3>
+    <section class="infoSection">
+      <h4>Equipos</h4>
       ${renderEquipmentList(equipos)}
     </section>
-    <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">Capas guardadas</h3>
-      <div class="historyMetaGrid">
-        ${metaRow("POIs", countOf(snapshots.pois))}
-        ${metaRow("Areas", countOf(snapshots.areas))}
-        ${metaRow("Estructuras", countOf(snapshots.estructuras))}
-        ${metaRow("Rutas tacticas", countOf(snapshots.rutas_tacticas))}
-        ${metaRow("Rutas navegacion", countOf(snapshots.rutas_navegacion))}
-        ${metaRow("Dibujos", countOf(snapshots.dibujos))}
-      </div>
+    <section class="infoSection">
+      <h4>Capas guardadas</h4>
+      <p><strong>POIs:</strong> ${escapeHtml(countOf(snapshots.pois))}</p>
+      <p><strong>Areas:</strong> ${escapeHtml(countOf(snapshots.areas))}</p>
+      <p><strong>Estructuras:</strong> ${escapeHtml(countOf(snapshots.estructuras))}</p>
+      <p><strong>Rutas tacticas:</strong> ${escapeHtml(countOf(snapshots.rutas_tacticas))}</p>
+      <p><strong>Rutas navegacion:</strong> ${escapeHtml(countOf(snapshots.rutas_navegacion))}</p>
+      <p><strong>Dibujos:</strong> ${escapeHtml(countOf(snapshots.dibujos))}</p>
     </section>
-    <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">Grabaciones</h3>
+    <section class="infoSection">
+      <h4>Grabaciones</h4>
       ${renderRecordingList(replay?.recordings || [], replay?.recordingsError)}
     </section>
   `;
 }
 
-export function renderTimelineTime(currentMs, endMs, events = []) {
+export function renderTimelineTime(currentMs, endMs, events = [], startMs = currentMs) {
+  if (dom.legacyPlaybackLayout) {
+    if (dom.currentTime) dom.currentTime.textContent = formatClockDuration(currentMs - startMs);
+    if (dom.totalTime) dom.totalTime.textContent = formatClockDuration(endMs - startMs);
+    if (dom.currentDate) dom.currentDate.textContent = formatDateTime(currentMs);
+    return;
+  }
+
   if (dom.currentTime) {
     dom.currentTime.textContent = formatDateTime(currentMs);
   }
@@ -86,6 +92,10 @@ export function renderTimelineTime(currentMs, endMs, events = []) {
 }
 
 export function renderPlaybackState(isPlaying) {
+  if (dom.playPause) {
+    dom.playPause.textContent = isPlaying ? "\u23f8" : "\u25b6";
+    return;
+  }
   if (dom.playPause) {
     dom.playPause.textContent = isPlaying ? "⏸" : "▶";
   }
@@ -116,6 +126,15 @@ export function formatDateTime(value) {
   });
 }
 
+function formatClockDuration(value) {
+  const ms = Math.max(0, Number(value) || 0);
+  const totalSeconds = Math.floor(ms / 1000);
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  const minutes = String(Math.floor((totalSeconds / 60) % 60)).padStart(2, "0");
+  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
 function metaRow(label, value) {
   return `
     <div class="historyMetaItem">
@@ -135,25 +154,12 @@ function renderPersonalList(items = []) {
   }
 
   return `
-    <div class="historyAssignmentList">
+    <div class="memberList">
       ${items.map((person) => {
         const name = fullPersonName(person) || person.apodo || `Personal #${person.id_personal || ""}`;
         const role = person.rol_en_operacion || person.rol || "";
         const group = groupPath(person.grupo_padre_nombre, person.grupo_nombre);
-
-        return `
-          <article class="historyAssignmentItem">
-            <div class="historyAssignmentHead">
-              <strong>${escapeHtml(name)}</strong>
-              ${statusPill(person.estado_asignacion)}
-            </div>
-            <div class="historyAssignmentMeta">
-              ${inlineMeta("Rol", role)}
-              ${inlineMeta("Grupo", group)}
-              ${inlineMeta("Ultima posicion", coordinatesText(person.latitud, person.longitud))}
-            </div>
-          </article>
-        `;
+        return `<span class="memberTag">${escapeHtml([formatRole(role), name, group].filter(Boolean).join(" | "))}</span>`;
       }).join("")}
     </div>
   `;
@@ -165,27 +171,13 @@ function renderVehicleList(items = []) {
   }
 
   return `
-    <div class="historyAssignmentList">
+    <div class="memberList">
       ${items.map((vehicle) => {
         const name = [vehicle.tipo, vehicle.codigo_interno, vehicle.alias].filter(Boolean).join(" - ")
           || `Vehiculo #${vehicle.id_vehiculo || ""}`;
         const assigned = vehiclePersonName(vehicle);
         const group = groupPath(vehicle.grupo_padre_nombre, vehicle.grupo_directo_nombre || vehicle.grupo_nombre);
-
-        return `
-          <article class="historyAssignmentItem">
-            <div class="historyAssignmentHead">
-              <strong>${escapeHtml(name)}</strong>
-              ${statusPill(vehicle.estado_asignacion)}
-            </div>
-            <div class="historyAssignmentMeta">
-              ${inlineMeta("Custodio", assigned)}
-              ${inlineMeta("Nivel", vehicle.nivel_asignacion || vehicle.tipo_destino)}
-              ${inlineMeta("Grupo", group)}
-              ${inlineMeta("Ultima posicion", coordinatesText(vehicle.latitud, vehicle.longitud))}
-            </div>
-          </article>
-        `;
+        return `<span class="memberTag">${escapeHtml([name, assigned, group].filter(Boolean).join(" | "))}</span>`;
       }).join("")}
     </div>
   `;
@@ -197,26 +189,12 @@ function renderEquipmentList(items = []) {
   }
 
   return `
-    <div class="historyAssignmentList">
+    <div class="memberList">
       ${items.map((equipment) => {
         const name = equipment.nombre || equipment.tipo_equipo || `Equipo #${equipment.id_equipo || ""}`;
         const identifier = equipment.numero_serie || "Sin identificador";
         const destination = equipmentDestination(equipment);
-
-        return `
-          <article class="historyAssignmentItem">
-            <div class="historyAssignmentHead">
-              <strong>${escapeHtml(name)}</strong>
-              ${statusPill(equipment.estado_asignacion)}
-            </div>
-            <div class="historyAssignmentMeta">
-              ${inlineMeta("Identificador", identifier)}
-              ${inlineMeta("Categoria", equipment.categoria)}
-              ${inlineMeta("Tipo", equipment.tipo_equipo)}
-              ${inlineMeta("Destino", destination)}
-            </div>
-          </article>
-        `;
+        return `<span class="memberTag">${escapeHtml([name, identifier, equipment.categoria, destination].filter(Boolean).join(" | "))}</span>`;
       }).join("")}
     </div>
   `;
@@ -290,16 +268,11 @@ function renderRecordingList(recordings, error) {
   }
 
   return `
-    <div class="historyRecordingList">
+    <div class="memberList">
       ${recordings.map(recording => `
-        <article class="historyRecordingItem">
-          <div class="historyRecordingInfo">
-            <strong>Stream #${escapeHtml(recording.id_stream)}</strong>
-            <span>${escapeHtml(recording.stream_label || recording.stream_kind || "Grabacion")}</span>
-            <small>${escapeHtml(formatDateTime(recording.created_at))} | ${escapeHtml(formatBytes(recording.size_bytes))} | ${escapeHtml(formatDuration(recording.duration_ms))}</small>
-          </div>
-          <button class="historyRecordingDownload" type="button" data-recording-id="${escapeHtml(recording.id_recording)}">Descargar</button>
-        </article>
+        <button class="btnSecondary historyRecordingDownload" type="button" data-recording-id="${escapeHtml(recording.id_recording)}">
+          Stream #${escapeHtml(recording.id_stream)} - ${escapeHtml(recording.stream_label || recording.stream_kind || "Grabacion")} - Descargar
+        </button>
       `).join("")}
     </div>
   `;
@@ -339,11 +312,36 @@ export function renderChatMessages(events) {
   dom.chatMessages.innerHTML = chatEvents.map(ev => buildBubble(ev)).join("");
 }
 
+export function renderEventLog(events) {
+  if (!dom.eventLog) return;
+
+  const visibleEvents = events
+    .filter(ev => ev.tipo_evento !== "chat_mensaje" && !String(ev.tipo_evento || "").startsWith("tracking_"))
+    .sort((left, right) => Date.parse(left.occurred_at) - Date.parse(right.occurred_at));
+
+  if (!visibleEvents.length) {
+    dom.eventLog.innerHTML = '<div class="historyEmpty">Sin eventos registrados.</div>';
+    return;
+  }
+
+  dom.eventLog.innerHTML = visibleEvents.map((ev) => {
+    const payload = ev.payload || {};
+    const time = formatDateTime(ev.occurred_at);
+    const name = payload.nombre || payload.codigo || ev.entidad_tipo || ev.tipo_evento;
+    return `
+      <div class="eventItem">
+        <span class="eventTime">${escapeHtml(time)}</span>
+        <strong>${escapeHtml(eventLabel(ev.tipo_evento))}:</strong> ${escapeHtml(name)}
+      </div>
+    `;
+  }).join("");
+}
+
 export function updateChatToTime(currentMs) {
   if (!dom.chatMessages) return;
 
   let lastVisible = null;
-  for (const el of dom.chatMessages.querySelectorAll(".chatBubble[data-ms]")) {
+  for (const el of dom.chatMessages.querySelectorAll("[data-ms]")) {
     const visible = Number(el.dataset.ms) <= currentMs;
     el.style.display = visible ? "" : "none";
     if (visible) lastVisible = el;
@@ -356,21 +354,26 @@ export function updateChatToTime(currentMs) {
 
 function buildBubble(ev) {
   const msg = ev.payload || {};
-  const tipo = (msg.tipo_mensaje || "NORMAL").toUpperCase();
-  const rol = (msg.autor_rol || "").toLowerCase();
-  const autor = escapeHtml(msg.autor_nombre || "");
+  const autor = escapeHtml(msg.autor_nombre || msg.nombre_usuario || msg.apodo_personal || msg.nombre_personal || "Tripulacion");
   const hora = formatDateTime(ev.occurred_at);
   const texto = escapeHtml(msg.contenido || "");
   const ms = Date.parse(ev.occurred_at);
 
-  const typeExtra = tipo === "URGENTE" ? " urgente" : tipo === "SISTEMA" ? " sistema" : "";
-  const rolClass = rol ? ` rol-${rol}` : "";
+  return `
+    <div class="msg" data-ms="${ms}" style="display:none">
+      <div class="msgHeader">
+        <span class="msgAuthor">${autor}</span>
+        <span class="msgTime">${escapeHtml(hora)}</span>
+      </div>
+      <div class="msgText">${texto}</div>
+    </div>
+  `;
+}
 
-  const header = tipo !== "SISTEMA"
-    ? `<div class="chatBubbleHeader"><span>${autor}</span><span>${hora}</span></div>`
-    : `<div class="chatBubbleTime">${hora}</div>`;
-
-  return `<div class="chatBubble${typeExtra}${rolClass}" data-ms="${ms}" style="display:none">${header}<div class="chatBubbleText">${texto}</div></div>`;
+function eventLabel(value) {
+  return String(value || "evento")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, char => char.toUpperCase());
 }
 
 function escapeHtml(value) {

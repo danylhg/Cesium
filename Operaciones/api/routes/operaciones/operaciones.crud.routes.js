@@ -16,6 +16,9 @@ import { isInt } from "../../utils/validators.js";
 // Crea una instancia de router para exportar este módulo
 const router = Router();
 
+const ESTADOS_ELIMINABLES = new Set(["CERRADA", "CANCELADA"]);
+const TRIGGER_MENSAJE_CHAT_MODIFICABLE = "tr_mensaje_chat_operacion_modificable";
+
 
 // =========================================================
 // GET /ops
@@ -349,19 +352,59 @@ router.delete("/ops/:id/remove", requireAuth, async (req, res) => {
     return res.status(400).json({ ok: false, mensaje: "id inválido" });
   }
 
+  const client = await pool.connect();
+
   try {
-    const { rowCount } = await pool.query(
+    await client.query("BEGIN");
+
+    const { rows } = await client.query(
+      `SELECT id_operacion, estado
+       FROM operacion
+       WHERE id_operacion = $1
+       FOR UPDATE`,
+      [id]
+    );
+
+    if (rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, mensaje: "La operación no existe" });
+    }
+
+    if (!ESTADOS_ELIMINABLES.has(rows[0].estado)) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Solo se pueden eliminar operaciones cerradas o canceladas."
+      });
+    }
+
+    // El cascade de operacion puede borrar chat_operacion antes de mensaje_chat.
+    // Ese trigger resuelve la operacion por chat_operacion, asi que se desactiva
+    // solo durante este borrado definitivo y se vuelve a activar antes del COMMIT.
+    await client.query(
+      `ALTER TABLE mensaje_chat DISABLE TRIGGER ${TRIGGER_MENSAJE_CHAT_MODIFICABLE}`
+    );
+
+    await client.query(
       "DELETE FROM operacion WHERE id_operacion = $1",
       [id]
     );
 
-    if (rowCount === 0) {
-      return res.status(404).json({ ok: false, mensaje: "La operación no existe" });
-    }
+    await client.query(
+      `ALTER TABLE mensaje_chat ENABLE TRIGGER ${TRIGGER_MENSAJE_CHAT_MODIFICABLE}`
+    );
 
+    await client.query("COMMIT");
     res.json({ ok: true, mensaje: "Operación eliminada correctamente" });
   } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackErr) {
+      console.error("[DB ERROR] rollback eliminando operacion:", rollbackErr);
+    }
     sendDbError(res, err, "Error eliminando operación");
+  } finally {
+    client.release();
   }
 });
 

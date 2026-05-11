@@ -18,6 +18,12 @@ class VehiculoRepository(
         return optString(key, "").takeUnless { it.equals("null", ignoreCase = true) } ?: ""
     }
 
+    private fun positiveInt(json: JSONObject, key: String): Int? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val value = json.optInt(key, 0)
+        return value.takeIf { it > 0 }
+    }
+
     fun fetchVehiculos(
         operationId: Int,
         token: String,
@@ -79,6 +85,7 @@ class VehiculoRepository(
                                 tipo = v.safeString("tipo"),
                                 alias = alias,
                                 detalle = detalleStr,
+                                idPersonalAsignado = positiveInt(v, "id_personal"),
                                 tipoDestino = tipoDestino,
                                 asignadoAApodo = asignadoAApodo,
                                 personalNombre = v.safeString("personal_nombre"),

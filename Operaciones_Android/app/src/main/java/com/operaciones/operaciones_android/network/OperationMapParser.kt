@@ -131,6 +131,15 @@ class OperationMapParser {
                     nombre = nombreVehiculo,
                     tipo = v.optString("tipo", ""),
                     detalle = "",
+                    idPersonalAsignado = positiveInt(v, "id_personal"),
+                    tipoDestino = v.optString("tipo_destino", "").uppercase(),
+                    asignadoAApodo = v.optString("asignado_a_apodo", ""),
+                    personalNombre = v.optString("asignado_a_nombre", v.optString("personal_nombre", "")),
+                    personalApellido = v.optString("asignado_a_apellido", v.optString("personal_apellido", "")),
+                    personalPuesto = v.optString("personal_puesto", ""),
+                    cetNombre = v.optString("cet_nombre", ""),
+                    grupoNombre = v.optString("grupo_nombre", ""),
+                    grupoPadreNombre = v.optString("grupo_padre_nombre", ""),
                     lat = nullableDouble(v, "latitud"),
                     lon = nullableDouble(v, "longitud")
                 )

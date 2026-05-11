@@ -2,6 +2,7 @@ package com.operaciones.operaciones_android.ui
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Rect
 import android.os.Bundle
 import android.view.MotionEvent
@@ -209,12 +210,7 @@ class MainActivity : AppCompatActivity(),
             host = this
         )
 
-        panelContent.post {
-            val maxH = (resources.displayMetrics.heightPixels * 0.40).toInt()
-            val params = panelContent.layoutParams
-            params.height = maxH
-            panelContent.layoutParams = params
-        }
+        configurePanelContentSize()
 
         locationHelper = LocationHelper(
             activity = this,
@@ -265,7 +261,7 @@ class MainActivity : AppCompatActivity(),
         setupObjectToolsMenu()
         panelNavigationController.setupNavigation()
         setupBackPress()
-        panelNavigationController.showPanel(Panel.NONE)
+        restoreActivePanel(savedInstanceState)
         // Conectar socket primero para que esté listo cuando llegue la primera ubicación
         chatSocketManager?.connect()
         startServerConnectionMonitor()
@@ -334,6 +330,28 @@ class MainActivity : AppCompatActivity(),
         mapObjectsController.setupDeleteButton(btnDeleteSelectedObject)
     }
 
+    private fun configurePanelContentSize() {
+        panelContent.post {
+            val params = panelContent.layoutParams
+            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                params.height = 0
+                (params as? LinearLayout.LayoutParams)?.weight = 1f
+            } else {
+                params.height = (resources.displayMetrics.heightPixels * 0.40).toInt()
+                (params as? LinearLayout.LayoutParams)?.weight = 0f
+            }
+            panelContent.layoutParams = params
+        }
+    }
+
+    private fun restoreActivePanel(savedInstanceState: Bundle?) {
+        val restoredPanel = savedInstanceState
+            ?.getString(KEY_ACTIVE_PANEL)
+            ?.let { value -> runCatching { Panel.valueOf(value) }.getOrNull() }
+            ?: Panel.NONE
+        panelNavigationController.showPanel(restoredPanel)
+    }
+
     fun onMapObjectSelectedFromBridge(payloadJson: String) {
         mapObjectsController.onMapObjectSelectedFromBridge(payloadJson)
     }
@@ -349,8 +367,17 @@ class MainActivity : AppCompatActivity(),
         stopSimulation()
         stopServerConnectionMonitor()
         chatSocketManager?.disconnect()
-        stopEmergencyService()
-        stopMediaStream(showToast = false)
+        if (!isChangingConfigurations) {
+            stopEmergencyService()
+            stopMediaStream(showToast = false)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        if (::panelNavigationController.isInitialized) {
+            outState.putString(KEY_ACTIVE_PANEL, panelNavigationController.activePanel.name)
+        }
     }
 
     // ── EmergencyMonitorService ──────────────────────────────────────────────
@@ -531,7 +558,7 @@ class MainActivity : AppCompatActivity(),
 
     override fun onSocketRemoteRouteDeleted(idRoute: Int) {
         if (idRoute == -1) return
-        handleSimulationRouteDeleted()
+        handleSimulationRouteDeleted(idRoute)
         cesiumWebController.evaluate("if(typeof removeRemoteRoute === 'function') removeRemoteRoute($idRoute)")
     }
 
@@ -825,8 +852,8 @@ class MainActivity : AppCompatActivity(),
         simulationController.updateRouteFromJson(routeJson)
     }
 
-    private fun handleSimulationRouteDeleted() {
-        simulationController.handleRouteDeleted()
+    private fun handleSimulationRouteDeleted(idRoute: Int = -1) {
+        simulationController.handleRouteDeleted(idRoute)
     }
 
     private fun stopSimulation() {
@@ -1051,5 +1078,9 @@ class MainActivity : AppCompatActivity(),
         }
         startActivity(Intent(this, LoginActivity::class.java))
         finish()
+    }
+
+    private companion object {
+        private const val KEY_ACTIVE_PANEL = "main_active_panel"
     }
 }

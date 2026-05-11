@@ -1227,7 +1227,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             `SELECT
                 rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
                 rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
-                rn.created_by_tipo, rn.id_usuario, rn.id_personal,
+                rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.id_vehiculo,
                 rn.estado_operacion_creacion, rn.fecha_creacion,
                 COALESCE(u.rol::text, p.rol::text) AS rol_creador
              FROM ruta_navegacion rn
@@ -1252,7 +1252,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
           `SELECT
               rn.id_ruta, rn.id_operacion, rn.geojson, rn.origen_lat, rn.origen_lon,
               rn.destino_lat, rn.destino_lon, rn.distancia_m, rn.duracion_s,
-              rn.created_by_tipo, rn.id_usuario, rn.id_personal,
+              rn.created_by_tipo, rn.id_usuario, rn.id_personal, rn.id_vehiculo,
               rn.estado_operacion_creacion, rn.fecha_creacion,
               COALESCE(u.rol::text, p.rol::text) AS rol_creador
            FROM ruta_navegacion rn

@@ -1,19 +1,27 @@
 export const dom = {};
 
 export function readHistoryDom() {
-  dom.backBtn = document.getElementById("backBtn");
-  dom.title = document.getElementById("historyTitle");
-  dom.statusBadge = document.getElementById("historyStatusBadge");
+  dom.backBtn = byId("backBtn", "btnBack");
+  dom.title = byId("historyTitle", "opName");
+  dom.statusBadge = byId("historyStatusBadge", "opMeta");
   dom.who = document.getElementById("historyWho");
-  dom.map = document.getElementById("historyMap");
-  dom.infoContent = document.getElementById("historyInfoContent");
-  dom.chatMessages = document.getElementById("historyChatMessages");
+  dom.map = byId("historyMap", "map");
+  dom.infoContent = byId("historyInfoContent", "opInfoDetails");
+  dom.chatMessages = byId("historyChatMessages", "chatMessages");
+  dom.eventLog = document.getElementById("eventLog");
   dom.prevEvent = document.getElementById("historyPrevEvent");
-  dom.playPause = document.getElementById("historyPlayPause");
+  dom.playPause = byId("historyPlayPause", "btnPlayPause");
   dom.nextEvent = document.getElementById("historyNextEvent");
-  dom.speed = document.getElementById("historySpeed");
-  dom.range = document.getElementById("historyTimeRange");
-  dom.currentTime = document.getElementById("historyCurrentTime");
-  dom.totalTime = document.getElementById("historyTotalTime");
+  dom.reset = document.getElementById("btnReset");
+  dom.speed = byId("historySpeed", "playbackSpeed");
+  dom.range = byId("historyTimeRange", "timelineSlider");
+  dom.currentTime = byId("historyCurrentTime", "currentTimeLabel");
+  dom.totalTime = byId("historyTotalTime", "totalTimeLabel");
   dom.eventCounter = document.getElementById("historyEventCounter");
+  dom.currentDate = document.getElementById("currentDateDisplay");
+  dom.legacyPlaybackLayout = Boolean(document.getElementById("timelineSlider"));
+}
+
+function byId(...ids) {
+  return ids.map(id => document.getElementById(id)).find(Boolean) || null;
 }
