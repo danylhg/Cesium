@@ -1361,8 +1361,8 @@ export function setTacticalUI() {
   const isMil = dashboardState.toolMode === "mil";
   const isPoi = dashboardState.toolMode === "poi";
   const isPencil = dashboardState.toolMode === "pencil";
-  const isEraser = dashboardState.toolMode === "eraser";
-  const isDrawingTool = isPencil || isEraser;
+  const isEraser = dashboardState.drawingMode === "eraser";
+  const isDrawingTool = isPencil;
   const usesPlaceOnly = ["poi", "mil", "circle", "label", "building"].includes(dashboardState.toolMode);
   const isPlanningOperation = !isActiveOperation && String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase() === "planificada";
   const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter", "building"].includes(dashboardState.toolMode);
@@ -1371,14 +1371,26 @@ export function setTacticalUI() {
   const showCancelButton = !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
   const showFinishButton = isMultiPoint || dashboardState.areaDrawing;
   const showLabelInput = needsLabel && !isMil && !isDrawingTool;
-  const showColorInput = !isMil && !isEraser;
+  const showColorInput = !isMil && !isEraser && dashboardState.toolMode !== "none";
   const showOpacityInput = !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
-  const showWidthInput = !isMil && !isPoi && !isEraser;
+  const showWidthInput = !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
 
   const milTitle = document.getElementById("milSymbolTitle");
   if (milTitle) milTitle.style.display = isMil ? "block" : "none";
 
   if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = isMil ? "block" : "none";
+
+  if (dom.pencilSubmenu) dom.pencilSubmenu.style.display = isPencil ? "block" : "none";
+  if (isPencil) {
+    if (dom.btnSelectPencil) {
+      dom.btnSelectPencil.style.background = isEraser ? "rgba(255,255,255,0.1)" : "#00ffa6";
+      dom.btnSelectPencil.style.color = isEraser ? "#fff" : "#001b1b";
+    }
+    if (dom.btnSelectEraser) {
+      dom.btnSelectEraser.style.background = isEraser ? "#00ffa6" : "rgba(255,255,255,0.1)";
+      dom.btnSelectEraser.style.color = isEraser ? "#001b1b" : "#fff";
+    }
+  }
 
   if (dom.symLabelContainer) dom.symLabelContainer.style.display = showLabelInput ? "block" : "none";
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
@@ -2611,16 +2623,47 @@ export function bindTacticalEvents() {
     dom.toolSelect.addEventListener("change", (e) => {
       const newMode = e.target.value;
 
-      // Stop any active drawing/eraser mode when switching tools
+      // Stop any active drawing mode when switching tools.
       stopAllDrawingModes();
 
       dashboardState.toolMode = newMode;
       resetDrawingState();
 
-      // Activate pencil or eraser mode
       if (newMode === "pencil") {
         startPencilMode();
-      } else if (newMode === "eraser") {
+      }
+
+      setTacticalUI();
+    });
+  }
+
+  if (dom.btnSelectPencil) {
+    dom.btnSelectPencil.addEventListener("click", () => {
+      if (dashboardState.drawingMode === "pencil") {
+        stopAllDrawingModes();
+        dashboardState.toolMode = "none";
+        if (dom.toolSelect) dom.toolSelect.value = "none";
+      } else {
+        stopAllDrawingModes();
+        dashboardState.toolMode = "pencil";
+        if (dom.toolSelect) dom.toolSelect.value = "pencil";
+        startPencilMode();
+      }
+
+      setTacticalUI();
+    });
+  }
+
+  if (dom.btnSelectEraser) {
+    dom.btnSelectEraser.addEventListener("click", () => {
+      if (dashboardState.drawingMode === "eraser") {
+        stopAllDrawingModes();
+        dashboardState.toolMode = "none";
+        if (dom.toolSelect) dom.toolSelect.value = "none";
+      } else {
+        stopAllDrawingModes();
+        dashboardState.toolMode = "pencil";
+        if (dom.toolSelect) dom.toolSelect.value = "pencil";
         startEraserMode();
       }
 

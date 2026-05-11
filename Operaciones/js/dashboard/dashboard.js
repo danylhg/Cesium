@@ -306,6 +306,26 @@ window.addEventListener("load", async () => {
   setTacticalUI();
   loadCurrentOperationOnMap();
 
+  if (dom.recenterMapBtn) {
+    dom.recenterMapBtn.onclick = () => {
+      if (dashboardState.areaPoints && dashboardState.areaPoints.length > 0) {
+        const lats = dashboardState.areaPoints.map(p => p.lat);
+        const lngs = dashboardState.areaPoints.map(p => p.lng);
+        const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+        const centerLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
+
+        dashboardState.viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, 4500)
+        });
+        return;
+      }
+
+      if (dashboardState.currentOperation?.zona_operacion) {
+        centerMapOnOperationZone(dashboardState.currentOperation.zona_operacion);
+      }
+    };
+  }
+
   // Abrir panel de info al cargar
   openPanel(dom.infoPanel, dom.toggleInfoPanel);
 

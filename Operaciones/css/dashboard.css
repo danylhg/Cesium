@@ -295,7 +295,54 @@ body {
   font-weight: 800;
   color: #b8c4d1;
   text-transform: uppercase;
-  letter-spacing: .6px;
+  letter-spacing: 0.5px;
+}
+
+/* Cursores tácticos */
+#map.pencil-cursor canvas {
+  cursor: crosshair !important;
+}
+#map.eraser-cursor canvas {
+  cursor: cell !important;
+}
+
+/* ── Botón de Recentrar Mapa ────────────────────────── */
+.recenterMapBtn {
+  position: fixed;
+  right: 26px;
+  bottom: 156px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 255, 170, 0.4);
+  background: rgba(10, 20, 40, 0.9);
+  color: #00ffa6;
+  font-size: 24px;
+  cursor: pointer;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s ease;
+  backdrop-filter: blur(8px);
+}
+
+.recenterMapBtn:hover {
+  background: #00ffa6;
+  color: #001b1b;
+  transform: scale(1.1);
+  box-shadow: 0 0 20px rgba(0, 255, 170, 0.4);
+}
+
+@media (max-width: 768px) {
+  .recenterMapBtn {
+    right: 18px;
+    bottom: 120px;
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+  }
 }
 
 .iconPallet {
@@ -425,6 +472,12 @@ body {
   cursor: pointer;
   transition: .2s ease;
   font-size: 13px;
+}
+
+#placeBtn,
+#finishShape,
+#clearTactical {
+  grid-column: 1 / -1;
 }
 
 .smallBtn {

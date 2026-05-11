@@ -8,6 +8,9 @@ export const dom = {
 
   // Herramientas tácticas
   toolSelect: document.getElementById("toolSelect"),
+  pencilSubmenu: document.getElementById("pencilSubmenu"),
+  btnSelectPencil: document.getElementById("btnSelectPencil"),
+  btnSelectEraser: document.getElementById("btnSelectEraser"),
   milSymbolGenerator: document.getElementById("milSymbolGenerator"),
   milIdentity: document.getElementById("milIdentity"),
   milDimension: document.getElementById("milDimension"),
@@ -72,14 +75,24 @@ export const dom = {
   // Botones operación
   saveOpMapBtn: document.getElementById("saveOpMapBtn"),
   cancelOpMapBtn: document.getElementById("cancelOpMapBtn"),
+  recenterMapBtn: document.getElementById("recenterMapBtn"),
 
   // Popup entidad
   entityPopup: document.getElementById("entityPopup"),
   entityPopupName: document.getElementById("entityPopupName"),
   entityPopupDelete: document.getElementById("entityPopupDelete"),
+  btnCloseEntityPopup: document.getElementById("btnCloseEntityPopup"),
   vehicleQuickMenu: document.getElementById("vehicleQuickMenu"),
   vehicleQuickMenuName: document.getElementById("vehicleQuickMenuName"),
+  btnCloseVehicleQuickMenu: document.getElementById("btnCloseVehicleQuickMenu"),
   btnVehQuickChat: document.getElementById("btnVehQuickChat"),
   btnVehQuickAlert: document.getElementById("btnVehQuickAlert"),
-  btnVehQuickRoute: document.getElementById("btnVehQuickRoute")
+  btnVehQuickRoute: document.getElementById("btnVehQuickRoute"),
+
+  // Modal confirmación
+  confirmationModal: document.getElementById("confirmationModal"),
+  confirmationTitle: document.getElementById("confirmationTitle"),
+  confirmationMessage: document.getElementById("confirmationMessage"),
+  confirmationConfirmBtn: document.getElementById("confirmationConfirmBtn"),
+  confirmationCancelBtn: document.getElementById("confirmationCancelBtn")
 };

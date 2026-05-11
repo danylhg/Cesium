@@ -3,10 +3,18 @@ import { saveAsignacionActual } from "../asignacion/asignacion.service.js";
 import { renderCelulas } from "./personal.views.js";
 
 const logAlert = (message) => {
-  if (message) console.warn(message);
+  if (message) alert(message);
 };
 
 export function abrirModalCrearGrupo(cetActivo) {
+  const info = state.gruposByCet[cetActivo] || {
+    names: [],
+    active: null,
+    map: {},
+    idx: 0,
+    vehActive: null
+  };
+
   const overlay = document.createElement("div");
   overlay.style.position = "fixed";
   overlay.style.inset = "0";
@@ -33,7 +41,7 @@ export function abrirModalCrearGrupo(cetActivo) {
   title.style.fontSize = "18px";
   title.style.textAlign = "center";
   title.style.marginBottom = "12px";
-  title.textContent = "Crear Grupos";
+  title.textContent = "Crear/Editar Grupos";
 
   const row1 = document.createElement("div");
   row1.style.display = "flex";
@@ -50,6 +58,7 @@ export function abrirModalCrearGrupo(cetActivo) {
   inpNum.min = "1";
   inpNum.className = "inp";
   inpNum.style.width = "120px";
+  inpNum.value = info.names.length || "";
 
   row1.append(lbl, inpNum);
 
@@ -58,6 +67,8 @@ export function abrirModalCrearGrupo(cetActivo) {
   formWrap.style.flexDirection = "column";
   formWrap.style.gap = "10px";
   formWrap.style.marginTop = "6px";
+  formWrap.style.maxHeight = "300px";
+  formWrap.style.overflowY = "auto";
 
   const btnRow = document.createElement("div");
   btnRow.style.display = "flex";
@@ -72,7 +83,7 @@ export function abrirModalCrearGrupo(cetActivo) {
 
   const btnCreate = document.createElement("button");
   btnCreate.className = "btnPrimary";
-  btnCreate.textContent = "Crear grupos";
+  btnCreate.textContent = "Guardar grupos";
   btnCreate.style.width = "180px";
 
   let nameInputs = [];
@@ -93,11 +104,11 @@ export function abrirModalCrearGrupo(cetActivo) {
       const l = document.createElement("div");
       l.style.fontWeight = "800";
       l.style.width = "140px";
-      l.textContent = "Nombre del grupo";
+      l.textContent = `Nombre grupo ${i + 1}`;
 
       const inp = document.createElement("input");
       inp.className = "inp";
-      inp.value = "";
+      inp.value = info.names[i] || "";
       nameInputs.push(inp);
 
       line.append(l, inp);
@@ -106,6 +117,7 @@ export function abrirModalCrearGrupo(cetActivo) {
   }
 
   inpNum.addEventListener("input", buildFields);
+  if (info.names.length > 0) buildFields();
 
   btnCreate.addEventListener("click", () => {
     const names = nameInputs.map(i => i.value.trim()).filter(Boolean);
@@ -128,20 +140,9 @@ export function abrirModalCrearGrupo(cetActivo) {
       return;
     }
 
-    const existingGroupNames = Object.values(state.gruposByCet || {})
-      .flatMap(groupInfo => Array.isArray(groupInfo?.names) ? groupInfo.names : [])
-      .map(name => String(name).trim().toLowerCase());
-
-    const alreadyExists = normalizedNewNames.some(name => existingGroupNames.includes(name));
-    if (alreadyExists) {
-      logAlert("No puede haber más de un grupo con el mismo nombre.");
-      return;
-    }
-
-    const reservedNames = new Set(["mando operativo"]);
-    const matchesReservedName = normalizedNewNames.some(name => reservedNames.has(name));
-    if (matchesReservedName) {
-      logAlert("Ese nombre esta reservado para la operacion.");
+    const reservedNames = new Set(["mando operativo", "sin grupo"]);
+    if (normalizedNewNames.some(name => reservedNames.has(name))) {
+      logAlert("Ese nombre está reservado.");
       return;
     }
 
@@ -149,38 +150,49 @@ export function abrirModalCrearGrupo(cetActivo) {
       .map(name => String(name || "").trim().toLowerCase())
       .filter(Boolean);
 
-    const matchesFlotilla = normalizedNewNames.some(name => flotillaNames.includes(name));
-    if (matchesFlotilla) {
+    if (normalizedNewNames.some(name => flotillaNames.includes(name))) {
       logAlert("Un grupo no puede llamarse igual que una flotilla.");
       return;
     }
 
-    const info = state.gruposByCet[cetActivo] || {
-      names: [],
-      active: null,
-      map: {},
-      idx: 0,
-      vehActive: null
-    };
+    const oldNames = info.names;
+    const oldMap = info.map;
+    const newMap = {};
 
-    if (info.idx === undefined) info.idx = 0;
-    if (info.vehActive === undefined) info.vehActive = null;
-
-    names.forEach(g => {
-      if (!info.names.includes(g)) {
-        info.names.push(g);
-        info.map[g] = info.map[g] || new Set();
+    names.forEach((name, i) => {
+      const originalName = oldNames[i];
+      if (originalName) {
+        newMap[name] = oldMap[originalName] || new Set();
+      } else {
+        newMap[name] = new Set();
       }
     });
 
-    if (info.names.length > 0 && (!info.active || !info.names.includes(info.active))) {
-      info.idx = Math.max(0, Math.min(info.idx, info.names.length - 1));
-      info.active = info.names[info.idx];
+    if (info.active) {
+      const activeIdx = oldNames.indexOf(info.active);
+      if (activeIdx !== -1 && activeIdx < names.length) {
+        info.active = names[activeIdx];
+      } else {
+        info.active = names.length > 0 ? names[0] : null;
+      }
+    } else if (names.length > 0) {
+      info.active = names[0];
     }
 
-    if (!info.vehActive && info.names.length > 0) {
-      info.vehActive = info.active || info.names[0];
+    if (info.vehActive) {
+      const vActiveIdx = oldNames.indexOf(info.vehActive);
+      if (vActiveIdx !== -1 && vActiveIdx < names.length) {
+        info.vehActive = names[vActiveIdx];
+      } else {
+        info.vehActive = info.active;
+      }
+    } else {
+      info.vehActive = info.active;
     }
+
+    info.names = names;
+    info.map = newMap;
+    info.idx = Math.max(0, info.names.indexOf(info.active));
 
     state.gruposByCet[cetActivo] = info;
     saveAsignacionActual();
@@ -193,5 +205,5 @@ export function abrirModalCrearGrupo(cetActivo) {
   overlay.appendChild(modal);
   document.body.appendChild(overlay);
 
-  inpNum.focus();
+  if (!inpNum.value) inpNum.focus();
 }

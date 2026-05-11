@@ -46,6 +46,18 @@
     </div>
   </div>
 
+  <div id="confirmationModal" class="planningExitModal hidden" aria-hidden="true">
+    <div id="confirmationBackdrop" class="planningExitBackdrop"></div>
+    <div class="planningExitCard" role="dialog" aria-modal="true" aria-labelledby="confirmationTitle">
+      <h3 id="confirmationTitle">¿Confirmar acción?</h3>
+      <p id="confirmationMessage">¿Estás seguro de realizar esta acción?</p>
+      <div class="planningExitActions">
+        <button id="confirmationConfirmBtn" class="planningExitBtn planningExitBtnPrimary">Terminar</button>
+        <button id="confirmationCancelBtn" class="planningExitBtn planningExitBtnGhost">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="floatingTools">
     <button id="toggleInfoPanel" class="toolFab active" title="Información">📋</button>
     <button id="toggleRoutePanel" class="toolFab" title="Rutas">🗺️</button>
@@ -64,7 +76,10 @@
     <!-- Popup flotante para eliminar elemento seleccionado -->
     <div id="entityPopup"
       style="display:none; position:absolute; z-index:9999; background:rgba(10,20,40,0.95); border:1px solid #00ffa6; border-radius:10px; padding:8px 14px; box-shadow:0 4px 20px rgba(0,255,166,0.2); pointer-events:all; min-width:170px;">
-      <div id="entityPopupName" style="font-size:12px; color:#a0c4ff; margin-bottom:6px; font-weight:600;"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <div id="entityPopupName" style="font-size:12px; color:#a0c4ff; font-weight:600;"></div>
+        <button id="btnCloseEntityPopup" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px; padding:0 4px;">×</button>
+      </div>
       <button id="entityPopupDelete"
         style="width:100%; padding:5px 10px; background:rgba(239,68,68,0.85); border:1px solid #ef4444; border-radius:7px; color:#fff; font-weight:700; font-size:13px; cursor:pointer;">🗑️
         Eliminar</button>
@@ -74,6 +89,7 @@
     <div id="vehicleQuickMenu"
       style="display:none; position:absolute; z-index:9999; background:rgba(5, 15, 30, 0.95); border:1px solid #00c3ff; border-radius:12px; padding:10px 14px; box-shadow:0 6px 25px rgba(0, 195, 255, 0.25); pointer-events:all; min-width:200px;">
       <div id="vehicleQuickMenuName" style="font-size:14px; color:#dbeafe; margin-bottom:10px; font-weight:800; text-align:center; border-bottom:1px solid rgba(0,195,255,0.2); padding-bottom:6px;">Vehículo</div>
+      <button id="btnCloseVehicleQuickMenu" style="position:absolute; top:8px; right:8px; background:none; border:none; color:#94a3b8; cursor:pointer; font-size:18px; padding:0 4px;">×</button>
       <div style="display:flex; flex-direction:column; gap:8px;">
         <button id="btnVehQuickChat" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(0,255,170,0.15); border:1px solid rgba(0,255,170,0.4); color:#e6edf3; width:100%; text-transform:none;">💬 Mnsj a Tripulación</button>
         <button id="btnVehQuickAlert" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(255, 69, 0, 0.2); border:1px solid rgba(255, 69, 0, 0.5); color:#ffd6d6; width:100%; text-transform:none;">⚠️ Dar Aviso Rápido</button>
@@ -85,6 +101,17 @@
       <button id="saveOpMapBtn" class="actionBtn saveBtn">Guardar operación</button>
       <button id="cancelOpMapBtn" class="actionBtn cancelBtn">Cancelar operación</button>
     </div>
+
+    <button id="recenterMapBtn" class="recenterMapBtn" title="Centrar en operación">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle>
+        <circle cx="12" cy="12" r="3" fill="currentColor"></circle>
+        <line x1="12" y1="1" x2="12" y2="4"></line>
+        <line x1="12" y1="20" x2="12" y2="23"></line>
+        <line x1="1" y1="12" x2="4" y2="12"></line>
+        <line x1="20" y1="12" x2="23" y2="12"></line>
+      </svg>
+    </button>
   </main>
 
   <aside id="infoPanel" class="glassPanel open">
@@ -117,10 +144,9 @@
       Listo. Busca una ciudad con la barra de búsqueda de Cesium, delimita un área y luego elige ORIGEN y DESTINO.
     </div>
 
-    <div class="btnGrid" id="tacticalActionButtons">
-      <button id="setStart" class="btnBeige">Elegir origen</button>
-      <button id="setEnd" class="btnBeige">Elegir destino</button>
-      <button id="clearRoute" class="btnBeige historyBtn">Limpiar ruta</button>
+    <div class="btnGrid">
+      <button id="markRoute" class="btnBeige">Marcar ruta</button>
+      <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
     </div>
 
     <div style="display:none;">
@@ -143,8 +169,7 @@
     <select id="toolSelect">
       <option value="none" hidden disabled selected>Selecciona herramienta...</option>
       <optgroup label="DIBUJO LIBRE">
-        <option value="pencil">✏️ Lápiz (dibujo libre)</option>
-        <option value="eraser">🧹 Goma de borrar</option>
+        <option value="pencil">✏️ Dibujo libre (Lápiz/Goma)</option>
       </optgroup>
 
       <optgroup label="PUNTOS DE INTERÉS">
@@ -164,6 +189,14 @@
         <option value="label">🏷️ Etiqueta</option>
       </optgroup>
     </select>
+
+    <div id="pencilSubmenu" style="display:none; margin-bottom: 20px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+      <label class="fieldLabel">Herramienta de dibujo</label>
+      <div class="btnGrid" style="grid-template-columns: 1fr 1fr; margin-top: 5px;">
+        <button id="btnSelectPencil" class="btnBeige" style="background: #00ffa6; color: #001b1b; box-shadow: 0 0 10px rgba(0,255,166,0.3);">✏️ Lápiz</button>
+        <button id="btnSelectEraser" class="btnBeige" style="background: rgba(255,255,255,0.1); color: #fff;">🧹 Goma</button>
+      </div>
+    </div>
 
     <div class="groupTitle" id="milSymbolTitle" style="display:none;">Símbolos MIL</div>
 
@@ -259,20 +292,9 @@
     </div>
 
     <div class="btnGrid">
-      <button id="placeBtn" class="btnBeige" disabled>Colocar / iniciar</button>
+      <button id="placeBtn" class="btnBeige" disabled>Colocar</button>
       <button id="finishShape" class="btnBeige">Terminar figura</button>
-      <button id="cancelPlace" class="btnBeige">Cancelar</button>
-      <button id="clearTactical" class="btnBeige historyBtn">Limpiar táctico</button>
-    </div>
-
-    <div class="groupTitle">Elemento seleccionado</div>
-    <div class="btnGrid">
-      <button id="deleteSelectedBtn" class="btnBeige">Eliminar seleccionado</button>
-      <button id="clearSelectionBtn" class="btnBeige">Quitar selección</button>
-    </div>
-
-    <div class="routeInfo" id="selectionInfo">
-      No hay elemento seleccionado.
+      <button id="clearTactical" class="btnBeige">Limpiar táctico</button>
     </div>
   </aside>
 

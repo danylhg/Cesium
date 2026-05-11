@@ -340,5 +340,30 @@ router.put("/ops/:id", requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /ops/:id/remove
+// Elimina permanentemente una operacion y sus datos relacionados por cascada.
+router.delete("/ops/:id/remove", requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+
+  if (!isInt(id)) {
+    return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  }
+
+  try {
+    const { rowCount } = await pool.query(
+      "DELETE FROM operacion WHERE id_operacion = $1",
+      [id]
+    );
+
+    if (rowCount === 0) {
+      return res.status(404).json({ ok: false, mensaje: "La operación no existe" });
+    }
+
+    res.json({ ok: true, mensaje: "Operación eliminada correctamente" });
+  } catch (err) {
+    sendDbError(res, err, "Error eliminando operación");
+  }
+});
+
 // Exporta el router para usarlo en el archivo principal de rutas
 export default router;

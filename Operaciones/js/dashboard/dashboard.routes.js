@@ -66,8 +66,11 @@ function drawPoint(lat, lon, color, label, pixelSize = 12) {
     point: { pixelSize, color },
     label: {
       text: label,
-      font: "14px sans-serif",
+      font: "bold 14px sans-serif",
       fillColor: Cesium.Color.WHITE,
+      outlineColor: Cesium.Color.BLACK,
+      outlineWidth: 4,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       pixelOffset: new Cesium.Cartesian2(0, -24)
     }
   });
@@ -110,6 +113,17 @@ function clearSelectedRouteEntities() {
   dashboardState.lastRouteId = null;
 }
 
+function getVehicleName(id_vehiculo) {
+  if (!id_vehiculo) return null;
+  const selectEl = document.getElementById("routeVehicleSelect");
+  if (!selectEl) return null;
+  const opt = [...selectEl.options].find(o => o.value === String(id_vehiculo));
+  if (opt) {
+    return opt.textContent.replace("Vehículo: ", "").trim();
+  }
+  return null;
+}
+
 // ── Rutas remotas (otros clientes / Android) ─────────────────
 
 function drawRemoteRoute(ruta) {
@@ -117,19 +131,22 @@ function drawRemoteRoute(ruta) {
   if (!viewer) return;
   if (dashboardState.remoteRouteEntities.has(ruta.id_ruta)) return; // ya dibujada
 
-  const color    = Cesium.Color.fromCssColorString(ruta.color || "#1E90FF");
+  const colorStr = ruta.color && ruta.color.toUpperCase() !== "#1E90FF" ? ruta.color : null;
+  const color = colorStr ? Cesium.Color.fromCssColorString(colorStr) : getStableColor(ruta.id_vehiculo);
   const geojson  = typeof ruta.geojson === "string" ? JSON.parse(ruta.geojson) : ruta.geojson;
   const entities = [];
+  const vehNombre = ruta.id_vehiculo ? getVehicleName(ruta.id_vehiculo) : null;
+  const labelText = ruta.id_vehiculo ? (vehNombre || "Vehículo") : "Ruta General";
 
   const originEnt = drawPoint(ruta.origen_lat, ruta.origen_lon, Cesium.Color.LIME,
-    `O: ${ruta.creador_nombre || "Externo"}`, 8);
+    `ORIGEN: ${labelText}`, 8);
   if (originEnt) {
     originEnt._routeId = ruta.id_ruta;
     entities.push(originEnt);
   }
 
   const destEnt = drawPoint(ruta.destino_lat, ruta.destino_lon, Cesium.Color.YELLOW,
-    `D: ${ruta.creador_nombre || "Externo"}`, 8);
+    `DESTINO: ${labelText}`, 8);
   if (destEnt) {
     destEnt._routeId = ruta.id_ruta;
     entities.push(destEnt);
@@ -309,6 +326,14 @@ export async function autoCalcRoute() {
       }
     });
 
+    // Ocultar labels locales para evitar texto doble con la ruta remota
+    if (dashboardState.startEntity && dashboardState.startEntity.label) {
+      dashboardState.startEntity.label.show = new Cesium.ConstantProperty(false);
+    }
+    if (dashboardState.endEntity && dashboardState.endEntity.label) {
+      dashboardState.endEntity.label.show = new Cesium.ConstantProperty(false);
+    }
+
     // Guardar en DB (el socket event llegará al room; yo ya la dibujé)
     const id_ruta = await saveRouteToDB(dashboardState.startPoint, dashboardState.endPoint, route);
     if (id_ruta) dashboardState.lastRouteId = id_ruta;
@@ -318,20 +343,31 @@ export async function autoCalcRoute() {
 }
 
 export function clearRoute() {
-  // Si hay una ruta remota seleccionada, eliminarla de DB y del mapa
-  if (dashboardState.selectedRemoteRouteId) {
-    const id_ruta = dashboardState.selectedRemoteRouteId;
-    deleteRoutFromDB(id_ruta);
-    removeRemoteRoute(id_ruta);
-    setRouteInfo("Ruta eliminada.");
-    return;
-  }
+  const selectedId = selectedVehicleId();
+  let deletedAny = false;
 
-  // Si no, limpiar la ruta propia del mapa
+  dashboardState.remoteRouteEntities.forEach((entry, id_ruta) => {
+    const rutaVehId = entry.ruta.id_vehiculo != null ? String(entry.ruta.id_vehiculo) : "global";
+    if (
+      rutaVehId === selectedId ||
+      dashboardState.selectedRemoteRouteId === id_ruta ||
+      dashboardState.lastRouteId === id_ruta
+    ) {
+      deleteRoutFromDB(id_ruta);
+      removeRemoteRoute(id_ruta);
+      deletedAny = true;
+    }
+  });
+
   clearSelectedRouteEntities();
-  setRouteInfo("Ruta limpiada del mapa.");
   if (dom.opLat) dom.opLat.value = "";
   if (dom.opLng) dom.opLng.value = "";
+
+  if (deletedAny) {
+    setRouteInfo("Ruta eliminada del mapa y la base de datos.");
+  } else {
+    setRouteInfo("Ruta local limpiada del mapa.");
+  }
 }
 
 export function populateRouteVehicleSelect(vehiculos = []) {
@@ -389,7 +425,8 @@ export function applyRouteFilter(vehiculoIdStr) {
     const pointEnts = entities.filter(e => e.point);
 
     if (lineEnt) {
-      const baseColor = Cesium.Color.fromCssColorString(ruta.color || "#1E90FF");
+      const colorStr = ruta.color && ruta.color.toUpperCase() !== "#1E90FF" ? ruta.color : null;
+      const baseColor = colorStr ? Cesium.Color.fromCssColorString(colorStr) : getStableColor(ruta.id_vehiculo);
       if (isSelected) {
         lineEnt.polyline.width    = new Cesium.ConstantProperty(8);
         lineEnt.polyline.material = new Cesium.ColorMaterialProperty(Cesium.Color.WHITE.withAlpha(0.97));

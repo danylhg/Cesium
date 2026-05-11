@@ -1,4 +1,4 @@
-import { downloadRecording, loadReplay, loadStreamRecordings } from "./historial/historial.api.js";
+import { downloadRecording, loadCesiumToken, loadReplay, loadStreamRecordings } from "./historial/historial.api.js";
 import { dom, readHistoryDom } from "./historial/historial.dom.js";
 import { initHistoryMap, buildMapEntities, focusOnReplay } from "./historial/historial.map.js";
 import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
@@ -16,6 +16,12 @@ async function main() {
   if (!operationId) {
     renderError("No se encontró el id de operación. Abre historial.html?id=3 o selecciona una operación cerrada.");
     return;
+  }
+
+  try {
+    await loadCesiumToken();
+  } catch (tokenError) {
+    console.warn("No se pudo cargar token Cesium para historial", tokenError);
   }
 
   initHistoryMap();

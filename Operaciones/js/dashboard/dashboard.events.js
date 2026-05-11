@@ -74,6 +74,32 @@ async function apiFetchEstado(opId, nuevoEstado) {
   return res;
 }
 
+function showConfirmationModal({ title, message, confirmText = "Confirmar", onConfirm }) {
+  if (!dom.confirmationModal) {
+    onConfirm?.();
+    return;
+  }
+
+  dom.confirmationTitle.textContent = title;
+  dom.confirmationMessage.textContent = message;
+  dom.confirmationConfirmBtn.textContent = confirmText;
+  dom.confirmationModal.classList.remove("hidden");
+
+  const close = () => {
+    dom.confirmationModal.classList.add("hidden");
+    dom.confirmationConfirmBtn.removeEventListener("click", handleConfirm);
+    dom.confirmationCancelBtn.removeEventListener("click", close);
+  };
+
+  const handleConfirm = () => {
+    onConfirm?.();
+    close();
+  };
+
+  dom.confirmationConfirmBtn.addEventListener("click", handleConfirm);
+  dom.confirmationCancelBtn.addEventListener("click", close);
+}
+
 /**
  * Vincula los eventos de los botones de acción global (Guardar/Cancelar operación).
  *
@@ -119,17 +145,24 @@ function bindOperationActionEvents() {
 
 
 
-      try {
-        const res = await apiFetchEstado(opId, "CANCELADA");
-        if (res.ok) {
-          window.location.href = "menu_inicial.html";
-        } else {
-          const data = await res.json().catch(() => ({}));
-          alert(`Error al cancelar: ${data.mensaje || res.statusText}`);
+      showConfirmationModal({
+        title: "¿Cancelar operación?",
+        message: `¿Estás seguro de que quieres cancelar la operación "${opName}"? Se perderán todos los datos planificados.`,
+        confirmText: "Cancelar Operación",
+        onConfirm: async () => {
+          try {
+            const res = await apiFetchEstado(opId, "CANCELADA");
+            if (res.ok) {
+              window.location.href = "menu_inicial.html";
+            } else {
+              const data = await res.json().catch(() => ({}));
+              alert(`Error al cancelar: ${data.mensaje || res.statusText}`);
+            }
+          } catch {
+            alert("Error de conexión al intentar cancelar la operación.");
+          }
         }
-      } catch {
-        alert("Error de conexión al intentar cancelar la operación.");
-      }
+      });
     });
   }
 
@@ -174,26 +207,33 @@ function bindOperationActionEvents() {
     closeActiveBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
       const opId = localStorage.getItem("active_operation_id") || op?.id;
-      const opName = op.nombre || op.title || op.titulo || "OperaciÃ³n";
+      const opName = op.nombre || op.title || op.titulo || "Operación";
 
       if (!opId) {
-        alert("No se encontrÃ³ la operaciÃ³n activa.");
+        alert("No se encontró la operación activa.");
         return;
       }
 
 
 
-      try {
-        const res = await apiFetchEstado(opId, "CERRADA");
-        if (res.ok) {
-          window.location.href = "menu_inicial.html";
-        } else {
-          const data = await res.json().catch(() => ({}));
-          alert(`Error al cerrar: ${data.mensaje || res.statusText}`);
+      showConfirmationModal({
+        title: "¿Terminar operación?",
+        message: `¿Estás seguro de que quieres terminar la operación "${opName}"?`,
+        confirmText: "Terminar",
+        onConfirm: async () => {
+          try {
+            const res = await apiFetchEstado(opId, "CERRADA");
+            if (res.ok) {
+              window.location.href = "menu_inicial.html";
+            } else {
+              const data = await res.json().catch(() => ({}));
+              alert(`Error al cerrar: ${data.mensaje || res.statusText}`);
+            }
+          } catch {
+            alert("Error de conexión al intentar cerrar la operación.");
+          }
         }
-      } catch {
-        alert("Error de conexiÃ³n al intentar cerrar la operaciÃ³n.");
-      }
+      });
     });
   }
 }

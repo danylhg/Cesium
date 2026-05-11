@@ -2,10 +2,11 @@ import { btnBack, btnVolver, btnDashboardGo } from "../../core/dom.js";
 import { state } from "../../core/state.js";
 import {
   flushPersistOperacionActualEnBackend,
-  saveOperacionActual
+  saveOperacionActual,
+  syncOperacionCompleta
 } from "../operacion/operacion.service.js";
 import { saveOperacionYAsignacion } from "../asignacion/asignacion.service.js";
-import { removeStorage } from "../../core/storage.js";
+import { removeStorage, readObjectStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL, STORAGE_ASIGNACION_ACTUAL } from "../../core/constants.js";
 import { renderHome } from "../../views/home.view.js";
 import { renderCUT, renderCET, renderCelulas } from "../personal/personal.views.js";
@@ -55,6 +56,16 @@ export function bindNavigation() {
     try {
       await flushPersistOperacionActualEnBackend();
       await saveOperacionYAsignacion(saveOperacionActual);
+      const storedOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+      const opId = storedOp.id || storedOp.id_operacion || localStorage.getItem("active_operation_id");
+
+      if (opId) {
+        const syncResult = await syncOperacionCompleta(opId);
+        if (syncResult?.ok === false) {
+          throw new Error(syncResult.error || "No se pudo sincronizar la asignación.");
+        }
+      }
+
       window.location.href = "dashboard.html";
     } catch (error) {
       console.error("No se pudo guardar la operacion antes de volver al dashboard:", error);

@@ -290,6 +290,14 @@ function handleEntitySelection(clickPosition) {
       return;
     }
 
+    if (dashboardState.selectedEntity === picked.id) {
+      dashboardState.selectedEntity = null;
+      updateSelectionInfo(null);
+      if (dom.entityPopup) dom.entityPopup.style.display = "none";
+      if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+      return;
+    }
+
     dashboardState.selectedEntity = picked.id;
     updateSelectionInfo(dashboardState.selectedEntity);
     const quickMenuShown = showQuickMenuForEntity(dashboardState.selectedEntity, clickPosition);
@@ -359,8 +367,11 @@ function handleRoutePick(lat, lng) {
       point: { pixelSize: 12, color: Cesium.Color.LIME },
       label: {
         text: "ORIGEN",
-        font: "14px sans-serif",
+        font: "bold 14px sans-serif",
         fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 4,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cesium.Cartesian2(0, -24)
       }
     });
@@ -395,8 +406,11 @@ function handleRoutePick(lat, lng) {
       point: { pixelSize: 12, color: Cesium.Color.YELLOW },
       label: {
         text: "DESTINO",
-        font: "14px sans-serif",
+        font: "bold 14px sans-serif",
         fillColor: Cesium.Color.WHITE,
+        outlineColor: Cesium.Color.BLACK,
+        outlineWidth: 4,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
         pixelOffset: new Cesium.Cartesian2(0, -24)
       }
     });
@@ -550,26 +564,14 @@ function bindMapUiEvents() {
     });
   }
 
-  const setStartBtn = document.getElementById("setStart");
-  if (setStartBtn) {
-    setStartBtn.onclick = () => {
+  const markRouteBtn = document.getElementById("markRoute");
+  if (markRouteBtn) {
+    markRouteBtn.onclick = () => {
       dashboardState.areaMode = false;
       dashboardState.areaDrawing = false;
       if (dom.markAreaBtn) dom.markAreaBtn.textContent = "Marcar área";
       dashboardState.pickMode = "start";
-      setRouteInfo("Modo origen activo: haz clic en el mapa.");
-      openPanel(dom.routePanel, dom.toggleRoutePanel);
-    };
-  }
-
-  const setEndBtn = document.getElementById("setEnd");
-  if (setEndBtn) {
-    setEndBtn.onclick = () => {
-      dashboardState.areaMode = false;
-      dashboardState.areaDrawing = false;
-      if (dom.markAreaBtn) dom.markAreaBtn.textContent = "Marcar área";
-      dashboardState.pickMode = "end";
-      setRouteInfo("Modo destino activo: haz clic en el mapa.");
+      setRouteInfo("Modo ruta activo: haz clic en el origen.");
       openPanel(dom.routePanel, dom.toggleRoutePanel);
     };
   }
@@ -620,6 +622,22 @@ function bindMapUiEvents() {
       }
 
       dispatchEntityChat(actionKind);
+    });
+  }
+
+  if (dom.btnCloseEntityPopup) {
+    dom.btnCloseEntityPopup.addEventListener("click", () => {
+      dashboardState.selectedEntity = null;
+      updateSelectionInfo(null);
+      if (dom.entityPopup) dom.entityPopup.style.display = "none";
+    });
+  }
+
+  if (dom.btnCloseVehicleQuickMenu) {
+    dom.btnCloseVehicleQuickMenu.addEventListener("click", () => {
+      dashboardState.selectedEntity = null;
+      updateSelectionInfo(null);
+      if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
     });
   }
 }

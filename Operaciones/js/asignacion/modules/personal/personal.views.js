@@ -317,16 +317,18 @@ export function pintarChipsGrupos(cet, container) {
   });
 
   // BOTÓN EXTRA: "Sin grupo" (Mando Directo)
-  const sinGrupoBtn = document.createElement("button");
-  sinGrupoBtn.className = "chip" + (info.active === null ? " active" : "");
-  sinGrupoBtn.textContent = "Sin grupo";
-  
-  sinGrupoBtn.addEventListener("click", () => {
-    info.active = null; // Modo Mando Directo
-    saveAsignacionActual();
-    renderCelulas();
-  });
-  container.appendChild(sinGrupoBtn);
+  if (hasGroups) {
+    const sinGrupoBtn = document.createElement("button");
+    sinGrupoBtn.className = "chip" + (info.active === null ? " active" : "");
+    sinGrupoBtn.textContent = "Sin grupo";
+
+    sinGrupoBtn.addEventListener("click", () => {
+      info.active = null; // Modo Mando Directo
+      saveAsignacionActual();
+      renderCelulas();
+    });
+    container.appendChild(sinGrupoBtn);
+  }
 }
 
 export function renderCelulas() {

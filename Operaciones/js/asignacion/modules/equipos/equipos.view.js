@@ -483,82 +483,122 @@ export function renderEquipoLeftPersonal() {
     state.equipoSelectedCet = state.cetSeleccionados[0];
   }
 
+  const cet = state.equipoSelectedCet;
+  const ginfo = state.gruposByCet[cet] || { names: [], map: {} };
+
+  // 1. CHIPS DE CET (Flotillas)
   const cetRow = document.createElement("div");
   cetRow.className = "chipRow";
-  cetRow.style.marginBottom = "0";
-  cetRow.style.paddingBottom = "0";
-  cetRow.style.borderBottom = "none";
+  cetRow.style.marginBottom = "12px";
 
-  state.cetSeleccionados.forEach((cet) => {
+  state.cetSeleccionados.forEach((c) => {
+    const flotName = state.flotillaByCet[c] || c;
     const chip = document.createElement("button");
-    chip.className = "chip" + (state.equipoSelectedCet === cet ? " active" : "");
-    chip.textContent = `CET: ${cet}`;
+    chip.className = "chip" + (state.equipoSelectedCet === c ? " active" : "");
+    chip.textContent = flotName;
 
     chip.addEventListener("click", () => {
-      state.equipoSelectedCet = cet;
+      state.equipoSelectedCet = c;
       state.equipoSelectedResource = null;
       state.equipoSelectedGrupo = null;
       saveAsignacionActual();
       renderEquipoAsignacion();
     });
-
     cetRow.appendChild(chip);
   });
-
   box.appendChild(cetRow);
 
-  const cet = state.equipoSelectedCet;
-  const flotilla = state.flotillaByCet[cet] || "—";
-  const ginfo = state.gruposByCet[cet] || { names: [], map: {} };
-  const hasGroups = (ginfo.names || []).length > 0;
+  // 2. HEADER BOX (CET a cargo y Grupos)
+  const headerBox = document.createElement("div");
+  headerBox.style.padding = "0 0 10px";
+  headerBox.style.borderBottom = "1px solid #d7e3ff";
+  headerBox.style.marginBottom = "10px";
 
-  const flotillaLbl = document.createElement("div");
-  flotillaLbl.className = "lbl";
-  flotillaLbl.textContent = "Nombre de la flotilla";
-  box.appendChild(flotillaLbl);
+  // CET a cargo
+  const cetLbl = document.createElement("div");
+  cetLbl.className = "lbl";
+  cetLbl.style.marginBottom = "8px";
+  cetLbl.textContent = "CET a cargo";
+  headerBox.appendChild(cetLbl);
 
-  const flotillaChip = document.createElement("div");
-  flotillaChip.className = "chip";
-  flotillaChip.style.width = "max-content";
-  flotillaChip.textContent = flotilla;
-  box.appendChild(flotillaChip);
-
-  const gruposLbl = document.createElement("div");
-  gruposLbl.className = "lbl";
-  gruposLbl.textContent = "Grupos";
-  box.appendChild(gruposLbl);
-
-  const gruposRow = document.createElement("div");
-  gruposRow.className = "groupsRow";
-
-  // Botones de subgrupos existentes
-  ginfo.names.forEach((gName) => {
-    const chip = document.createElement("button");
-    chip.className = "chip" + (state.equipoSelectedGrupo === gName ? " active" : "");
-    chip.textContent = gName;
-    chip.addEventListener("click", () => {
-      state.equipoSelectedGrupo = gName;
+  const cetKey = `${cet} - CET: ${cet}`;
+  const cetItem = document.createElement("div");
+  cetItem.className = "item" + (state.equipoSelectedResource === cetKey ? " selected" : "");
+  cetItem.style.padding = "10px";
+  cetItem.style.marginBottom = "10px";
+  cetItem.style.cursor = "pointer";
+  cetItem.textContent = `CET: ${cet}`;
+  cetItem.addEventListener("click", () => {
+    if (state.equipoSelectedResource === cetKey) {
+      removerAsignacionDeSeleccionActual("personal", cetKey);
       state.equipoSelectedResource = null;
-      saveAsignacionActual();
-      renderEquipoAsignacion();
-    });
-    gruposRow.appendChild(chip);
-  });
-
-  // Botón "Sin grupo"
-  const sinGrupoBtn = document.createElement("button");
-  sinGrupoBtn.className = "chip" + (state.equipoSelectedGrupo === null ? " active" : "");
-  sinGrupoBtn.textContent = "Sin grupo";
-  sinGrupoBtn.addEventListener("click", () => {
-    state.equipoSelectedGrupo = null;
-    state.equipoSelectedResource = null;
+    } else {
+      state.equipoSelectedResource = cetKey;
+    }
     saveAsignacionActual();
     renderEquipoAsignacion();
   });
-  gruposRow.appendChild(sinGrupoBtn);
+  headerBox.appendChild(cetItem);
 
-  box.appendChild(gruposRow);
+  // Cálculo de personas sin grupo para visibilidad de botón
+  const celulasParaCet = (state.asignacionCelulas[cet] || []).map(p => p.nombre ?? p);
+  const cellsSinGrupo = celulasParaCet.filter(c => !getGrupoDeCelula(cet, c));
+  const hasUnassigned = cellsSinGrupo.length > 0;
+  const hasGroups = (ginfo.names || []).length > 0;
 
+  // Solo mostrar sección de grupos si hay grupos o personas sueltas
+  if (hasGroups || hasUnassigned) {
+    const gruposLbl = document.createElement("div");
+    gruposLbl.className = "lbl";
+    gruposLbl.style.margin = "12px 0 8px";
+    gruposLbl.textContent = "Grupos";
+    headerBox.appendChild(gruposLbl);
+
+    const gruposRow = document.createElement("div");
+    gruposRow.className = "groupsRow";
+    gruposRow.style.display = "flex";
+    gruposRow.style.gap = "8px";
+    gruposRow.style.flexWrap = "wrap";
+
+    // Botones de grupos
+    ginfo.names.forEach((gName) => {
+      const chip = document.createElement("button");
+      chip.className = "chip" + (state.equipoSelectedGrupo === gName ? " active" : "");
+      chip.textContent = gName;
+      chip.addEventListener("click", () => {
+        state.equipoSelectedGrupo = gName;
+        state.equipoSelectedResource = null;
+        saveAsignacionActual();
+        renderEquipoAsignacion();
+      });
+      gruposRow.appendChild(chip);
+    });
+
+    // Botón "Sin grupo" solo si hay personas sueltas
+    if (hasUnassigned) {
+      const sinGrupoBtn = document.createElement("button");
+      sinGrupoBtn.className = "chip" + (state.equipoSelectedGrupo === null ? " active" : "");
+      sinGrupoBtn.textContent = "Sin grupo";
+      sinGrupoBtn.addEventListener("click", () => {
+        state.equipoSelectedGrupo = null;
+        state.equipoSelectedResource = null;
+        saveAsignacionActual();
+        renderEquipoAsignacion();
+      });
+      gruposRow.appendChild(sinGrupoBtn);
+    }
+
+    // Si hay grupos pero no hay personas sueltas, y el modo actual es null, forzar al primer grupo
+    if (hasGroups && !hasUnassigned && state.equipoSelectedGrupo === null) {
+      state.equipoSelectedGrupo = ginfo.names[0];
+    }
+
+    headerBox.appendChild(gruposRow);
+  }
+
+  box.appendChild(headerBox);
+
+  // 3. LISTA DE PERSONAL
   const personasWrap = document.createElement("div");
   personasWrap.style.display = "flex";
   personasWrap.style.flexDirection = "column";
@@ -570,25 +610,17 @@ export function renderEquipoLeftPersonal() {
   });
 
   let personas = [];
-
   if (state.equipoSelectedGrupo) {
     personas = Array.from(ginfo.map[state.equipoSelectedGrupo] || []);
   } else {
-    // Modo "Sin grupo" o mando directo
-    // Siempre incluimos al CET solo en la lista de mando directo para equipos
-    const id_cet = state.personalMap[cet];
-    if (id_cet) {
-      personas.push(`CET: ${cet}`);
-    }
-
-    const celulasParaCet = (state.asignacionCelulas[cet] || []).map(p => p.nombre ?? p);
-    const cellsSinGrupo = celulasParaCet.filter(c => !getGrupoDeCelula(cet, c));
-    personas = [...personas, ...cellsSinGrupo];
+    // Modo "Sin grupo"
+    personas = cellsSinGrupo;
   }
 
   if (!personas.length) {
     const empty = document.createElement("div");
     empty.className = "item";
+    empty.style.opacity = "0.6";
     empty.textContent = "No hay personas en esta selección.";
     personasWrap.appendChild(empty);
   } else {
@@ -611,7 +643,7 @@ export function renderEquipoLeftPersonal() {
         } else {
           state.equipoSelectedResource = key;
         }
-        saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
+        saveAsignacionActual();
         renderEquipoAsignacion();
       });
 

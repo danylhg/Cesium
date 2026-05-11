@@ -169,15 +169,30 @@ async function init() {
       // Cargar operación desde BD y normalizar keys para el formulario
       const opData = await cargarOperacionRemota(opId);
       if (opData) {
-        const fechaInicioRaw = opData.fecha_inicio || "";
+        let fExtracted = "";
+        let hExtracted = "";
+        if (opData.fecha_inicio) {
+          const d = new Date(opData.fecha_inicio);
+          if (!isNaN(d)) {
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, "0");
+            const dd = String(d.getDate()).padStart(2, "0");
+            fExtracted = `${yyyy}-${mm}-${dd}`;
+
+            const hh = String(d.getHours()).padStart(2, "0");
+            const min = String(d.getMinutes()).padStart(2, "0");
+            hExtracted = `${hh}:${min}`;
+          }
+        }
+
         const opNorm = {
           id: opData.id_operacion,
           title: opData.nombre,
           titulo: opData.nombre,
           description: opData.descripcion,
           descripcion: opData.descripcion,
-          fecha_inicio: fechaInicioRaw ? String(fechaInicioRaw).split("T")[0] : "",
-          hora_inicio: opData.hora_inicio || (String(fechaInicioRaw).includes("T") ? String(fechaInicioRaw).split("T")[1].slice(0, 5) : ""),
+          fecha_inicio: fExtracted,
+          hora_inicio: hExtracted,
           prioridad: opData.prioridad,
           estado: opData.estado
         };

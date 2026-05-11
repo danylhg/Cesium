@@ -5,7 +5,7 @@ export function renderTopbar(replay) {
   const user = JSON.parse(localStorage.getItem("user") || "null");
 
   if (dom.title) {
-    dom.title.textContent = operation.codigo || operation.nombre || `Operación ${operation.id_operacion || ""}`;
+    dom.title.textContent = operation.codigo || operation.nombre || `Operacion ${operation.id_operacion || ""}`;
   }
 
   if (dom.statusBadge) {
@@ -22,25 +22,44 @@ export function renderOperationInfo(replay) {
   const timeline = replay?.timeline || {};
   const events = timeline.eventos || [];
   const snapshots = replay?.snapshots || {};
+  const assignment = replay?.asignacion || {};
+  const personal = assignment.personal || replay?.personal || [];
+  const vehiculos = assignment.vehiculos || replay?.vehiculos || [];
+  const equipos = assignment.equipos || replay?.equipos || [];
 
   dom.infoContent.innerHTML = `
     <section class="historyOpCard">
-      <h3 class="historyOpCardTitle">${escapeHtml(operation.nombre || operation.codigo || "Operación")}</h3>
+      <h3 class="historyOpCardTitle">${escapeHtml(operation.nombre || operation.codigo || "Operacion")}</h3>
       <div class="historyMetaGrid">
-        ${metaRow("Código", operation.codigo)}
+        ${metaRow("Codigo", operation.codigo)}
         ${metaRow("Estado", operation.estado)}
+        ${metaRow("Prioridad", operation.prioridad)}
+        ${metaRow("Descripcion", operation.descripcion)}
         ${metaRow("Inicio", formatDateTime(timeline.inicio || operation.fecha_inicio))}
         ${metaRow("Cierre", formatDateTime(timeline.fin || operation.fecha_fin))}
         ${metaRow("Eventos", events.length)}
       </div>
     </section>
     <section class="historyOpCard">
+      <h3 class="historyOpCardTitle">Personal asignado</h3>
+      ${renderPersonalList(personal)}
+    </section>
+    <section class="historyOpCard">
+      <h3 class="historyOpCardTitle">Vehiculos asignados</h3>
+      ${renderVehicleList(vehiculos)}
+    </section>
+    <section class="historyOpCard">
+      <h3 class="historyOpCardTitle">Equipos asignados</h3>
+      ${renderEquipmentList(equipos)}
+    </section>
+    <section class="historyOpCard">
       <h3 class="historyOpCardTitle">Capas guardadas</h3>
       <div class="historyMetaGrid">
         ${metaRow("POIs", countOf(snapshots.pois))}
-        ${metaRow("Áreas", countOf(snapshots.areas))}
+        ${metaRow("Areas", countOf(snapshots.areas))}
         ${metaRow("Estructuras", countOf(snapshots.estructuras))}
-        ${metaRow("Rutas tácticas", countOf(snapshots.rutas_tacticas))}
+        ${metaRow("Rutas tacticas", countOf(snapshots.rutas_tacticas))}
+        ${metaRow("Rutas navegacion", countOf(snapshots.rutas_navegacion))}
         ${metaRow("Dibujos", countOf(snapshots.dibujos))}
       </div>
     </section>
@@ -101,13 +120,164 @@ function metaRow(label, value) {
   return `
     <div class="historyMetaItem">
       <span class="historyMetaLabel">${escapeHtml(label)}</span>
-      <span class="historyMetaValue">${escapeHtml(value ?? "—")}</span>
+      <span class="historyMetaValue">${escapeHtml(value ?? "-")}</span>
     </div>
   `;
 }
 
 function countOf(value) {
   return Array.isArray(value) ? value.length : 0;
+}
+
+function renderPersonalList(items = []) {
+  if (!items.length) {
+    return '<div class="historyEmpty">Sin personal registrado para esta operacion.</div>';
+  }
+
+  return `
+    <div class="historyAssignmentList">
+      ${items.map((person) => {
+        const name = fullPersonName(person) || person.apodo || `Personal #${person.id_personal || ""}`;
+        const role = person.rol_en_operacion || person.rol || "";
+        const group = groupPath(person.grupo_padre_nombre, person.grupo_nombre);
+
+        return `
+          <article class="historyAssignmentItem">
+            <div class="historyAssignmentHead">
+              <strong>${escapeHtml(name)}</strong>
+              ${statusPill(person.estado_asignacion)}
+            </div>
+            <div class="historyAssignmentMeta">
+              ${inlineMeta("Rol", role)}
+              ${inlineMeta("Grupo", group)}
+              ${inlineMeta("Ultima posicion", coordinatesText(person.latitud, person.longitud))}
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderVehicleList(items = []) {
+  if (!items.length) {
+    return '<div class="historyEmpty">Sin vehiculos registrados para esta operacion.</div>';
+  }
+
+  return `
+    <div class="historyAssignmentList">
+      ${items.map((vehicle) => {
+        const name = [vehicle.tipo, vehicle.codigo_interno, vehicle.alias].filter(Boolean).join(" - ")
+          || `Vehiculo #${vehicle.id_vehiculo || ""}`;
+        const assigned = vehiclePersonName(vehicle);
+        const group = groupPath(vehicle.grupo_padre_nombre, vehicle.grupo_directo_nombre || vehicle.grupo_nombre);
+
+        return `
+          <article class="historyAssignmentItem">
+            <div class="historyAssignmentHead">
+              <strong>${escapeHtml(name)}</strong>
+              ${statusPill(vehicle.estado_asignacion)}
+            </div>
+            <div class="historyAssignmentMeta">
+              ${inlineMeta("Custodio", assigned)}
+              ${inlineMeta("Nivel", vehicle.nivel_asignacion || vehicle.tipo_destino)}
+              ${inlineMeta("Grupo", group)}
+              ${inlineMeta("Ultima posicion", coordinatesText(vehicle.latitud, vehicle.longitud))}
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderEquipmentList(items = []) {
+  if (!items.length) {
+    return '<div class="historyEmpty">Sin equipos registrados para esta operacion.</div>';
+  }
+
+  return `
+    <div class="historyAssignmentList">
+      ${items.map((equipment) => {
+        const name = equipment.nombre || equipment.tipo_equipo || `Equipo #${equipment.id_equipo || ""}`;
+        const identifier = equipment.numero_serie || "Sin identificador";
+        const destination = equipmentDestination(equipment);
+
+        return `
+          <article class="historyAssignmentItem">
+            <div class="historyAssignmentHead">
+              <strong>${escapeHtml(name)}</strong>
+              ${statusPill(equipment.estado_asignacion)}
+            </div>
+            <div class="historyAssignmentMeta">
+              ${inlineMeta("Identificador", identifier)}
+              ${inlineMeta("Categoria", equipment.categoria)}
+              ${inlineMeta("Tipo", equipment.tipo_equipo)}
+              ${inlineMeta("Destino", destination)}
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function fullPersonName(person) {
+  return [person.puesto, person.nombre, person.apellido].filter(Boolean).join(" ").trim();
+}
+
+function vehiclePersonName(vehicle) {
+  const name = [
+    vehicle.personal_puesto,
+    vehicle.personal_nombre || vehicle.asignado_a_nombre,
+    vehicle.personal_apellido || vehicle.asignado_a_apellido
+  ].filter(Boolean).join(" ").trim();
+
+  return [formatRole(vehicle.personal_rol), name || vehicle.asignado_a_apodo].filter(Boolean).join(" ").trim();
+}
+
+function equipmentDestination(equipment) {
+  if (equipment.tipo_destino === "VEHICULO") {
+    return [equipment.asignado_a_vehiculo, equipment.vehiculo_alias].filter(Boolean).join(" - ");
+  }
+
+  if (equipment.tipo_destino === "GRUPO") {
+    return groupPath(equipment.flotilla_asignada, equipment.grupo_asignado);
+  }
+
+  const personDestination = [formatRole(equipment.personal_rol), equipment.asignado_a_personal].filter(Boolean).join(" ").trim();
+  return personDestination || groupPath(equipment.personal_flotilla_nombre, equipment.personal_grupo_nombre);
+}
+
+function groupPath(parent, child) {
+  const parts = [parent, child]
+    .map(value => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value, index, arr) => arr.indexOf(value) === index);
+
+  return parts.join(" / ");
+}
+
+function formatRole(value) {
+  const role = String(value || "").trim().toUpperCase();
+  return role ? `(${role})` : "";
+}
+
+function coordinatesText(lat, lon) {
+  const latNum = Number(lat);
+  const lonNum = Number(lon);
+  if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) return "";
+  return `${latNum.toFixed(5)}, ${lonNum.toFixed(5)}`;
+}
+
+function inlineMeta(label, value) {
+  if (value == null || value === "") return "";
+  return `<span><b>${escapeHtml(label)}:</b> ${escapeHtml(value)}</span>`;
+}
+
+function statusPill(value) {
+  if (!value) return "";
+  return `<span class="historyAssignmentStatus">${escapeHtml(value)}</span>`;
 }
 
 function renderRecordingList(recordings, error) {

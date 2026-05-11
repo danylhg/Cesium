@@ -4,6 +4,20 @@ export async function loadReplay(operationId) {
   return apiFetch(`/ops/${encodeURIComponent(operationId)}/replay`);
 }
 
+export async function loadCesiumToken() {
+  const payload = await apiFetch("/config/cesium-token");
+  const token = payload?.token || "";
+
+  if (token) {
+    Cesium.Ion.defaultAccessToken = token;
+    localStorage.setItem("CESIUM_TOKEN", token);
+    return true;
+  }
+
+  localStorage.removeItem("CESIUM_TOKEN");
+  return false;
+}
+
 export async function loadStreamRecordings(operationId) {
   return apiFetch(`/ops/${encodeURIComponent(operationId)}/streams/recordings`);
 }

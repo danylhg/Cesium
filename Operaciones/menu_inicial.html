@@ -70,8 +70,22 @@
         <div id="opsList" class="ops hidden">
           <div class="opsHead">
             <span class="opsTitle">Operaciones existentes</span>
-            <span class="opsHint">clic para abrir</span>
           </div>
+
+          <div class="opsFilters" style="flex-direction: column;">
+            <select id="searchOpState" class="opFilterInput">
+              <option value="todas">Todas</option>
+              <option value="activa">Activas</option>
+              <option value="planificada">Planificadas</option>
+              <option value="cerrada">Cerradas</option>
+              <option value="cancelada">Canceladas</option>
+            </select>
+            <div style="display: flex; gap: 10px;">
+              <input type="text" id="searchOpName" placeholder="Buscar por nombre..." class="opFilterInput" />
+              <input type="date" id="searchOpDate" class="opFilterInput" />
+            </div>
+          </div>
+
           <ul id="opsUl" class="opsUl"></ul>
         </div>
       </div>

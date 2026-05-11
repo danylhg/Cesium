@@ -16,23 +16,26 @@ function apiFetch(path, options = {}) {
   });
 }
 
-// ── Elementos DOM ────────────────────────────────────────────
-const btnCreate        = document.getElementById("btnCreate");
-const btnSelect        = document.getElementById("btnSelect");
-const btnEmergency     = document.getElementById("btnEmergency");
-const btnPersonal      = document.getElementById("btnPersonal");
-const btnLogout        = document.getElementById("btnLogout");
-const userName         = document.getElementById("userName");
-const opsList          = document.getElementById("opsList");
-const opsUl            = document.getElementById("opsUl");
-const submenuControl   = document.getElementById("submenuControl");
+// DOM
+const btnCreate = document.getElementById("btnCreate");
+const btnSelect = document.getElementById("btnSelect");
+const btnEmergency = document.getElementById("btnEmergency");
+const btnPersonal = document.getElementById("btnPersonal");
+const btnLogout = document.getElementById("btnLogout");
+const userName = document.getElementById("userName");
+const opsList = document.getElementById("opsList");
+const opsUl = document.getElementById("opsUl");
+const submenuControl = document.getElementById("submenuControl");
 const btnControlPersonal = document.getElementById("btnControlPersonal");
 const btnControlVehiculos = document.getElementById("btnControlVehiculos");
-const btnControlEquipos  = document.getElementById("btnControlEquipos");
+const btnControlEquipos = document.getElementById("btnControlEquipos");
+const searchOpName = document.getElementById("searchOpName");
+const searchOpDate = document.getElementById("searchOpDate");
+const searchOpState = document.getElementById("searchOpState");
 
-// ── Inicialización ───────────────────────────────────────────
+let allOps = [];
+
 async function init() {
-  // Validar sesión con el servidor (GET /me)
   const token = getToken();
   if (!token) {
     window.location.href = "login.html";
@@ -50,18 +53,14 @@ async function init() {
     return;
   }
 
-  // Mostrar nombre del usuario desde el servidor
   userName.textContent = usuario.nombre ?? usuario.username;
 }
 
-// ── Logout ───────────────────────────────────────────────────
 btnLogout.addEventListener("click", () => {
-  // No hay endpoint de logout en el servidor; solo se descarta el token local
   localStorage.removeItem("token");
   window.location.href = "login.html";
 });
 
-// ── Crear operación ──────────────────────────────────────────
 btnCreate.addEventListener("click", () => {
   localStorage.removeItem("active_operation_id");
   localStorage.removeItem("operacion_actual");
@@ -70,7 +69,6 @@ btnCreate.addEventListener("click", () => {
   window.location.href = "asignacion.html";
 });
 
-// ── Operación de emergencia ──────────────────────────────────
 btnEmergency.addEventListener("click", () => {
   localStorage.removeItem("active_operation_id");
   localStorage.removeItem("operacion_actual");
@@ -80,48 +78,70 @@ btnEmergency.addEventListener("click", () => {
   window.location.href = "asignacion.html";
 });
 
-// ── Seleccionar operación ────────────────────────────────────
 btnSelect.addEventListener("click", async () => {
   if (!opsList.classList.contains("hidden")) {
     opsList.classList.add("hidden");
     return;
   }
 
-  // Cerrar submenú de sistema de control si está abierto
   submenuControl.classList.add("hidden");
-
   opsUl.innerHTML = "<li>Cargando...</li>";
   opsList.classList.remove("hidden");
 
-  // GET /ops → { ok, items: [{ id_operacion, nombre, estado, fecha_inicio, ... }] }
-  let ops = [];
   try {
     const res = await apiFetch("/ops");
     if (!res.ok) throw new Error("error al cargar operaciones");
     const data = await res.json();
-    ops = data.items ?? [];
+    allOps = data.items ?? [];
   } catch {
     opsUl.innerHTML = "<li>Error al cargar operaciones</li>";
     return;
   }
 
+  renderOps(allOps);
+});
+
+function normalizeOperationState(estado) {
+  let pClass = (estado ?? "PLANIFICADA").toLowerCase();
+  if (pClass === "terminada" || pClass === "pasada") pClass = "cerrada";
+  return pClass;
+}
+
+function handleFilters() {
+  const text = (searchOpName?.value || "").toLowerCase();
+  const date = searchOpDate?.value || "";
+  const state = searchOpState?.value || "todas";
+
+  const filtered = allOps.filter(op => {
+    const pClass = normalizeOperationState(op.estado);
+    const matchName = String(op.nombre || "").toLowerCase().includes(text);
+    const matchDate = date ? String(op.fecha_inicio || "").startsWith(date) : true;
+    const matchState = state === "todas" ? true : pClass === state;
+
+    return matchName && matchDate && matchState;
+  });
+
+  renderOps(filtered);
+}
+
+searchOpName?.addEventListener("input", handleFilters);
+searchOpDate?.addEventListener("change", handleFilters);
+searchOpState?.addEventListener("change", handleFilters);
+
+function renderOps(ops) {
+  if (!opsUl) return;
+
   opsUl.innerHTML = "";
 
   if (!ops.length) {
     const li = document.createElement("li");
-    li.textContent = "No hay operaciones creadas";
-    const tag = document.createElement("span");
-    tag.className = "tag";
-    tag.textContent = "vacío";
-    li.appendChild(tag);
+    li.textContent = "No hay operaciones que coincidan";
     opsUl.appendChild(li);
     return;
   }
 
   ops.forEach(op => {
-    // El backend devuelve estado en MAYÚSCULAS; normalizamos a minúsculas para los estilos
-    const pClass = (op.estado ?? "PLANIFICADA").toLowerCase();
-
+    const pClass = normalizeOperationState(op.estado);
     const li = document.createElement("li");
     li.textContent = op.nombre;
 
@@ -137,16 +157,50 @@ btnSelect.addEventListener("click", async () => {
       tag.style.background = "rgba(239, 68, 68, 0.4)";
       tag.style.color = "#ffdede";
       tag.style.border = "1px solid #ef4444";
-    } else if (pClass === "terminada") {
+    } else if (pClass === "cerrada") {
       tag.style.background = "rgba(59, 130, 246, 0.4)";
       tag.style.color = "#dbeafe";
       tag.style.border = "1px solid #3b82f6";
     }
 
-    li.appendChild(tag);
+    const rightSide = document.createElement("div");
+    rightSide.style.display = "flex";
+    rightSide.style.alignItems = "center";
+    rightSide.appendChild(tag);
+
+    if (pClass === "cerrada" || pClass === "cancelada") {
+      const btnDel = document.createElement("button");
+      btnDel.className = "btnDeleteOp";
+      btnDel.innerHTML = "🗑️";
+      btnDel.title = "Eliminar operación permanentemente";
+
+      btnDel.addEventListener("click", async (e) => {
+        e.stopPropagation();
+
+        const confirmMsg = `¿Seguro que quieres eliminar permanentemente la operación "${op.nombre}"?\n\nEsta acción no se puede deshacer y borrará TODO el historial relacionado.`;
+        if (!confirm(confirmMsg)) return;
+
+        try {
+          const res = await apiFetch(`/ops/${op.id_operacion}/remove`, { method: "DELETE" });
+          if (res.ok) {
+            allOps = allOps.filter(x => x.id_operacion !== op.id_operacion);
+            handleFilters();
+          } else {
+            const data = await res.json().catch(() => ({}));
+            alert(`Error al eliminar: ${data.mensaje || res.statusText}`);
+          }
+        } catch (err) {
+          console.error(err);
+          alert("Error de conexión al intentar eliminar la operación.");
+        }
+      });
+
+      rightSide.appendChild(btnDel);
+    }
+
+    li.appendChild(rightSide);
 
     li.addEventListener("click", async () => {
-      // Cargar datos frescos de la operación desde el servidor (GET /ops/:id)
       try {
         const res = await apiFetch(`/ops/${op.id_operacion}`);
         if (!res.ok) throw new Error("error al cargar operación");
@@ -154,7 +208,6 @@ btnSelect.addEventListener("click", async () => {
         localStorage.setItem("active_operation_id", opData.id_operacion);
         localStorage.setItem("operacion_actual", JSON.stringify(opData));
       } catch {
-        // Si falla la carga, igual navegar con el id disponible
         localStorage.setItem("active_operation_id", op.id_operacion);
       }
 
@@ -170,11 +223,9 @@ btnSelect.addEventListener("click", async () => {
 
     opsUl.appendChild(li);
   });
-});
+}
 
-// ── Submenú personal ─────────────────────────────────────────
 btnPersonal.addEventListener("click", () => {
-  // Cerrar lista de operaciones si está abierta
   opsList.classList.add("hidden");
   submenuControl.classList.toggle("hidden");
 });
@@ -191,5 +242,4 @@ btnControlEquipos.addEventListener("click", () => {
   window.location.href = "control_equipos.html";
 });
 
-// ── Arrancar ─────────────────────────────────────────────────
 init();

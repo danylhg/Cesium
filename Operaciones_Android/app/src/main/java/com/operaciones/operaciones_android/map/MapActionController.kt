@@ -68,6 +68,7 @@ class MapActionController(
             color: String,
             iconoSrc: String? = null
         )
+        fun clearRouteOnBackend()
     }
 
     fun showMapActionDialog(
@@ -86,7 +87,7 @@ class MapActionController(
             },
             "Limpiar ruta" to {
                 cesiumWebController.clearRoute()
-                (host as? com.operaciones.operaciones_android.ui.MainActivity)?.sendClearRouteToBackend()
+                host.clearRouteOnBackend()
             }
         )
 
