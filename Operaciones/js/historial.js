@@ -1,8 +1,9 @@
 import { downloadRecording, loadCesiumToken, loadReplay, loadStreamRecordings } from "./historial/historial.api.js";
 import { dom, readHistoryDom } from "./historial/historial.dom.js";
-import { initHistoryMap, buildMapEntities, focusOnReplay } from "./historial/historial.map.js";
+import { initHistoryMap, buildMapEntities, focusOnReplay, resizeHistoryMap } from "./historial/historial.map.js";
 import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
-import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages } from "./historial/historial.ui.js";
+import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages, updateChatToTime } from "./historial/historial.ui.js";
+import { replayState } from "./historial/historial.state.js";
 
 readHistoryDom();
 
@@ -11,6 +12,7 @@ dom.backBtn?.addEventListener("click", () => {
 });
 
 bindTabs();
+bindPanelToggle();
 
 async function main() {
   const operationId = getOperationId();
@@ -38,12 +40,13 @@ async function main() {
       replay.recordings = [];
       replay.recordingsError = recordingsError.message || "No se pudieron cargar";
     }
+    setReplayData(replay);
     renderTopbar(replay);
     renderOperationInfo(replay);
     attachRecordingDownloads(replay.recordings || []);
     renderChatMessages(replay.timeline?.eventos || []);
+    updateChatToTime(replayState.currentTimeMs);
     renderEventLog(replay.timeline?.eventos || []);
-    setReplayData(replay);
     buildMapEntities(replay);
     focusOnReplay(replay);
   } catch (error) {
@@ -61,6 +64,33 @@ function bindTabs() {
       document.getElementById(`${button.dataset.tab}Tab`)?.classList.remove("hidden");
     });
   });
+}
+
+function bindPanelToggle() {
+  if (!dom.panelToggle || !dom.stage) return;
+
+  const landscapeQuery = window.matchMedia("(orientation: landscape) and (max-height: 620px)");
+  const saved = localStorage.getItem("history_panel_hidden") === "true";
+  setPanelHidden(saved || landscapeQuery.matches);
+
+  dom.panelToggle.addEventListener("click", () => {
+    setPanelHidden(!dom.stage.classList.contains("panelHidden"), true);
+  });
+
+  landscapeQuery.addEventListener?.("change", (event) => {
+    if (event.matches) setPanelHidden(true, true);
+  });
+}
+
+function setPanelHidden(hidden, persist = false) {
+  dom.stage?.classList.toggle("panelHidden", hidden);
+  if (dom.panelToggle) {
+    dom.panelToggle.title = hidden ? "Mostrar panel" : "Ocultar panel";
+    dom.panelToggle.setAttribute("aria-label", hidden ? "Mostrar panel" : "Ocultar panel");
+    dom.panelToggle.textContent = hidden ? "☰" : "×";
+  }
+  if (persist) localStorage.setItem("history_panel_hidden", String(hidden));
+  resizeHistoryMap();
 }
 
 function getOperationId() {

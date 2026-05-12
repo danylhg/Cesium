@@ -110,21 +110,60 @@ body {
   flex: 1;
   position: relative;
   display: flex;
+  min-height: 0;
 }
 
 .mapBox {
   flex: 1;
+  min-width: 0;
   background: #000;
 }
 
 /* ── Side Panel ────────────────────────────────────────────── */
 .sidePanel {
+  flex: 0 0 350px;
   width: 350px;
+  min-width: 0;
   background: var(--panel-bg);
   backdrop-filter: blur(10px);
   border-left: 1px solid var(--glass-border);
   display: flex;
   flex-direction: column;
+}
+
+.panelToggle {
+  position: absolute;
+  top: 16px;
+  right: 365px;
+  z-index: 130;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(10, 25, 45, 0.92);
+  color: var(--text-main);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  backdrop-filter: blur(12px);
+  transition: right 0.25s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.panelToggle:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.playbackStage.panelHidden .sidePanel {
+  display: none;
+}
+
+.playbackStage.panelHidden .panelToggle {
+  right: 16px;
+}
+
+.playbackStage.panelHidden .playbackControls {
+  right: 25px;
 }
 
 .panelTabs {
@@ -260,6 +299,8 @@ body {
   bottom: 25px;
   left: 25px;
   right: 375px; /* Leave space for side panel */
+  z-index: 110;
+  min-width: 0;
   background: rgba(10, 25, 45, 0.95);
   backdrop-filter: blur(20px);
   border: 1px solid var(--glass-border);
@@ -274,6 +315,7 @@ body {
 
 .timelineRow {
   width: 100%;
+  min-width: 0;
   position: relative;
   height: 8px;
   display: flex;
@@ -281,6 +323,9 @@ body {
 }
 
 .timelineSlider {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
   -webkit-appearance: none;
   background: rgba(255, 255, 255, 0.1);
@@ -421,4 +466,79 @@ body {
 /* Cesium Credit hiding */
 .cesium-viewer-bottom {
   display: none !important;
+}
+
+@media (max-width: 900px), (orientation: landscape) and (max-height: 620px) {
+  .topbar {
+    height: 58px;
+    padding: 0 12px;
+  }
+
+  .logo {
+    height: 34px;
+  }
+
+  .opName {
+    font-size: 15px;
+    max-width: 45vw;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .opMeta {
+    font-size: 10px;
+  }
+
+  .timeDisplay {
+    padding: 6px 10px;
+    font-size: 14px;
+  }
+
+  .sidePanel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(350px, 82vw);
+    z-index: 120;
+  }
+
+  .panelToggle {
+    top: 12px;
+    right: min(365px, calc(82vw + 15px));
+  }
+
+  .playbackStage.panelHidden .panelToggle {
+    right: 12px;
+  }
+
+  .playbackControls {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    padding: 12px;
+    border-radius: 12px;
+    gap: 10px;
+  }
+
+  .buttonsRow {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .leftGroup,
+  .centerGroup,
+  .rightGroup {
+    gap: 10px;
+  }
+
+  .speedSelector label {
+    display: none;
+  }
+
+  .currentDate {
+    font-size: 12px;
+    padding: 6px 10px;
+  }
 }

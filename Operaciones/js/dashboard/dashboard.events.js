@@ -6,7 +6,7 @@ import {
   saveCurrentOperation,
   isOperationActive
 } from "./dashboard.storage.js";
-import { togglePanel, closeAllPanels } from "./dashboard.ui.js";
+import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
 
 /**
@@ -38,6 +38,19 @@ function bindPanelEvents() {
         return;
       }
       togglePanel(dom.chatPanel, dom.toggleChatPanel);
+    });
+  }
+
+  if (dom.toggleCameraPanel) {
+    dom.toggleCameraPanel.addEventListener("click", () => {
+      if (!isOperationActive()) {
+        alert("El panel de cámaras solo está disponible cuando la operación está activa.");
+        return;
+      }
+
+      const isOpen = dom.cameraPanel?.classList.contains("open");
+      dom.cameraPanel?.classList.toggle("open", !isOpen);
+      dom.toggleCameraPanel?.classList.toggle("active", !isOpen);
     });
   }
 }
@@ -246,4 +259,25 @@ export function bindDashboardEvents() {
   bindPanelEvents();
   bindGlobalClickEvents();
   bindOperationActionEvents();
+  bindPersonnelDetailEvents();
+}
+
+function bindPersonnelDetailEvents() {
+  if (dom.infoPanel) {
+    dom.infoPanel.addEventListener("click", (event) => {
+      const link = event.target.closest(".person-link");
+      if (!link) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      showPersonnelDetail(link.dataset.personId || link.dataset.pid);
+    });
+  }
+
+  const closeDetail = () => {
+    dom.personnelDetailModal?.classList.add("hidden");
+    dom.personnelDetailModal?.setAttribute("aria-hidden", "true");
+  };
+
+  dom.btnClosePersonnelDetail?.addEventListener("click", closeDetail);
+  dom.personnelDetailBackdrop?.addEventListener("click", closeDetail);
 }

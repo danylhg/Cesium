@@ -1,12 +1,19 @@
 package com.operaciones.operaciones_android.ui
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.res.Configuration
+import android.content.pm.PackageManager
 import android.graphics.Rect
+import android.media.MediaRecorder
+import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
+import android.provider.OpenableColumns
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.widget.EditText
@@ -15,8 +22,13 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.ActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
 import com.operaciones.operaciones_android.location.LocationHelper
@@ -46,6 +58,7 @@ import com.operaciones.operaciones_android.webview.MainJsBridge
 import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 
 class MainActivity : AppCompatActivity(),
     MainPanelRenderer.Host,
@@ -105,12 +118,53 @@ class MainActivity : AppCompatActivity(),
     private var lastRouteId: Int = -1
     private var centerOnNextLocation = false
     private var followedPersonalId: Int? = null
+    private var pendingChatAttachmentDestination: ChatAttachmentDestination? = null
+    private var pendingCameraOutputUri: Uri? = null
+    private var pendingCameraKind: String = "IMAGE"
+    private var voiceRecorder: MediaRecorder? = null
+    private var voiceOutputFile: File? = null
+    private var voiceStartedAt: Long = 0L
 
     // Última posición conocida del usuario — se emite al socket cuando se conecta
     private var lastKnownLat: Double? = null
     private var lastKnownLon: Double? = null
 
     private var isCesiumReady = false
+
+    private data class ChatAttachmentDestination(
+        val destinatarioRol: String?,
+        val destinoTipo: String?,
+        val destinoId: String?,
+        val destinoLabel: String?
+    )
+
+    private val pickChatMediaLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            result.data?.data?.let { uri ->
+                sendChatAttachmentUri(uri = uri, forcedKind = null, fallbackName = null)
+            }
+        }
+    }
+
+    private val captureChatMediaLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result: ActivityResult ->
+        if (result.resultCode == RESULT_OK) {
+            val isVideo = pendingCameraKind == "VIDEO"
+            val uri = if (isVideo && result.data?.data != null) result.data!!.data else pendingCameraOutputUri ?: result.data?.data
+            uri?.let {
+                sendChatAttachmentUri(
+                    uri = it,
+                    forcedKind = pendingCameraKind,
+                    fallbackName = if (pendingCameraKind == "VIDEO") "camara_video.mp4" else "camara_foto.jpg",
+                    forcedMimeType = if (pendingCameraKind == "VIDEO") "video/mp4" else "image/jpeg"
+                )
+            }
+        }
+        pendingCameraOutputUri = null
+    }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
         if (event.action == MotionEvent.ACTION_DOWN) {
@@ -277,6 +331,17 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        configurePanelContentSize()
+        if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE && ::panelNavigationController.isInitialized) {
+            panelNavigationController.showPanel(Panel.NONE)
+        }
+        if (::cesiumWebController.isInitialized) {
+            cesiumWebController.resize()
+        }
+    }
+
     @SuppressLint("ClickableViewAccessibility")
     private fun setupMyLocationButton() {
         btnMyLocation.setOnTouchListener { view, event ->
@@ -333,7 +398,11 @@ class MainActivity : AppCompatActivity(),
     private fun configurePanelContentSize() {
         panelContent.post {
             val params = panelContent.layoutParams
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            val parentParams = (panelContent.parent as? View)?.layoutParams
+            val usingLandscapePanel = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                parentParams?.height == ViewGroup.LayoutParams.MATCH_PARENT
+
+            if (usingLandscapePanel) {
                 params.height = 0
                 (params as? LinearLayout.LayoutParams)?.weight = 1f
             } else {
@@ -371,6 +440,7 @@ class MainActivity : AppCompatActivity(),
             stopEmergencyService()
             stopMediaStream(showToast = false)
         }
+        stopVoiceMessageRecording(send = false)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -731,6 +801,14 @@ class MainActivity : AppCompatActivity(),
         if (::mediaStreamController.isInitialized) {
             mediaStreamController.handlePermissionsResult(requestCode)
         }
+
+        if (requestCode == REQUEST_CHAT_CAMERA_PERMISSION && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            chooseChatCameraMode()
+        }
+
+        if (requestCode == REQUEST_CHAT_AUDIO_PERMISSION && grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) {
+            startVoiceMessageRecording()
+        }
     }
 
     private fun fetchMapaData() {
@@ -818,6 +896,197 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
+    override fun requestChatAttachment(
+        source: String,
+        destinatarioRol: String?,
+        destinoTipo: String?,
+        destinoId: String?,
+        destinoLabel: String?
+    ) {
+        pendingChatAttachmentDestination = ChatAttachmentDestination(
+            destinatarioRol = destinatarioRol,
+            destinoTipo = destinoTipo,
+            destinoId = destinoId,
+            destinoLabel = destinoLabel
+        )
+
+        when (source.lowercase()) {
+            "voice" -> toggleVoiceMessageRecording()
+            "gallery" -> openChatGalleryPicker()
+            "camera" -> chooseChatCameraMode()
+        }
+    }
+
+    private fun openChatGalleryPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+            putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/*", "video/*"))
+        }
+        pickChatMediaLauncher.launch(intent)
+    }
+
+    private fun chooseChatCameraMode() {
+        if (!hasPermission(Manifest.permission.CAMERA)) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.CAMERA), REQUEST_CHAT_CAMERA_PERMISSION)
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Enviar desde camara")
+            .setItems(arrayOf("Foto", "Video")) { _, which ->
+                if (which == 0) startChatCameraCapture("IMAGE") else startChatCameraCapture("VIDEO")
+            }
+            .show()
+    }
+
+    private fun startChatCameraCapture(kind: String) {
+        pendingCameraKind = kind
+        val isVideo = kind == "VIDEO"
+        val file = createChatMediaFile(
+            prefix = if (isVideo) "chat_video_" else "chat_image_",
+            suffix = if (isVideo) ".mp4" else ".jpg"
+        )
+        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+        pendingCameraOutputUri = uri
+
+        val intent = Intent(if (isVideo) MediaStore.ACTION_VIDEO_CAPTURE else MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        captureChatMediaLauncher.launch(intent)
+    }
+
+    private fun toggleVoiceMessageRecording() {
+        if (voiceRecorder != null) {
+            stopVoiceMessageRecording(send = true)
+            return
+        }
+
+        if (!hasPermission(Manifest.permission.RECORD_AUDIO)) {
+            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CHAT_AUDIO_PERMISSION)
+            return
+        }
+
+        startVoiceMessageRecording()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun startVoiceMessageRecording() {
+        val file = createChatMediaFile(prefix = "chat_voice_", suffix = ".m4a")
+        voiceOutputFile = file
+        voiceStartedAt = System.currentTimeMillis()
+
+        try {
+            voiceRecorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
+                setOutputFile(file.absolutePath)
+                prepare()
+                start()
+            }
+        } catch (e: Exception) {
+            voiceRecorder?.release()
+            voiceRecorder = null
+            voiceOutputFile = null
+            Toast.makeText(this, "No se pudo iniciar la grabacion: ${e.message}", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "Grabando voz. Toca el microfono otra vez para enviar.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun stopVoiceMessageRecording(send: Boolean) {
+        val recorder = voiceRecorder ?: return
+        val file = voiceOutputFile
+        val duration = (System.currentTimeMillis() - voiceStartedAt).coerceAtLeast(0L)
+
+        try {
+            recorder.stop()
+        } catch (_: Exception) {
+        } finally {
+            recorder.release()
+            voiceRecorder = null
+            voiceOutputFile = null
+            voiceStartedAt = 0L
+        }
+
+        if (send && file != null && file.exists() && file.length() > 0) {
+            sendChatAttachmentUri(
+                uri = Uri.fromFile(file),
+                forcedKind = "AUDIO",
+                fallbackName = file.name,
+                forcedMimeType = "audio/mp4",
+                durationMs = duration
+            )
+            Toast.makeText(this, "Mensaje de voz enviado.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun sendChatAttachmentUri(
+        uri: Uri,
+        forcedKind: String?,
+        fallbackName: String?,
+        forcedMimeType: String? = null,
+        durationMs: Long? = null
+    ) {
+        val mimeType = forcedMimeType ?: contentResolver.getType(uri) ?: "application/octet-stream"
+        val kind = forcedKind ?: when {
+            mimeType.startsWith("image/") -> "IMAGE"
+            mimeType.startsWith("video/") -> "VIDEO"
+            mimeType.startsWith("audio/") -> "AUDIO"
+            else -> "FILE"
+        }
+
+        if (kind == "FILE") {
+            Toast.makeText(this, "Solo se permiten audio, imagen o video.", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val destination = pendingChatAttachmentDestination
+        val fileName = queryDisplayName(uri) ?: fallbackName ?: defaultAttachmentName(kind, mimeType)
+        chatController.sendAttachment(
+            uri = uri,
+            fileName = fileName,
+            mimeType = mimeType,
+            attachmentKind = kind,
+            destinatarioRol = destination?.destinatarioRol,
+            destinoTipo = destination?.destinoTipo,
+            destinoId = destination?.destinoId,
+            destinoLabel = destination?.destinoLabel,
+            durationMs = durationMs
+        )
+    }
+
+    private fun queryDisplayName(uri: Uri): String? {
+        if (uri.scheme == "file") return File(uri.path.orEmpty()).name
+        return runCatching {
+            contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+        }.getOrNull()
+    }
+
+    private fun defaultAttachmentName(kind: String, mimeType: String): String {
+        val suffix = when {
+            mimeType == "image/png" -> ".png"
+            mimeType.startsWith("image/") -> ".jpg"
+            mimeType.startsWith("video/") -> ".mp4"
+            mimeType.startsWith("audio/") -> ".m4a"
+            else -> ".bin"
+        }
+        return "${kind.lowercase()}_${System.currentTimeMillis()}$suffix"
+    }
+
+    private fun createChatMediaFile(prefix: String, suffix: String): File {
+        val dir = File(cacheDir, "chat_media").apply { mkdirs() }
+        return File.createTempFile(prefix, suffix, dir)
+    }
+
+    private fun hasPermission(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
     private fun loadChatHistoryIfNeeded() {
         chatController.loadHistoryIfNeeded()
     }
@@ -829,6 +1098,8 @@ class MainActivity : AppCompatActivity(),
     override fun getChatCurrentUser(): User = currentUser
 
     override fun getChatPersonal(): List<PersonalItem> = personalList
+
+    override fun getChatContentResolver(): android.content.ContentResolver = contentResolver
 
     private fun jsString(value: String): String =
         value
@@ -1033,6 +1304,8 @@ class MainActivity : AppCompatActivity(),
 
     fun getCurrentOperationNameForBridge(): String = currentOperation.nombre
 
+    fun getCurrentOperationIdForBridge(): Int = currentOperation.id
+
     fun onRouteCreatedFromBridge(payloadJson: String) {
         mapObjectsController.onRouteCreatedFromBridge(payloadJson)
     }
@@ -1082,5 +1355,7 @@ class MainActivity : AppCompatActivity(),
 
     private companion object {
         private const val KEY_ACTIVE_PANEL = "main_active_panel"
+        private const val REQUEST_CHAT_CAMERA_PERMISSION = 303
+        private const val REQUEST_CHAT_AUDIO_PERMISSION = 304
     }
 }

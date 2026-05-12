@@ -621,6 +621,23 @@ class CesiumWebController(
         }
     }
 
+    fun resize() {
+        webView.postDelayed({
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof resizeCesium === 'function') {
+                        resizeCesium();
+                        return 'OK';
+                    }
+                    return 'ERROR:resizeCesium no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }, 150)
+    }
+
     fun evaluate(js: String) {
         webView.post {
             webView.evaluateJavascript(js, null)

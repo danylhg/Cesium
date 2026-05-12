@@ -61,3 +61,6 @@ export const WEBRTC_ICE_SERVERS = (() => {
       .map((url) => ({ urls: url }));
   }
 })();
+
+export const RTMP_PUBLISH_BASE_URL = process.env.RTMP_PUBLISH_BASE_URL?.trim() || "rtmp://localhost/live";
+export const RTMP_PLAYBACK_BASE_URL = process.env.RTMP_PLAYBACK_BASE_URL?.trim() || "";

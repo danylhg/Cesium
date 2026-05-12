@@ -26,22 +26,49 @@ export function initTimeline() {
 }
 
 export function setReplayData(replay) {
-  const events = [...(replay?.timeline?.eventos || [])]
-    .filter((event) => event.occurred_at)
-    .sort((left, right) => Date.parse(left.occurred_at) - Date.parse(right.occurred_at));
+  const events = normalizeTimelineEvents(replay?.timeline?.eventos || []);
+  const eventTimes = events.map(event => toTimestamp(event.occurred_at)).filter(Number.isFinite);
+  const snapshotTimes = collectSnapshotTimes(replay);
 
-  const explicitStart = Date.parse(replay?.timeline?.inicio);
-  const explicitEnd = Date.parse(replay?.timeline?.fin);
-  const firstEvent = events.length ? Date.parse(events[0].occurred_at) : Date.now();
-  const lastEvent = events.length ? Date.parse(events[events.length - 1].occurred_at) : firstEvent;
+  const explicitStart = toTimestamp(replay?.timeline?.inicio);
+  const explicitEnd = toTimestamp(replay?.timeline?.fin);
+  const operationStart = firstFiniteTimestamp([
+    replay?.operacion?.fecha_inicio,
+    replay?.operacion?.fecha_creacion,
+  ]);
+  const operationEnd = firstFiniteTimestamp([
+    replay?.operacion?.fecha_fin,
+    replay?.operacion?.fecha_actualizacion,
+  ]);
 
   replayState.replay = replay;
   replayState.events = events;
-  replayState.startMs = Number.isFinite(explicitStart) ? explicitStart : firstEvent;
-  replayState.endMs = Number.isFinite(explicitEnd) ? explicitEnd : lastEvent;
+  replayState.startMs = firstFiniteNumber([
+    explicitStart,
+    operationStart,
+    minFinite(eventTimes),
+    minFinite(snapshotTimes),
+    Date.now(),
+  ]);
+  replayState.endMs = firstFiniteNumber([
+    explicitEnd,
+    operationEnd,
+    maxFinite(eventTimes),
+    maxFinite(snapshotTimes),
+    replayState.startMs,
+  ]);
 
-  if (replayState.endMs < replayState.startMs) {
-    replayState.endMs = replayState.startMs;
+  if (replayState.endMs <= replayState.startMs) {
+    replayState.endMs = replayState.startMs + 1000;
+  }
+
+  if (replay) {
+    replay.timeline = {
+      ...(replay.timeline || {}),
+      inicio: new Date(replayState.startMs).toISOString(),
+      fin: new Date(replayState.endMs).toISOString(),
+      eventos: events,
+    };
   }
 
   const durationSeconds = Math.max(1, Math.ceil((replayState.endMs - replayState.startMs) / 1000));
@@ -53,6 +80,89 @@ export function setReplayData(replay) {
   }
 
   setCurrentTime(replayState.startMs);
+}
+
+function normalizeTimelineEvents(events) {
+  return events
+    .map((event) => {
+      const ms = eventTimestamp(event);
+      if (!Number.isFinite(ms)) return null;
+      return {
+        ...event,
+        occurred_at: new Date(ms).toISOString(),
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => toTimestamp(left.occurred_at) - toTimestamp(right.occurred_at));
+}
+
+function eventTimestamp(event) {
+  const payload = event?.payload || {};
+  return firstFiniteTimestamp([
+    event?.occurred_at,
+    payload.occurred_at,
+    payload.fecha_envio,
+    payload.fecha_registro,
+    payload.fecha_creacion,
+    payload.fecha_actualizacion,
+    payload.timestamp,
+  ]);
+}
+
+function collectSnapshotTimes(replay) {
+  const snapshots = replay?.snapshots || {};
+  const groups = [
+    snapshots.pois,
+    snapshots.areas,
+    snapshots.estructuras,
+    snapshots.rutas_tacticas,
+    snapshots.rutas_navegacion,
+    snapshots.dibujos,
+    snapshots.zonas,
+  ];
+
+  return groups
+    .flatMap(items => Array.isArray(items) ? items : [])
+    .flatMap(item => [
+      item?.fecha_creacion,
+      item?.fecha_actualizacion,
+      item?.fecha_eliminacion,
+      item?.timestamp,
+    ])
+    .map(toTimestamp)
+    .filter(Number.isFinite);
+}
+
+function firstFiniteTimestamp(values) {
+  return firstFiniteNumber(values.map(toTimestamp));
+}
+
+function firstFiniteNumber(values) {
+  return values.find(Number.isFinite) ?? Date.now();
+}
+
+function minFinite(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length ? Math.min(...finite) : NaN;
+}
+
+function maxFinite(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length ? Math.max(...finite) : NaN;
+}
+
+function toTimestamp(value) {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : NaN;
+  }
+  if (!value) return NaN;
+
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : NaN;
 }
 
 function togglePlayback() {

@@ -31,6 +31,18 @@
             android:textSize="13sp"
             android:lineSpacingExtra="1dp"/>
 
+        <TextView
+            android:id="@+id/msgAttachment"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_dest_btn"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="#bfdbfe"
+            android:textSize="12sp"
+            android:visibility="gone"/>
+
     </LinearLayout>
 
 </FrameLayout>

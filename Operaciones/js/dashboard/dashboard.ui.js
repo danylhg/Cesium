@@ -114,10 +114,11 @@ function labelConPrefijo(prefijo, nombre) {
 function personSpan(nombre, id, lat, lon) {
   const safe = escapeHtml(nombre);
   if (id == null) return safe;
+  const personAttrs = `data-pid="${id}" data-person-id="${id}"`;
   if (lat != null && lon != null) {
-    return `<span class="personal-locatable" data-pid="${id}" data-lat="${lat}" data-lon="${lon}" style="cursor:pointer;color:#00BFFF;border-bottom:1px dotted #00BFFF;" title="Ir a ubicacion">${safe}</span>`;
+    return `<span class="personal-locatable person-link" ${personAttrs} data-lat="${lat}" data-lon="${lon}" style="cursor:pointer;color:#00BFFF;border-bottom:1px dotted #00BFFF;" title="Ver detalle">${safe}</span>`;
   }
-  return `<span data-pid="${id}">${safe}</span>`;
+  return `<span class="person-link" ${personAttrs} style="cursor:pointer;color:#00ffa6;border-bottom:1px dotted #00ffa6;" title="Ver detalle">${safe}</span>`;
 }
 
 export function activatePersonalLocation(id, lat, lon) {
@@ -612,6 +613,7 @@ export function renderInfoPanel(bdData = null) {
   }
 
   container.addEventListener("click", (e) => {
+    if (e.target.closest(".person-link")) return;
     const el = e.target.closest(".personal-locatable");
     if (!el) return;
     const id = el.dataset.pid;
@@ -645,10 +647,15 @@ export function updateChatAvailability() {
   if (dom.toggleChatPanel) {
     dom.toggleChatPanel.style.display = active ? "flex" : "none";
   }
+  if (dom.toggleCameraPanel) {
+    dom.toggleCameraPanel.style.display = active ? "flex" : "none";
+  }
 
   if (!active) {
     dom.chatPanel?.classList.remove("open");
     dom.toggleChatPanel?.classList.remove("active");
+    dom.cameraPanel?.classList.remove("open");
+    dom.toggleCameraPanel?.classList.remove("active");
   }
 
   if (dom.chatInput) dom.chatInput.disabled = !active;
@@ -713,4 +720,73 @@ export function updateSelectionInfo(selectedEntity) {
       <div style="font-size:11px; margin-top:2px;">Tipo: ${escapeHtml(type)}</div>
     `;
   }
+}
+
+export function showPersonnelDetail(personId) {
+  if (!dom.personnelDetailModal || personId == null) return;
+
+  const operation = getCurrentOperation();
+  const personal = Array.isArray(operation?.personal) ? operation.personal : [];
+  const person = personal.find((item) => String(item.id_personal || item.id) === String(personId));
+
+  if (!person) {
+    alert("No se encontro informacion de este agente.");
+    return;
+  }
+
+  const nombre = [person.nombre, person.apellido].filter(Boolean).join(" ").trim() ||
+    person.apodo ||
+    person.name ||
+    `Agente ${personId}`;
+  const liveCoords = getPersonalEntityCoordinates(personId);
+  const fallbackLat = Number(person.latitud ?? person.lat);
+  const fallbackLon = Number(person.longitud ?? person.lon ?? person.lng);
+  const lat = Number.isFinite(liveCoords?.lat) ? liveCoords.lat : fallbackLat;
+  const lon = Number.isFinite(liveCoords?.lon) ? liveCoords.lon : fallbackLon;
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
+
+  if (dom.personnelDetailName) dom.personnelDetailName.textContent = nombre;
+  if (dom.personnelDetailCoords) {
+    dom.personnelDetailCoords.textContent = hasCoords
+      ? `LAT: ${lat.toFixed(6)}, LNG: ${lon.toFixed(6)}`
+      : "Sin ubicacion disponible";
+  }
+
+  const image = getPersonnelCameraImage(personId);
+  if (dom.personnelDetailCamera) {
+    dom.personnelDetailCamera.innerHTML = `
+      <div class="cameraFeedBadge">LIVE</div>
+      <img src="${image}" alt="${escapeHtml(nombre)}">
+      <div class="cameraFeedName">${escapeHtml(nombre)}</div>
+    `;
+  }
+
+  if (dom.btnCenterOnPerson) {
+    dom.btnCenterOnPerson.disabled = !hasCoords;
+    dom.btnCenterOnPerson.onclick = () => {
+      if (!hasCoords) return;
+      followPersonalLocation(personId, lat, lon);
+      dom.personnelDetailModal?.classList.add("hidden");
+      dom.personnelDetailModal?.setAttribute("aria-hidden", "true");
+    };
+  }
+
+  dom.personnelDetailModal.classList.remove("hidden");
+  dom.personnelDetailModal.setAttribute("aria-hidden", "false");
+}
+
+function getPersonnelCameraImage(personId) {
+  const images = [
+    "img/cameras/cam1.png",
+    "img/cameras/cam2.png",
+    "img/cameras/cam3.png",
+    "https://images.unsplash.com/photo-1508614589041-895b88991e3e?q=80&w=1000&auto=format&fit=crop"
+  ];
+  const source = String(personId || "");
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    hash = ((hash << 5) - hash) + source.charCodeAt(i);
+    hash |= 0;
+  }
+  return images[Math.abs(hash) % images.length];
 }

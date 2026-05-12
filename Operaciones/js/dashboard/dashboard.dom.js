@@ -44,14 +44,21 @@ export const dom = {
   chatInput: document.getElementById("chatInput"),
   sendChatBtn: document.getElementById("sendChatBtn"),
 
+  // Cámaras
+  cameraFeeds: document.getElementById("cameraFeeds"),
+  cameraLayoutGrid: document.getElementById("cameraLayoutGrid"),
+  cameraLayoutSpeaker: document.getElementById("cameraLayoutSpeaker"),
+
   // Panels
   infoPanel: document.getElementById("infoPanel"),
   routePanel: document.getElementById("routePanel"),
   tacticalPanel: document.getElementById("tacticalPanel"),
+  cameraPanel: document.getElementById("cameraPanel"),
 
   toggleInfoPanel: document.getElementById("toggleInfoPanel"),
   toggleRoutePanel: document.getElementById("toggleRoutePanel"),
   toggleTacticalPanel: document.getElementById("toggleTacticalPanel"),
+  toggleCameraPanel: document.getElementById("toggleCameraPanel"),
 
   // Área de planeación
   markAreaBtn: document.getElementById("markAreaBtn"),
@@ -94,5 +101,14 @@ export const dom = {
   confirmationTitle: document.getElementById("confirmationTitle"),
   confirmationMessage: document.getElementById("confirmationMessage"),
   confirmationConfirmBtn: document.getElementById("confirmationConfirmBtn"),
-  confirmationCancelBtn: document.getElementById("confirmationCancelBtn")
+  confirmationCancelBtn: document.getElementById("confirmationCancelBtn"),
+
+  // Modal Detalle Personal
+  personnelDetailModal: document.getElementById("personnelDetailModal"),
+  personnelDetailBackdrop: document.getElementById("personnelDetailBackdrop"),
+  btnClosePersonnelDetail: document.getElementById("btnClosePersonnelDetail"),
+  personnelDetailName: document.getElementById("personnelDetailName"),
+  personnelDetailCoords: document.getElementById("personnelDetailCoords"),
+  personnelDetailCamera: document.getElementById("personnelDetailCamera"),
+  btnCenterOnPerson: document.getElementById("btnCenterOnPerson")
 };

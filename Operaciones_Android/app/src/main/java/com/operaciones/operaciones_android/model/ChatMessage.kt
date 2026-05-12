@@ -12,7 +12,13 @@ data class ChatMessage(
     val autorRol: String? = null,   // "ADMIN" | "CUT" | "CET" | "CELL"
     val destinoTipo: String? = null,
     val destinoId: String? = null,
-    val destinoLabel: String? = null
+    val destinoLabel: String? = null,
+    val attachmentKind: String? = null,
+    val attachmentUrl: String? = null,
+    val attachmentMime: String? = null,
+    val attachmentName: String? = null,
+    val attachmentSize: Long? = null,
+    val attachmentDurationMs: Long? = null
 )
 
 enum class MessageType { NORMAL, SYSTEM, ALERT }

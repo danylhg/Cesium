@@ -1,6 +1,8 @@
 package com.operaciones.operaciones_android.ui.adapter
 
+import android.content.Intent
 import android.graphics.Color
+import android.net.Uri
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -10,6 +12,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
+import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.MessageType
 
@@ -31,6 +34,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
         val bubble: LinearLayout = view.findViewById(R.id.bubble)
         val meta: TextView = view.findViewById(R.id.msgMeta)
         val text: TextView = view.findViewById(R.id.msgText)
+        val attachment: TextView = view.findViewById(R.id.msgAttachment)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -55,6 +59,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
                 holder.text.setTextColor(COLOR_TEXT_SYSTEM)
                 holder.text.textSize = 11f
                 holder.text.gravity = Gravity.CENTER
+                bindAttachment(holder, msg)
                 holder.bubble.setBackgroundColor(Color.TRANSPARENT)
                 val p = holder.bubble.layoutParams as FrameLayout.LayoutParams
                 p.gravity = Gravity.CENTER_HORIZONTAL
@@ -71,6 +76,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
                 holder.text.setTextColor(COLOR_TEXT_ALERT)
                 holder.text.textSize = 13f
                 holder.text.gravity = Gravity.START
+                bindAttachment(holder, msg)
                 holder.bubble.setBackgroundResource(R.drawable.bg_bubble_alert)
                 val p = holder.bubble.layoutParams as FrameLayout.LayoutParams
                 p.gravity = if (msg.isMine) Gravity.END else Gravity.START
@@ -87,6 +93,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
                 holder.text.setTextColor(COLOR_TEXT_NORMAL)
                 holder.text.textSize = 13f
                 holder.text.gravity = Gravity.START
+                bindAttachment(holder, msg)
                 holder.bubble.setBackgroundResource(
                     if (msg.isMine) R.drawable.bg_bubble_sent else R.drawable.bg_bubble_recv
                 )
@@ -141,6 +148,39 @@ class ChatAdapter(private val messages: List<ChatMessage>)
             "CUT" -> "para CUT"
             "CELL,CET" -> "para CET + CELL"
             else -> ""
+        }
+    }
+
+    private fun bindAttachment(holder: ViewHolder, msg: ChatMessage) {
+        val url = msg.attachmentUrl?.takeIf { it.isNotBlank() }
+        if (url == null) {
+            holder.attachment.visibility = View.GONE
+            holder.attachment.setOnClickListener(null)
+            return
+        }
+
+        holder.attachment.visibility = View.VISIBLE
+        holder.attachment.text = attachmentLabel(msg)
+        holder.attachment.setOnClickListener {
+            val fullUrl = if (url.startsWith("http://") || url.startsWith("https://")) {
+                url
+            } else {
+                "${ApiConfig.BASE_URL}${if (url.startsWith("/")) "" else "/"}$url"
+            }
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(fullUrl)).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            holder.itemView.context.startActivity(intent)
+        }
+    }
+
+    private fun attachmentLabel(msg: ChatMessage): String {
+        val name = msg.attachmentName?.takeIf { it.isNotBlank() }
+        return when (msg.attachmentKind?.uppercase()) {
+            "IMAGE" -> name?.let { "Imagen: $it" } ?: "Abrir imagen"
+            "VIDEO" -> name?.let { "Video: $it" } ?: "Abrir video"
+            "AUDIO" -> name?.let { "Voz: $it" } ?: "Reproducir voz"
+            else -> name?.let { "Archivo: $it" } ?: "Abrir archivo"
         }
     }
 }

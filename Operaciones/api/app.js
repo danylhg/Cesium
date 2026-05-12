@@ -26,7 +26,13 @@ const app = express();
 app.use(cors({
   origin: true,
   credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-File-Name",
+    "X-Attachment-Kind",
+    "X-Duration-Ms"
+  ],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));
 

@@ -297,12 +297,14 @@ function formatDuration(value) {
 export function renderChatMessages(events) {
   if (!dom.chatMessages) return;
 
-  const chatEvents = events.filter(ev => {
-    if (ev.tipo_evento !== "chat_mensaje") return false;
-    const contenido = ev.payload?.contenido || "";
-    if (contenido.includes("automáticamente por trigger de BD.")) return false;
-    return true;
-  });
+  const chatEvents = events
+    .filter(ev => {
+      if (ev.tipo_evento !== "chat_mensaje") return false;
+      const contenido = ev.payload?.contenido || "";
+      if (contenido.includes("automáticamente por trigger de BD.")) return false;
+      return true;
+    })
+    .sort((left, right) => eventMs(left) - eventMs(right));
 
   if (!chatEvents.length) {
     dom.chatMessages.innerHTML = '<div class="historyEmpty">Sin mensajes en el historial.</div>';
@@ -315,9 +317,12 @@ export function renderChatMessages(events) {
 export function renderEventLog(events) {
   if (!dom.eventLog) return;
 
-  const visibleEvents = events
-    .filter(ev => ev.tipo_evento !== "chat_mensaje" && !String(ev.tipo_evento || "").startsWith("tracking_"))
-    .sort((left, right) => Date.parse(left.occurred_at) - Date.parse(right.occurred_at));
+  const visibleEvents = [
+    ...events.filter(ev => ev.tipo_evento !== "chat_mensaje" && !String(ev.tipo_evento || "").startsWith("tracking_")),
+    ...trackingSummaries(events),
+  ]
+    .filter(ev => Number.isFinite(eventMs(ev)))
+    .sort((left, right) => eventMs(left) - eventMs(right));
 
   if (!visibleEvents.length) {
     dom.eventLog.innerHTML = '<div class="historyEmpty">Sin eventos registrados.</div>';
@@ -327,7 +332,8 @@ export function renderEventLog(events) {
   dom.eventLog.innerHTML = visibleEvents.map((ev) => {
     const payload = ev.payload || {};
     const time = formatDateTime(ev.occurred_at);
-    const name = payload.nombre || payload.codigo || ev.entidad_tipo || ev.tipo_evento;
+    const name = payload.titulo || payload.contenido || payload.descripcion || payload.nota ||
+      payload.nombre || payload.codigo || ev.entidad_tipo || ev.tipo_evento;
     return `
       <div class="eventItem">
         <span class="eventTime">${escapeHtml(time)}</span>
@@ -335,6 +341,28 @@ export function renderEventLog(events) {
       </div>
     `;
   }).join("");
+}
+
+function trackingSummaries(events) {
+  return ["tracking_personal", "tracking_vehiculo"]
+    .map((tipo) => {
+      const matches = events
+        .filter(ev => ev.tipo_evento === tipo)
+        .sort((left, right) => eventMs(left) - eventMs(right));
+
+      if (!matches.length) return null;
+
+      const label = tipo === "tracking_personal" ? "personal" : "vehiculos";
+      return {
+        tipo_evento: `${tipo}_resumen`,
+        entidad_tipo: "tracking",
+        occurred_at: matches[0].occurred_at,
+        payload: {
+          nombre: `${matches.length} posiciones de ${label}`,
+        },
+      };
+    })
+    .filter(Boolean);
 }
 
 export function updateChatToTime(currentMs) {
@@ -374,6 +402,11 @@ function eventLabel(value) {
   return String(value || "evento")
     .replace(/_/g, " ")
     .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function eventMs(event) {
+  const ms = Date.parse(event?.occurred_at);
+  return Number.isFinite(ms) ? ms : NaN;
 }
 
 function escapeHtml(value) {

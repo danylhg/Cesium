@@ -1,5 +1,6 @@
 package com.operaciones.operaciones_android.ui.chat
 
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -24,6 +25,7 @@ class OperationChatController(
         fun getChatToken(): String
         fun getChatCurrentUser(): User
         fun getChatPersonal(): List<PersonalItem>
+        fun getChatContentResolver(): android.content.ContentResolver
     }
 
     private val messages = mutableListOf<ChatMessage>()
@@ -106,6 +108,49 @@ class OperationChatController(
         )
     }
 
+    fun sendAttachment(
+        uri: Uri,
+        fileName: String,
+        mimeType: String,
+        attachmentKind: String,
+        destinatarioRol: String?,
+        destinoTipo: String?,
+        destinoId: String?,
+        destinoLabel: String?,
+        durationMs: Long? = null
+    ) {
+        val operationId = host.getChatOperationId()
+        if (operationId <= 0) {
+            addMessage(
+                ChatMessage(
+                    user = "Sistema",
+                    text = "No hay operacion activa para enviar adjuntos.",
+                    type = MessageType.SYSTEM
+                )
+            )
+            return
+        }
+
+        repository.sendAttachment(
+            operationId = operationId,
+            token = host.getChatToken(),
+            contentResolver = host.getChatContentResolver(),
+            uri = uri,
+            fileName = fileName,
+            mimeType = mimeType,
+            attachmentKind = attachmentKind,
+            destinatarioRol = destinatarioRol,
+            destinoTipo = destinoTipo,
+            destinoId = destinoId,
+            destinoLabel = destinoLabel,
+            durationMs = durationMs,
+            onSuccess = { item -> addMessageFromJson(item) },
+            onError = { message ->
+                addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
+            }
+        )
+    }
+
     fun loadHistoryIfNeeded() {
         val operationId = host.getChatOperationId()
         if (chatLoaded || operationId <= 0) return
@@ -174,7 +219,13 @@ class OperationChatController(
             autorRol = item.optString("autor_rol", "").uppercase().ifBlank { null },
             destinoTipo = optionalJsonString(item, "destino_tipo"),
             destinoId = optionalJsonString(item, "destino_id"),
-            destinoLabel = optionalJsonString(item, "destino_label")
+            destinoLabel = optionalJsonString(item, "destino_label"),
+            attachmentKind = optionalJsonString(item, "attachment_kind"),
+            attachmentUrl = optionalJsonString(item, "attachment_url"),
+            attachmentMime = optionalJsonString(item, "attachment_mime"),
+            attachmentName = optionalJsonString(item, "attachment_name"),
+            attachmentSize = optionalJsonLong(item, "attachment_size"),
+            attachmentDurationMs = optionalJsonLong(item, "attachment_duration_ms")
         )
     }
 
@@ -182,6 +233,11 @@ class OperationChatController(
         if (!item.has(key) || item.isNull(key)) return null
         return item.optString(key, "").trim()
             .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
+    }
+
+    private fun optionalJsonLong(item: JSONObject, key: String): Long? {
+        if (!item.has(key) || item.isNull(key)) return null
+        return runCatching { item.getLong(key) }.getOrNull()
     }
 
     private fun isVisibleInActiveChatFilter(msg: ChatMessage): Boolean {

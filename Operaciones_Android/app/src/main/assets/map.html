@@ -72,6 +72,123 @@
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
 
     const OSRM_BASE = "https://router.project-osrm.org";
+    const CAMERA_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+    let cameraStateKey = "sedam_map_camera_default";
+    let cameraStateSaveTimer = null;
+    let firstOperationViewHandled = false;
+    let restoredCameraAt = 0;
+
+    function cameraKeyPart(value, digits) {
+      const number = Number(value);
+      return Number.isFinite(number) ? number.toFixed(digits) : "x";
+    }
+
+    function getOperationCameraScope() {
+      try {
+        if (window.Android && typeof Android.getOperationId === "function") {
+          const id = Number(Android.getOperationId());
+          if (Number.isFinite(id) && id > 0) return "op_" + id;
+        }
+      } catch (_) {
+        return null;
+      }
+      return null;
+    }
+
+    function buildCameraStateKey(lat, lon, zoomMeters) {
+      const operationScope = getOperationCameraScope();
+      if (operationScope) return "sedam_map_camera_" + operationScope;
+
+      return [
+        "sedam_map_camera",
+        cameraKeyPart(lat, 6),
+        cameraKeyPart(lon, 6),
+        cameraKeyPart(zoomMeters || 0, 0)
+      ].join("_");
+    }
+
+    function setCameraStateKey(lat, lon, zoomMeters) {
+      cameraStateKey = buildCameraStateKey(lat, lon, zoomMeters);
+    }
+
+    function captureCameraState() {
+      if (!viewer || !viewer.camera) return null;
+      const cartographic = Cesium.Cartographic.fromCartesian(viewer.camera.positionWC || viewer.camera.position);
+      if (!cartographic) return null;
+
+      return {
+        lat: Cesium.Math.toDegrees(cartographic.latitude),
+        lon: Cesium.Math.toDegrees(cartographic.longitude),
+        height: cartographic.height,
+        heading: viewer.camera.heading,
+        pitch: viewer.camera.pitch,
+        roll: viewer.camera.roll,
+        savedAt: Date.now()
+      };
+    }
+
+    function saveCameraStateNow() {
+      try {
+        const state = captureCameraState();
+        if (!state) return;
+        localStorage.setItem(cameraStateKey, JSON.stringify(state));
+      } catch (e) {
+        console.warn("No se pudo guardar la camara: " + e.message);
+      }
+    }
+
+    function scheduleCameraStateSave() {
+      window.clearTimeout(cameraStateSaveTimer);
+      cameraStateSaveTimer = window.setTimeout(saveCameraStateNow, 250);
+    }
+
+    function restoreCameraState() {
+      try {
+        const raw = localStorage.getItem(cameraStateKey);
+        if (!raw) return false;
+
+        const state = JSON.parse(raw);
+        if (!state || Date.now() - Number(state.savedAt || 0) > CAMERA_STATE_TTL_MS) {
+          localStorage.removeItem(cameraStateKey);
+          return false;
+        }
+
+        const lat = Number(state.lat);
+        const lon = Number(state.lon);
+        const height = Number(state.height);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || !Number.isFinite(height)) return false;
+
+        viewer.camera.setView({
+          destination: Cesium.Cartesian3.fromDegrees(lon, lat, height),
+          orientation: {
+            heading: Number.isFinite(Number(state.heading)) ? Number(state.heading) : 0,
+            pitch: Number.isFinite(Number(state.pitch)) ? Number(state.pitch) : -Cesium.Math.PI_OVER_TWO,
+            roll: Number.isFinite(Number(state.roll)) ? Number(state.roll) : 0
+          }
+        });
+
+        restoredCameraAt = Date.now();
+        resizeCesium();
+        return true;
+      } catch (e) {
+        console.warn("No se pudo restaurar la camara: " + e.message);
+        return false;
+      }
+    }
+
+    function resizeCesium() {
+      try {
+        if (!viewer) return;
+        viewer.resize();
+        if (viewer.scene && typeof viewer.scene.requestRender === "function") {
+          viewer.scene.requestRender();
+        }
+      } catch (e) {
+        console.warn("No se pudo redimensionar Cesium: " + e.message);
+      }
+    }
+
+    window.resizeCesium = resizeCesium;
 
     function notifyAndroid(message) {
       try {
@@ -280,6 +397,18 @@
       viewer.scene.sun.show = false;
       viewer.scene.moon.show = false;
       configureGoogleLikeCamera(viewer);
+      if (viewer.camera && viewer.camera.changed) {
+        viewer.camera.changed.addEventListener(scheduleCameraStateSave);
+      }
+      if (viewer.camera && viewer.camera.moveEnd) {
+        viewer.camera.moveEnd.addEventListener(saveCameraStateNow);
+      }
+      window.addEventListener("pagehide", saveCameraStateNow);
+      window.addEventListener("beforeunload", saveCameraStateNow);
+      window.addEventListener("resize", () => window.setTimeout(resizeCesium, 120));
+      document.addEventListener("visibilitychange", () => {
+        if (document.hidden) saveCameraStateNow();
+      });
 
       const followCancelHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
       [
@@ -370,6 +499,17 @@
     window.setOperationView = function (lat, lon, zoomMeters) {
       try {
         if (!viewer) return;
+        setCameraStateKey(lat, lon, zoomMeters);
+
+        if (!firstOperationViewHandled) {
+          firstOperationViewHandled = true;
+          if (restoreCameraState()) return;
+        }
+
+        if (restoredCameraAt && Date.now() - restoredCameraAt < 7000) {
+          return;
+        }
+
         viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(lon, lat, zoomMeters || 15000),
           duration: 2.5

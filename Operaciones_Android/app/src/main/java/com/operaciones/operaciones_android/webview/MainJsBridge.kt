@@ -55,6 +55,9 @@ class MainJsBridge(
     fun getOperationName(): String = activity.getCurrentOperationNameForBridge()
 
     @JavascriptInterface
+    fun getOperationId(): Int = activity.getCurrentOperationIdForBridge()
+
+    @JavascriptInterface
     fun onRouteCreated(payloadJson: String) {
         activity.runOnUiThread {
             activity.onRouteCreatedFromBridge(payloadJson)

@@ -11,7 +11,13 @@ CREATE TABLE IF NOT EXISTS media_stream_session (
   kind TEXT NOT NULL CHECK (kind IN ('AUDIO','VIDEO','AUDIO_VIDEO')),
   status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','STOPPED','ERROR')),
   label TEXT,
+  protocol TEXT NOT NULL DEFAULT 'HYBRID',
+  source_type TEXT NOT NULL DEFAULT 'ANDROID',
   stream_key TEXT NOT NULL UNIQUE,
+  rtmp_publish_url TEXT,
+  rtmp_playback_url TEXT,
+  playback_url TEXT,
+  external_device_id TEXT,
   publisher_socket_id TEXT,
   viewer_count INT NOT NULL DEFAULT 0 CHECK (viewer_count >= 0),
   consent_ack BOOLEAN NOT NULL DEFAULT FALSE,
@@ -26,6 +32,12 @@ CREATE TABLE IF NOT EXISTS media_stream_session (
 -- Migracion suave desde el prototipo anterior basado en fragmentos.
 ALTER TABLE media_stream_session
   ADD COLUMN IF NOT EXISTS stream_key TEXT,
+  ADD COLUMN IF NOT EXISTS protocol TEXT NOT NULL DEFAULT 'HYBRID',
+  ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'ANDROID',
+  ADD COLUMN IF NOT EXISTS rtmp_publish_url TEXT,
+  ADD COLUMN IF NOT EXISTS rtmp_playback_url TEXT,
+  ADD COLUMN IF NOT EXISTS playback_url TEXT,
+  ADD COLUMN IF NOT EXISTS external_device_id TEXT,
   ADD COLUMN IF NOT EXISTS publisher_socket_id TEXT,
   ADD COLUMN IF NOT EXISTS viewer_count INT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;

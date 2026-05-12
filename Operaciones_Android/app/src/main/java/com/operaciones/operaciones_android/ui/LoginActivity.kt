@@ -37,6 +37,11 @@ class LoginActivity : AppCompatActivity() {
 
     private val http = OkHttpClient()
 
+    private var currentCall: Call? = null
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var loadingTextRunnable: Runnable? = null
+    private var dotCount = 0
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_login)
@@ -79,6 +84,7 @@ class LoginActivity : AppCompatActivity() {
             return
         }
 
+        currentCall?.cancel()
         setLoading(true)
 
         val body = JSONObject().apply {
@@ -88,14 +94,19 @@ class LoginActivity : AppCompatActivity() {
 
         val req = Request.Builder().url("$BASE_URL/auth/login").post(body).build()
 
-        http.newCall(req).enqueue(object : Callback {
+        val call = http.newCall(req)
+        currentCall = call
+
+        call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                if (call.isCanceled()) return
                 runOnUiThread {
                     setLoading(false)
                     showError("No se pudo conectar.\nVerifica que la API esté en $BASE_URL")
                 }
             }
             override fun onResponse(call: Call, response: Response) {
+                if (call.isCanceled()) return
                 val bodyStr = response.body?.string() ?: ""
                 runOnUiThread {
                     setLoading(false)
@@ -153,6 +164,7 @@ class LoginActivity : AppCompatActivity() {
     // ── Paso 2: consultar operación asignada ──────────────────────────────────
 
     private fun fetchOperacionYNavegar(user: User) {
+        currentCall?.cancel()
         setLoading(true)
 
         val req = Request.Builder()
@@ -161,14 +173,19 @@ class LoginActivity : AppCompatActivity() {
             .addHeader("Authorization", "Bearer ${AuthManager.getToken(this)}")
             .build()
 
-        http.newCall(req).enqueue(object : Callback {
+        val call = http.newCall(req)
+        currentCall = call
+
+        call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
+                if (call.isCanceled()) return
                 runOnUiThread {
                     setLoading(false)
                     showError("No se pudo obtener la operación asignada.\nVerifica tu conexión.")
                 }
             }
             override fun onResponse(call: Call, response: Response) {
+                if (call.isCanceled()) return
                 val bodyStr = response.body?.string() ?: ""
                 runOnUiThread {
                     setLoading(false)
@@ -261,8 +278,24 @@ class LoginActivity : AppCompatActivity() {
 
     private fun setLoading(loading: Boolean) {
         progress.visibility = if (loading) View.VISIBLE else View.GONE
-        btnLogin.isEnabled  = !loading
-        btnLogin.alpha      = if (loading) 0.6f else 1f
+        btnLogin.isEnabled  = true
+        btnLogin.alpha      = if (loading) 0.8f else 1f
+
+        loadingTextRunnable?.let { mainHandler.removeCallbacks(it) }
+        if (loading) {
+            dotCount = 0
+            loadingTextRunnable = object : Runnable {
+                override fun run() {
+                    dotCount = (dotCount + 1) % 4
+                    val dots = ".".repeat(dotCount)
+                    btnLogin.text = "CONECTANDO$dots"
+                    mainHandler.postDelayed(this, 500)
+                }
+            }
+            mainHandler.post(loadingTextRunnable!!)
+        } else {
+            btnLogin.text = "INICIAR SESIÓN"
+        }
     }
 
     private fun hideKeyboard() {

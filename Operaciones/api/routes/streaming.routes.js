@@ -4,7 +4,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
-import { WEBRTC_ICE_SERVERS } from "../config/env.js";
+import { RTMP_PLAYBACK_BASE_URL, RTMP_PUBLISH_BASE_URL, WEBRTC_ICE_SERVERS } from "../config/env.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
 import { sendError } from "../utils/http.js";
@@ -33,8 +33,19 @@ function normalizeStatus(value) {
   return ["ACTIVE", "STOPPED", "ERROR"].includes(status) ? status : null;
 }
 
+function normalizeProtocol(value) {
+  const protocol = String(value || "HYBRID").trim().toUpperCase();
+  return ["WEBRTC", "RTMP", "HYBRID"].includes(protocol) ? protocol : null;
+}
+
 function truthy(value) {
   return value === true || value === "true" || value === "1" || value === 1;
+}
+
+function joinStreamUrl(base, streamKey) {
+  const cleanBase = String(base || "").trim().replace(/\/+$/, "");
+  if (!cleanBase) return null;
+  return `${cleanBase}/${streamKey}`;
 }
 
 function getActorColumns(req) {
@@ -59,7 +70,13 @@ async function ensureStreamingTables() {
       kind TEXT NOT NULL CHECK (kind IN ('AUDIO','VIDEO','AUDIO_VIDEO')),
       status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE','STOPPED','ERROR')),
       label TEXT,
+      protocol TEXT NOT NULL DEFAULT 'HYBRID',
+      source_type TEXT NOT NULL DEFAULT 'ANDROID',
       stream_key TEXT NOT NULL UNIQUE,
+      rtmp_publish_url TEXT,
+      rtmp_playback_url TEXT,
+      playback_url TEXT,
+      external_device_id TEXT,
       publisher_socket_id TEXT,
       viewer_count INT NOT NULL DEFAULT 0 CHECK (viewer_count >= 0),
       consent_ack BOOLEAN NOT NULL DEFAULT FALSE,
@@ -73,6 +90,12 @@ async function ensureStreamingTables() {
 
     ALTER TABLE media_stream_session
       ADD COLUMN IF NOT EXISTS stream_key TEXT,
+      ADD COLUMN IF NOT EXISTS protocol TEXT NOT NULL DEFAULT 'HYBRID',
+      ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'ANDROID',
+      ADD COLUMN IF NOT EXISTS rtmp_publish_url TEXT,
+      ADD COLUMN IF NOT EXISTS rtmp_playback_url TEXT,
+      ADD COLUMN IF NOT EXISTS playback_url TEXT,
+      ADD COLUMN IF NOT EXISTS external_device_id TEXT,
       ADD COLUMN IF NOT EXISTS publisher_socket_id TEXT,
       ADD COLUMN IF NOT EXISTS viewer_count INT NOT NULL DEFAULT 0,
       ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
@@ -154,7 +177,13 @@ function publicStream(row) {
     kind: row.kind,
     status: row.status,
     label: row.label,
+    protocol: row.protocol || "HYBRID",
+    source_type: row.source_type || "ANDROID",
     stream_key: row.stream_key,
+    rtmp_publish_url: row.rtmp_publish_url,
+    rtmp_playback_url: row.rtmp_playback_url,
+    playback_url: row.playback_url,
+    external_device_id: row.external_device_id,
     publisher_socket_id: row.publisher_socket_id,
     viewer_count: row.viewer_count,
     consent_ack: row.consent_ack,
@@ -192,6 +221,10 @@ router.get("/ops/:id/streams/webrtc-config", requireAuth, async (req, res) => {
         offerEvent: "webrtc_offer",
         answerEvent: "webrtc_answer",
         iceCandidateEvent: "webrtc_ice_candidate",
+      },
+      rtmp: {
+        publishBaseUrl: RTMP_PUBLISH_BASE_URL,
+        playbackBaseUrl: RTMP_PLAYBACK_BASE_URL || null,
       },
     },
   });
@@ -276,6 +309,9 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
   const kind = normalizeKind(req.body?.kind || req.body?.tipo);
   if (!kind) return sendError(res, 400, "kind invalido");
 
+  const protocol = normalizeProtocol(req.body?.protocol || req.body?.protocolo);
+  if (!protocol) return sendError(res, 400, "protocol invalido");
+
   const consent_ack = truthy(req.body?.consent_ack);
   const foreground_notice = truthy(req.body?.foreground_notice);
   if (!consent_ack || !foreground_notice) {
@@ -288,16 +324,26 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
 
   const label = req.body?.label != null ? String(req.body.label).trim() : null;
   const stream_key = randomUUID();
+  const rtmp_publish_url =
+    req.body?.rtmp_publish_url != null
+      ? String(req.body.rtmp_publish_url).trim()
+      : joinStreamUrl(RTMP_PUBLISH_BASE_URL, stream_key);
+  const rtmp_playback_url =
+    req.body?.rtmp_playback_url != null
+      ? String(req.body.rtmp_playback_url).trim()
+      : joinStreamUrl(RTMP_PLAYBACK_BASE_URL, stream_key);
+  const playback_url = req.body?.playback_url != null ? String(req.body.playback_url).trim() : rtmp_playback_url;
 
   try {
     await ensureStreamingTables();
     const actor = getActorColumns(req);
     const { rows } = await pool.query(
       `INSERT INTO media_stream_session (
-         id_operacion, id_usuario, id_personal, kind, label, stream_key,
+         id_operacion, id_usuario, id_personal, kind, label, protocol, source_type,
+         stream_key, rtmp_publish_url, rtmp_playback_url, playback_url,
          consent_ack, foreground_notice, created_by_tabla, created_by_id
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       VALUES ($1,$2,$3,$4,$5,$6,'ANDROID',$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING *`,
       [
         id_operacion,
@@ -305,7 +351,11 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
         actor.id_personal,
         kind,
         label,
+        protocol,
         stream_key,
+        rtmp_publish_url,
+        rtmp_playback_url,
+        playback_url,
         consent_ack,
         foreground_notice,
         actor.created_by_tabla,
@@ -318,6 +368,69 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
     return res.status(201).json({ ok: true, stream });
   } catch (err) {
     return sendDbError(res, err, "Error creando transmision en vivo");
+  }
+});
+
+router.post("/ops/:id/streams/external", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return sendError(res, 400, "id invalido");
+
+  const kind = normalizeKind(req.body?.kind || req.body?.tipo || "AUDIO_VIDEO");
+  if (!kind) return sendError(res, 400, "kind invalido");
+
+  const label = req.body?.label != null ? String(req.body.label).trim() : "";
+  if (!label) return sendError(res, 400, "Falta label");
+
+  const stream_key = String(req.body?.stream_key || randomUUID()).trim();
+  const rtmp_publish_url =
+    req.body?.rtmp_publish_url != null
+      ? String(req.body.rtmp_publish_url).trim()
+      : joinStreamUrl(RTMP_PUBLISH_BASE_URL, stream_key);
+  const rtmp_playback_url =
+    req.body?.rtmp_playback_url != null
+      ? String(req.body.rtmp_playback_url).trim()
+      : joinStreamUrl(RTMP_PLAYBACK_BASE_URL, stream_key);
+  const playback_url = req.body?.playback_url != null ? String(req.body.playback_url).trim() : rtmp_playback_url;
+  const external_device_id = req.body?.external_device_id != null
+    ? String(req.body.external_device_id).trim()
+    : null;
+
+  if (!rtmp_publish_url && !rtmp_playback_url && !playback_url) {
+    return sendError(res, 400, "Falta URL RTMP o playback_url del dispositivo");
+  }
+
+  try {
+    await ensureStreamingTables();
+    const actor = getActorColumns(req);
+    const { rows } = await pool.query(
+      `INSERT INTO media_stream_session (
+         id_operacion, id_usuario, id_personal, kind, label, protocol, source_type,
+         stream_key, rtmp_publish_url, rtmp_playback_url, playback_url, external_device_id,
+         consent_ack, foreground_notice, created_by_tabla, created_by_id
+       )
+       VALUES ($1,$2,$3,$4,$5,'RTMP','EXTERNAL',$6,$7,$8,$9,$10,TRUE,FALSE,$11,$12)
+       RETURNING *`,
+      [
+        id_operacion,
+        actor.id_usuario,
+        actor.id_personal,
+        kind,
+        label,
+        stream_key,
+        rtmp_publish_url,
+        rtmp_playback_url,
+        playback_url,
+        external_device_id,
+        actor.created_by_tabla,
+        actor.created_by_id,
+      ]
+    );
+
+    const stream = publicStream(rows[0]);
+    req.app.get("io")?.to(`op_${id_operacion}`).emit("media_stream_started", stream);
+    return res.status(201).json({ ok: true, stream });
+  } catch (err) {
+    return sendDbError(res, err, "Error registrando dispositivo RTMP");
   }
 });
 

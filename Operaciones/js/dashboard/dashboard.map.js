@@ -691,8 +691,8 @@ export function centerMapOnOperationZone(zona) {
   const viewer = dashboardState.viewer;
   if (!viewer || !zona) return;
 
-  const lat = Number(zona.centroide_lat);
-  const lng = Number(zona.centroide_lon);
+  const latStr = zona.centroide_lat; const lat = (latStr != null && latStr !== "") ? Number(latStr) : NaN;
+  const lngStr = zona.centroide_lon; const lng = (lngStr != null && lngStr !== "") ? Number(lngStr) : NaN;
   const zoom = Number(zona.zoom_inicial || 1000) || 1000;
 
   if (Number.isFinite(lat) && Number.isFinite(lng)) {

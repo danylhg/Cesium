@@ -11,6 +11,50 @@ function rowsToEvents(rows, mapFn) {
   return rows.map(mapFn).filter(Boolean);
 }
 
+function toTimestamp(value) {
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? ms : NaN;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : NaN;
+  }
+  if (!value) return NaN;
+
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : NaN;
+}
+
+function firstTimestamp(...values) {
+  for (const value of values) {
+    const ms = toTimestamp(value);
+    if (Number.isFinite(ms)) return ms;
+  }
+  return NaN;
+}
+
+function minTimestamp(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length ? Math.min(...finite) : NaN;
+}
+
+function maxTimestamp(values) {
+  const finite = values.filter(Number.isFinite);
+  return finite.length ? Math.max(...finite) : NaN;
+}
+
+async function optionalReplayQuery(sql, params) {
+  try {
+    return await pool.query(sql, params);
+  } catch (error) {
+    if (["42P01", "42703"].includes(error?.code)) {
+      console.warn("[replay] tabla o columna opcional no disponible:", error.message);
+      return { rows: [] };
+    }
+    throw error;
+  }
+}
+
 router.get("/ops/:id/replay", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) {
@@ -37,6 +81,8 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
       zona,
       eventos,
       chat,
+      avisosOperacionales,
+      novedadesOperacionales,
       trackingPersonal,
       trackingVehiculos,
       capas,
@@ -65,6 +111,27 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
            JOIN chat_operacion co ON co.id_chat = v.id_chat
           WHERE co.id_operacion = $1
           ORDER BY v.fecha_envio ASC, v.id_mensaje ASC`,
+        [id_operacion]
+      ),
+      optionalReplayQuery(
+        `SELECT a.*,
+                pe.apodo AS emisor_apodo,
+                pe.rol AS emisor_rol,
+                pr.apodo AS receptor_personal_apodo,
+                u.nombre || ' ' || u.apellido AS receptor_usuario_nombre
+           FROM aviso_operacion a
+           LEFT JOIN personal pe ON pe.id_personal = a.id_personal_emisor
+           LEFT JOIN personal pr ON pr.id_personal = a.id_personal_receptor
+           LEFT JOIN usuario u ON u.id_usuario = a.id_usuario_receptor
+          WHERE a.id_operacion = $1
+          ORDER BY a.fecha_envio ASC, a.id_aviso ASC`,
+        [id_operacion]
+      ),
+      optionalReplayQuery(
+        `SELECT n.*
+           FROM novedad_operacion n
+          WHERE n.id_operacion = $1
+          ORDER BY n.fecha_registro ASC, n.id_novedad ASC`,
         [id_operacion]
       ),
       pool.query(
@@ -359,7 +426,19 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
     };
 
     const generatedEvents = [
+      eventIfMissing("operacion_activada", "operacion", id_operacion, opRows[0].fecha_inicio || opRows[0].fecha_creacion, {
+        codigo: opRows[0].codigo,
+        nombre: opRows[0].nombre,
+        estado: opRows[0].estado,
+      }),
+      opRows[0].fecha_fin ? eventIfMissing("operacion_cerrada", "operacion", id_operacion, opRows[0].fecha_fin, {
+        codigo: opRows[0].codigo,
+        nombre: opRows[0].nombre,
+        estado: opRows[0].estado,
+      }) : null,
       ...rowsToEvents(chat.rows, row => eventIfMissing("chat_mensaje", "mensaje_chat", row.id_mensaje, row.fecha_envio, row)),
+      ...rowsToEvents(avisosOperacionales.rows, row => eventIfMissing("aviso_operacion", "aviso_operacion", row.id_aviso, row.fecha_envio, row)),
+      ...rowsToEvents(novedadesOperacionales.rows, row => eventIfMissing("novedad_operacion", "novedad_operacion", row.id_novedad, row.fecha_registro, row)),
       ...rowsToEvents(trackingPersonal.rows, row => ({
         tipo_evento: "tracking_personal",
         entidad_tipo: "tracking_personal",
@@ -396,20 +475,26 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
         : null),
       ...rowsToEvents(dibujos.rows, row => eventIfMissing("dibujo_creado", "dibujo", row.id_dibujo, row.fecha_creacion, row)),
       ...rowsToEvents(zonas.rows, row => eventIfMissing("zona_creada", "zona", row.id_zona, row.fecha_creacion, row))
-    ];
+    ].filter(Boolean);
 
     const allEvents = [...eventos.rows, ...generatedEvents].sort((a, b) => {
-      const at = new Date(a.occurred_at).getTime();
-      const bt = new Date(b.occurred_at).getTime();
+      const at = toTimestamp(a.occurred_at);
+      const bt = toTimestamp(b.occurred_at);
       return at - bt;
     });
     const eventTimes = allEvents
-      .map(event => new Date(event.occurred_at).getTime())
+      .map(event => toTimestamp(event.occurred_at))
       .filter(Number.isFinite);
-    const opStartMs = new Date(opRows[0].fecha_inicio || opRows[0].fecha_creacion).getTime();
-    const opEndMs = new Date(opRows[0].fecha_fin || opRows[0].fecha_actualizacion).getTime();
-    const timelineStart = new Date(Math.min(opStartMs, ...eventTimes)).toISOString();
-    const timelineEnd = new Date(Math.max(opEndMs, ...eventTimes)).toISOString();
+    const opStartMs = firstTimestamp(opRows[0].fecha_inicio, opRows[0].fecha_creacion);
+    const opEndMs = firstTimestamp(opRows[0].fecha_fin, opRows[0].fecha_actualizacion);
+    const fallbackMs = firstTimestamp(opStartMs, eventTimes[0], Date.now());
+    const timelineStartMs = minTimestamp([opStartMs, ...eventTimes, fallbackMs]);
+    const timelineEndMs = Math.max(
+      timelineStartMs,
+      maxTimestamp([opEndMs, ...eventTimes, timelineStartMs])
+    );
+    const timelineStart = new Date(timelineStartMs).toISOString();
+    const timelineEnd = new Date(timelineEndMs).toISOString();
 
     res.json({
       ok: true,

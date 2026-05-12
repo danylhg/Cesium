@@ -6,6 +6,9 @@ export function readHistoryDom() {
   dom.statusBadge = byId("historyStatusBadge", "opMeta");
   dom.who = document.getElementById("historyWho");
   dom.map = byId("historyMap", "map");
+  dom.stage = document.querySelector(".playbackStage");
+  dom.sidePanel = document.getElementById("sidePanel");
+  dom.panelToggle = document.getElementById("btnTogglePanel");
   dom.infoContent = byId("historyInfoContent", "opInfoDetails");
   dom.chatMessages = byId("historyChatMessages", "chatMessages");
   dom.eventLog = document.getElementById("eventLog");

@@ -53,6 +53,9 @@ internal class ChatPanelRenderer(
         val chatRecycler = view.findViewById<RecyclerView>(R.id.chatRecycler)
         val msgInput = view.findViewById<EditText>(R.id.msgInput)
         val sendBtn = view.findViewById<ImageButton>(R.id.sendBtn)
+        val voiceBtn = view.findViewById<ImageButton>(R.id.voiceBtn)
+        val galleryBtn = view.findViewById<ImageButton>(R.id.galleryBtn)
+        val cameraBtn = view.findViewById<ImageButton>(R.id.cameraBtn)
         val alertBtn = view.findViewById<View>(R.id.btnAlert)
         val channelSelector = view.findViewById<View>(R.id.channelSelector)
         val destBtn = view.findViewById<TextView>(R.id.destBtn)
@@ -126,6 +129,16 @@ internal class ChatPanelRenderer(
         }
 
         bindSendButtons(msgInput, sendBtn, alertBtn, ::send)
+        bindAttachmentButtons(voiceBtn, galleryBtn, cameraBtn) { source ->
+            val (tipo, id, label) = payloadFor(selectedChannel, selectedTargetIdx)
+            host.requestChatAttachment(
+                source = source,
+                destinatarioRol = selectedChannel.destinatarioRol,
+                destinoTipo = tipo,
+                destinoId = id,
+                destinoLabel = label
+            )
+        }
         bindQuickReplies(view, ::send, msgInput)
         onFilterChanged(currentSelection())
 
@@ -290,6 +303,17 @@ internal class ChatPanelRenderer(
             send(text, true)
             input.text.clear()
         }
+    }
+
+    private fun bindAttachmentButtons(
+        voiceBtn: ImageButton,
+        galleryBtn: ImageButton,
+        cameraBtn: ImageButton,
+        request: (String) -> Unit
+    ) {
+        voiceBtn.setOnClickListener { request("voice") }
+        galleryBtn.setOnClickListener { request("gallery") }
+        cameraBtn.setOnClickListener { request("camera") }
     }
 
     private fun bindQuickReplies(

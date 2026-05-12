@@ -63,6 +63,7 @@
     <button id="toggleRoutePanel" class="toolFab" title="Rutas">🗺️</button>
     <button id="toggleTacticalPanel" class="toolFab" title="Táctico">✚</button>
     <button id="toggleChatPanel" class="toolFab" title="Chat táctico">💬</button>
+    <button id="toggleCameraPanel" class="toolFab" title="Cámaras en vivo" style="display:none;">📹</button>
   </div>
 
   <main class="mapStage">
@@ -112,6 +113,47 @@
         <line x1="20" y1="12" x2="23" y2="12"></line>
       </svg>
     </button>
+
+    <div id="personnelDetailModal" class="planningExitModal hidden" aria-hidden="true">
+      <div id="personnelDetailBackdrop" class="planningExitBackdrop"></div>
+      <div class="planningExitCard personnelDetailCard" role="dialog" aria-modal="true" aria-labelledby="personnelDetailName">
+        <div class="personnelDetailHeader">
+          <h3 id="personnelDetailName">Detalle del agente</h3>
+          <button id="btnClosePersonnelDetail" class="personnelDetailClose" type="button">×</button>
+        </div>
+
+        <div class="personnelDetailGrid">
+          <div class="personnelInfoCol">
+            <div class="personnelStatusBlock personnelVitalsBlock">
+              <h4>Signos vitales</h4>
+              <div class="personnelMetric">
+                <span>Frecuencia cardiaca</span>
+                <strong>78 BPM</strong>
+              </div>
+              <div class="personnelMetric">
+                <span>Oxigenación</span>
+                <strong>98% SpO2</strong>
+              </div>
+              <div class="personnelMetric">
+                <span>Temperatura</span>
+                <strong>36.5 °C</strong>
+              </div>
+            </div>
+
+            <div class="personnelStatusBlock personnelLocationBlock">
+              <h4>Ubicación actual</h4>
+              <p id="personnelDetailCoords">Sin ubicación disponible</p>
+              <button id="btnCenterOnPerson" class="btnBeige" type="button">Ir a ubicación</button>
+            </div>
+          </div>
+
+          <div class="personnelCameraCol">
+            <h4>Cámara en tiempo real</h4>
+            <div id="personnelDetailCamera" class="cameraFeed personnelDetailCamera"></div>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
   <aside id="infoPanel" class="glassPanel open">
@@ -321,6 +363,18 @@
       <textarea id="chatInput" placeholder="Escribe un mensaje..."></textarea>
       <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
     </div>
+  </aside>
+
+  <aside id="cameraPanel" class="glassPanel cameraPanel">
+    <div class="panelHeader">
+      <span class="dragHandle">⋮⋮</span>
+      <div class="cameraControls">
+        <button id="cameraLayoutGrid" class="layoutBtn active" title="Vista en cuadrícula" type="button">▦</button>
+        <button id="cameraLayoutSpeaker" class="layoutBtn" title="Vista enfocada" type="button">◉</button>
+      </div>
+    </div>
+
+    <div id="cameraFeeds" class="cameraFeeds grid-layout"></div>
   </aside>
 
   <script type="module" src="js/dashboard/dashboard.js"></script>

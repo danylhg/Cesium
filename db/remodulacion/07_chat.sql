@@ -36,5 +36,11 @@ CREATE TABLE IF NOT EXISTS mensaje_chat (
   destino_tipo TEXT,
   destino_id TEXT,
   destino_label TEXT,
+  attachment_kind TEXT,
+  attachment_url TEXT,
+  attachment_mime TEXT,
+  attachment_name TEXT,
+  attachment_size BIGINT,
+  attachment_duration_ms BIGINT,
   fecha_envio TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

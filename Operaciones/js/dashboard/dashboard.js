@@ -33,6 +33,7 @@ import {
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
+import { initCameraFeeds } from "./dashboard.camera.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";
@@ -336,15 +337,20 @@ window.addEventListener("load", async () => {
     saveCurrentOperation({
       ...bdData.operacion,
       id: bdData.operacion.id_operacion,
-      zona_operacion: bdData.zona_operacion || null
+      zona_operacion: bdData.zona_operacion || null,
+      personal: bdData.personal || [],
+      vehiculos: bdData.vehiculos || [],
+      equipos: bdData.equipos || []
     });
     renderInfoPanel(bdData);
+    initCameraFeeds();
     setTacticalUI();
     if (bdData.zona_operacion) {
       centerMapOnOperationZone(bdData.zona_operacion);
     }
   } else {
     renderInfoPanel();
+    initCameraFeeds();
   }
   updateChatAvailability();
 
@@ -374,6 +380,7 @@ window.addEventListener("load", async () => {
       initPoiSocket(socket);
       initTrackingSocket(socket);
       initDrawingSocket(socket);
+      initCameraFeeds(opId, socket);
     }
   }
 
@@ -390,9 +397,13 @@ window.addEventListener("load", async () => {
       saveCurrentOperation({
         ...fresh.operacion,
         id: fresh.operacion.id_operacion,
-        zona_operacion: fresh.zona_operacion || null
+        zona_operacion: fresh.zona_operacion || null,
+        personal: fresh.personal || [],
+        vehiculos: fresh.vehiculos || [],
+        equipos: fresh.equipos || []
       });
       renderInfoPanel(fresh);
+      initCameraFeeds();
       setTacticalUI();
     }
     updateChatAvailability();

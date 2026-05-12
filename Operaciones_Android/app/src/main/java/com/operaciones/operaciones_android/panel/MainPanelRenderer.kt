@@ -47,6 +47,13 @@ class MainPanelRenderer(
             destinoId: String? = null,
             destinoLabel: String? = null
         )
+        fun requestChatAttachment(
+            source: String,
+            destinatarioRol: String? = null,
+            destinoTipo: String? = null,
+            destinoId: String? = null,
+            destinoLabel: String? = null
+        )
         fun shouldShowSimulationButton(): Boolean
         fun isSimulationActive(): Boolean
         fun toggleSimulation()

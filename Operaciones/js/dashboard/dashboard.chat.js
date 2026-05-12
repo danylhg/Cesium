@@ -400,13 +400,39 @@ function buildBubble(msg) {
   const header = tipo !== "SISTEMA"
     ? `<div class="chatBubbleHeader"><span>${autor}</span><span>${destino}</span></div>`
     : `<div class="chatBubbleTime">${hora}</div>`;
+  const attachment = buildAttachmentMarkup(msg);
 
   return `
     <div class="chatBubble${mine ? " mine" : ""}${typeExtra}${rolClass}" data-id="${msg.id_mensaje ?? ""}">
       ${header}
       <div class="chatBubbleText">${texto}</div>
+      ${attachment}
     </div>
   `;
+}
+
+function buildAttachmentMarkup(msg) {
+  const url = msg.attachment_url;
+  if (!url) return "";
+
+  const absolute = /^https?:\/\//i.test(url) ? url : `${API_BASE}${String(url).startsWith("/") ? "" : "/"}${url}`;
+  const kind = String(msg.attachment_kind || "").toUpperCase();
+  const name = escapeHtml(msg.attachment_name || "Adjunto");
+  const safeUrl = escapeHtml(absolute);
+
+  if (kind === "IMAGE") {
+    return `<a class="chatAttachment" href="${safeUrl}" target="_blank" rel="noopener"><img src="${safeUrl}" alt="${name}"></a>`;
+  }
+
+  if (kind === "VIDEO") {
+    return `<video class="chatAttachmentMedia" src="${safeUrl}" controls playsinline></video>`;
+  }
+
+  if (kind === "AUDIO") {
+    return `<audio class="chatAttachmentMedia" src="${safeUrl}" controls></audio>`;
+  }
+
+  return `<a class="chatAttachmentFile" href="${safeUrl}" target="_blank" rel="noopener">${name}</a>`;
 }
 
 // â”€â”€ Re-renderiza todos los mensajes visibles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

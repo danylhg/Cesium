@@ -85,6 +85,8 @@ class MediaStreamingService : Service() {
     private var userId = -1
     private var userRole = ""
     private var userTable = "personal"
+    private var rtmpPublishUrl = ""
+    private var rtmpPlaybackUrl = ""
 
     private var socket: Socket? = null
     private var rootEglBase: EglBase? = null
@@ -157,13 +159,15 @@ class MediaStreamingService : Service() {
             try {
                 val stream = createStreamSession()
                 streamId = stream.getInt("id_stream")
+                rtmpPublishUrl = stream.optString("rtmp_publish_url", "")
+                rtmpPlaybackUrl = stream.optString("rtmp_playback_url", stream.optString("playback_url", ""))
                 iceServers = fetchIceServers()
 
                 mainHandler.post {
                     try {
                         startWebRtcPublisher()
                         connectSignalingSocket()
-                        updateNotification("Transmitiendo camara y microfono en vivo")
+                        updateNotification("Transmitiendo camara y microfono en vivo por WebRTC/RTMP")
                     } catch (e: Exception) {
                         Log.e(TAG, "Error iniciando WebRTC", e)
                         stopStreaming(notifyServer = true)
@@ -196,6 +200,7 @@ class MediaStreamingService : Service() {
     private fun createStreamSession(): JSONObject {
         val body = JSONObject().apply {
             put("kind", "AUDIO_VIDEO")
+            put("protocol", "HYBRID")
             put("label", userName.ifBlank { "Android" })
             put("consent_ack", true)
             put("foreground_notice", true)
@@ -294,7 +299,7 @@ class MediaStreamingService : Service() {
         videoCapturer?.startCapture(1280, 720, 30)
         localVideoTrack = peerConnectionFactory!!.createVideoTrack("sedam_video", videoSource)
 
-        Log.d(TAG, "WebRTC publisher listo streamId=$streamId")
+        Log.d(TAG, "WebRTC publisher listo streamId=$streamId rtmp=$rtmpPublishUrl playback=$rtmpPlaybackUrl")
     }
 
     private fun createCameraCapturer(): CameraVideoCapturer {
@@ -558,7 +563,7 @@ class MediaStreamingService : Service() {
                 "Transmision de camara y microfono",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Canal de transmision WebRTC en vivo SEDAM"
+                description = "Canal de transmision WebRTC/RTMP en vivo SEDAM"
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

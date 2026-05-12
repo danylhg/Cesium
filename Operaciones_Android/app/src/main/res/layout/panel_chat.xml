@@ -111,6 +111,42 @@
             android:imeOptions="actionSend"/>
 
         <ImageButton
+            android:id="@+id/voiceBtn"
+            android:layout_width="40dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_dest_btn"
+            android:src="@android:drawable/ic_btn_speak_now"
+            android:contentDescription="Mensaje de voz"
+            android:tint="#cbd5e1"
+            android:scaleType="centerInside"
+            android:padding="10dp"/>
+
+        <ImageButton
+            android:id="@+id/galleryBtn"
+            android:layout_width="40dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_dest_btn"
+            android:src="@android:drawable/ic_menu_gallery"
+            android:contentDescription="Enviar imagen o video de galeria"
+            android:tint="#cbd5e1"
+            android:scaleType="centerInside"
+            android:padding="10dp"/>
+
+        <ImageButton
+            android:id="@+id/cameraBtn"
+            android:layout_width="40dp"
+            android:layout_height="44dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_dest_btn"
+            android:src="@android:drawable/ic_menu_camera"
+            android:contentDescription="Tomar foto o video"
+            android:tint="#cbd5e1"
+            android:scaleType="centerInside"
+            android:padding="10dp"/>
+
+        <ImageButton
             android:id="@+id/sendBtn"
             android:layout_width="44dp"
             android:layout_height="44dp"
