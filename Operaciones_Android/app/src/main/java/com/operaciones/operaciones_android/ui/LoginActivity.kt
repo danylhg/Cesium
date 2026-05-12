@@ -3,14 +3,19 @@ import com.operaciones.operaciones_android.config.ApiConfig
 import android.content.Intent
 import android.graphics.Rect
 import android.os.Bundle
+import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -28,13 +33,12 @@ class LoginActivity : AppCompatActivity() {
 
     private lateinit var inputUsername: EditText
     private lateinit var inputPassword: EditText
+    private lateinit var btnApiAddress: Button
     private lateinit var btnLogin: Button
     private lateinit var tvError: TextView
     private lateinit var progress: ProgressBar
 
-    // IP del servidor — cambiar por la IP local de tu máquina (ipconfig/ifconfig)
-    private val BASE_URL = ApiConfig.BASE_URL
-
+    // La direccion del servidor se guarda desde el boton del login.
     private val http = OkHttpClient()
 
     private var currentCall: Call? = null
@@ -44,10 +48,12 @@ class LoginActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ApiConfig.load(this)
         setContentView(R.layout.activity_login)
 
         inputUsername = findViewById(R.id.inputNumControl)
         inputPassword = findViewById(R.id.inputPassword)
+        btnApiAddress = findViewById(R.id.btnApiAddress)
         btnLogin      = findViewById(R.id.btnLogin)
         tvError       = findViewById(R.id.tvError)
         progress      = findViewById(R.id.loginProgress)
@@ -61,6 +67,7 @@ class LoginActivity : AppCompatActivity() {
             false
         }
         btnLogin.setOnClickListener { attemptLogin() }
+        btnApiAddress.setOnClickListener { showApiAddressDialog() }
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
@@ -92,7 +99,8 @@ class LoginActivity : AppCompatActivity() {
             put("password", password)
         }.toString().toRequestBody("application/json".toMediaType())
 
-        val req = Request.Builder().url("$BASE_URL/auth/login").post(body).build()
+        val baseUrl = ApiConfig.BASE_URL
+        val req = Request.Builder().url("$baseUrl/auth/login").post(body).build()
 
         val call = http.newCall(req)
         currentCall = call
@@ -102,7 +110,7 @@ class LoginActivity : AppCompatActivity() {
                 if (call.isCanceled()) return
                 runOnUiThread {
                     setLoading(false)
-                    showError("No se pudo conectar.\nVerifica que la API esté en $BASE_URL")
+                    showError("No se pudo conectar.\nVerifica que la API esté en $baseUrl")
                 }
             }
             override fun onResponse(call: Call, response: Response) {
@@ -166,9 +174,10 @@ class LoginActivity : AppCompatActivity() {
     private fun fetchOperacionYNavegar(user: User) {
         currentCall?.cancel()
         setLoading(true)
+        val baseUrl = ApiConfig.BASE_URL
 
         val req = Request.Builder()
-            .url("$BASE_URL/ops/personal/${user.id}")
+            .url("$baseUrl/ops/personal/${user.id}")
             .get()
             .addHeader("Authorization", "Bearer ${AuthManager.getToken(this)}")
             .build()
@@ -276,10 +285,67 @@ class LoginActivity : AppCompatActivity() {
         }.start()
     }
 
+    private fun showApiAddressDialog() {
+        hideKeyboard()
+
+        val inputAddress = EditText(this).apply {
+            setText(ApiConfig.BASE_URL)
+            hint = "192.168.1.20:3001"
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            isSingleLine = true
+            setSelectAllOnFocus(true)
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(
+                inputAddress,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Direccion del servidor")
+            .setMessage("Ingresa la IP o URL de la API. Si escribes solo la IP, se usara el puerto 3001.")
+            .setView(content)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Guardar", null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val normalizedUrl = try {
+                    ApiConfig.saveBaseUrl(this, inputAddress.text.toString())
+                } catch (e: IllegalArgumentException) {
+                    inputAddress.error = e.message
+                    return@setOnClickListener
+                }
+
+                currentCall?.cancel()
+                setLoading(false)
+                tvError.visibility = View.GONE
+                Toast.makeText(this, "Direccion guardada: $normalizedUrl", Toast.LENGTH_SHORT).show()
+                dialog.dismiss()
+            }
+        }
+
+        dialog.show()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
+        inputAddress.requestFocus()
+    }
+
     private fun setLoading(loading: Boolean) {
         progress.visibility = if (loading) View.VISIBLE else View.GONE
         btnLogin.isEnabled  = true
         btnLogin.alpha      = if (loading) 0.8f else 1f
+        if (::btnApiAddress.isInitialized) {
+            btnApiAddress.isEnabled = !loading
+            btnApiAddress.alpha = if (loading) 0.6f else 1f
+        }
 
         loadingTextRunnable?.let { mainHandler.removeCallbacks(it) }
         if (loading) {
@@ -297,6 +363,9 @@ class LoginActivity : AppCompatActivity() {
             btnLogin.text = "INICIAR SESIÓN"
         }
     }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun hideKeyboard() {
         inputUsername.clearFocus()
