@@ -178,7 +178,10 @@ export function initSocket(server) {
         socket.join(room);
         socket.operationId = idOperacion;
         socket.mediaStreamMemberships ||= new Map();
-        socket.mediaStreamMemberships.set(`${idStream}:${role}`, { idOperacion, idStream, role });
+        const membershipKey = `${idStream}:${role}`;
+        const alreadyJoined = socket.mediaStreamMemberships.has(membershipKey);
+        const refreshJoin = payload?.refresh === true || payload?.refresh === "true";
+        socket.mediaStreamMemberships.set(membershipKey, { idOperacion, idStream, role });
 
         let updatedRow = streamRow;
         if (role === "publisher") {
@@ -197,17 +200,26 @@ export function initSocket(server) {
             publisher_socket_id: socket.id,
           });
         } else {
-          const { rows } = await pool.query(
-            `UPDATE media_stream_session
-             SET viewer_count = viewer_count + 1, last_seen_at = NOW()
-             WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
-             RETURNING *`,
-            [idOperacion, idStream]
-          );
+          const { rows } = alreadyJoined
+            ? await pool.query(
+                `UPDATE media_stream_session
+                 SET last_seen_at = NOW()
+                 WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+                 RETURNING *`,
+                [idOperacion, idStream]
+              )
+            : await pool.query(
+                `UPDATE media_stream_session
+                 SET viewer_count = viewer_count + 1, last_seen_at = NOW()
+                 WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+                 RETURNING *`,
+                [idOperacion, idStream]
+              );
           updatedRow = rows[0] || streamRow;
 
           if (updatedRow.publisher_socket_id) {
-            socket.to(updatedRow.publisher_socket_id).emit("webrtc_viewer_joined", {
+            const shouldRequestOffer = !alreadyJoined || refreshJoin;
+            if (shouldRequestOffer) socket.to(updatedRow.publisher_socket_id).emit("webrtc_viewer_joined", {
               id_operacion: idOperacion,
               id_stream: idStream,
               viewer_socket_id: socket.id,
@@ -232,8 +244,12 @@ export function initSocket(server) {
 
     async function leaveStreamMembership(idOperacion, idStream, role, notify = true) {
       const room = streamRoomName(idStream);
+      const membershipKey = `${idStream}:${role}`;
+      const hadMembership = socket.mediaStreamMemberships?.has(membershipKey);
+      if (!hadMembership) return;
+
       socket.leave(room);
-      socket.mediaStreamMemberships?.delete(`${idStream}:${role}`);
+      socket.mediaStreamMemberships?.delete(membershipKey);
 
       if (role === "viewer") {
         const { rows } = await pool.query(
@@ -258,10 +274,7 @@ export function initSocket(server) {
       if (role === "publisher") {
         const { rows } = await pool.query(
           `UPDATE media_stream_session
-           SET status = 'STOPPED',
-               ended_at = COALESCE(ended_at, NOW()),
-               publisher_socket_id = NULL,
-               viewer_count = 0,
+           SET publisher_socket_id = NULL,
                last_seen_at = NOW()
            WHERE id_operacion = $1
              AND id_stream = $2
@@ -272,7 +285,7 @@ export function initSocket(server) {
         );
         const stream = rows[0] ? publicSocketStream(rows[0]) : null;
         if (notify && stream) {
-          socket.to(room).to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
+          socket.to(room).to(`op_${idOperacion}`).emit("media_stream_publisher_offline", stream);
         }
       }
     }

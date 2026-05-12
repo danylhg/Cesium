@@ -8,6 +8,7 @@ import {
 } from "./dashboard.storage.js";
 import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
+import { clearPersonnelLiveCamera } from "./dashboard.camera.js";
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -276,6 +277,7 @@ function bindPersonnelDetailEvents() {
   const closeDetail = () => {
     dom.personnelDetailModal?.classList.add("hidden");
     dom.personnelDetailModal?.setAttribute("aria-hidden", "true");
+    clearPersonnelLiveCamera();
   };
 
   dom.btnClosePersonnelDetail?.addEventListener("click", closeDetail);

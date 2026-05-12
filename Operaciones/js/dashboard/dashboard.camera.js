@@ -22,6 +22,9 @@ let iceServers = null;
 const peerConnections = new Map();
 const joinedStreams = new Set();
 const peerTargets = new Map();
+const remoteStreams = new Map();
+const reconnectTimers = new Map();
+let activePersonnelCamera = null;
 
 export function initCameraFeeds(opId = null, socket = null) {
   activeOperationId = opId || activeOperationId || localStorage.getItem("active_operation_id");
@@ -30,8 +33,10 @@ export function initCameraFeeds(opId = null, socket = null) {
     bindStreamSocket();
   }
 
-  loadPlaceholderCameraData();
-  renderFeeds();
+  if (cameraData.length === 0) {
+    loadPlaceholderCameraData();
+    renderFeeds();
+  }
   bindCameraEvents();
   makePanelDraggable();
   loadLiveStreams();
@@ -90,9 +95,12 @@ async function loadLiveStreams() {
     const streams = data.items.map(streamToCamera);
     if (streams.length > 0) {
       cameraData = streams;
-      renderFeeds();
-      attachLiveFeeds();
+    } else {
+      loadPlaceholderCameraData();
     }
+    renderFeeds();
+    attachLiveFeeds();
+    renderActivePersonnelCamera();
   } catch (err) {
     console.warn("[CAMERAS] No se pudieron cargar streams:", err.message);
   }
@@ -107,11 +115,13 @@ function streamToCamera(stream) {
     id: `stream-${stream.id_stream}`,
     streamId: Number(stream.id_stream),
     operationId: Number(stream.id_operacion),
+    personnelId: stream.id_personal != null ? Number(stream.id_personal) : null,
     name: stream.label || `Stream ${stream.id_stream}`,
     protocol,
     kind: stream.kind,
     status: stream.status || "ACTIVE",
     publisherSocketId: stream.publisher_socket_id,
+    hasPublisher: Boolean(stream.publisher_socket_id),
     playbackUrl,
     rtmpPublishUrl: stream.rtmp_publish_url || "",
     isWebRtc: protocol === "WEBRTC" || protocol === "HYBRID",
@@ -121,12 +131,20 @@ function streamToCamera(stream) {
   };
 }
 
+function getCameraBadge(camera) {
+  if (camera.placeholder) return camera.status || "SIN SENAL";
+  if (camera.isWebRtc && !camera.hasPublisher) return "ESPERANDO";
+  if (camera.protocol === "HYBRID" || camera.protocol === "WEBRTC") return "EN VIVO";
+  return camera.protocol || "LIVE";
+}
+
 function renderFeeds() {
   if (!dom.cameraFeeds) return;
   dom.cameraFeeds.innerHTML = "";
   cameraData.forEach((camera) => {
     dom.cameraFeeds.appendChild(createFeedElement(camera));
   });
+  attachKnownMediaStreams();
 }
 
 function createFeedElement(camera) {
@@ -134,7 +152,8 @@ function createFeedElement(camera) {
   feed.className = "cameraFeed";
   feed.id = camera.id;
 
-  const displayProtocol = (camera.protocol === "HYBRID" || camera.protocol === "WEBRTC") ? "EN VIVO" : (camera.protocol || "LIVE"); const badge = camera.placeholder ? camera.status : displayProtocol;
+  const displayProtocol = getCameraBadge(camera);
+  const badge = camera.placeholder ? camera.status : displayProtocol;
   const media = buildMediaMarkup(camera);
   const urlHint = camera.playbackUrl && !camera.isPlayableUrl
     ? `<div class="cameraFeedHint">RTMP listo para gateway de video</div>`
@@ -179,12 +198,99 @@ function buildMediaMarkup(camera) {
   return `<img src="${escapeHtml(image)}" alt="${escapeHtml(camera.name)}">`;
 }
 
+function attachKnownMediaStreams() {
+  remoteStreams.forEach((mediaStream, streamId) => {
+    document.querySelectorAll(`video[data-stream-id="${streamId}"]`).forEach((video) => {
+      if (video.srcObject !== mediaStream) {
+        video.srcObject = mediaStream;
+      }
+      video.play?.().catch(() => {});
+    });
+  });
+}
+
 function attachLiveFeeds() {
   cameraData.forEach((camera) => {
     if (camera.isWebRtc && camera.streamId) {
       joinWebRtcStream(camera);
     }
   });
+  attachKnownMediaStreams();
+}
+
+export async function showPersonnelLiveCamera(personId, displayName = "") {
+  if (!dom.personnelDetailCamera || personId == null) return;
+
+  activeOperationId = activeOperationId || localStorage.getItem("active_operation_id");
+  activePersonnelCamera = {
+    personId: String(personId),
+    displayName: String(displayName || "").trim()
+  };
+
+  renderActivePersonnelCamera();
+  await loadLiveStreams();
+}
+
+export function clearPersonnelLiveCamera() {
+  activePersonnelCamera = null;
+  if (dom.personnelDetailCamera) {
+    dom.personnelDetailCamera.innerHTML = "";
+  }
+}
+
+function renderActivePersonnelCamera() {
+  if (!activePersonnelCamera || !dom.personnelDetailCamera) return;
+
+  const camera = findCameraForPerson(activePersonnelCamera.personId, activePersonnelCamera.displayName);
+  const name = camera?.name || activePersonnelCamera.displayName || `Agente ${activePersonnelCamera.personId}`;
+  const badge = camera ? getCameraBadge(camera) : "SIN SENAL";
+  const media = camera
+    ? buildMediaMarkup(camera)
+    : `<img src="${escapeHtml(getPlaceholderCameraImage(activePersonnelCamera.personId))}" alt="${escapeHtml(name)}">`;
+
+  dom.personnelDetailCamera.innerHTML = `
+    <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
+    ${media}
+    <div class="cameraFeedName">${escapeHtml(name)}</div>
+  `;
+
+  if (camera?.isWebRtc && camera.streamId) {
+    joinWebRtcStream(camera);
+  }
+  attachKnownMediaStreams();
+}
+
+function findCameraForPerson(personId, displayName = "") {
+  const personKey = String(personId || "");
+  const byId = cameraData.find((camera) =>
+    !camera.placeholder && camera.personnelId != null && String(camera.personnelId) === personKey
+  );
+  if (byId) return byId;
+
+  const nameKey = normalizeName(displayName);
+  if (!nameKey) return null;
+
+  return cameraData.find((camera) =>
+    !camera.placeholder && normalizeName(camera.name).includes(nameKey)
+  ) || null;
+}
+
+function normalizeName(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function getPlaceholderCameraImage(personId) {
+  const source = String(personId || "");
+  let hash = 0;
+  for (let i = 0; i < source.length; i += 1) {
+    hash = ((hash << 5) - hash) + source.charCodeAt(i);
+    hash |= 0;
+  }
+  return PLACEHOLDER_IMAGES[Math.abs(hash) % PLACEHOLDER_IMAGES.length];
 }
 
 async function fetchIceServers() {
@@ -204,17 +310,28 @@ async function fetchIceServers() {
   return iceServers;
 }
 
-async function joinWebRtcStream(camera) {
+async function joinWebRtcStream(camera, options = {}) {
   if (!streamSocket || streamSocket.connected !== true) return;
   if (!window.RTCPeerConnection) return;
-  if (joinedStreams.has(camera.streamId)) return;
+  if (joinedStreams.has(camera.streamId) && !options.refresh) {
+    attachKnownMediaStreams();
+    return;
+  }
 
   joinedStreams.add(camera.streamId);
   ensurePeerConnection(camera.streamId);
   streamSocket.emit("stream_join", {
     id_operacion: camera.operationId || activeOperationId,
     id_stream: camera.streamId,
-    role: "viewer"
+    role: "viewer",
+    refresh: Boolean(options.refresh)
+  }, (ack = {}) => {
+    if (!ack.ok) {
+      joinedStreams.delete(camera.streamId);
+      console.warn("[CAMERAS] No se pudo unir al stream:", ack.mensaje || "sin detalle");
+      return;
+    }
+    if (ack.stream) updateCameraFromStream(ack.stream);
   });
 }
 
@@ -226,10 +343,31 @@ async function ensurePeerConnection(streamId) {
   peerConnections.set(streamId, pc);
 
   pc.ontrack = (event) => {
-    const video = dom.cameraFeeds?.querySelector(`video[data-stream-id="${streamId}"]`);
-    if (video && event.streams?.[0]) {
-      video.srcObject = event.streams[0];
-      video.play?.().catch(() => {});
+    if (event.streams?.[0]) {
+      remoteStreams.set(Number(streamId), event.streams[0]);
+      attachKnownMediaStreams();
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "connected") {
+      const timer = reconnectTimers.get(streamId);
+      if (timer) {
+        window.clearTimeout(timer);
+        reconnectTimers.delete(streamId);
+      }
+    }
+    if (["failed", "closed"].includes(pc.connectionState)) {
+      reconnectWebRtcStream(streamId, 1000);
+    }
+    if (pc.connectionState === "disconnected") {
+      reconnectWebRtcStream(streamId, 3500);
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    if (["failed", "closed"].includes(pc.iceConnectionState)) {
+      reconnectWebRtcStream(streamId, 1000);
     }
   };
 
@@ -250,6 +388,39 @@ function getPublisherSocketId(streamId) {
   return cameraData.find((camera) => Number(camera.streamId) === Number(streamId))?.publisherSocketId || "";
 }
 
+function updateCameraFromStream(stream) {
+  const streamId = Number(stream?.id_stream);
+  if (!streamId) return null;
+
+  const nextCamera = streamToCamera(stream);
+  const index = cameraData.findIndex((camera) => Number(camera.streamId) === streamId);
+  if (index >= 0) {
+    cameraData[index] = { ...cameraData[index], ...nextCamera };
+  } else {
+    cameraData = cameraData.filter((camera) => !camera.placeholder);
+    cameraData.unshift(nextCamera);
+  }
+  return cameraData.find((camera) => Number(camera.streamId) === streamId) || nextCamera;
+}
+
+function findCameraByStreamId(streamId) {
+  return cameraData.find((camera) => Number(camera.streamId) === Number(streamId)) || null;
+}
+
+function reconnectWebRtcStream(streamId, delay = 250) {
+  const id = Number(streamId);
+  if (!id || reconnectTimers.has(id)) return;
+
+  reconnectTimers.set(id, window.setTimeout(() => {
+    reconnectTimers.delete(id);
+    const camera = findCameraByStreamId(id);
+    if (!camera?.isWebRtc) return;
+
+    closePeer(id);
+    joinWebRtcStream(camera, { refresh: true });
+  }, delay));
+}
+
 function bindStreamSocket() {
   if (!streamSocket || cameraSocketBound) return;
   cameraSocketBound = true;
@@ -260,7 +431,29 @@ function bindStreamSocket() {
   });
 
   streamSocket.on("media_stream_started", () => loadLiveStreams());
-  streamSocket.on("media_stream_publisher_ready", () => loadLiveStreams());
+  streamSocket.on("media_stream_publisher_ready", (stream) => {
+    const camera = updateCameraFromStream(stream);
+    if (camera) {
+      renderFeeds();
+      renderActivePersonnelCamera();
+      reconnectWebRtcStream(camera.streamId, 250);
+    } else {
+      loadLiveStreams();
+    }
+  });
+  streamSocket.on("webrtc_publisher_joined", (payload = {}) => {
+    reconnectWebRtcStream(Number(payload.id_stream), 250);
+  });
+  streamSocket.on("media_stream_publisher_offline", (stream) => {
+    const camera = updateCameraFromStream(stream);
+    closePeer(Number(stream?.id_stream));
+    if (camera) {
+      renderFeeds();
+      renderActivePersonnelCamera();
+    } else {
+      loadLiveStreams();
+    }
+  });
   streamSocket.on("media_stream_stopped", (stream) => {
     closePeer(Number(stream?.id_stream));
     loadLiveStreams();
@@ -301,11 +494,28 @@ function bindStreamSocket() {
 }
 
 function closePeer(streamId) {
+  const timer = reconnectTimers.get(streamId);
+  if (timer) {
+    window.clearTimeout(timer);
+    reconnectTimers.delete(streamId);
+  }
+
   const pc = peerConnections.get(streamId);
-  if (pc) pc.close();
+  if (pc) {
+    pc.onconnectionstatechange = null;
+    pc.oniceconnectionstatechange = null;
+    pc.ontrack = null;
+    pc.onicecandidate = null;
+    pc.close();
+  }
   peerConnections.delete(streamId);
   joinedStreams.delete(streamId);
   peerTargets.delete(streamId);
+  remoteStreams.delete(streamId);
+
+  document.querySelectorAll(`video[data-stream-id="${streamId}"]`).forEach((video) => {
+    video.srcObject = null;
+  });
 }
 
 function toggleFocus(feed) {

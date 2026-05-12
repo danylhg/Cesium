@@ -10,6 +10,7 @@ import {
 } from "./dashboard.storage.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 import { dashboardState } from "./dashboard.state.js";
+import { showPersonnelLiveCamera } from "./dashboard.camera.js";
 
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
@@ -752,14 +753,7 @@ export function showPersonnelDetail(personId) {
       : "Sin ubicacion disponible";
   }
 
-  const image = getPersonnelCameraImage(personId);
-  if (dom.personnelDetailCamera) {
-    dom.personnelDetailCamera.innerHTML = `
-      <div class="cameraFeedBadge">LIVE</div>
-      <img src="${image}" alt="${escapeHtml(nombre)}">
-      <div class="cameraFeedName">${escapeHtml(nombre)}</div>
-    `;
-  }
+  showPersonnelLiveCamera(personId, nombre);
 
   if (dom.btnCenterOnPerson) {
     dom.btnCenterOnPerson.disabled = !hasCoords;
@@ -773,20 +767,4 @@ export function showPersonnelDetail(personId) {
 
   dom.personnelDetailModal.classList.remove("hidden");
   dom.personnelDetailModal.setAttribute("aria-hidden", "false");
-}
-
-function getPersonnelCameraImage(personId) {
-  const images = [
-    "img/cameras/cam1.png",
-    "img/cameras/cam2.png",
-    "img/cameras/cam3.png",
-    "https://images.unsplash.com/photo-1508614589041-895b88991e3e?q=80&w=1000&auto=format&fit=crop"
-  ];
-  const source = String(personId || "");
-  let hash = 0;
-  for (let i = 0; i < source.length; i += 1) {
-    hash = ((hash << 5) - hash) + source.charCodeAt(i);
-    hash |= 0;
-  }
-  return images[Math.abs(hash) % images.length];
 }
