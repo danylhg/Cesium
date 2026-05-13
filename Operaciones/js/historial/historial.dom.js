@@ -13,7 +13,9 @@ export function readHistoryDom() {
   dom.chatMessages = byId("historyChatMessages", "chatMessages");
   dom.eventLog = document.getElementById("eventLog");
   dom.prevEvent = document.getElementById("historyPrevEvent");
+  dom.rewind = byId("historyRewind", "btnRewind");
   dom.playPause = byId("historyPlayPause", "btnPlayPause");
+  dom.forward = byId("historyForward", "btnForward");
   dom.nextEvent = document.getElementById("historyNextEvent");
   dom.reset = document.getElementById("btnReset");
   dom.speed = byId("historySpeed", "playbackSpeed");

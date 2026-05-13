@@ -22,6 +22,8 @@ export const dashboardState = {
   planningAreaLabel: null,
   operationZoneBorder: null,
   currentOperationZone: null,
+  gridEntities: [],
+  gridQuadrants: [],
 
   selectedEntity: null,
   draggingEntity: null,

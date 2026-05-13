@@ -1,5 +1,7 @@
 import { dom } from "./historial.dom.js";
 
+let lastScrolledEventMs = null;
+
 export function renderTopbar(replay) {
   const operation = replay?.operacion || {};
   const user = JSON.parse(localStorage.getItem("user") || "null");
@@ -316,6 +318,7 @@ export function renderChatMessages(events) {
 
 export function renderEventLog(events) {
   if (!dom.eventLog) return;
+  lastScrolledEventMs = null;
 
   const visibleEvents = [
     ...events.filter(ev => ev.tipo_evento !== "chat_mensaje" && !String(ev.tipo_evento || "").startsWith("tracking_")),
@@ -332,10 +335,11 @@ export function renderEventLog(events) {
   dom.eventLog.innerHTML = visibleEvents.map((ev) => {
     const payload = ev.payload || {};
     const time = formatDateTime(ev.occurred_at);
+    const ms = eventMs(ev);
     const name = payload.titulo || payload.contenido || payload.descripcion || payload.nota ||
       payload.nombre || payload.codigo || ev.entidad_tipo || ev.tipo_evento;
     return `
-      <div class="eventItem">
+      <div class="eventItem eventPending" data-ms="${ms}">
         <span class="eventTime">${escapeHtml(time)}</span>
         <strong>${escapeHtml(eventLabel(ev.tipo_evento))}:</strong> ${escapeHtml(name)}
       </div>
@@ -377,6 +381,24 @@ export function updateChatToTime(currentMs) {
 
   if (lastVisible) {
     lastVisible.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
+}
+
+export function updateEventLogToTime(currentMs) {
+  if (!dom.eventLog) return;
+
+  let lastPlayed = null;
+  for (const el of dom.eventLog.querySelectorAll("[data-ms]")) {
+    const played = Number(el.dataset.ms) <= currentMs;
+    el.classList.toggle("eventPlayed", played);
+    el.classList.toggle("eventPending", !played);
+    if (played) lastPlayed = el;
+  }
+
+  const playedMs = lastPlayed ? Number(lastPlayed.dataset.ms) : null;
+  if (lastPlayed && playedMs !== lastScrolledEventMs) {
+    lastScrolledEventMs = playedMs;
+    lastPlayed.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 }
 

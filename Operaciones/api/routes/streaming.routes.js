@@ -1,20 +1,20 @@
 import { Router, raw } from "express";
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { writeFile } from "node:fs/promises";
 import { pool } from "../db.js";
 import { RTMP_PLAYBACK_BASE_URL, RTMP_PUBLISH_BASE_URL, WEBRTC_ICE_SERVERS } from "../config/env.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
 import { sendError } from "../utils/http.js";
 import { isInt } from "../utils/validators.js";
+import {
+  deleteOrphanStreamFiles,
+  ensureStreamStorageDir,
+  resolveStreamRecordingPath
+} from "../utils/streamRecordings.js";
 
 const router = Router();
 let streamingTablesReady = false;
-const routesDir = dirname(fileURLToPath(import.meta.url));
-const apiRoot = resolve(routesDir, "..");
-const streamStorageRoot = resolve(apiRoot, "storage", "streams");
 const recordingContentTypes = new Set(["video/webm", "audio/webm", "application/octet-stream"]);
 
 function isRecordingContentType(req) {
@@ -40,6 +40,12 @@ function normalizeProtocol(value) {
 
 function truthy(value) {
   return value === true || value === "true" || value === "1" || value === 1;
+}
+
+function parseOptionalDate(value) {
+  if (value == null || value === "") return null;
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 function joinStreamUrl(base, streamKey) {
@@ -134,16 +140,32 @@ async function ensureStreamingTables() {
       original_filename TEXT,
       size_bytes BIGINT NOT NULL DEFAULT 0 CHECK (size_bytes >= 0),
       duration_ms BIGINT,
+      recorded_started_at TIMESTAMPTZ,
+      recorded_ended_at TIMESTAMPTZ,
       recorded_by_tabla TEXT,
       recorded_by_id INT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    ALTER TABLE media_stream_recording
+      ADD COLUMN IF NOT EXISTS recorded_started_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS recorded_ended_at TIMESTAMPTZ;
 
     CREATE INDEX IF NOT EXISTS idx_media_stream_recording_stream
       ON media_stream_recording(id_stream, created_at DESC);
   `);
 
   streamingTablesReady = true;
+  cleanupOrphanRecordingFiles().catch((err) => {
+    console.warn("[STREAMING] No se pudieron limpiar grabaciones huerfanas:", err.message);
+  });
+}
+
+async function cleanupOrphanRecordingFiles() {
+  const { rows: recordingRows } = await pool.query(
+    `SELECT storage_path FROM media_stream_recording WHERE storage_path IS NOT NULL`
+  );
+  return deleteOrphanStreamFiles(recordingRows.map((row) => row.storage_path));
 }
 
 function publicRecording(row) {
@@ -155,6 +177,8 @@ function publicRecording(row) {
     original_filename: row.original_filename,
     size_bytes: Number(row.size_bytes || 0),
     duration_ms: row.duration_ms != null ? Number(row.duration_ms) : null,
+    recorded_started_at: row.recorded_started_at || null,
+    recorded_ended_at: row.recorded_ended_at || null,
     created_at: row.created_at,
     download_url: `/ops/${row.id_operacion}/streams/${row.id_stream}/recordings/${row.id_recording}/download`,
   };
@@ -164,6 +188,11 @@ function publicRecording(row) {
   if (row.stream_label != null) recording.stream_label = row.stream_label;
   if (row.stream_started_at != null) recording.stream_started_at = row.stream_started_at;
   if (row.stream_ended_at != null) recording.stream_ended_at = row.stream_ended_at;
+  if (row.id_usuario != null) recording.id_usuario = row.id_usuario;
+  if (row.id_personal != null) recording.id_personal = row.id_personal;
+  if (row.source_type != null) recording.source_type = row.source_type;
+  if (row.external_device_id != null) recording.external_device_id = row.external_device_id;
+  if (row.stream_key != null) recording.stream_key = row.stream_key;
 
   return recording;
 }
@@ -272,7 +301,12 @@ router.get("/ops/:id/streams/recordings", requireAuth, async (req, res) => {
               s.status AS stream_status,
               s.label AS stream_label,
               s.started_at AS stream_started_at,
-              s.ended_at AS stream_ended_at
+              s.ended_at AS stream_ended_at,
+              s.id_usuario,
+              s.id_personal,
+              s.source_type,
+              s.external_device_id,
+              s.stream_key
        FROM media_stream_recording r
        LEFT JOIN media_stream_session s
          ON s.id_stream = r.id_stream
@@ -281,6 +315,9 @@ router.get("/ops/:id/streams/recordings", requireAuth, async (req, res) => {
        ORDER BY r.created_at DESC`,
       [id_operacion]
     );
+    cleanupOrphanRecordingFiles().catch((err) => {
+      console.warn("[STREAMING] No se pudieron limpiar grabaciones huerfanas:", err.message);
+    });
     return res.json({ ok: true, items: rows.map(publicRecording) });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo grabaciones");
@@ -473,12 +510,28 @@ router.get("/ops/:id/streams/:streamId/recordings", requireAuth, async (req, res
   try {
     await ensureStreamingTables();
     const { rows } = await pool.query(
-      `SELECT *
-       FROM media_stream_recording
-       WHERE id_operacion = $1 AND id_stream = $2
-       ORDER BY created_at DESC`,
+      `SELECT r.*,
+              s.kind AS stream_kind,
+              s.status AS stream_status,
+              s.label AS stream_label,
+              s.started_at AS stream_started_at,
+              s.ended_at AS stream_ended_at,
+              s.id_usuario,
+              s.id_personal,
+              s.source_type,
+              s.external_device_id,
+              s.stream_key
+       FROM media_stream_recording r
+       LEFT JOIN media_stream_session s
+         ON s.id_stream = r.id_stream
+        AND s.id_operacion = r.id_operacion
+       WHERE r.id_operacion = $1 AND r.id_stream = $2
+       ORDER BY r.created_at DESC`,
       [id_operacion, id_stream]
     );
+    cleanupOrphanRecordingFiles().catch((err) => {
+      console.warn("[STREAMING] No se pudieron limpiar grabaciones huerfanas:", err.message);
+    });
     return res.json({ ok: true, items: rows.map(publicRecording) });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo grabaciones");
@@ -500,6 +553,8 @@ router.post(
     const mime_type = String(req.headers["content-type"] || "video/webm").split(";")[0].trim();
     const duration_ms = req.query.duration_ms ? Number(req.query.duration_ms) : null;
     const safeDuration = Number.isFinite(duration_ms) && duration_ms >= 0 ? Math.round(duration_ms) : null;
+    const recorded_started_at = parseOptionalDate(req.query.started_at);
+    const recorded_ended_at = parseOptionalDate(req.query.ended_at);
 
     try {
       await ensureStreamingTables();
@@ -507,19 +562,19 @@ router.post(
       if (!stream) return sendError(res, 404, "Transmision no existe");
 
       const actor = getActorColumns(req);
-      const dir = resolve(streamStorageRoot, `op_${id_operacion}`, `stream_${id_stream}`);
-      await mkdir(dir, { recursive: true });
+      await ensureStreamStorageDir(`op_${id_operacion}`, `stream_${id_stream}`);
 
       const filename = `recording_${Date.now()}_${randomUUID()}.webm`;
-      const storagePath = resolve(dir, filename);
+      const storagePath = resolveStreamRecordingPath(`op_${id_operacion}`, `stream_${id_stream}`, filename);
       await writeFile(storagePath, buffer);
 
       const { rows } = await pool.query(
         `INSERT INTO media_stream_recording (
            id_stream, id_operacion, mime_type, storage_path, original_filename,
-           size_bytes, duration_ms, recorded_by_tabla, recorded_by_id
+           size_bytes, duration_ms, recorded_started_at, recorded_ended_at,
+           recorded_by_tabla, recorded_by_id
          )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          RETURNING *`,
         [
           id_stream,
@@ -529,6 +584,8 @@ router.post(
           filename,
           buffer.length,
           safeDuration,
+          recorded_started_at,
+          recorded_ended_at,
           actor.created_by_tabla,
           actor.created_by_id,
         ]

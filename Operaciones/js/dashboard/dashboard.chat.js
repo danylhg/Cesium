@@ -20,7 +20,7 @@ let _chatDirectory = {
   personalById: new Map()
 };
 
-// â”€â”€ JWT helper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── JWT helper ──────────────────────────────────────────────
 function getMyInfo() {
   const token = localStorage.getItem("token");
   if (!token) return {};
@@ -117,9 +117,9 @@ function personBelongsToFlotilla(personId, flotillaId) {
   );
 }
 
-// â”€â”€ Visibilidad segÃºn tab activo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Tab CET  â†’ solo mensajes de ADMIN, CUT y CET
-// Tab Global â†’ todos
+// ── Visibilidad según tab activo ────────────────────────────
+// Tab CET  → solo mensajes de ADMIN, CUT y CET
+// Tab Global → todos
 function isVisibleInTab(msg) {
   const destinatario = (msg.destinatario_rol || "GLOBAL").toUpperCase();
   const destinoTipo = String(msg.destino_tipo || "").toUpperCase();
@@ -353,7 +353,7 @@ function getDestinoPayload() {
   };
 }
 
-// â”€â”€ Build a single chat bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Build a single chat bubble ──────────────────────────────
 function formatDestino(msg) {
   const tipo = String(msg.destino_tipo || "").toUpperCase();
   const label = String(msg.destino_label || "").trim();
@@ -435,7 +435,7 @@ function buildAttachmentMarkup(msg) {
   return `<a class="chatAttachmentFile" href="${safeUrl}" target="_blank" rel="noopener">${name}</a>`;
 }
 
-// â”€â”€ Re-renderiza todos los mensajes visibles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Re-renderiza todos los mensajes visibles ────────────────
 function renderMessages() {
   if (!dom.chatMessages) return;
   dom.chatMessages.innerHTML = "";
@@ -445,7 +445,7 @@ function renderMessages() {
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 }
 
-// â”€â”€ Agrega un mensaje (guard de duplicados) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Agrega un mensaje (guard de duplicados) ─────────────────
 function appendMessage(msg) {
   if (!dom.chatMessages) return;
 
@@ -465,7 +465,7 @@ function appendMessage(msg) {
   if (atBottom) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 }
 
-// â”€â”€ Carga historial desde backend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Carga historial desde backend ──────────────────────────
 async function loadMessages() {
   if (!_opId) return;
   try {
@@ -485,7 +485,7 @@ async function loadMessages() {
   }
 }
 
-// â”€â”€ EnvÃ­a un mensaje (POST â†’ socket lo devuelve) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Envía un mensaje (POST → socket lo devuelve) ────────────
 async function sendMessage() {
   if (!_opId) return;
   const text = dom.chatInput?.value.trim();
@@ -513,7 +513,7 @@ async function sendMessage() {
       console.error("[CHAT] Error al enviar:", res.status);
       if (dom.chatInput) dom.chatInput.value = text;
     }
-    // El mensaje llega vÃ­a socket â€” no se agrega localmente aquÃ­
+    // El mensaje llega vía socket — no se agrega localmente aquí
   } catch (err) {
     console.error("[CHAT] Error enviando mensaje:", err);
     if (dom.chatInput) dom.chatInput.value = text;
@@ -523,7 +523,7 @@ async function sendMessage() {
   }
 }
 
-// â”€â”€ PÃºblico: inicializa chat con socket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Público: inicializa chat con socket ─────────────────────
 export function initChat(opId, socket) {
   _opId   = opId;
   _socket = socket;
@@ -536,7 +536,7 @@ export function initChat(opId, socket) {
   loadMessages();
 }
 
-// â”€â”€ PÃºblico: enlaza eventos de UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Público: enlaza eventos de UI ───────────────────────────
 export function bindChatEvents() {
   if (dom.chatChannelType) {
     dom.chatChannelType.addEventListener("change", () => {

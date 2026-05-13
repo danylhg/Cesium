@@ -309,6 +309,17 @@ window.addEventListener("load", async () => {
 
   if (dom.recenterMapBtn) {
     dom.recenterMapBtn.onclick = () => {
+      const currentOperation = getCurrentOperation();
+      const operationZone =
+        dashboardState.currentOperationZone ||
+        currentOperation?.zona_operacion ||
+        dashboardState.currentOperation?.zona_operacion;
+
+      if (operationZone) {
+        centerMapOnOperationZone(operationZone);
+        return;
+      }
+
       if (dashboardState.areaPoints && dashboardState.areaPoints.length > 0) {
         const lats = dashboardState.areaPoints.map(p => p.lat);
         const lngs = dashboardState.areaPoints.map(p => p.lng);
@@ -319,10 +330,6 @@ window.addEventListener("load", async () => {
           destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, 4500)
         });
         return;
-      }
-
-      if (dashboardState.currentOperation?.zona_operacion) {
-        centerMapOnOperationZone(dashboardState.currentOperation.zona_operacion);
       }
     };
   }
@@ -342,6 +349,7 @@ window.addEventListener("load", async () => {
       vehiculos: bdData.vehiculos || [],
       equipos: bdData.equipos || []
     });
+    dashboardState.currentOperation = getCurrentOperation();
     renderInfoPanel(bdData);
     initCameraFeeds();
     setTacticalUI();
@@ -402,6 +410,7 @@ window.addEventListener("load", async () => {
         vehiculos: fresh.vehiculos || [],
         equipos: fresh.equipos || []
       });
+      dashboardState.currentOperation = getCurrentOperation();
       renderInfoPanel(fresh);
       initCameraFeeds();
       setTacticalUI();

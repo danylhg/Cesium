@@ -205,7 +205,7 @@ function renderPersonalHtml(personalNorm) {
     (p) => ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
   );
   const cells = personalNorm.filter(
-    (p) => ["CÃ©lula", "CELL", "Celulas", "CÃ©lulas"].includes(p.cargo || p.rol)
+    (p) => ["Célula", "CELL", "Celulas", "Células"].includes(p.cargo || p.rol)
   );
 
   cuts.forEach((cut) => {

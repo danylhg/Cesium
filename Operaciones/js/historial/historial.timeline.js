@@ -1,14 +1,16 @@
 import { dom } from "./historial.dom.js";
 import { replayState } from "./historial.state.js";
-import { renderPlaybackState, renderTimelineTime, updateChatToTime } from "./historial.ui.js";
+import { renderPlaybackState, renderTimelineTime, updateChatToTime, updateEventLogToTime } from "./historial.ui.js";
 import { updateMapToTime } from "./historial.map.js";
 
 const TICK_MS = 250;
 
 export function initTimeline() {
   dom.playPause?.addEventListener("click", togglePlayback);
+  dom.rewind?.addEventListener("click", () => seekRelative(-10000));
   dom.prevEvent?.addEventListener("click", goToPreviousEvent);
   dom.nextEvent?.addEventListener("click", goToNextEvent);
+  dom.forward?.addEventListener("click", () => seekRelative(10000));
   dom.reset?.addEventListener("click", () => {
     pausePlayback();
     setCurrentTime(replayState.startMs);
@@ -219,6 +221,12 @@ function setCurrentTime(value) {
   renderTimelineTime(clampedTime, replayState.endMs, replayState.events, replayState.startMs);
   updateMapToTime(clampedTime);
   updateChatToTime(clampedTime);
+  updateEventLogToTime(clampedTime);
+}
+
+function seekRelative(deltaMs) {
+  pausePlayback();
+  setCurrentTime(replayState.currentTimeMs + deltaMs);
 }
 
 function goToPreviousEvent() {

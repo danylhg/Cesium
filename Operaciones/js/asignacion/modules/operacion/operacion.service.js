@@ -168,7 +168,7 @@ async function apiFetch(path, method = "GET", body = null) {
     console.error(`Fallo en petición [${method} ${path}]:`, error.message);
     if (
       String(error?.message || "").toLowerCase().includes("ya existe una operacion con ese nombre") ||
-      String(error?.message || "").toLowerCase().includes("ya existe una operaciÃ³n con ese nombre")
+      String(error?.message || "").toLowerCase().includes("ya existe una operación con ese nombre")
     ) {
       showNombreOperacionError("Ya existe una operación con ese nombre.");
     }

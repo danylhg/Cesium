@@ -12,6 +12,7 @@ import { sendDbError } from "../../utils/dbErrors.js";
 
 // Helper para validar si un valor es entero válido
 import { isInt } from "../../utils/validators.js";
+import { deleteOperationStreamFiles, deleteRecordingFiles } from "../../utils/streamRecordings.js";
 
 // Crea una instancia de router para exportar este módulo
 const router = Router();
@@ -353,6 +354,7 @@ router.delete("/ops/:id/remove", requireAuth, async (req, res) => {
   }
 
   const client = await pool.connect();
+  let recordingStoragePaths = [];
 
   try {
     await client.query("BEGIN");
@@ -378,6 +380,19 @@ router.delete("/ops/:id/remove", requireAuth, async (req, res) => {
       });
     }
 
+    const { rows: recordingTableRows } = await client.query(
+      "SELECT to_regclass('public.media_stream_recording') AS table_name"
+    );
+    if (recordingTableRows[0]?.table_name) {
+      const { rows: recordingRows } = await client.query(
+        `SELECT storage_path
+         FROM media_stream_recording
+         WHERE id_operacion = $1`,
+        [id]
+      );
+      recordingStoragePaths = recordingRows.map((row) => row.storage_path).filter(Boolean);
+    }
+
     // El cascade de operacion puede borrar chat_operacion antes de mensaje_chat.
     // Ese trigger resuelve la operacion por chat_operacion, asi que se desactiva
     // solo durante este borrado definitivo y se vuelve a activar antes del COMMIT.
@@ -395,7 +410,28 @@ router.delete("/ops/:id/remove", requireAuth, async (req, res) => {
     );
 
     await client.query("COMMIT");
-    res.json({ ok: true, mensaje: "Operación eliminada correctamente" });
+
+    let storageCleanup = null;
+    try {
+      const recordingCleanup = await deleteRecordingFiles(recordingStoragePaths);
+      const operationCleanup = await deleteOperationStreamFiles(id);
+      storageCleanup = {
+        recordings: recordingCleanup,
+        operation_dir: operationCleanup.path
+      };
+      if (recordingCleanup.errors.length > 0) {
+        console.warn("[STREAMING] Errores limpiando archivos de grabacion:", recordingCleanup.errors);
+      }
+    } catch (cleanupErr) {
+      storageCleanup = { error: cleanupErr.message };
+      console.warn("[STREAMING] No se pudo limpiar storage de grabaciones:", cleanupErr);
+    }
+
+    res.json({
+      ok: true,
+      mensaje: "Operación eliminada correctamente",
+      storage_cleanup: storageCleanup
+    });
   } catch (err) {
     try {
       await client.query("ROLLBACK");

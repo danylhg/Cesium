@@ -63,7 +63,7 @@
     <button id="toggleRoutePanel" class="toolFab" title="Rutas">🗺️</button>
     <button id="toggleTacticalPanel" class="toolFab" title="Táctico">✚</button>
     <button id="toggleChatPanel" class="toolFab" title="Chat táctico">💬</button>
-    <button id="toggleCameraPanel" class="toolFab" title="Cámaras en vivo" style="display:none;">📹</button>
+    <button id="toggleCameraPanel" class="toolFab" title="Cámaras en vivo">📹</button>
   </div>
 
   <main class="mapStage">
@@ -76,25 +76,40 @@
 
     <!-- Popup flotante para eliminar elemento seleccionado -->
     <div id="entityPopup"
-      style="display:none; position:absolute; z-index:9999; background:rgba(10,20,40,0.95); border:1px solid #00ffa6; border-radius:10px; padding:8px 14px; box-shadow:0 4px 20px rgba(0,255,166,0.2); pointer-events:all; min-width:170px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-        <div id="entityPopupName" style="font-size:12px; color:#a0c4ff; font-weight:600;"></div>
-        <button id="btnCloseEntityPopup" style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px; padding:0 4px;">×</button>
+      style="display:none; position:absolute; z-index:9999; background:rgba(10,20,40,0.95); border:1px solid #00ffa6; border-radius:12px; padding:12px; box-shadow:0 8px 30px rgba(0,255,166,0.25); pointer-events:all; min-width:180px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+        <div id="entityPopupName"
+          style="font-size:12px; color:#a0c4ff; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:130px;">
+        </div>
+        <button id="btnCloseEntityPopup"
+          style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:16px; padding:0 4px;">✕</button>
       </div>
       <button id="entityPopupDelete"
-        style="width:100%; padding:5px 10px; background:rgba(239,68,68,0.85); border:1px solid #ef4444; border-radius:7px; color:#fff; font-weight:700; font-size:13px; cursor:pointer;">🗑️
+        style="width:100%; padding:8px; background:rgba(239,68,68,0.15); border:1px solid #ef4444; border-radius:8px; color:#ff8080; font-weight:700; font-size:13px; cursor:pointer; transition:all 0.2s;">🗑️
         Eliminar</button>
     </div>
 
     <!-- Menú rápido flotante para vehículos rastreados -->
     <div id="vehicleQuickMenu"
-      style="display:none; position:absolute; z-index:9999; background:rgba(5, 15, 30, 0.95); border:1px solid #00c3ff; border-radius:12px; padding:10px 14px; box-shadow:0 6px 25px rgba(0, 195, 255, 0.25); pointer-events:all; min-width:200px;">
-      <div id="vehicleQuickMenuName" style="font-size:14px; color:#dbeafe; margin-bottom:10px; font-weight:800; text-align:center; border-bottom:1px solid rgba(0,195,255,0.2); padding-bottom:6px;">Vehículo</div>
-      <button id="btnCloseVehicleQuickMenu" style="position:absolute; top:8px; right:8px; background:none; border:none; color:#94a3b8; cursor:pointer; font-size:18px; padding:0 4px;">×</button>
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <button id="btnVehQuickChat" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(0,255,170,0.15); border:1px solid rgba(0,255,170,0.4); color:#e6edf3; width:100%; text-transform:none;">💬 Mnsj a Tripulación</button>
-        <button id="btnVehQuickAlert" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(255, 69, 0, 0.2); border:1px solid rgba(255, 69, 0, 0.5); color:#ffd6d6; width:100%; text-transform:none;">⚠️ Dar Aviso Rápido</button>
-        <button id="btnVehQuickRoute" class="actionBtn" style="padding:8px; font-size:12px; background:rgba(0,195,255,0.15); border:1px solid rgba(0,195,255,0.4); color:#e6edf3; width:100%; text-transform:none;">🗺️ Ver Ruta</button>
+      style="display:none; position:absolute; z-index:9999; background:rgba(5, 15, 30, 0.95); border:1px solid #00c3ff; border-radius:12px; padding:12px; box-shadow:0 8px 30px rgba(0, 195, 255, 0.3); pointer-events:all; min-width:220px;">
+      <div
+        style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid rgba(0,195,255,0.2); padding-bottom:8px;">
+        <div id="vehicleQuickMenuName"
+          style="font-size:14px; color:#dbeafe; font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:170px;">
+          Vehículo</div>
+        <button id="btnCloseVehicleQuickMenu"
+          style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:18px; padding:0 4px;">✕</button>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        <button id="btnVehQuickChat" class="actionBtn"
+          style="padding:10px; font-size:12px; background:rgba(0,255,170,0.1); border:1px solid rgba(0,255,170,0.3); color:#e6edf3; width:100%; text-transform:none; border-radius:8px;">💬
+          Mnsj a Tripulación</button>
+        <button id="btnVehQuickAlert" class="actionBtn"
+          style="padding:10px; font-size:12px; background:rgba(255, 69, 0, 0.15); border:1px solid rgba(255, 69, 0, 0.4); color:#ffd6d6; width:100%; text-transform:none; border-radius:8px;">⚠️
+          Dar Aviso Rápido</button>
+        <button id="btnVehQuickRoute" class="actionBtn"
+          style="padding:10px; font-size:12px; background:rgba(0,195,255,0.1); border:1px solid rgba(0,195,255,0.3); color:#e6edf3; width:100%; text-transform:none; border-radius:8px;">🗺️
+          Ver Ruta</button>
       </div>
     </div>
 
@@ -104,7 +119,8 @@
     </div>
 
     <button id="recenterMapBtn" class="recenterMapBtn" title="Centrar en operación">
-      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+      <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="10"></circle>
         <circle cx="12" cy="12" r="3" fill="currentColor"></circle>
         <line x1="12" y1="1" x2="12" y2="4"></line>
@@ -113,43 +129,55 @@
         <line x1="20" y1="12" x2="23" y2="12"></line>
       </svg>
     </button>
-
     <div id="personnelDetailModal" class="planningExitModal hidden" aria-hidden="true">
       <div id="personnelDetailBackdrop" class="planningExitBackdrop"></div>
-      <div class="planningExitCard personnelDetailCard" role="dialog" aria-modal="true" aria-labelledby="personnelDetailName">
-        <div class="personnelDetailHeader">
-          <h3 id="personnelDetailName">Detalle del agente</h3>
-          <button id="btnClosePersonnelDetail" class="personnelDetailClose" type="button">×</button>
+      <div class="planningExitCard personnelDetailCard" role="dialog" aria-modal="true"
+        style="width: 600px; max-width: 90vw;">
+        <div
+          style="display:flex; justify-content:space-between; align-items:center; margin-bottom:15px; border-bottom: 1px solid rgba(0,255,166,0.3); padding-bottom:10px;">
+          <h3 id="personnelDetailName" style="margin:0; color:#00ffa6;">Nombre del Agente</h3>
+          <button id="btnClosePersonnelDetail"
+            style="background:none; border:none; color:#94a3b8; cursor:pointer; font-size:20px;">✕</button>
         </div>
 
-        <div class="personnelDetailGrid">
+        <div class="personnelDetailGrid" style="display:grid; grid-template-columns: 1fr 1fr; gap:20px;">
           <div class="personnelInfoCol">
-            <div class="personnelStatusBlock personnelVitalsBlock">
-              <h4>Signos vitales</h4>
-              <div class="personnelMetric">
-                <span>Frecuencia cardiaca</span>
-                <strong>78 BPM</strong>
+            <div class="vitalsBlock"
+              style="background:rgba(0,0,0,0.3); padding:15px; border-radius:10px; border:1px solid rgba(255,0,0,0.2); margin-bottom:15px;">
+              <h4 style="margin:0 0 10px 0; font-size:12px; color:#ff4444; text-transform:uppercase;">Signos Vitales
+              </h4>
+              <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span>Frecuencia Cardíaca:</span>
+                <strong style="color:#ff4444;">78 BPM</strong>
               </div>
-              <div class="personnelMetric">
-                <span>Oxigenación</span>
-                <strong>98% SpO2</strong>
+              <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+                <span>Oxigenación:</span>
+                <strong style="color:#00ffa6;">98% SpO2</strong>
               </div>
-              <div class="personnelMetric">
-                <span>Temperatura</span>
-                <strong>36.5 °C</strong>
+              <div style="display:flex; justify-content:space-between;">
+                <span>Temperatura:</span>
+                <strong style="color:#ffae00;">36.5 °C</strong>
               </div>
             </div>
 
-            <div class="personnelStatusBlock personnelLocationBlock">
-              <h4>Ubicación actual</h4>
-              <p id="personnelDetailCoords">Sin ubicación disponible</p>
-              <button id="btnCenterOnPerson" class="btnBeige" type="button">Ir a ubicación</button>
+            <div class="locationBlock"
+              style="background:rgba(0,0,0,0.3); padding:15px; border-radius:10px; border:1px solid rgba(0,195,255,0.2);">
+              <h4 style="margin:0 0 10px 0; font-size:12px; color:#00c3ff; text-transform:uppercase;">Ubicación Actual
+              </h4>
+              <p id="personnelDetailCoords" style="font-family:monospace; font-size:12px; margin:0;">LAT: 19.4326, LNG:
+                -99.1332</p>
+              <button id="btnCenterOnPerson" class="btnBeige"
+                style="width:100%; margin-top:10px; font-size:11px; padding:5px;">Ir a ubicación</button>
             </div>
           </div>
 
           <div class="personnelCameraCol">
-            <h4>Cámara en tiempo real</h4>
-            <div id="personnelDetailCamera" class="cameraFeed personnelDetailCamera"></div>
+            <h4 style="margin:0 0 10px 0; font-size:12px; color:#00ffa6; text-transform:uppercase;">Cámara en Tiempo
+              Real</h4>
+            <div id="personnelDetailCamera" class="cameraFeed"
+              style="width:100%; height:180px; border: 2px solid #00ffa6;">
+              <!-- Feed will be injected here -->
+            </div>
           </div>
         </div>
       </div>
@@ -191,6 +219,34 @@
       <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
     </div>
 
+    <div class="groupTitle">Zona de operación</div>
+    <div class="btnGrid">
+      <button id="markZoneBtn" class="btnBeige" style="background: #00ffa6; color: #001b1b;">Marcar zona</button>
+      <button id="clearZoneBtn" class="btnBeige">Limpiar zona</button>
+    </div>
+    <div class="styleGrid" style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      <div>
+        <label class="fieldLabel">Color</label>
+        <select id="zoneColorSelect"
+          style="width: 100%; padding: 4px; border-radius: 4px; background: rgba(0,0,0,0.5); color: #fff; border: 1px solid rgba(255,255,255,0.2);">
+          <option value="blue">Azul</option>
+          <option value="red">Rojo</option>
+          <option value="green">Verde</option>
+          <option value="yellow">Amarillo</option>
+          <option value="orange">Naranja</option>
+          <option value="black">Negro</option>
+          <option value="white">Blanco</option>
+        </select>
+      </div>
+      <div>
+        <label class="fieldLabel">Grosor</label>
+        <input id="zoneWidthRange" type="range" min="1" max="10" step="1" value="3" style="width: 100%;">
+      </div>
+    </div>
+    <div id="zoneActionBtns" style="display:none;">
+      <button id="finishZoneBtn" class="btnBeige" style="display:none;">Finalizar zona</button>
+    </div>
+
     <div style="display:none;">
       <button id="calcRoute" class="btnBeige">Calcular ruta</button>
       <div class="groupTitle">Área de planeación</div>
@@ -220,10 +276,10 @@
       </optgroup>
 
       <optgroup label="ÁREAS DE INTERÉS">
-        <option value="perimeter">Perímetro punteado</option>
         <option value="polygon">Polígono Táctico</option>
         <option value="circle">Círculo de cobertura</option>
         <option value="polyline">Línea Táctica (Ruta)</option>
+        <option value="grid">🔲 Cuadrícula / Cuadrantes</option>
       </optgroup>
 
       <optgroup label="OTROS">
@@ -232,11 +288,34 @@
       </optgroup>
     </select>
 
-    <div id="pencilSubmenu" style="display:none; margin-bottom: 20px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+    <div id="pencilSubmenu"
+      style="display:none; margin-bottom: 20px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
       <label class="fieldLabel">Herramienta de dibujo</label>
       <div class="btnGrid" style="grid-template-columns: 1fr 1fr; margin-top: 5px;">
-        <button id="btnSelectPencil" class="btnBeige" style="background: #00ffa6; color: #001b1b; box-shadow: 0 0 10px rgba(0,255,166,0.3);">✏️ Lápiz</button>
-        <button id="btnSelectEraser" class="btnBeige" style="background: rgba(255,255,255,0.1); color: #fff;">🧹 Goma</button>
+        <button id="btnSelectPencil" class="btnBeige"
+          style="background: #00ffa6; color: #001b1b; box-shadow: 0 0 10px rgba(0,255,166,0.3);">✏️ Lápiz</button>
+        <button id="btnSelectEraser" class="btnBeige" style="background: rgba(255,255,255,0.1); color: #fff;">🧹
+          Goma</button>
+      </div>
+    </div>
+
+    <div id="gridSubmenu"
+      style="display:none; margin-bottom: 20px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
+      <label class="fieldLabel">Dimensiones</label>
+      <select id="gridSizeSelect" class="opsInput" style="margin-bottom: 10px;">
+        <option value="2x2">2 x 2</option>
+        <option value="3x3" selected>3 x 3</option>
+        <option value="4x4">4 x 4</option>
+        <option value="5x5">5 x 5</option>
+        <option value="10x10">10 x 10</option>
+      </select>
+      <button id="generateGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; background: #00ffa6; color: #001b1b;">Generar en Zona de Operación</button>
+      <button id="clearGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; display:none;">Limpiar Cuadrícula</button>
+
+      <div id="gridNamesWrapper" style="display:none; margin-top: 10px;">
+        <label class="fieldLabel">Nombres de Cuadrantes</label>
+        <div id="gridNamesContainer" style="display:grid; grid-template-columns: 1fr 1fr; gap: 5px; max-height: 200px; overflow-y: auto; padding-right: 5px;">
+        </div>
       </div>
     </div>
 
@@ -299,6 +378,14 @@
       </div>
     </div>
 
+    <div id="buildingPreview" style="display:none; margin-bottom: 20px; background: rgba(0,255,166,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(0,255,166,0.15);">
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 8px;">
+        <div id="buildingPreviewDrag" class="milPreviewBox" style="width: 80px; height: 80px;" draggable="true" title="Arrastra este icono al mapa">
+          <img src="img/estructuras/casa.png" alt="Edificio" style="max-width: 64px; max-height: 64px; pointer-events: none;">
+        </div>
+      </div>
+    </div>
+
     <div id="symLabelContainer">
       <input id="symLabel" class="opsInput" placeholder="Texto / etiqueta" disabled />
     </div>
@@ -333,11 +420,12 @@
       </div>
     </div>
 
-    <div class="btnGrid">
+    <div id="tacticalActionButtons" class="btnGrid" style="display:none; margin-top:20px;">
       <button id="placeBtn" class="btnBeige" disabled>Colocar</button>
-      <button id="finishShape" class="btnBeige">Terminar figura</button>
       <button id="clearTactical" class="btnBeige">Limpiar táctico</button>
+      <button id="finishShape" class="btnBeige" style="grid-column: 1 / -1;">Terminar figura</button>
     </div>
+
   </aside>
 
   <aside id="chatPanel" class="glassPanel chatPanel">
@@ -366,15 +454,19 @@
   </aside>
 
   <aside id="cameraPanel" class="glassPanel cameraPanel">
-    <div class="panelHeader">
-      <span class="dragHandle">⋮⋮</span>
+    <div class="panelHeader"
+      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: flex-end; padding: 5px;">
       <div class="cameraControls">
-        <button id="cameraLayoutGrid" class="layoutBtn active" title="Vista en cuadrícula" type="button">▦</button>
-        <button id="cameraLayoutSpeaker" class="layoutBtn" title="Vista enfocada" type="button">◉</button>
+        <button id="cameraLayoutGrid" class="layoutBtn active" title="Vista en cuadrícula"
+          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">🔲</button>
+        <button id="cameraLayoutSpeaker" class="layoutBtn" title="Vista enfocada"
+          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">👤</button>
       </div>
     </div>
 
-    <div id="cameraFeeds" class="cameraFeeds grid-layout"></div>
+    <div id="cameraFeeds" class="cameraFeeds grid-layout">
+      <!-- Camera feeds will be inserted here -->
+    </div>
   </aside>
 
   <script type="module" src="js/dashboard/dashboard.js"></script>

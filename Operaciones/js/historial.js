@@ -2,7 +2,7 @@ import { downloadRecording, loadCesiumToken, loadReplay, loadStreamRecordings } 
 import { dom, readHistoryDom } from "./historial/historial.dom.js";
 import { initHistoryMap, buildMapEntities, focusOnReplay, resizeHistoryMap } from "./historial/historial.map.js";
 import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
-import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages, updateChatToTime } from "./historial/historial.ui.js";
+import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages, updateChatToTime, updateEventLogToTime } from "./historial/historial.ui.js";
 import { replayState } from "./historial/historial.state.js";
 
 readHistoryDom();
@@ -47,6 +47,7 @@ async function main() {
     renderChatMessages(replay.timeline?.eventos || []);
     updateChatToTime(replayState.currentTimeMs);
     renderEventLog(replay.timeline?.eventos || []);
+    updateEventLogToTime(replayState.currentTimeMs);
     buildMapEntities(replay);
     focusOnReplay(replay);
   } catch (error) {

@@ -9,6 +9,7 @@ import {
   updateTacticalPreview,
   isDraggableEntity,
   createMilSymbol,
+  createPoi,
   persistDraggedEntity
 } from "./dashboard.tactical.js";
 import { addAreaVertex, updateAreaPreview } from "./dashboard.area.js";
@@ -532,9 +533,10 @@ function bindMapDropEvents() {
     const src = e.dataTransfer.getData("text/plain");
     const sidc = e.dataTransfer.getData("application/sidc");
     const title = e.dataTransfer.getData("application/title");
+    const isBuilding = e.dataTransfer.getData("application/building") === "true";
 
-    if (!src && !sidc) return;
-    if (!title) return;
+    if (!src && !sidc && !isBuilding) return;
+    if (!title && !isBuilding) return;
 
     const rect = dom.map.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -544,6 +546,14 @@ function bindMapDropEvents() {
     if (!cartesian) return;
     const coords = cartesianToLatLng(cartesian);
     if (!coords) return;
+
+    if (isBuilding) {
+      const previousMode = dashboardState.toolMode;
+      dashboardState.toolMode = "building";
+      void createPoi(coords.lat, coords.lng, "img/estructuras/casa.png");
+      dashboardState.toolMode = previousMode;
+      return;
+    }
 
     createMilSymbol(
       coords.lat,
@@ -691,8 +701,15 @@ export function centerMapOnOperationZone(zona) {
   const viewer = dashboardState.viewer;
   if (!viewer || !zona) return;
 
-  const latStr = zona.centroide_lat; const lat = (latStr != null && latStr !== "") ? Number(latStr) : NaN;
-  const lngStr = zona.centroide_lon; const lng = (lngStr != null && lngStr !== "") ? Number(lngStr) : NaN;
+  let geometria = zona.geometria ?? zona.geometry;
+  if (typeof geometria === "string") {
+    try { geometria = JSON.parse(geometria); } catch { geometria = null; }
+  }
+
+  const latStr = zona.centroide_lat ?? zona.center_lat ?? zona.latitud ?? zona.lat;
+  const lngStr = zona.centroide_lon ?? zona.centroide_lng ?? zona.center_lon ?? zona.center_lng ?? zona.longitud ?? zona.lng ?? zona.lon;
+  const lat = (latStr != null && latStr !== "") ? Number(latStr) : NaN;
+  const lng = (lngStr != null && lngStr !== "") ? Number(lngStr) : NaN;
   const zoom = Number(zona.zoom_inicial || 1000) || 1000;
 
   if (Number.isFinite(lat) && Number.isFinite(lng)) {
@@ -702,7 +719,7 @@ export function centerMapOnOperationZone(zona) {
     return;
   }
 
-  const ring = zona.geometria?.coordinates?.[0];
+  const ring = geometria?.coordinates?.[0];
   if (!Array.isArray(ring) || ring.length < 3) return;
 
   const lons = ring.map(point => Number(point?.[0])).filter(Number.isFinite);

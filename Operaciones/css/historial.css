@@ -392,6 +392,30 @@ body {
   transform: scale(0.95);
 }
 
+.skipBtn {
+  min-width: 52px;
+  height: 38px;
+  border: 1px solid rgba(0, 255, 166, 0.28);
+  border-radius: 10px;
+  background: rgba(0, 255, 166, 0.08);
+  color: var(--text-main);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+
+.skipBtn:hover {
+  background: rgba(0, 255, 166, 0.16);
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.skipBtn:active {
+  transform: translateY(0);
+}
+
 .speedSelector {
   display: flex;
   align-items: center;
@@ -453,6 +477,21 @@ body {
   border-radius: 0 12px 12px 0;
   border: 1px solid rgba(0, 255, 166, 0.05);
   border-left-width: 4px;
+  transition: opacity 0.2s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+.eventItem.eventPending {
+  opacity: 0.46;
+  border-color: rgba(139, 148, 158, 0.14);
+  border-left-color: rgba(139, 148, 158, 0.55);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.eventItem.eventPlayed {
+  opacity: 1;
+  border-color: rgba(0, 255, 166, 0.08);
+  border-left-color: var(--accent);
+  background: rgba(0, 255, 166, 0.06);
 }
 
 .eventTime {

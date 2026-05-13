@@ -148,6 +148,8 @@ function clearOperationZoneEntities() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
+  clearGrid();
+
   // Remove the main zone border
   if (dashboardState.operationZoneBorder) {
     viewer.entities.remove(dashboardState.operationZoneBorder);
@@ -781,7 +783,7 @@ function buildAreaEntity(area) {
 
     return viewer.entities.add({
       id: entityId,
-      name: area.nombre || "CÃ­rculo de cobertura",
+      name: area.nombre || "Círculo de cobertura",
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
       ellipse: {
         semiMajorAxis: radius,
@@ -828,7 +830,7 @@ function buildAreaEntity(area) {
 
   return viewer.entities.add({
     id: entityId,
-    name: area.nombre || "PolÃ­gono / Zona",
+    name: area.nombre || "Polígono / Zona",
     position: labelPosition
       ? Cesium.Cartesian3.fromDegrees(labelPosition.lng, labelPosition.lat)
       : undefined,
@@ -1043,7 +1045,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (!token || !opId) return null;
 
     const body = {
-      nombre: nombre || "PolÃ­gono / Zona",
+      nombre: nombre || "Polígono / Zona",
       descripcion: "Poligono o zona",
       color: COLOR_HEX_MAP[colorName] || "#FFD700",
       geometria: {
@@ -1069,7 +1071,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     const data = await res.json();
 
     if (!res.ok || !data?.ok) {
-      const mensaje = data?.mensaje || "No se pudo guardar el polÃ­gono.";
+      const mensaje = data?.mensaje || "No se pudo guardar el polígono.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
       alert(mensaje);
       return null;
@@ -1077,11 +1079,11 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
 
     return data.area || null;
   } catch (err) {
-    console.error("Error guardando Ã¡rea poligonal en backend:", err);
+    console.error("Error guardando área poligonal en backend:", err);
     if (dom.tbHint) {
-      dom.tbHint.textContent = "Error de conexiÃ³n al guardar el polÃ­gono.";
+      dom.tbHint.textContent = "Error de conexión al guardar el polígono.";
     }
-    alert("Error de conexiÃ³n al guardar el polÃ­gono.");
+    alert("Error de conexión al guardar el polígono.");
     return null;
   }
 }
@@ -1209,6 +1211,9 @@ async function deleteOperationZoneFromBackend() {
 }
 
 export function getLineWidth() {
+  if (dashboardState.toolMode === "perimeter" && dom.zoneWidthRange) {
+    return Number(dom.zoneWidthRange.value || 3);
+  }
   return Number(dom.widthRange?.value || 3);
 }
 
@@ -1225,6 +1230,9 @@ export function getCurrentLabel() {
 }
 
 export function getCurrentColorName() {
+  if (dashboardState.toolMode === "perimeter" && dom.zoneColorSelect) {
+    return dom.zoneColorSelect.value || "blue";
+  }
   return dom.colorSelect?.value || "red";
 }
 
@@ -1358,27 +1366,35 @@ function syncTacticalToolAvailability(currentOperation = getCurrentOperation()) 
 export function setTacticalUI() {
   const currentOperation = getCurrentOperation();
   const { isActiveOperation } = syncTacticalToolAvailability(currentOperation);
+  const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
+  const isPlanningOperation = !isActiveOperation && phase === "planificada";
+  const isToolActive = dashboardState.toolMode !== "none";
   const isMil = dashboardState.toolMode === "mil";
   const isPoi = dashboardState.toolMode === "poi";
   const isPencil = dashboardState.toolMode === "pencil";
   const isEraser = dashboardState.drawingMode === "eraser";
   const isDrawingTool = isPencil;
+  const isBuilding = dashboardState.toolMode === "building";
+  const isGrid = dashboardState.toolMode === "grid";
   const usesPlaceOnly = ["poi", "mil", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const isPlanningOperation = !isActiveOperation && String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase() === "planificada";
   const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter", "building"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
   const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
-  const showCancelButton = !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const showFinishButton = isMultiPoint || dashboardState.areaDrawing;
-  const showLabelInput = needsLabel && !isMil && !isDrawingTool;
-  const showColorInput = !isMil && !isEraser && dashboardState.toolMode !== "none";
-  const showOpacityInput = !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
-  const showWidthInput = !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
+  const showCancelButton = !isGrid && !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
+  const showFinishButton = !isGrid && (isMultiPoint || dashboardState.areaDrawing);
+  const showLabelInput = !isGrid && needsLabel && !isMil && !isDrawingTool;
+  const showColorInput = !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
+  const showOpacityInput = !isGrid && !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
+  const showWidthInput = !isGrid && !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
 
   const milTitle = document.getElementById("milSymbolTitle");
   if (milTitle) milTitle.style.display = isMil ? "block" : "none";
 
   if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = isMil ? "block" : "none";
+
+  const buildingPreview = document.getElementById("buildingPreview");
+  if (buildingPreview) buildingPreview.style.display = isBuilding ? "block" : "none";
+  if (dom.gridSubmenu) dom.gridSubmenu.style.display = isGrid ? "block" : "none";
 
   if (dom.pencilSubmenu) dom.pencilSubmenu.style.display = isPencil ? "block" : "none";
   if (isPencil) {
@@ -1396,7 +1412,7 @@ export function setTacticalUI() {
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
-  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = (isMil || isDrawingTool) ? "none" : "grid";
+  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = (isMil || isDrawingTool || isGrid) ? "none" : "grid";
   if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
   if (dom.finishShape) dom.finishShape.style.display = showFinishButton ? "" : "none";
   if (dom.clearTactical) dom.clearTactical.style.display = isPlanningOperation ? "" : "none";
@@ -1410,13 +1426,35 @@ export function setTacticalUI() {
   if (isMil) updateMilSymbolPreview();
 
   if (dom.placeBtn) {
-    dom.placeBtn.disabled = dashboardState.toolMode === "none" || isMil || isDrawingTool;
-    dom.placeBtn.style.display = (isMil || isDrawingTool) ? "none" : "";
+    dom.placeBtn.disabled = !isToolActive || isMil || isDrawingTool || isGrid;
+    dom.placeBtn.style.display = (isMil || isDrawingTool || isGrid) ? "none" : "";
     dom.placeBtn.textContent = usesPlaceOnly
       ? "Colocar"
       : "Colocar / iniciar";
   }
   if (dom.finishShape) dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
+
+  const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
+  if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
+  if (dom.finishZoneBtn) dom.finishZoneBtn.style.display = isDrawingZone ? "block" : "none";
+  if (dom.markZoneBtn) {
+    const isModeZone = dashboardState.toolMode === "perimeter";
+    dom.markZoneBtn.disabled = !isPlanningOperation;
+    dom.markZoneBtn.style.background = isModeZone ? "#00ffa6" : "";
+    dom.markZoneBtn.style.color = isModeZone ? "#001b1b" : "";
+    dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
+    dom.markZoneBtn.title = isPlanningOperation
+      ? "Delimitar zona de operacion"
+      : "La zona solo se puede editar en operaciones planificadas";
+  }
+  if (dom.clearZoneBtn) {
+    dom.clearZoneBtn.disabled = isActiveOperation || !dashboardState.currentOperationZone;
+    dom.clearZoneBtn.title = isActiveOperation
+      ? "La zona no se puede eliminar mientras la operacion esta activa"
+      : "Limpiar zona de operacion";
+  }
+  if (dom.zoneColorSelect) dom.zoneColorSelect.disabled = !isPlanningOperation;
+  if (dom.zoneWidthRange) dom.zoneWidthRange.disabled = !isPlanningOperation;
 
   // Manage cursor for draw modes
   const mapEl = document.getElementById("map");
@@ -1569,7 +1607,7 @@ export async function createCircle(lat, lng) {
   const localArea = makeCircleAreaData(`local_${Date.now()}`, lat, lng, radius, label, colorName);
   const localEntity = buildAreaEntity(localArea);
   if (localEntity) dashboardState.tacticalEntities.push(localEntity);
-  if (dom.tbHint) dom.tbHint.textContent = "CÃ­rculo de cobertura colocado.";
+  if (dom.tbHint) dom.tbHint.textContent = "Círculo de cobertura colocado.";
 
   const savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
   if (!savedArea) {
@@ -2239,6 +2277,7 @@ async function clearTacticalPersistedData() {
     dashboardState.selectedEntity = null;
   }
 
+  clearGrid();
   clearPlanningArea();
   clearTacticalStorageSnapshot();
 
@@ -2439,6 +2478,7 @@ export async function loadOperationZoneFromBackend() {
 
     if (res.status === 404) {
       clearOperationZoneEntities();
+      setTacticalUI();
       return null;
     }
 
@@ -2447,10 +2487,12 @@ export async function loadOperationZoneFromBackend() {
     const zona = data.zona || null;
     if (!zona) {
       clearOperationZoneEntities();
+      setTacticalUI();
       return null;
     }
 
     buildOperationZoneEntity(zona);
+    setTacticalUI();
     return zona;
   } catch (err) {
     console.error("[ZONA] Error cargando zona de operacion:", err);
@@ -2618,6 +2660,211 @@ export function initPoiSocket(socket) {
   });
 }
 
+export function clearGrid() {
+  const viewer = dashboardState.viewer;
+  const gridEntities = dashboardState.gridEntities || [];
+
+  if (viewer) {
+    gridEntities.forEach((ent) => {
+      if (ent) viewer.entities.remove(ent);
+    });
+  }
+
+  if (dashboardState.selectedEntity && gridEntities.includes(dashboardState.selectedEntity)) {
+    dashboardState.selectedEntity = null;
+    updateSelectionInfo(null);
+    if (dom.entityPopup) dom.entityPopup.style.display = "none";
+  }
+
+  dashboardState.gridEntities = [];
+  dashboardState.gridQuadrants = [];
+
+  if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
+  if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "none";
+  if (dom.clearGridBtn) dom.clearGridBtn.style.display = "none";
+}
+
+export function generateGrid() {
+  const viewer = dashboardState.viewer;
+  const zona = dashboardState.currentOperationZone;
+
+  if (!viewer || !zona) {
+    setRouteInfo("Delimita una zona de operacion antes de generar la cuadricula.");
+    alert("No hay una zona de operacion activa. Usa Marcar zona primero.");
+    return;
+  }
+
+  const points = getOperationZonePoints(zona);
+  if (!points || points.length < 3) {
+    setRouteInfo("La zona de operacion no tiene geometria suficiente para generar cuadricula.");
+    return;
+  }
+
+  clearGrid();
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  points.forEach((point) => {
+    minLat = Math.min(minLat, point.lat);
+    maxLat = Math.max(maxLat, point.lat);
+    minLng = Math.min(minLng, point.lng);
+    maxLng = Math.max(maxLng, point.lng);
+  });
+
+  const sizeStr = dom.gridSizeSelect?.value || "3x3";
+  const [rows, cols] = sizeStr.split("x").map(Number);
+  if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows < 1 || cols < 1) return;
+
+  const latStep = (maxLat - minLat) / rows;
+  const lngStep = (maxLng - minLng) / cols;
+  if (!Number.isFinite(latStep) || !Number.isFinite(lngStep) || latStep <= 0 || lngStep <= 0) return;
+
+  const colors = [
+    Cesium.Color.fromCssColorString("#FFA000"),
+    Cesium.Color.fromCssColorString("#1E88E5"),
+    Cesium.Color.fromCssColorString("#E53935"),
+    Cesium.Color.fromCssColorString("#00897B"),
+    Cesium.Color.fromCssColorString("#8E24AA"),
+    Cesium.Color.fromCssColorString("#FB8C00"),
+    Cesium.Color.fromCssColorString("#D81B60"),
+    Cesium.Color.fromCssColorString("#039BE5"),
+    Cesium.Color.fromCssColorString("#43A047"),
+    Cesium.Color.fromCssColorString("#FDD835")
+  ];
+
+  const phonetic = [
+    "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL",
+    "INDIA", "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA",
+    "QUEBEC", "ROMEO", "SIERRA", "TANGO", "UNIFORM", "VICTOR", "WHISKEY", "X-RAY",
+    "YANKEE", "ZULU"
+  ];
+
+  let colorIdx = 0;
+
+  for (let col = 1; col < cols; col += 1) {
+    const lng = minLng + col * lngStep;
+    const color = colors[colorIdx % colors.length];
+    colorIdx += 1;
+    const line = viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([lng, minLat, lng, maxLat]),
+        width: 3,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: color.withAlpha(0.7),
+          dashLength: 16
+        }),
+        clampToGround: true
+      },
+      properties: { tacticalType: "grid-part" }
+    });
+    dashboardState.gridEntities.push(line);
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    const lat = minLat + row * latStep;
+    const color = colors[colorIdx % colors.length];
+    colorIdx += 1;
+    const line = viewer.entities.add({
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([minLng, lat, maxLng, lat]),
+        width: 3,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: color.withAlpha(0.7),
+          dashLength: 16
+        }),
+        clampToGround: true
+      },
+      properties: { tacticalType: "grid-part" }
+    });
+    dashboardState.gridEntities.push(line);
+  }
+
+  if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
+
+  let count = 0;
+  for (let row = 0; row < rows; row += 1) {
+    const latTop = maxLat - row * latStep;
+    const latBottom = maxLat - (row + 1) * latStep;
+
+    for (let col = 0; col < cols; col += 1) {
+      const lngLeft = minLng + col * lngStep;
+      const lngRight = minLng + (col + 1) * lngStep;
+      const color = colors[count % colors.length];
+      const baseName = phonetic[count % phonetic.length] || `Q${count + 1}`;
+      const cycle = Math.floor(count / phonetic.length);
+      const defaultName = cycle > 0 ? `${baseName}-${cycle + 1}` : baseName;
+
+      const polygon = viewer.entities.add({
+        polygon: {
+          hierarchy: Cesium.Cartesian3.fromDegreesArray([
+            lngLeft, latBottom,
+            lngRight, latBottom,
+            lngRight, latTop,
+            lngLeft, latTop
+          ]),
+          material: color.withAlpha(0.08),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+        },
+        properties: { tacticalType: "grid-part", quadrantId: count }
+      });
+      dashboardState.gridEntities.push(polygon);
+
+      const label = viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(lngLeft, latTop),
+        label: {
+          text: ` ${defaultName} `,
+          font: "bold 13px monospace",
+          fillColor: Cesium.Color.WHITE,
+          backgroundColor: Cesium.Color.BLACK.withAlpha(0.7),
+          showBackground: true,
+          horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+          verticalOrigin: Cesium.VerticalOrigin.TOP,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          pixelOffset: new Cesium.Cartesian2(5, 5),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY
+        },
+        properties: { tacticalType: "grid-part", quadrantId: count }
+      });
+      dashboardState.gridEntities.push(label);
+      dashboardState.gridQuadrants.push({ id: count, labelEnt: label, defaultName });
+
+      if (dom.gridNamesContainer) {
+        const wrapper = document.createElement("div");
+        wrapper.style.display = "flex";
+        wrapper.style.flexDirection = "column";
+
+        const nameLabel = document.createElement("label");
+        nameLabel.className = "fieldLabel";
+        nameLabel.style.fontSize = "10px";
+        nameLabel.textContent = `Cuadrante ${defaultName}`;
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "opsInput";
+        input.value = defaultName;
+        input.style.padding = "4px";
+        input.addEventListener("input", (event) => {
+          const value = event.target.value || defaultName;
+          label.label.text = ` ${value} `;
+        });
+
+        wrapper.appendChild(nameLabel);
+        wrapper.appendChild(input);
+        dom.gridNamesContainer.appendChild(wrapper);
+      }
+
+      count += 1;
+    }
+  }
+
+  if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "block";
+  if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
+  setRouteInfo(`Cuadricula ${rows}x${cols} generada en la zona de operacion.`);
+}
+
 export function bindTacticalEvents() {
   if (dom.toolSelect) {
     dom.toolSelect.addEventListener("change", (e) => {
@@ -2635,6 +2882,14 @@ export function bindTacticalEvents() {
 
       setTacticalUI();
     });
+  }
+
+  if (dom.generateGridBtn) {
+    dom.generateGridBtn.addEventListener("click", generateGrid);
+  }
+
+  if (dom.clearGridBtn) {
+    dom.clearGridBtn.addEventListener("click", clearGrid);
   }
 
   if (dom.btnSelectPencil) {
@@ -2764,6 +3019,55 @@ export function bindTacticalEvents() {
     });
   }
 
+  if (dom.markZoneBtn) {
+    dom.markZoneBtn.addEventListener("click", () => {
+      const currentOperation = getCurrentOperation();
+      const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
+      if (phase !== "planificada") {
+        alert("La zona de operacion solo se puede editar en operaciones planificadas.");
+        setTacticalUI();
+        return;
+      }
+
+      if (dashboardState.toolMode === "perimeter") {
+        stopAllDrawingModes();
+        dashboardState.toolMode = "none";
+        if (dom.toolSelect) dom.toolSelect.value = "none";
+        resetDrawingState();
+      } else {
+        stopAllDrawingModes();
+        dashboardState.toolMode = "perimeter";
+        if (dom.toolSelect) dom.toolSelect.value = "perimeter";
+        resetDrawingState();
+        dashboardState.placingMode = true;
+        setRouteInfo("Haz clic en el mapa para delimitar la zona de operacion.");
+      }
+
+      setTacticalUI();
+    });
+  }
+
+  if (dom.clearZoneBtn) {
+    dom.clearZoneBtn.addEventListener("click", async () => {
+      if (!dashboardState.currentOperationZone) return;
+      const idZona = dashboardState.currentOperationZone.id_zona;
+      const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
+      if (!deleted) return;
+
+      clearOperationZoneEntities();
+      setRouteInfo("Zona de operacion eliminada.");
+      setTacticalUI();
+    });
+  }
+
+  if (dom.finishZoneBtn) {
+    dom.finishZoneBtn.addEventListener("click", () => {
+      if (dashboardState.toolMode === "perimeter") {
+        finishOperationZonePerimeter();
+      }
+    });
+  }
+
   if (dom.milIdentity) dom.milIdentity.addEventListener("change", updateMilSymbolPreview);
   if (dom.milDimension) dom.milDimension.addEventListener("change", updateMilSymbolPreview);
   if (dom.milIcon) dom.milIcon.addEventListener("change", updateMilSymbolPreview);
@@ -2778,6 +3082,14 @@ export function bindTacticalEvents() {
 
       e.dataTransfer.setData("application/sidc", sidc);
       e.dataTransfer.setData("application/title", title);
+      e.dataTransfer.effectAllowed = "copy";
+    });
+  }
+
+  if (dom.buildingPreviewDrag) {
+    dom.buildingPreviewDrag.addEventListener("dragstart", (e) => {
+      e.dataTransfer.setData("application/building", "true");
+      e.dataTransfer.setData("application/title", "Edificio");
       e.dataTransfer.effectAllowed = "copy";
     });
   }
