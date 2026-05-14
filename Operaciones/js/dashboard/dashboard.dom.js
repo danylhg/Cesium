@@ -50,6 +50,8 @@ export const dom = {
   chatMessages: document.getElementById("chatMessages"),
   chatInput: document.getElementById("chatInput"),
   sendChatBtn: document.getElementById("sendChatBtn"),
+  emergencyAlertPanel: document.getElementById("emergencyAlertPanel"),
+  emergencyAlertList: document.getElementById("emergencyAlertList"),
 
   // Cámaras
   cameraFeeds: document.getElementById("cameraFeeds"),
@@ -124,5 +126,8 @@ export const dom = {
   personnelDetailName: document.getElementById("personnelDetailName"),
   personnelDetailCoords: document.getElementById("personnelDetailCoords"),
   personnelDetailCamera: document.getElementById("personnelDetailCamera"),
-  btnCenterOnPerson: document.getElementById("btnCenterOnPerson")
+  btnCenterOnPerson: document.getElementById("btnCenterOnPerson"),
+  personInfoPopup: document.getElementById("personInfoPopup"),
+  personInfoPopupContent: document.getElementById("personInfoPopupContent"),
+  btnClosePersonInfoPopup: document.getElementById("btnClosePersonInfoPopup")
 };

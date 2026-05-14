@@ -282,7 +282,6 @@ class EmergencyMonitorService : Service(), SensorEventListener {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("SEDAM – Monitor activo")
             .setContentTitle("SEDAM - Servicio activo")
-            .setContentText("Operacion en curso")
             .setSmallIcon(R.mipmap.ic_launcher)   // ícono existente
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)    // no se puede cerrar con swipe

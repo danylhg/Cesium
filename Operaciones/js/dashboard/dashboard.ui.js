@@ -10,7 +10,6 @@ import {
 } from "./dashboard.storage.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 import { dashboardState } from "./dashboard.state.js";
-import { showPersonnelLiveCamera } from "./dashboard.camera.js";
 
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
@@ -723,48 +722,165 @@ export function updateSelectionInfo(selectedEntity) {
   }
 }
 
-export function showPersonnelDetail(personId) {
-  if (!dom.personnelDetailModal || personId == null) return;
+function firstValue(...values) {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "");
+}
 
-  const operation = getCurrentOperation();
-  const personal = Array.isArray(operation?.personal) ? operation.personal : [];
-  const person = personal.find((item) => String(item.id_personal || item.id) === String(personId));
+function formatCoord(value) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num.toFixed(6) : "-";
+}
 
-  if (!person) {
-    alert("No se encontro informacion de este agente.");
+function formatBattery(value) {
+  const battery = firstValue(value);
+  if (battery == null) return "-";
+  const text = String(battery).trim();
+  return text.endsWith("%") ? text : `${text}%`;
+}
+
+function sameText(a, b) {
+  const clean = (value) => String(value || "")
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return clean(a) && clean(a) === clean(b);
+}
+
+function getPersonId(person = {}) {
+  return firstValue(
+    person.id_personal,
+    person.id,
+    person.id_usuario,
+    person.id_persona,
+    person.personal_id,
+    person.usuario_id
+  );
+}
+
+function getPersonName(person = {}) {
+  return [person.nombre, person.apellido].filter(Boolean).join(" ").trim() ||
+    person.apodo ||
+    person.name ||
+    person.nombre_completo ||
+    "";
+}
+
+function getAvailablePersonal() {
+  const op = getCurrentOperation();
+  const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
+  return [
+    ...(Array.isArray(asignacion.personal) ? asignacion.personal : []),
+    ...(Array.isArray(op.personal) ? op.personal : [])
+  ];
+}
+
+function findPerson(personId, fallbackName = "") {
+  const people = getAvailablePersonal();
+  const id = String(personId || "").trim();
+  const byId = people.find((person) => String(getPersonId(person) || "").trim() === id);
+  if (byId) return byId;
+  return people.find((person) => sameText(getPersonName(person), fallbackName));
+}
+
+function getPersonCameraImage(personId) {
+  const images = [
+    "img/cameras/cam1.png",
+    "img/cameras/cam2.png",
+    "img/cameras/cam3.png"
+  ];
+  const text = String(personId || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  return images[Math.abs(hash) % images.length];
+}
+
+function placePersonInfoPopup(anchor = {}) {
+  if (!dom.personInfoPopup) return;
+
+  const width = 260;
+  const x = Number(anchor.x);
+  const y = Number(anchor.y);
+
+  if (Number.isFinite(x) && Number.isFinite(y)) {
+    const leftPanelEdge = Math.max(
+      dom.infoPanel?.getBoundingClientRect?.().right || 0,
+      dom.chatPanel?.getBoundingClientRect?.().right || 0,
+      dom.routePanel?.getBoundingClientRect?.().right || 0,
+      dom.tacticalPanel?.getBoundingClientRect?.().right || 0,
+      88
+    );
+    const preferredLeft = x < leftPanelEdge + 40
+      ? leftPanelEdge + 14
+      : x - width / 2;
+
+    dom.personInfoPopup.style.right = "auto";
+    dom.personInfoPopup.style.left = `${Math.max(12, Math.min(preferredLeft, window.innerWidth - width - 12))}px`;
+    dom.personInfoPopup.style.top = `${Math.max(80, Math.min(y - 235, window.innerHeight - 300))}px`;
     return;
   }
 
-  const nombre = [person.nombre, person.apellido].filter(Boolean).join(" ").trim() ||
-    person.apodo ||
-    person.name ||
-    `Agente ${personId}`;
-  const liveCoords = getPersonalEntityCoordinates(personId);
-  const fallbackLat = Number(person.latitud ?? person.lat);
-  const fallbackLon = Number(person.longitud ?? person.lon ?? person.lng);
-  const lat = Number.isFinite(liveCoords?.lat) ? liveCoords.lat : fallbackLat;
-  const lon = Number.isFinite(liveCoords?.lon) ? liveCoords.lon : fallbackLon;
-  const hasCoords = Number.isFinite(lat) && Number.isFinite(lon);
+  dom.personInfoPopup.style.right = "22px";
+  dom.personInfoPopup.style.top = "132px";
+  dom.personInfoPopup.style.left = "auto";
+}
 
-  if (dom.personnelDetailName) dom.personnelDetailName.textContent = nombre;
-  if (dom.personnelDetailCoords) {
-    dom.personnelDetailCoords.textContent = hasCoords
-      ? `LAT: ${lat.toFixed(6)}, LNG: ${lon.toFixed(6)}`
-      : "Sin ubicacion disponible";
+export function showPersonnelDetail(personId, anchor = {}) {
+  if (!dom.personInfoPopup || !dom.personInfoPopupContent || personId == null) return;
+
+  const person = findPerson(personId, anchor.name);
+  if (!person) {
+    console.warn("[PERSONAL] No se encontro informacion para:", personId, anchor.name);
+    return;
   }
 
-  showPersonnelLiveCamera(personId, nombre);
+  const nombre = getPersonName(person) || anchor.name || `Personal ${personId}`;
+  const liveCoords = getPersonalEntityCoordinates(personId);
+  const lat = firstValue(anchor.lat, liveCoords?.lat, person.latitud, person.lat);
+  const lng = firstValue(anchor.lng, liveCoords?.lon, person.longitud, person.lng, person.lon);
+  const velocidad = firstValue(anchor.velocidad, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
+  const curso = firstValue(anchor.curso, person.curso, person.heading, person.rumbo, "-");
+  const estado = firstValue(person.estado, person.estatus, person.activo === false ? "INACTIVO" : "ACTIVO");
+  const sidc = firstValue(person.sidc, person.codigo_sidc, "-");
+  const fc = firstValue(person.frecuencia_cardiaca, person.fc, person.heart_rate, "-");
+  const baro = firstValue(person.barometro, person.baro, person.presion, person.pressure, "-");
+  const bateria = formatBattery(firstValue(person.bateria, person.battery, person.battery_level));
+  const actualizado = firstValue(person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
+  const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
 
-  if (dom.btnCenterOnPerson) {
-    dom.btnCenterOnPerson.disabled = !hasCoords;
-    dom.btnCenterOnPerson.onclick = () => {
-      if (!hasCoords) return;
-      followPersonalLocation(personId, lat, lon);
-      dom.personnelDetailModal?.classList.add("hidden");
-      dom.personnelDetailModal?.setAttribute("aria-hidden", "true");
+  dom.personInfoPopupContent.innerHTML = `
+    <h3 class="personInfoTitle">${escapeHtml(nombre)}</h3>
+    <div class="personInfoGrid">
+      <div class="personInfoLabel">Lat:</div><div class="personInfoValue">${escapeHtml(formatCoord(lat))}</div>
+      <div class="personInfoLabel">Lng:</div><div class="personInfoValue">${escapeHtml(formatCoord(lng))}</div>
+      <div class="personInfoLabel">Vel:</div><div class="personInfoValue">${escapeHtml(String(velocidad))} km/h</div>
+      <div class="personInfoLabel">Curso:</div><div class="personInfoValue">${escapeHtml(String(curso))}${String(curso) !== "-" ? "&deg;" : ""}</div>
+      <div class="personInfoLabel">SIDC:</div><div class="personInfoValue">${escapeHtml(String(sidc))}</div>
+    </div>
+    <div class="personInfoStatus">Estado <strong>${escapeHtml(String(estado).toUpperCase())}</strong></div>
+    <div class="personInfoBio">
+      <div class="personInfoBioTitle">Biometricos (Galaxy Watch)</div>
+      <div class="personInfoGrid">
+        <div class="personInfoLabel">FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}</div>
+        <div class="personInfoLabel">Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
+        <div class="personInfoLabel">Bateria:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
+      </div>
+      <div class="personInfoUpdated">Actualizado ${escapeHtml(actualizado ? formatTime(actualizado) : formatTime(new Date().toISOString()))}</div>
+    </div>
+    <div class="personInfoCamera">
+      <img src="${escapeHtml(cameraImage)}" alt="Camara de ${escapeHtml(nombre)}">
+    </div>
+  `;
+
+  if (dom.btnClosePersonInfoPopup) {
+    dom.btnClosePersonInfoPopup.onclick = () => {
+      dom.personInfoPopup?.classList.add("hidden");
     };
   }
 
-  dom.personnelDetailModal.classList.remove("hidden");
-  dom.personnelDetailModal.setAttribute("aria-hidden", "false");
+  dom.personInfoPopup.classList.remove("hidden");
+  placePersonInfoPopup(anchor);
 }

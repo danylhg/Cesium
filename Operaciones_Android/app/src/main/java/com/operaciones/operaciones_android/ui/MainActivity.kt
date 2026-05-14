@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.media.MediaRecorder
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.provider.OpenableColumns
@@ -41,6 +42,9 @@ import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
 import com.operaciones.operaciones_android.model.VehiculoItem
 import com.operaciones.operaciones_android.network.ChatSocketManager
+import com.operaciones.operaciones_android.ui.chat.ChatNotificationController
+import com.operaciones.operaciones_android.ui.chat.ChatVibrationController
+import com.operaciones.operaciones_android.ui.chat.EmergencyVisualAlertController
 import com.operaciones.operaciones_android.ui.chat.OperationChatController
 import com.operaciones.operaciones_android.ui.lifecycle.EmergencyServiceController
 import com.operaciones.operaciones_android.ui.lifecycle.OperationLifecycleMonitor
@@ -96,6 +100,8 @@ class MainActivity : AppCompatActivity(),
     private lateinit var locationHelper: LocationHelper
     private lateinit var simulationController: OperationSimulationController
     private lateinit var chatController: OperationChatController
+    private lateinit var chatNotificationController: ChatNotificationController
+    private lateinit var emergencyVisualAlertController: EmergencyVisualAlertController
     private lateinit var mediaStreamController: MediaStreamController
     private lateinit var emergencyServiceController: EmergencyServiceController
     private lateinit var lifecycleMonitor: OperationLifecycleMonitor
@@ -217,15 +223,21 @@ class MainActivity : AppCompatActivity(),
             httpClient = httpClient,
             host = this
         )
-        chatController = OperationChatController(host = this)
+        chatController = OperationChatController(
+            host = this,
+            vibrationController = ChatVibrationController(this)
+        )
         lifecycleMonitor = OperationLifecycleMonitor(
             httpClient = httpClient,
             host = this
         )
+        chatNotificationController = ChatNotificationController(this)
+        emergencyVisualAlertController = EmergencyVisualAlertController(this)
         emergencyServiceController = EmergencyServiceController(this, this)
 
         chatSocketManager = OperationSocketController(this).create()
         setContentView(R.layout.activity_main)
+        requestChatNotificationPermissionIfNeeded()
 
         panelContent = findViewById(R.id.panelContent)
         connectionBanner = findViewById(R.id.connectionBanner)
@@ -783,6 +795,11 @@ class MainActivity : AppCompatActivity(),
     private fun isChatPanelActive(): Boolean =
         panelNavigationController.activePanel == Panel.CHAT
 
+    private fun markVisibleChatMessagesRead() {
+        if (!isChatPanelActive() || !::chatNotificationController.isInitialized) return
+        chatNotificationController.cancelMessages(chatController.visibleMessages)
+    }
+
     fun requestLocationPermissionFromBridge() {
         locationHelper.requestLocationPermissionOrStart()
     }
@@ -793,7 +810,9 @@ class MainActivity : AppCompatActivity(),
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        locationHelper.handlePermissionsResult(requestCode, grantResults)
+        if (::locationHelper.isInitialized) {
+            locationHelper.handlePermissionsResult(requestCode, grantResults)
+        }
         if (hasLocationPermission()) {
             startEmergencyService()
         }
@@ -1087,6 +1106,17 @@ class MainActivity : AppCompatActivity(),
     private fun hasPermission(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 
+    private fun requestChatNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (hasPermission(Manifest.permission.POST_NOTIFICATIONS)) return
+
+        ActivityCompat.requestPermissions(
+            this,
+            arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+            REQUEST_CHAT_NOTIFICATION_PERMISSION
+        )
+    }
+
     private fun loadChatHistoryIfNeeded() {
         chatController.loadHistoryIfNeeded()
     }
@@ -1100,6 +1130,34 @@ class MainActivity : AppCompatActivity(),
     override fun getChatPersonal(): List<PersonalItem> = personalList
 
     override fun getChatContentResolver(): android.content.ContentResolver = contentResolver
+
+    override fun onChatMessageAdded(message: ChatMessage, visibleInActiveChat: Boolean) {
+        if (message.isMine || message.type == MessageType.SYSTEM) return
+
+        if (::chatNotificationController.isInitialized && ::currentOperation.isInitialized) {
+            if (isChatPanelActive() && visibleInActiveChat) {
+                chatNotificationController.cancelMessage(message)
+            } else {
+                chatNotificationController.showNewMessage(message, currentOperation.nombre)
+            }
+        }
+
+        if (message.type == MessageType.ALERT) {
+            if (::emergencyVisualAlertController.isInitialized) {
+                emergencyVisualAlertController.flashScreen()
+            }
+            message.idPersonal?.let { idPersonal ->
+                if (::cesiumWebController.isInitialized) {
+                    cesiumWebController.pulseEmergencyPersonal(idPersonal)
+                }
+            }
+        }
+    }
+
+    override fun onChatVisibleMessagesRead(messages: List<ChatMessage>) {
+        if (!isChatPanelActive() || !::chatNotificationController.isInitialized) return
+        chatNotificationController.cancelMessages(messages)
+    }
 
     private fun jsString(value: String): String =
         value
@@ -1227,11 +1285,13 @@ class MainActivity : AppCompatActivity(),
             personalList = personalList,
             onFilterChanged = { selection ->
                 chatController.setActiveSelection(selection)
+                markVisibleChatMessagesRead()
             }
         )
 
         chatController.bindPanel(refs)
         chatController.refreshVisibleMessages()
+        markVisibleChatMessagesRead()
         loadChatHistoryIfNeeded()
     }
 
@@ -1357,5 +1417,6 @@ class MainActivity : AppCompatActivity(),
         private const val KEY_ACTIVE_PANEL = "main_active_panel"
         private const val REQUEST_CHAT_CAMERA_PERMISSION = 303
         private const val REQUEST_CHAT_AUDIO_PERMISSION = 304
+        private const val REQUEST_CHAT_NOTIFICATION_PERMISSION = 305
     }
 }

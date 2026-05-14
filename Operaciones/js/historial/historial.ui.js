@@ -332,19 +332,33 @@ export function renderEventLog(events) {
     return;
   }
 
-  dom.eventLog.innerHTML = visibleEvents.map((ev) => {
-    const payload = ev.payload || {};
-    const time = formatDateTime(ev.occurred_at);
-    const ms = eventMs(ev);
-    const name = payload.titulo || payload.contenido || payload.descripcion || payload.nota ||
-      payload.nombre || payload.codigo || ev.entidad_tipo || ev.tipo_evento;
-    return `
-      <div class="eventItem eventPending" data-ms="${ms}">
+  dom.eventLog.innerHTML = visibleEvents.map(buildEventItem).join("");
+}
+
+function buildEventItem(ev) {
+  const payload = ev.payload || {};
+  const time = formatDateTime(ev.occurred_at);
+  const ms = eventMs(ev);
+  const name = payload.titulo || payload.contenido || payload.descripcion || payload.nota ||
+    payload.nombre || payload.codigo || ev.entidad_tipo || ev.tipo_evento;
+  const type = ev.entidad_tipo || ev.tipo_evento;
+  const action = eventAction(ev.tipo_evento);
+
+  return `
+    <div class="eventItem eventPending" data-ms="${ms}">
+      <div class="eventHeader">
         <span class="eventTime">${escapeHtml(time)}</span>
-        <strong>${escapeHtml(eventLabel(ev.tipo_evento))}:</strong> ${escapeHtml(name)}
+        <span class="eventAction ${action.className}">${escapeHtml(action.label)}</span>
       </div>
-    `;
-  }).join("");
+      <div class="eventBody">
+        <span class="eventIcon" aria-hidden="true">${eventIcon(type)}</span>
+        <div class="eventInfo">
+          <div class="eventName">${escapeHtml(name)}</div>
+          <div class="eventType">${escapeHtml(eventLabel(type))}</div>
+        </div>
+      </div>
+    </div>
+  `;
 }
 
 function trackingSummaries(events) {
@@ -424,6 +438,27 @@ function eventLabel(value) {
   return String(value || "evento")
     .replace(/_/g, " ")
     .replace(/\b\w/g, char => char.toUpperCase());
+}
+
+function eventAction(value) {
+  const text = String(value || "").toLowerCase();
+  if (text.includes("elimin")) {
+    return { className: "deleted", label: "ELIMINACION" };
+  }
+  if (text.includes("cread")) {
+    return { className: "created", label: "REGISTRO" };
+  }
+  return { className: "info", label: "EVENTO" };
+}
+
+function eventIcon(value) {
+  const type = String(value || "").toLowerCase();
+  if (type.includes("poi") || type.includes("punto")) return "P";
+  if (type.includes("area") || type.includes("zona")) return "Z";
+  if (type.includes("ruta")) return "R";
+  if (type.includes("dibujo")) return "D";
+  if (type.includes("tracking")) return "T";
+  return "E";
 }
 
 function eventMs(event) {

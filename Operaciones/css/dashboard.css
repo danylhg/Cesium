@@ -267,6 +267,142 @@ body {
   width: 420px;
 }
 
+.emergencyAlertPanel {
+  position: fixed;
+  top: 108px;
+  right: 14px;
+  z-index: 1220;
+  width: min(320px, calc(100vw - 28px));
+  max-height: calc(100vh - 132px);
+  display: none;
+  pointer-events: auto;
+  color: #fff5f5;
+}
+
+.emergencyAlertPanel.open {
+  display: block;
+}
+
+.emergencyAlertList {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-height: calc(100vh - 132px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 4px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(254, 202, 202, 0.62) rgba(127, 29, 29, 0.28);
+}
+
+.emergencyAlertList::-webkit-scrollbar {
+  width: 7px;
+}
+
+.emergencyAlertList::-webkit-scrollbar-track {
+  background: rgba(127, 29, 29, 0.28);
+  border-radius: 999px;
+}
+
+.emergencyAlertList::-webkit-scrollbar-thumb {
+  background: rgba(254, 202, 202, 0.62);
+  border-radius: 999px;
+}
+
+.emergencyAlertItem {
+  flex: 0 0 auto;
+  pointer-events: auto;
+  position: relative;
+  overflow: hidden;
+  border-radius: 12px;
+  background: rgba(127, 29, 29, 0.92);
+  border: 1px solid rgba(255, 180, 180, 0.38);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.34), 0 0 14px rgba(239, 68, 68, 0.16);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  animation: emergencyAlertIn .24s ease-out;
+}
+
+.emergencyAlertItemHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 38px 7px 10px;
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.98), rgba(127, 29, 29, 0.98));
+  color: #fff7f7;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .7px;
+  text-transform: uppercase;
+}
+
+.emergencyAlertLabel {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.emergencyAlertDot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #fecaca;
+  box-shadow: 0 0 14px rgba(254, 202, 202, 0.95);
+}
+
+.emergencyAlertMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 36px 0 10px;
+  color: #fecaca;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.emergencyAlertText {
+  color: #fffafa;
+  font-size: 12px;
+  line-height: 1.32;
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding: 6px 36px 10px 10px;
+}
+
+.emergencyAlertClose {
+  position: absolute;
+  top: 5px;
+  right: 7px;
+  width: 24px;
+  height: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.24);
+  color: #ffe4e6;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 900;
+}
+
+.emergencyAlertClose:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+@keyframes emergencyAlertIn {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
 .glassPanel::-webkit-scrollbar {
   width: 8px;
 }
@@ -852,6 +988,19 @@ body {
     width: calc(100vw - 84px);
   }
 
+  .emergencyAlertPanel {
+    top: auto;
+    right: 12px;
+    bottom: 12px;
+    width: min(320px, calc(100vw - 24px));
+    max-height: 45vh;
+  }
+
+  .emergencyAlertList {
+    max-height: 45vh;
+    overflow-y: auto;
+  }
+
   .btnGrid,
   .latlngRow,
   .quickMsgGrid,
@@ -1229,6 +1378,125 @@ body {
 
 .person-link:hover {
   text-decoration-color: #00ffa6;
+}
+
+.personInfoPopup.hidden {
+  display: none;
+}
+
+.personInfoPopup {
+  position: fixed;
+  z-index: 1260;
+  width: min(260px, calc(100vw - 28px));
+  padding: 14px 14px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(245, 248, 252, 0.96);
+  color: #26313f;
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.personInfoPopup::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%) rotate(45deg);
+  background: rgba(245, 248, 252, 0.96);
+  border-right: 1px solid rgba(15, 23, 42, 0.10);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
+}
+
+.personInfoPopupClose {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 1;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: #475569;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.personInfoTitle {
+  margin: 0 24px 9px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.38);
+  color: #9a7b1f;
+  font-size: 15px;
+  font-weight: 900;
+  letter-spacing: .4px;
+}
+
+.personInfoGrid {
+  display: grid;
+  grid-template-columns: 68px 1fr;
+  gap: 6px 10px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.personInfoLabel {
+  color: #334155;
+  font-weight: 900;
+}
+
+.personInfoValue {
+  color: #334155;
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.personInfoStatus {
+  margin-top: 10px;
+  color: #334155;
+  font-size: 13px;
+}
+
+.personInfoStatus strong {
+  color: #0f8a5f;
+}
+
+.personInfoBio {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.34);
+  color: #334155;
+  font-size: 13px;
+}
+
+.personInfoBioTitle {
+  margin-bottom: 8px;
+  font-weight: 900;
+}
+
+.personInfoUpdated {
+  margin-top: 7px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.personInfoCamera {
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  background: #0f172a;
+}
+
+.personInfoCamera img {
+  display: block;
+  width: 100%;
+  height: 92px;
+  object-fit: cover;
 }
 
 .topbar {

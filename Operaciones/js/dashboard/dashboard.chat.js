@@ -12,6 +12,7 @@ let _activeTab = "global";
 let _channelType = "global";
 let _channelTarget = "";
 let _allMsgs   = [];             // todos los mensajes en memoria
+let _dismissedEmergencyMsgs = new Set();
 let _chatDirectory = {
   cets: [],
   flotillas: [],
@@ -354,6 +355,51 @@ function getDestinoPayload() {
 }
 
 // ── Build a single chat bubble ──────────────────────────────
+function isEmergencyMessage(msg) {
+  const tipo = String(msg?.tipo_mensaje || "").toUpperCase();
+  const contenido = String(msg?.contenido || "").trim().toUpperCase();
+  return tipo === "URGENTE" || contenido.startsWith("EMERGENCIA:");
+}
+
+function emergencyMessageKey(msg) {
+  return String(msg?.id_mensaje ?? msg?.fecha_envio ?? msg?.contenido ?? "");
+}
+
+function buildEmergencyAlert(msg) {
+  const autor = escapeHtml(msg.autor_nombre || "Sistema");
+  const hora = escapeHtml(formatTime(msg.fecha_envio));
+  const texto = escapeHtml(msg.contenido || "");
+  const key = escapeHtml(emergencyMessageKey(msg));
+
+  return `
+    <div class="emergencyAlertItem" data-id="${escapeHtml(msg.id_mensaje ?? "")}">
+      <button class="emergencyAlertClose" type="button" data-alert-close="${key}" aria-label="Cerrar alerta">x</button>
+      <div class="emergencyAlertItemHeader">
+        <span class="emergencyAlertLabel">
+          <span class="emergencyAlertDot"></span>
+          <span>Alerta</span>
+        </span>
+      </div>
+      <div class="emergencyAlertMeta">
+        <span>${autor}</span>
+        <span>${hora}</span>
+      </div>
+      <div class="emergencyAlertText">${texto}</div>
+    </div>
+  `;
+}
+
+function renderEmergencyAlerts() {
+  if (!dom.emergencyAlertPanel || !dom.emergencyAlertList) return;
+
+  const alerts = _allMsgs.filter((msg) =>
+    isEmergencyMessage(msg) && !_dismissedEmergencyMsgs.has(emergencyMessageKey(msg))
+  );
+  dom.emergencyAlertPanel.classList.toggle("open", alerts.length > 0);
+  dom.emergencyAlertList.innerHTML = alerts.map(buildEmergencyAlert).join("");
+  dom.emergencyAlertList.scrollTop = dom.emergencyAlertList.scrollHeight;
+}
+
 function formatDestino(msg) {
   const tipo = String(msg.destino_tipo || "").toUpperCase();
   const label = String(msg.destino_label || "").trim();
@@ -439,10 +485,11 @@ function buildAttachmentMarkup(msg) {
 function renderMessages() {
   if (!dom.chatMessages) return;
   dom.chatMessages.innerHTML = "";
-  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
+  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && !isEmergencyMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
     dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
   });
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  renderEmergencyAlerts();
 }
 
 // ── Agrega un mensaje (guard de duplicados) ─────────────────
@@ -454,6 +501,10 @@ function appendMessage(msg) {
   _allMsgs.push(msg);
 
   if (shouldHideChatMessage(msg)) return;
+  if (isEmergencyMessage(msg)) {
+    renderEmergencyAlerts();
+    return;
+  }
   if (!isVisibleInTab(msg)) return;
 
   const atBottom =
@@ -538,6 +589,18 @@ export function initChat(opId, socket) {
 
 // ── Público: enlaza eventos de UI ───────────────────────────
 export function bindChatEvents() {
+  if (dom.emergencyAlertList) {
+    dom.emergencyAlertList.addEventListener("click", (event) => {
+      const closeBtn = event.target.closest("[data-alert-close]");
+      if (!closeBtn) return;
+      _dismissedEmergencyMsgs.add(String(closeBtn.dataset.alertClose || ""));
+      closeBtn.closest(".emergencyAlertItem")?.remove();
+      if (!dom.emergencyAlertList.querySelector(".emergencyAlertItem")) {
+        dom.emergencyAlertPanel?.classList.remove("open");
+      }
+    });
+  }
+
   if (dom.chatChannelType) {
     dom.chatChannelType.addEventListener("change", () => {
       setChannel(dom.chatChannelType.value || "global");

@@ -18,6 +18,7 @@ import org.json.JSONObject
 class OperationChatController(
     private val repository: ChatRepository = ChatRepository(),
     private val host: Host,
+    private val vibrationController: ChatVibrationController? = null,
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
 ) {
     interface Host {
@@ -26,6 +27,8 @@ class OperationChatController(
         fun getChatCurrentUser(): User
         fun getChatPersonal(): List<PersonalItem>
         fun getChatContentResolver(): android.content.ContentResolver
+        fun onChatMessageAdded(message: ChatMessage, visibleInActiveChat: Boolean)
+        fun onChatVisibleMessagesRead(messages: List<ChatMessage>)
     }
 
     private val messages = mutableListOf<ChatMessage>()
@@ -55,9 +58,13 @@ class OperationChatController(
             val exists = msg.id != null && messages.any { it.id == msg.id }
             if (exists) return@post
 
-            messages.add(msg)
+            val visibleInActiveChat = isVisibleInActiveChatFilter(msg)
 
-            if (isVisibleInActiveChatFilter(msg)) {
+            messages.add(msg)
+            vibrationController?.vibrateForMessage(msg)
+            host.onChatMessageAdded(msg, visibleInActiveChat)
+
+            if (visibleInActiveChat) {
                 visibleMessages.add(msg)
             } else {
                 return@post
@@ -169,6 +176,7 @@ class OperationChatController(
 
                     chatLoaded = true
                     refreshVisibleMessages()
+                    host.onChatVisibleMessagesRead(visibleMessages.toList())
                 }
             },
             onError = { message ->

@@ -166,6 +166,15 @@ class CesiumWebController(
         }
     }
 
+    fun pulseEmergencyPersonal(idPersonal: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof pulseEmergencyPersonal==='function') pulseEmergencyPersonal($idPersonal); })();",
+                null
+            )
+        }
+    }
+
     fun enablePickStart() {
         webView.post {
             webView.evaluateJavascript(

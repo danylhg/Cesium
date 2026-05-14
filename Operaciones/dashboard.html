@@ -182,6 +182,11 @@
         </div>
       </div>
     </div>
+
+    <aside id="personInfoPopup" class="personInfoPopup hidden" aria-live="polite">
+      <button id="btnClosePersonInfoPopup" class="personInfoPopupClose" type="button" aria-label="Cerrar">x</button>
+      <div id="personInfoPopupContent"></div>
+    </aside>
   </main>
 
   <aside id="infoPanel" class="glassPanel open">
@@ -451,6 +456,10 @@
       <textarea id="chatInput" placeholder="Escribe un mensaje..."></textarea>
       <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
     </div>
+  </aside>
+
+  <aside id="emergencyAlertPanel" class="emergencyAlertPanel" aria-live="polite" aria-label="Alertas de emergencia">
+    <div id="emergencyAlertList" class="emergencyAlertList"></div>
   </aside>
 
   <aside id="cameraPanel" class="glassPanel cameraPanel">
