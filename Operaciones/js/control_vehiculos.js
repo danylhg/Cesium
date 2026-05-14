@@ -129,6 +129,7 @@
   const modalTitle = document.getElementById("modalTitle");
   const btnCloseModal = document.getElementById("btnCloseModal");
   const btnCancel = document.getElementById("btnCancel");
+  const btnDeleteModal = document.getElementById("btnDeleteModal");
   const form = document.getElementById("form");
 
   const dropZone = document.getElementById("dropZone");
@@ -357,6 +358,14 @@
           renderTable();
         });
 
+        tr.addEventListener("dblclick", (e) => {
+          e.stopPropagation();
+          selectedId = v.id_vehiculo;
+          updateButtons();
+          renderTable();
+          openModal("edit");
+        });
+
         tbody.appendChild(tr);
       });
     }
@@ -372,6 +381,7 @@
     mode = newMode;
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
+    if (btnDeleteModal) btnDeleteModal.style.display = mode === "edit" ? "inline-flex" : "none";
 
     if (mode === "add") {
       modalTitle.textContent = "Agregar vehículo";
@@ -423,6 +433,7 @@
 
   btnCloseModal?.addEventListener("click", closeModal);
   btnCancel?.addEventListener("click", closeModal);
+  btnDeleteModal?.addEventListener("click", () => btnDelete?.click());
 
   modal?.addEventListener("click", (e) => {
     if (e.target?.dataset?.close === "true") closeModal();
@@ -474,6 +485,7 @@
       await loadFromApi();
       selectedId = null;
       renderTable();
+      closeModal();
     } catch (err) {
       alert(err.message);
     }

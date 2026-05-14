@@ -52,7 +52,6 @@
       <div class="panelTabs">
         <button class="tabBtn active" data-tab="info">Información</button>
         <button class="tabBtn" data-tab="chat">Conversaciones</button>
-        <button class="tabBtn" data-tab="events">Eventos</button>
       </div>
 
       <div class="tabContent" id="infoTab">
@@ -66,50 +65,42 @@
           <!-- Messages will be injected here -->
         </div>
       </div>
-
-      <div class="tabContent hidden" id="eventsTab">
-        <div id="eventLog" class="eventLog">
-          <!-- Events will be injected here -->
-        </div>
-      </div>
     </aside>
+  </main>
 
-    <button id="btnTogglePanel" class="panelToggle" type="button" title="Ocultar panel" aria-label="Ocultar panel">☰</button>
+  <!-- Bottom Playback Controls -->
+  <div class="playbackControls">
+    <div class="timelineRow">
+      <input type="range" id="timelineSlider" class="timelineSlider" min="0" max="100" value="0" step="0.01">
+    </div>
 
-    <!-- Bottom Playback Controls -->
-    <div class="playbackControls">
-      <div class="timelineRow">
-        <input type="range" id="timelineSlider" class="timelineSlider" min="0" max="100" value="0" step="0.01">
+    <div class="buttonsRow">
+      <div class="leftGroup">
+        <button id="btnRewind" class="skipBtn" type="button" title="Retroceder 10s">◀◀</button>
+        <button id="btnPlayPause" class="playBtn" type="button">▶</button>
+        <button id="btnForward" class="skipBtn" type="button" title="Adelantar 10s">▶▶</button>
+        <div class="speedSelector">
+          <label>Velocidad:</label>
+          <select id="playbackSpeed">
+            <option value="1">1x</option>
+            <option value="2">2x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+            <option value="20">20x</option>
+            <option value="50">50x</option>
+          </select>
+        </div>
       </div>
 
-      <div class="buttonsRow">
-        <div class="leftGroup">
-          <button id="btnRewind" class="skipBtn" type="button" title="Retroceder 10s">&#9664;&#9664;</button>
-          <button id="btnPlayPause" class="playBtn" type="button">&#9654;</button>
-          <button id="btnForward" class="skipBtn" type="button" title="Adelantar 10s">&#9654;&#9654;</button>
-          <div class="speedSelector">
-            <label>Velocidad:</label>
-            <select id="playbackSpeed">
-              <option value="1">1x</option>
-              <option value="2">2x</option>
-              <option value="5">5x</option>
-              <option value="10">10x</option>
-              <option value="20">20x</option>
-              <option value="50">50x</option>
-            </select>
-          </div>
-        </div>
+      <div class="centerGroup">
+        <div id="currentDateDisplay" class="currentDate">--/--/----</div>
+      </div>
 
-        <div class="centerGroup">
-          <div id="currentDateDisplay" class="currentDate">--/--/----</div>
-        </div>
-
-        <div class="rightGroup">
-          <button id="btnReset" class="btnSecondary">Reiniciar</button>
-        </div>
+      <div class="rightGroup">
+        <button id="btnReset" class="btnSecondary">Reiniciar</button>
       </div>
     </div>
-  </main>
+  </div>
 
   <script src="js/historial.js" type="module"></script>
 </body>

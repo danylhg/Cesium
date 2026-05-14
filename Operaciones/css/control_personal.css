@@ -272,6 +272,7 @@ input, select{
 .modalBody .full{ grid-column: 1 / -1; }
 .miniHelp{ font-size: 12px; color: var(--muted); margin-top: 6px; }
 .modalActions{ display:flex; gap: 10px; justify-content:flex-end; margin-top: 14px; }
+#btnDeleteModal{ margin-right:auto; }
 
 /* ✅ FIX: si tiene hidden, no se muestra */
 .modal.hidden{ display:none !important; }
