@@ -86,12 +86,10 @@ export function ensureOperationPhase(op) {
   // Si existe, usarlo como fuente de verdad en lugar de recalcular desde fecha_inicio.
   if (current.estado) {
     current.phase = current.estado.toLowerCase();
-    if (current.phase === "terminada" || current.phase === "cancelada") {
-      return current;
-    }
+    return current;
   }
 
-  if (current.phase === "terminada" || current.phase === "cancelada") return current;
+  if (current.phase) return current;
 
   const scheduled = getOperationDateTime(current);
   if (!scheduled) {
@@ -107,7 +105,7 @@ export function ensureOperationPhase(op) {
     current.phase = "planificada";
     current.estado = "PLANIFICADA";
   }
-  
+
   return current;
 }
 
@@ -156,14 +154,14 @@ export function saveCurrentOperation(op) {
       });
     }
     localStorage.setItem("operations", JSON.stringify(opsList));
-  } catch {}
+  } catch { }
 
   // Sincronizar asignacion_actual al slot por ID
   if (finalOp.id) {
     try {
       const asig = localStorage.getItem(ASIGNACION_ACTUAL_KEY);
       if (asig) localStorage.setItem(`asignacion_op_${finalOp.id}`, asig);
-    } catch {}
+    } catch { }
   }
 }
 

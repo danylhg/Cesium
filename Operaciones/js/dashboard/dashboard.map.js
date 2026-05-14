@@ -2,15 +2,14 @@
 
 import { dashboardState } from "./dashboard.state.js";
 import { dom } from "./dashboard.dom.js";
-import { configureGoogleLikeCamera } from "../map.camera.js";
-import { updateSelectionInfo, setRouteInfo, openPanel } from "./dashboard.ui.js";
+import { updateSelectionInfo, setRouteInfo, showPersonnelDetail } from "./dashboard.ui.js";
 import {
   handleTacticalPlacement,
   updateTacticalPreview,
   isDraggableEntity,
   createMilSymbol,
-  createPoi,
-  persistDraggedEntity
+  persistDraggedEntity,
+  renderMilSymbolImage
 } from "./dashboard.tactical.js";
 import { addAreaVertex, updateAreaPreview } from "./dashboard.area.js";
 import { cartesianToLatLng, autoSaveTacticalData } from "./dashboard.persistence.js";
@@ -157,15 +156,15 @@ function getQuickMenuContext(entity) {
 
     const actions = role === "CET"
       ? [
-          { slot: "chat", kind: "cet", text: "Mandar mensaje a CET" },
-          { slot: "alert", kind: "flotilla", text: "Mandar mensaje a flotilla" },
-          { slot: "route", kind: "ruta", text: "Ver ruta" }
-        ]
+        { slot: "chat", kind: "cet", text: "Mandar mensaje a CET" },
+        { slot: "alert", kind: "flotilla", text: "Mandar mensaje a flotilla" },
+        { slot: "route", kind: "ruta", text: "Ver ruta" }
+      ]
       : [
-          { slot: "chat", kind: "flotilla", text: "Mandar mensaje a flotilla" },
-          { slot: "alert", kind: "grupo", text: "Mandar mensaje a grupo" },
-          { slot: "route", kind: "ruta", text: "Ver ruta" }
-        ];
+        { slot: "chat", kind: "flotilla", text: "Mandar mensaje a flotilla" },
+        { slot: "alert", kind: "grupo", text: "Mandar mensaje a grupo" },
+        { slot: "route", kind: "ruta", text: "Ver ruta" }
+      ];
 
     return {
       type: role,
@@ -176,6 +175,19 @@ function getQuickMenuContext(entity) {
   }
 
   return null;
+}
+
+function getEntityLatLng(entity) {
+  const position = entity?.position?.getValue?.(Cesium.JulianDate.now()) ?? entity?.position;
+  if (!position) return {};
+
+  const cartographic = Cesium.Cartographic.fromCartesian(position);
+  if (!cartographic) return {};
+
+  return {
+    lat: Cesium.Math.toDegrees(cartographic.latitude),
+    lng: Cesium.Math.toDegrees(cartographic.longitude)
+  };
 }
 
 function showQuickMenuForEntity(entity, clickPosition) {
@@ -272,6 +284,7 @@ function handleEntitySelection(clickPosition) {
   if (isDraw) {
     if (dom.entityPopup) dom.entityPopup.style.display = "none";
     if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+    dom.personInfoPopup?.classList.add("hidden");
     return;
   }
 
@@ -282,6 +295,7 @@ function handleEntitySelection(clickPosition) {
       updateSelectionInfo(null);
       if (dom.entityPopup) dom.entityPopup.style.display = "none";
       if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+      dom.personInfoPopup?.classList.add("hidden");
       return;
     }
 
@@ -296,11 +310,27 @@ function handleEntitySelection(clickPosition) {
       updateSelectionInfo(null);
       if (dom.entityPopup) dom.entityPopup.style.display = "none";
       if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+      dom.personInfoPopup?.classList.add("hidden");
       return;
     }
 
     dashboardState.selectedEntity = picked.id;
     updateSelectionInfo(dashboardState.selectedEntity);
+
+    const trackingKey = String(getEntityProperty(dashboardState.selectedEntity, "trackingKey") || "");
+    if (trackingKey.startsWith("P:")) {
+      const id = trackingKey.split(":")[1];
+      const rect = viewer.canvas.getBoundingClientRect();
+      showPersonnelDetail(id, {
+        x: clickPosition.x + rect.left,
+        y: clickPosition.y + rect.top,
+        ...getEntityLatLng(dashboardState.selectedEntity)
+      });
+      if (dom.entityPopup) dom.entityPopup.style.display = "none";
+      if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+      return;
+    }
+
     const quickMenuShown = showQuickMenuForEntity(dashboardState.selectedEntity, clickPosition);
 
     const tacticalType =
@@ -312,6 +342,7 @@ function handleEntitySelection(clickPosition) {
       !["planning-area", "planning-area-border", "planning-area-label"].includes(tacticalType);
 
     if (dom.entityPopup && isTactical && !quickMenuShown) {
+      dom.personInfoPopup?.classList.add("hidden");
       const name = dashboardState.selectedEntity.name || tacticalType || "Elemento táctico";
       if (dom.entityPopupName) {
         dom.entityPopupName.textContent = name;
@@ -326,6 +357,7 @@ function handleEntitySelection(clickPosition) {
       dom.entityPopup.style.display = "block";
     } else if (dom.entityPopup) {
       dom.entityPopup.style.display = "none";
+      if (!quickMenuShown) dom.personInfoPopup?.classList.add("hidden");
     }
 
   } else {
@@ -333,6 +365,7 @@ function handleEntitySelection(clickPosition) {
     updateSelectionInfo(null);
     if (dom.entityPopup) dom.entityPopup.style.display = "none";
     if (dom.vehicleQuickMenu) dom.vehicleQuickMenu.style.display = "none";
+    dom.personInfoPopup?.classList.add("hidden");
   }
 }
 
@@ -363,9 +396,23 @@ function handleRoutePick(lat, lng) {
 
     if (dashboardState.startEntity) viewer.entities.remove(dashboardState.startEntity);
 
+    const vehSelect = document.getElementById("routeVehicleSelect");
+    const opt = vehSelect?.options[vehSelect.selectedIndex];
+    const sidc = opt?.dataset.sidc;
+    const icono = opt?.dataset.icono;
+
+    let billboard = null;
+    if (sidc) {
+      const canvas = renderMilSymbolImage(sidc, 150);
+      if (canvas) billboard = { image: canvas.toDataURL(), scale: 0.12, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND };
+    } else if (icono) {
+      billboard = { image: icono, scale: 0.12, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND };
+    }
+
     dashboardState.startEntity = viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
-      point: { pixelSize: 12, color: Cesium.Color.LIME },
+      point: billboard ? undefined : { pixelSize: 12, color: Cesium.Color.LIME },
+      billboard: billboard || undefined,
       label: {
         text: "ORIGEN",
         font: "bold 14px sans-serif",
@@ -373,7 +420,7 @@ function handleRoutePick(lat, lng) {
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 4,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -24)
+        pixelOffset: new Cesium.Cartesian2(0, -28)
       }
     });
 
@@ -402,9 +449,23 @@ function handleRoutePick(lat, lng) {
 
     if (dashboardState.endEntity) viewer.entities.remove(dashboardState.endEntity);
 
+    const vehSelect = document.getElementById("routeVehicleSelect");
+    const opt = vehSelect?.options[vehSelect.selectedIndex];
+    const sidc = opt?.dataset.sidc;
+    const icono = opt?.dataset.icono;
+
+    let billboard = null;
+    if (sidc) {
+      const canvas = renderMilSymbolImage(sidc, 150);
+      if (canvas) billboard = { image: canvas.toDataURL(), scale: 0.12, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND };
+    } else if (icono) {
+      billboard = { image: icono, scale: 0.12, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND };
+    }
+
     dashboardState.endEntity = viewer.entities.add({
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
-      point: { pixelSize: 12, color: Cesium.Color.YELLOW },
+      point: billboard ? undefined : { pixelSize: 12, color: Cesium.Color.YELLOW },
+      billboard: billboard || undefined,
       label: {
         text: "DESTINO",
         font: "bold 14px sans-serif",
@@ -412,7 +473,7 @@ function handleRoutePick(lat, lng) {
         outlineColor: Cesium.Color.BLACK,
         outlineWidth: 4,
         style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-        pixelOffset: new Cesium.Cartesian2(0, -24)
+        pixelOffset: new Cesium.Cartesian2(0, -28)
       }
     });
 
@@ -533,10 +594,9 @@ function bindMapDropEvents() {
     const src = e.dataTransfer.getData("text/plain");
     const sidc = e.dataTransfer.getData("application/sidc");
     const title = e.dataTransfer.getData("application/title");
-    const isBuilding = e.dataTransfer.getData("application/building") === "true";
+    const isBuilding = e.dataTransfer.getData("application/building");
 
     if (!src && !sidc && !isBuilding) return;
-    if (!title && !isBuilding) return;
 
     const rect = dom.map.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -548,17 +608,19 @@ function bindMapDropEvents() {
     if (!coords) return;
 
     if (isBuilding) {
-      const previousMode = dashboardState.toolMode;
-      dashboardState.toolMode = "building";
-      void createPoi(coords.lat, coords.lng, "img/estructuras/casa.png");
-      dashboardState.toolMode = previousMode;
+      import("./dashboard.tactical.js").then(module => {
+        const oldMode = dashboardState.toolMode;
+        dashboardState.toolMode = "building";
+        module.createPoi(coords.lat, coords.lng, "img/estructuras/casa.png");
+        dashboardState.toolMode = oldMode;
+      });
       return;
     }
 
     createMilSymbol(
       coords.lat,
       coords.lng,
-      title,
+      title || "Símbolo MIL",
       src || null,
       1,
       sidc || null
@@ -582,7 +644,8 @@ function bindMapUiEvents() {
       if (dom.markAreaBtn) dom.markAreaBtn.textContent = "Marcar área";
       dashboardState.pickMode = "start";
       setRouteInfo("Modo ruta activo: haz clic en el origen.");
-      openPanel(dom.routePanel, dom.toggleRoutePanel);
+      dom.routePanel?.classList.add("open");
+      dom.toggleRoutePanel?.classList.add("active");
     };
   }
 
@@ -667,11 +730,8 @@ export function initCesium() {
   });
 
   dashboardState.viewer = viewer;
-  configureGoogleLikeCamera(viewer, {
-    inertiaZoom: 0.08,
-    maximumMovementRatio: 0.18,
-    zoomFactor: 4.8
-  });
+  viewer.scene.screenSpaceCameraController.minimumZoomDistance = 500;
+  viewer.scene.screenSpaceCameraController.maximumZoomDistance = 5000000;
 
   viewer.geocoder.viewModel.destinationFound = function (_viewModel, destination) {
     viewer.camera.flyTo({ destination });
@@ -701,15 +761,8 @@ export function centerMapOnOperationZone(zona) {
   const viewer = dashboardState.viewer;
   if (!viewer || !zona) return;
 
-  let geometria = zona.geometria ?? zona.geometry;
-  if (typeof geometria === "string") {
-    try { geometria = JSON.parse(geometria); } catch { geometria = null; }
-  }
-
-  const latStr = zona.centroide_lat ?? zona.center_lat ?? zona.latitud ?? zona.lat;
-  const lngStr = zona.centroide_lon ?? zona.centroide_lng ?? zona.center_lon ?? zona.center_lng ?? zona.longitud ?? zona.lng ?? zona.lon;
-  const lat = (latStr != null && latStr !== "") ? Number(latStr) : NaN;
-  const lng = (lngStr != null && lngStr !== "") ? Number(lngStr) : NaN;
+  const lat = Number(zona.centroide_lat);
+  const lng = Number(zona.centroide_lon);
   const zoom = Number(zona.zoom_inicial || 1000) || 1000;
 
   if (Number.isFinite(lat) && Number.isFinite(lng)) {
@@ -719,7 +772,7 @@ export function centerMapOnOperationZone(zona) {
     return;
   }
 
-  const ring = geometria?.coordinates?.[0];
+  const ring = zona.geometria?.coordinates?.[0];
   if (!Array.isArray(ring) || ring.length < 3) return;
 
   const lons = ring.map(point => Number(point?.[0])).filter(Number.isFinite);

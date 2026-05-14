@@ -9,7 +9,8 @@ import {
   ASIGNACION_ACTUAL_KEY
 } from "./dashboard.storage.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
-import { dashboardState } from "./dashboard.state.js";
+
+let _lastPersonalData = [];
 
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
@@ -47,30 +48,30 @@ export function closeAllPanels() {
   dom.toggleChatPanel?.classList.remove("active");
 }
 
-export function openPanel(panel, button) {
-  if (!panel) return;
-
-  closeAllPanels();
-  panel.classList.add("open");
-  button?.classList.add("active");
-}
-
 export function togglePanel(panel, button) {
   if (!panel || !button) return;
 
   const wasOpen = panel.classList.contains("open");
+  closeAllPanels();
 
   if (!wasOpen) {
-    openPanel(panel, button);
-    return;
+    panel.classList.add("open");
+    button.classList.add("active");
   }
+}
 
-  closeAllPanels();
+function labelConPrefijo(prefijo, nombre) {
+  if (!nombre || nombre === "Sin flotilla" || nombre === "Sin grupo") return nombre;
+  const nLower = nombre.toLowerCase();
+  const pLower = prefijo.toLowerCase();
+  if (nLower.startsWith(pLower)) return nombre;
+  return `${prefijo} ${nombre}`;
 }
 
 function normalizePersonal(personal) {
   return personal.map((p) => {
-    if (!p?.rol_en_operacion) return p;
+    const id = getPersonId(p);
+    if (!p?.rol_en_operacion) return { ...p, id };
 
     const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ").trim();
     const grupoDirecto = p.grupo_nombre || "";
@@ -79,118 +80,35 @@ function normalizePersonal(personal) {
     const tieneSubgrupo = Boolean(grupoPadre && !padreEsRaiz);
 
     return {
+      id,
       cargo: p.rol_en_operacion,
       nombre,
       grupo: tieneSubgrupo ? grupoDirecto : "",
-      flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || ""),
-      id_personal: p.id_personal ?? null,
-      lat: p.latitud ?? p.lat ?? null,
-      lon: p.longitud ?? p.lon ?? p.lng ?? null
+      flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || "")
     };
   });
 }
 
-function isRootGroupName(value) {
-  return String(value || "").trim().toLowerCase() === "mando operativo";
+function getPersonId(person = {}) {
+  return firstValue(
+    person.id_personal,
+    person.id,
+    person.id_usuario,
+    person.id_persona,
+    person.personal_id,
+    person.usuario_id
+  );
 }
 
-function formatRoleLabel(value) {
-  const role = String(value || "").trim().toUpperCase();
-  return role ? `(${role})` : "";
+function getPersonName(person = {}) {
+  return [person.nombre, person.apellido].filter(Boolean).join(" ").trim() ||
+    person.apodo ||
+    person.name ||
+    person.nombre_completo ||
+    "";
 }
 
-function formatPersonWithRole(nombre, rol) {
-  const roleLabel = formatRoleLabel(rol);
-  return [roleLabel, String(nombre || "").trim()].filter(Boolean).join(" ");
-}
-
-// Evita duplicar prefijos como "Flotilla Flotilla Alfa" o "Grupo Grupo Alpha"
-function labelConPrefijo(prefijo, nombre) {
-  if (!nombre) return prefijo;
-  if (nombre.trim().toLowerCase().startsWith(prefijo.toLowerCase())) return nombre.trim();
-  return `${prefijo} ${nombre.trim()}`;
-}
-
-function personSpan(nombre, id, lat, lon) {
-  const safe = escapeHtml(nombre);
-  if (id == null) return safe;
-  const personAttrs = `data-pid="${id}" data-person-id="${id}"`;
-  if (lat != null && lon != null) {
-    return `<span class="personal-locatable person-link" ${personAttrs} data-lat="${lat}" data-lon="${lon}" style="cursor:pointer;color:#00BFFF;border-bottom:1px dotted #00BFFF;" title="Ver detalle">${safe}</span>`;
-  }
-  return `<span class="person-link" ${personAttrs} style="cursor:pointer;color:#00ffa6;border-bottom:1px dotted #00ffa6;" title="Ver detalle">${safe}</span>`;
-}
-
-export function activatePersonalLocation(id, lat, lon) {
-  document.querySelectorAll(`[data-pid="${id}"]`).forEach(span => {
-    span.dataset.lat = lat;
-    span.dataset.lon = lon;
-    if (!span.classList.contains("personal-locatable")) {
-      span.classList.add("personal-locatable");
-      span.style.cursor = "pointer";
-      span.style.color = "#00BFFF";
-      span.style.borderBottom = "1px dotted #00BFFF";
-      span.title = "Ir a ubicacion";
-    }
-  });
-}
-
-function getPersonalEntityCoordinates(id) {
-  const viewer = dashboardState.viewer;
-  const entity = dashboardState.trackingEntities?.get(`P:${id}`);
-  const position = entity?.position?.getValue?.(viewer?.clock?.currentTime) ?? entity?.position;
-  if (!position) return null;
-
-  const carto = Cesium.Cartographic.fromCartesian(position);
-  return {
-    lat: Cesium.Math.toDegrees(carto.latitude),
-    lon: Cesium.Math.toDegrees(carto.longitude)
-  };
-}
-
-function setFollowedPersonalStyle(id) {
-  document.querySelectorAll(".personal-locatable").forEach(span => {
-    const selected = String(span.dataset.pid || "") === String(id || "");
-    span.style.color = selected ? "#38bdf8" : "#00BFFF";
-    span.style.borderBottom = selected ? "1px solid #38bdf8" : "1px dotted #00BFFF";
-    span.title = selected ? "Siguiendo ubicacion" : "Seguir ubicacion";
-  });
-}
-
-export function followPersonalLocation(id, lat, lon) {
-  const viewer = dashboardState.viewer;
-  if (!viewer || id == null) return;
-
-  dashboardState.followedPersonalId = String(id);
-  setFollowedPersonalStyle(id);
-
-  const liveCoords = getPersonalEntityCoordinates(id);
-  const destLat = liveCoords?.lat ?? lat;
-  const destLon = liveCoords?.lon ?? lon;
-  updateFollowedPersonalLocation(id, destLat, destLon, 0.45);
-}
-
-export function updateFollowedPersonalLocation(id, lat, lon, duration = 0.28) {
-  const viewer = dashboardState.viewer;
-  if (!viewer || String(dashboardState.followedPersonalId || "") !== String(id || "")) return;
-  const destLat = Number(lat);
-  const destLon = Number(lon);
-  if (!Number.isFinite(destLat) || !Number.isFinite(destLon)) return;
-
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(
-      destLon,
-      destLat,
-      dashboardState.followedPersonalZoom || 800
-    ),
-    orientation: {
-      heading: viewer.camera.heading,
-      pitch: viewer.camera.pitch,
-      roll: viewer.camera.roll
-    },
-    duration
-  });
-}
+// ...
 
 function renderPersonalHtml(personalNorm) {
   if (!personalNorm.length) return "<p>Sin personal asignado.</p>";
@@ -204,13 +122,15 @@ function renderPersonalHtml(personalNorm) {
     (p) => ["CET", "Comandante de Equipo de trabajo"].includes(p.cargo || p.rol)
   );
   const cells = personalNorm.filter(
-    (p) => ["Célula", "CELL", "Celulas", "Células"].includes(p.cargo || p.rol)
+    (p) => ["CÃƒÂ©lula", "CELL", "Celulas", "CÃƒÂ©lulas"].includes(p.cargo || p.rol)
   );
+
+  const nameLink = (p) => `<span class="person-link" data-person-id="${escapeHtml(p.id)}" data-person-name="${escapeHtml(p.nombre || p.name || "")}" style="cursor:pointer; color:#00ffa6; text-decoration:underline;">${escapeHtml(p.nombre || p.name)}</span>`;
 
   cuts.forEach((cut) => {
     html += `
       <div class="miniCard" style="border-left: 3px solid #10b981;">
-        <p><strong>CUT:</strong> ${personSpan(cut.nombre || cut.name, cut.id_personal, cut.lat, cut.lon)}</p>
+        <p><strong>CUT:</strong> ${nameLink(cut)}</p>
       </div>
     `;
   });
@@ -223,24 +143,23 @@ function renderPersonalHtml(personalNorm) {
     cells.forEach((cell) => {
       if (cell.flotilla !== flotillaNombre) return;
 
-      const nameHtml = personSpan(formatPersonWithRole(cell.nombre, cell.cargo), cell.id_personal, cell.lat, cell.lon);
       if (cell.grupo) {
         if (!grupos.has(cell.grupo)) grupos.set(cell.grupo, []);
-        grupos.get(cell.grupo).push(nameHtml);
+        grupos.get(cell.grupo).push(cell);
       } else {
-        directos.push(nameHtml);
+        directos.push(cell);
       }
     });
 
     html += `
       <div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:8px;">
-        <p><strong>(CET) ${personSpan(cet.nombre, cet.id_personal, cet.lat, cet.lon)}</strong></p>
+        <p><strong>${nameLink(cet)} (CET)</strong></p>
         <p style="margin-top:8px;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flotillaNombre))}</strong></p>
     `;
 
-    directos.forEach((nameHtml) => {
+    directos.forEach((p) => {
       html += `
-        <p style="padding-left:20px; margin:2px 0;">-- ${nameHtml}</p>
+        <p style="padding-left:20px; margin:2px 0;">-- ${nameLink(p)}</p>
       `;
     });
 
@@ -249,9 +168,9 @@ function renderPersonalHtml(personalNorm) {
         <p style="margin-top:12px;"><strong>${escapeHtml(labelConPrefijo("Grupo", grupoNombre))}</strong></p>
       `;
 
-      integrantes.forEach((nameHtml) => {
+      integrantes.forEach((p) => {
         html += `
-          <p style="padding-left:20px; margin:2px 0;">-- ${nameHtml}</p>
+          <p style="padding-left:20px; margin:2px 0;">-- ${nameLink(p)}</p>
         `;
       });
     });
@@ -288,13 +207,12 @@ function getVehiculoPersonalNombre(row) {
   ].filter(Boolean).join(" ").trim();
 
   if (nombreCompleto) {
-    const baseName = row.personal_puesto
+    return row.personal_puesto
       ? `${row.personal_puesto} ${nombreCompleto}`.trim()
       : nombreCompleto;
-    return formatPersonWithRole(baseName, row.personal_rol);
   }
 
-  return formatPersonWithRole(row.asignado_a_apodo || "", row.personal_rol);
+  return row.asignado_a_apodo || "";
 }
 
 function renderVehiculosHierarchyHtml(vehiculos) {
@@ -310,7 +228,7 @@ function renderVehiculosHierarchyHtml(vehiculos) {
 
     html += `<div class="miniCard"><p><strong>${escapeHtml(nombre)}</strong></p>`;
 
-    // flotilla_nombre → { directos: [], grupos: Map<string, []> }
+    // flotilla_nombre â†’ { directos: [], grupos: Map<string, []> }
     const cets = new Map();
     const sinContexto = [];
 
@@ -320,22 +238,21 @@ function renderVehiculosHierarchyHtml(vehiculos) {
 
       // Campos nuevos del endpoint mapa (con fallback al endpoint vehiculos-asignados)
       const grupoDirecto = row.grupo_directo_nombre || row.grupo_nombre || "";
-      const grupoPadre  = row.grupo_padre_nombre || "";
-      const nivel       = (row.nivel_asignacion || "").toUpperCase();
-      const padreUtil = isRootGroupName(grupoPadre) ? "" : grupoPadre;
+      const grupoPadre = row.grupo_padre_nombre || "";
+      const nivel = (row.nivel_asignacion || "").toUpperCase();
 
       let flotillaNombre, grupoNombre;
 
-      if (padreUtil) {
-        flotillaNombre = padreUtil;
-        grupoNombre    = grupoDirecto;
+      if (grupoPadre) {
+        flotillaNombre = grupoPadre;
+        grupoNombre = grupoDirecto;
       } else if (grupoDirecto) {
         if (nivel === "GRUPO") {
           flotillaNombre = "";
-          grupoNombre    = grupoDirecto;
+          grupoNombre = grupoDirecto;
         } else {
           flotillaNombre = grupoDirecto;
-          grupoNombre    = "";
+          grupoNombre = "";
         }
       } else {
         if (personal) sinContexto.push(personal);
@@ -391,67 +308,35 @@ function renderVehiculosHierarchyHtml(vehiculos) {
 function normalizeEquipos(equipos) {
   return equipos.map((e) => {
     if (e.numero_serie !== undefined && !e.nombre_display) {
-      const tipoDestino = e.tipo_destino || null;
-      const grupoAsignado = String(e.grupo_asignado || "").trim();
-      const flotillaAsignada = String(e.flotilla_asignada || "").trim();
-      const personalGrupo = String(e.personal_grupo_nombre || "").trim();
-      const personalFlotilla = String(e.personal_flotilla_nombre || "").trim();
-      const gruposVehiculo = String(e.grupos_vinculados || "").split(",").map(v => v.trim()).filter(Boolean);
-      const flotillasVehiculo = String(e.flotillas_vinculadas || "").split(",").map(v => v.trim()).filter(Boolean);
-
-      let grupos = [];
-      let flotillas = [];
-
-      if (tipoDestino === "VEHICULO") {
-        grupos = gruposVehiculo;
-        flotillas = flotillasVehiculo.filter(v => !isRootGroupName(v));
-
-        if (!flotillas.length && grupos.length === 1) {
-          flotillas = grupos;
-          grupos = [];
-        }
-      } else if (tipoDestino === "GRUPO") {
-        const flotillaUtil = !isRootGroupName(flotillaAsignada) ? flotillaAsignada : "";
-        if (flotillaUtil) {
-          flotillas = [flotillaUtil];
-          grupos = grupoAsignado ? [grupoAsignado] : [];
-        } else if (grupoAsignado && !isRootGroupName(grupoAsignado)) {
-          flotillas = [grupoAsignado];
-          grupos = [];
-        }
-      } else {
-        const flotillaUtil = !isRootGroupName(personalFlotilla) ? personalFlotilla : "";
-        if (flotillaUtil) {
-          flotillas = [flotillaUtil];
-          grupos = personalGrupo ? [personalGrupo] : [];
-        } else if (personalGrupo && !isRootGroupName(personalGrupo)) {
-          flotillas = [personalGrupo];
-          grupos = [];
-        }
-      }
-
-      const flotillasNorm = [...new Set(flotillas.map(v => v.trim()).filter(v => v && !isRootGroupName(v)))];
-      const gruposNorm = [...new Set(
-        grupos
-          .map(v => v.trim())
-          .filter(v => v && !isRootGroupName(v))
-          .filter(v => !flotillasNorm.some(f => f.toLowerCase() === v.toLowerCase()))
-      )];
-
       return {
         id_equipo: e.id_equipo,
         nombre: e.nombre,
         numero: e.numero_serie || "",
         categoria: e.categoria || "",
         tipo_equipo: e.tipo_equipo || e.tipo_tactico || [e.marca, e.modelo].filter(Boolean).join(" ") || e.categoria || "Equipo",
-        tipo_destino: tipoDestino,
+        tipo_destino: e.tipo_destino || null,
         asignadoA: e.asignado_a_personal || "",
-        personalRol: e.personal_rol || "",
-        vehiculo: tipoDestino === "VEHICULO"
+        vehiculo: e.tipo_destino === "VEHICULO"
           ? [e.asignado_a_vehiculo, e.vehiculo_alias].filter(Boolean).join(" - ")
           : "",
-        grupos: gruposNorm,
-        flotillas: flotillasNorm
+        grupos: (() => {
+          if (e.tipo_destino === "VEHICULO") {
+            return String(e.grupos_vinculados || "").split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (e.tipo_destino === "GRUPO") {
+            return [e.grupo_asignado].filter(Boolean);
+          }
+          return [e.personal_grupo_nombre].filter(Boolean);
+        })(),
+        flotillas: (() => {
+          if (e.tipo_destino === "VEHICULO") {
+            return String(e.flotillas_vinculadas || "").split(",").map(v => v.trim()).filter(Boolean);
+          }
+          if (e.tipo_destino === "GRUPO") {
+            return [e.flotilla_asignada].filter(Boolean);
+          }
+          return [e.personal_flotilla_nombre || e.personal_grupo_nombre].filter(Boolean);
+        })()
       };
     }
     return e;
@@ -479,19 +364,16 @@ function renderEquiposGroupedHtml(equiposNorm) {
   const renderCard = (e) => {
     const flotillas = [...new Set((e.flotillas || []).filter(Boolean))];
     const grupos = [...new Set((e.grupos || []).filter(Boolean))];
-    const destinoBase = e.vehiculo || e.asignadoA || "";
-    const destinoRaw = e.vehiculo
-      ? destinoBase
-      : [e.personalRol ? `(${String(e.personalRol).toUpperCase()})` : "", destinoBase].filter(Boolean).join(" ");
+    const destinoRaw = e.vehiculo || e.asignadoA || "";
     const contexto = new Set([...flotillas, ...grupos].map((v) => String(v).trim().toLowerCase()));
-    const destinoFinal = contexto.has(String(destinoBase).trim().toLowerCase()) ? "" : destinoRaw;
+    const destinoFinal = contexto.has(String(destinoRaw).trim().toLowerCase()) ? "" : destinoRaw;
 
     return `
       <div class="miniCard">
         <p><strong>Nombre de equipo:</strong> ${escapeHtml(e.nombre || "")}</p>
-        <p><strong>Identificador:</strong> ${escapeHtml(e.numero || "Sin numero")}</p>
-        ${flotillas.length ? `<p style="margin-top:8px;"><strong>Flotilla:</strong> ${escapeHtml(flotillas.join(", "))}</p>` : ""}
-        ${grupos.length ? `<p style="margin-top:8px;"><strong>Grupo:</strong> ${escapeHtml(grupos.join(", "))}</p>` : ""}
+        <p><strong>Numero:</strong> ${escapeHtml(e.numero || "Sin numero")}</p>
+        ${flotillas.length ? `<p style="margin-top:8px;"><strong>${escapeHtml(flotillas.join(", "))}</strong></p>` : ""}
+        ${grupos.length ? `<p style="margin-top:8px;"><strong>${escapeHtml(grupos.join(", "))}</strong></p>` : ""}
         ${destinoFinal ? `<p style="padding-left:12px; margin-top:8px;">-- ${escapeHtml(destinoFinal)}</p>` : ""}
       </div>
     `;
@@ -543,13 +425,13 @@ export function renderInfoPanel(bdData = null) {
   if (operacion.fecha_inicio) {
     const d = new Date(operacion.fecha_inicio);
     if (!isNaN(d)) {
-      const dd = String(d.getUTCDate()).padStart(2, "0");
-      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
-      const yyyy = d.getUTCFullYear();
+      const dd = String(d.getDate()).padStart(2, "0");
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const yyyy = d.getFullYear();
       fechaP = `${dd}-${mm}-${yyyy}`;
       if (horaP === "No definida") {
-        const hh = String(d.getUTCHours()).padStart(2, "0");
-        const min = String(d.getUTCMinutes()).padStart(2, "0");
+        const hh = String(d.getHours()).padStart(2, "0");
+        const min = String(d.getMinutes()).padStart(2, "0");
         if (hh !== "00" || min !== "00") horaP = `${hh}:${min}`;
       }
     } else {
@@ -566,6 +448,7 @@ export function renderInfoPanel(bdData = null) {
   const fecha = formatDate(operacion.fecha_creacion || operacion.created_at);
 
   const personalNorm = normalizePersonal(personal);
+  _lastPersonalData = Array.isArray(personal) ? personal : [];
   const personalHtml = renderPersonalHtml(personalNorm);
 
   const vehiculosHtml = renderVehiculosHierarchyHtml(vehiculos);
@@ -611,22 +494,11 @@ export function renderInfoPanel(bdData = null) {
       window.location.href = "asignacion.html";
     });
   }
-
-  container.addEventListener("click", (e) => {
-    if (e.target.closest(".person-link")) return;
-    const el = e.target.closest(".personal-locatable");
-    if (!el) return;
-    const id = el.dataset.pid;
-    const lat = parseFloat(el.dataset.lat);
-    const lon = parseFloat(el.dataset.lon);
-    if (isNaN(lat) || isNaN(lon)) return;
-    followPersonalLocation(id, lat, lon);
-  });
 }
 
 export function updateChatAvailability() {
   const op = getCurrentOperation();
-  const phase = op.phase;
+  const phase = (op.phase || op.estado || "").toLowerCase();
   const active = phase === "activa";
   const closed = phase === "cerrada" || phase === "cancelada";
 
@@ -654,8 +526,8 @@ export function updateChatAvailability() {
   if (!active) {
     dom.chatPanel?.classList.remove("open");
     dom.toggleChatPanel?.classList.remove("active");
-    dom.cameraPanel?.classList.remove("open");
-    dom.toggleCameraPanel?.classList.remove("active");
+    // We don't force close the camera panel here if it was open, 
+    // but the button will be hidden by the previous lines.
   }
 
   if (dom.chatInput) dom.chatInput.disabled = !active;
@@ -679,11 +551,11 @@ export function updateSelectionInfo(selectedEntity) {
     "Sin tipo";
 
   const trackingKey = selectedEntity.properties?.trackingKey?.getValue?.() || selectedEntity.properties?.trackingKey;
-  
+
   if (trackingKey && trackingKey.startsWith("V:")) {
-    type = "Vehículo (Rastreo)";
+    type = "VehÃ­culo (Rastreo)";
     const occupants = getVehicleOccupants(trackingKey);
-    
+
     // Convertir P:1 a nombres:
     const bdData = getCurrentOperation();
     const personas = Array.isArray(bdData.personal) ? bdData.personal : [];
@@ -695,22 +567,22 @@ export function updateSelectionInfo(selectedEntity) {
     });
 
     const ocupantesHtml = ocupantesNombres.length > 0
-      ? ocupantesNombres.map(n => `<span style="display:inline-block; background:rgba(0,191,255,0.2); padding:2px 6px; border-radius:4px; margin:2px 4px 2px 0;">🧑‍🚀 ${escapeHtml(n)}</span>`).join("")
-      : `<span style="color:#94a3b8; font-size:11px;">Sin tripulación detectada.</span>`;
+      ? ocupantesNombres.map(n => `<span style="display:inline-block; background:rgba(0,191,255,0.2); padding:2px 6px; border-radius:4px; margin:2px 4px 2px 0;">ðŸ§‘â€ðŸš€ ${escapeHtml(n)}</span>`).join("")
+      : `<span style="color:#94a3b8; font-size:11px;">Sin tripulaciÃ³n detectada.</span>`;
 
     dom.selectionInfo.innerHTML = `
       <div style="font-weight:bold; color:#00ffa6; margin-bottom:4px;">${escapeHtml(name)}</div>
       <div style="font-size:11px; margin-bottom:8px;">Tipo: ${escapeHtml(type)}</div>
       <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">Pasajeros a bordo:</div>
       <div style="margin-bottom:12px;">${ocupantesHtml}</div>
-      <button id="btnChatVehiculo" class="btnBeige" style="width:100%; font-size:12px; padding:6px;">💬 Mensaje a Tripulación</button>
+      <button id="btnChatVehiculo" class="btnBeige" style="width:100%; font-size:12px; padding:6px;">ðŸ’¬ Mensaje a TripulaciÃ³n</button>
     `;
 
-    // Asignar evento al botón dinámicamente
+    // Asignar evento al botÃ³n dinÃ¡micamente
     const btnChat = document.getElementById("btnChatVehiculo");
     if (btnChat) {
       btnChat.addEventListener("click", () => {
-        // Enviar evento para abrir chat con el tag del vehículo
+        // Enviar evento para abrir chat con el tag del vehÃ­culo
         document.dispatchEvent(new CustomEvent("openVehicleChat", { detail: { vehicleName: name } }));
       });
     }
@@ -747,29 +619,11 @@ function sameText(a, b) {
   return clean(a) && clean(a) === clean(b);
 }
 
-function getPersonId(person = {}) {
-  return firstValue(
-    person.id_personal,
-    person.id,
-    person.id_usuario,
-    person.id_persona,
-    person.personal_id,
-    person.usuario_id
-  );
-}
-
-function getPersonName(person = {}) {
-  return [person.nombre, person.apellido].filter(Boolean).join(" ").trim() ||
-    person.apodo ||
-    person.name ||
-    person.nombre_completo ||
-    "";
-}
-
 function getAvailablePersonal() {
   const op = getCurrentOperation();
   const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
   return [
+    ..._lastPersonalData,
     ...(Array.isArray(asignacion.personal) ? asignacion.personal : []),
     ...(Array.isArray(op.personal) ? op.personal : [])
   ];
@@ -778,16 +632,17 @@ function getAvailablePersonal() {
 function findPerson(personId, fallbackName = "") {
   const people = getAvailablePersonal();
   const id = String(personId || "").trim();
-  const byId = people.find((person) => String(getPersonId(person) || "").trim() === id);
+  const byId = people.find((p) => String(getPersonId(p) || "").trim() === id);
   if (byId) return byId;
-  return people.find((person) => sameText(getPersonName(person), fallbackName));
+  return people.find((p) => sameText(getPersonName(p), fallbackName));
 }
 
 function getPersonCameraImage(personId) {
   const images = [
     "img/cameras/cam1.png",
     "img/cameras/cam2.png",
-    "img/cameras/cam3.png"
+    "img/cameras/cam3.png",
+    "https://images.unsplash.com/photo-1508614589041-895b88991e3e?q=80&w=1000&auto=format&fit=crop"
   ];
   const text = String(personId || "");
   let hash = 0;
@@ -829,18 +684,18 @@ function placePersonInfoPopup(anchor = {}) {
 }
 
 export function showPersonnelDetail(personId, anchor = {}) {
-  if (!dom.personInfoPopup || !dom.personInfoPopupContent || personId == null) return;
+  if (!dom.personInfoPopup || !dom.personInfoPopupContent) return;
 
   const person = findPerson(personId, anchor.name);
+  
   if (!person) {
     console.warn("[PERSONAL] No se encontro informacion para:", personId, anchor.name);
     return;
   }
 
   const nombre = getPersonName(person) || anchor.name || `Personal ${personId}`;
-  const liveCoords = getPersonalEntityCoordinates(personId);
-  const lat = firstValue(anchor.lat, liveCoords?.lat, person.latitud, person.lat);
-  const lng = firstValue(anchor.lng, liveCoords?.lon, person.longitud, person.lng, person.lon);
+  const lat = firstValue(anchor.lat, person.latitud, person.lat);
+  const lng = firstValue(anchor.lng, person.longitud, person.lng, person.lon);
   const velocidad = firstValue(anchor.velocidad, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
   const curso = firstValue(anchor.curso, person.curso, person.heading, person.rumbo, "-");
   const estado = firstValue(person.estado, person.estatus, person.activo === false ? "INACTIVO" : "ACTIVO");
@@ -857,16 +712,16 @@ export function showPersonnelDetail(personId, anchor = {}) {
       <div class="personInfoLabel">Lat:</div><div class="personInfoValue">${escapeHtml(formatCoord(lat))}</div>
       <div class="personInfoLabel">Lng:</div><div class="personInfoValue">${escapeHtml(formatCoord(lng))}</div>
       <div class="personInfoLabel">Vel:</div><div class="personInfoValue">${escapeHtml(String(velocidad))} km/h</div>
-      <div class="personInfoLabel">Curso:</div><div class="personInfoValue">${escapeHtml(String(curso))}${String(curso) !== "-" ? "&deg;" : ""}</div>
+      <div class="personInfoLabel">Curso:</div><div class="personInfoValue">${escapeHtml(String(curso))}${String(curso) !== "-" ? "°" : ""}</div>
       <div class="personInfoLabel">SIDC:</div><div class="personInfoValue">${escapeHtml(String(sidc))}</div>
     </div>
     <div class="personInfoStatus">Estado <strong>${escapeHtml(String(estado).toUpperCase())}</strong></div>
     <div class="personInfoBio">
-      <div class="personInfoBioTitle">Biometricos (Galaxy Watch)</div>
+      <div class="personInfoBioTitle">⌚ Biométricos (Galaxy Watch)</div>
       <div class="personInfoGrid">
-        <div class="personInfoLabel">FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}</div>
-        <div class="personInfoLabel">Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
-        <div class="personInfoLabel">Bateria:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
+        <div class="personInfoLabel">❤️ FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}</div>
+        <div class="personInfoLabel">↕ Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
+        <div class="personInfoLabel">🔋 Batería:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
       </div>
       <div class="personInfoUpdated">Actualizado ${escapeHtml(actualizado ? formatTime(actualizado) : formatTime(new Date().toISOString()))}</div>
     </div>
@@ -875,12 +730,9 @@ export function showPersonnelDetail(personId, anchor = {}) {
     </div>
   `;
 
-  if (dom.btnClosePersonInfoPopup) {
-    dom.btnClosePersonInfoPopup.onclick = () => {
-      dom.personInfoPopup?.classList.add("hidden");
-    };
-  }
-
   dom.personInfoPopup.classList.remove("hidden");
   placePersonInfoPopup(anchor);
 }
+
+
+

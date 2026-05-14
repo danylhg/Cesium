@@ -12,13 +12,9 @@ import { sendDbError } from "../../utils/dbErrors.js";
 
 // Helper para validar si un valor es entero válido
 import { isInt } from "../../utils/validators.js";
-import { deleteOperationStreamFiles, deleteRecordingFiles } from "../../utils/streamRecordings.js";
 
 // Crea una instancia de router para exportar este módulo
 const router = Router();
-
-const ESTADOS_ELIMINABLES = new Set(["CERRADA", "CANCELADA"]);
-const TRIGGER_MENSAJE_CHAT_MODIFICABLE = "tr_mensaje_chat_operacion_modificable";
 
 
 // =========================================================
@@ -53,12 +49,6 @@ router.get("/ops", requireAuth, async (req, res) => {
     // Respuesta con arreglo de operaciones
     res.json({ ok: true, items: rows });
   } catch (err) {
-    if (err?.code === "23505") {
-      return res.status(409).json({
-        ok: false,
-        mensaje: "Ya existe una operación con ese nombre."
-      });
-    }
     if (err?.code === "23505") {
       return res.status(409).json({
         ok: false,
@@ -166,6 +156,7 @@ router.get("/ops/:id", requireAuth, async (req, res) => {
 //   - descripcion (opcional)
 //   - prioridad (opcional; default MEDIA)
 //   - fecha_inicio (opcional)
+//   - hora_inicio (opcional)
 // Lógica extra:
 //   - genera automáticamente un código tipo OP-{timestamp}
 //   - toma creada_por desde el usuario autenticado
@@ -178,7 +169,7 @@ router.get("/ops/:id", requireAuth, async (req, res) => {
 router.post("/ops", requireAuth, async (req, res) => {
   try {
     // Extrae datos desde el body
-    const { nombre, descripcion, prioridad, fecha_inicio } = req.body ?? {};
+    const { nombre, descripcion, prioridad, fecha_inicio, hora_inicio } = req.body ?? {};
 
     // nombre es obligatorio
     if (!nombre || !nombre.trim()) {
@@ -196,8 +187,15 @@ router.post("/ops", requireAuth, async (req, res) => {
       });
     }
 
-    // Intenta convertir fecha_inicio a Date si viene
-    const fi = fecha_inicio ? new Date(fecha_inicio) : null;
+    // Intenta convertir fecha_inicio y hora_inicio a Date si viene
+    let fi = null;
+    if (fecha_inicio) {
+      if (hora_inicio && /^\d{2}:\d{2}$/.test(hora_inicio)) {
+        fi = new Date(`${fecha_inicio}T${hora_inicio}:00`);
+      } else {
+        fi = new Date(`${fecha_inicio}T00:00:00`);
+      }
+    }
 
     // Si vino una fecha inválida, corta
     if (fi && Number.isNaN(fi.getTime())) {
@@ -246,6 +244,7 @@ router.post("/ops", requireAuth, async (req, res) => {
 //   - descripcion
 //   - prioridad
 //   - fecha_inicio
+//   - hora_inicio
 // No cambia:
 //   - código
 //   - fecha_fin
@@ -270,11 +269,11 @@ router.put("/ops/:id", requireAuth, async (req, res) => {
 
   try {
     // Extrae los datos editables desde el body
-    const { nombre, descripcion, prioridad, fecha_inicio } = req.body ?? {};
+    const { nombre, descripcion, prioridad, fecha_inicio, hora_inicio } = req.body ?? {};
 
     // Primero revisa si la operación existe y cuál es su estado
     const { rows: currentRows } = await pool.query(
-      "SELECT id_operacion, estado, fecha_fin FROM operacion WHERE id_operacion = $1",
+      "SELECT id_operacion, estado FROM operacion WHERE id_operacion = $1",
       [id_operacion]
     );
 
@@ -308,31 +307,32 @@ router.put("/ops/:id", requireAuth, async (req, res) => {
     }
 
     // Convierte fecha_inicio si viene
-    const fi = fecha_inicio ? new Date(fecha_inicio) : null;
+    let fi = null;
+    if (fecha_inicio) {
+      if (hora_inicio && /^\d{2}:\d{2}$/.test(hora_inicio)) {
+        fi = new Date(`${fecha_inicio}T${hora_inicio}:00`);
+      } else {
+        fi = new Date(`${fecha_inicio}T00:00:00`);
+      }
+    }
 
     // Si la fecha es inválida, corta
     if (fi && Number.isNaN(fi.getTime())) {
       return res.status(400).json({ ok: false, mensaje: "fecha_inicio inválida" });
     }
 
-    // Si la nueva fecha_inicio supera la fecha_fin almacenada, limpia fecha_fin para
-    // evitar violar CHECK (fecha_fin >= fecha_inicio). El usuario deberá reasignarla.
-    const currentFechaFin = currentRows[0].fecha_fin ? new Date(currentRows[0].fecha_fin) : null;
-    const newFechaFin = (fi && currentFechaFin && fi > currentFechaFin) ? null : currentFechaFin;
-
     // Actualiza solo los campos permitidos
     const { rows } = await pool.query(
       `UPDATE operacion
-       SET nombre = $1, descripcion = $2, prioridad = $3, fecha_inicio = $4, fecha_fin = $5
-       WHERE id_operacion = $6
+       SET nombre = $1, descripcion = $2, prioridad = $3, fecha_inicio = $4
+       WHERE id_operacion = $5
        RETURNING id_operacion, codigo, nombre, descripcion, prioridad, fecha_inicio, fecha_fin, fecha_creacion, estado`,
       [
-        nombre.trim(),                              // nuevo nombre
-        (descripcion || "").trim() || null,         // nueva descripción o null
-        prio,                                       // prioridad validada
-        fi ? fi.toISOString() : null,               // nueva fecha_inicio
-        newFechaFin ? newFechaFin.toISOString() : null, // fecha_fin ajustada
-        id_operacion                                // id a modificar
+        nombre.trim(),                         // nuevo nombre
+        (descripcion || "").trim() || null,    // nueva descripción o null
+        prio,                                  // prioridad validada
+        fi ? fi.toISOString() : null,          // nueva fecha_inicio
+        id_operacion                           // id a modificar
       ]
     );
 
@@ -344,105 +344,48 @@ router.put("/ops/:id", requireAuth, async (req, res) => {
   }
 });
 
+
+// =========================================================
+// DELETE /ops/:id
+// Qué hace:
+//   Elimina permanentemente una operación y todos sus datos relacionados.
+//   Gracias a las reglas ON DELETE CASCADE de la BD, esto borra:
+//   - chat, mensajes, participantes
+//   - POIs, áreas, edificios, dibujos
+//   - rutas, asignaciones, historial
+// Lógica:
+//   - el id debe ser entero
+//   - si no existe, responde 404
+// Uso típico:
+//   limpieza manual desde el menú inicial.
+// =========================================================
 // DELETE /ops/:id/remove
-// Elimina permanentemente una operacion y sus datos relacionados por cascada.
 router.delete("/ops/:id/remove", requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  console.log("🗑️ Intentando eliminar operación ID:", id);
 
   if (!isInt(id)) {
     return res.status(400).json({ ok: false, mensaje: "id inválido" });
   }
 
-  const client = await pool.connect();
-  let recordingStoragePaths = [];
-
   try {
-    await client.query("BEGIN");
-
-    const { rows } = await client.query(
-      `SELECT id_operacion, estado
-       FROM operacion
-       WHERE id_operacion = $1
-       FOR UPDATE`,
-      [id]
-    );
-
-    if (rows.length === 0) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ ok: false, mensaje: "La operación no existe" });
-    }
-
-    if (!ESTADOS_ELIMINABLES.has(rows[0].estado)) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        ok: false,
-        mensaje: "Solo se pueden eliminar operaciones cerradas o canceladas."
-      });
-    }
-
-    const { rows: recordingTableRows } = await client.query(
-      "SELECT to_regclass('public.media_stream_recording') AS table_name"
-    );
-    if (recordingTableRows[0]?.table_name) {
-      const { rows: recordingRows } = await client.query(
-        `SELECT storage_path
-         FROM media_stream_recording
-         WHERE id_operacion = $1`,
-        [id]
-      );
-      recordingStoragePaths = recordingRows.map((row) => row.storage_path).filter(Boolean);
-    }
-
-    // El cascade de operacion puede borrar chat_operacion antes de mensaje_chat.
-    // Ese trigger resuelve la operacion por chat_operacion, asi que se desactiva
-    // solo durante este borrado definitivo y se vuelve a activar antes del COMMIT.
-    await client.query(
-      `ALTER TABLE mensaje_chat DISABLE TRIGGER ${TRIGGER_MENSAJE_CHAT_MODIFICABLE}`
-    );
-
-    await client.query(
+    const { rowCount } = await pool.query(
       "DELETE FROM operacion WHERE id_operacion = $1",
       [id]
     );
 
-    await client.query(
-      `ALTER TABLE mensaje_chat ENABLE TRIGGER ${TRIGGER_MENSAJE_CHAT_MODIFICABLE}`
-    );
-
-    await client.query("COMMIT");
-
-    let storageCleanup = null;
-    try {
-      const recordingCleanup = await deleteRecordingFiles(recordingStoragePaths);
-      const operationCleanup = await deleteOperationStreamFiles(id);
-      storageCleanup = {
-        recordings: recordingCleanup,
-        operation_dir: operationCleanup.path
-      };
-      if (recordingCleanup.errors.length > 0) {
-        console.warn("[STREAMING] Errores limpiando archivos de grabacion:", recordingCleanup.errors);
-      }
-    } catch (cleanupErr) {
-      storageCleanup = { error: cleanupErr.message };
-      console.warn("[STREAMING] No se pudo limpiar storage de grabaciones:", cleanupErr);
+    if (rowCount === 0) {
+      return res.status(404).json({ ok: false, mensaje: "La operación no existe" });
     }
 
-    res.json({
-      ok: true,
-      mensaje: "Operación eliminada correctamente",
-      storage_cleanup: storageCleanup
-    });
+    console.log("✅ Operación eliminada correctamente ID:", id);
+    res.json({ ok: true, mensaje: "Operación eliminada correctamente" });
   } catch (err) {
-    try {
-      await client.query("ROLLBACK");
-    } catch (rollbackErr) {
-      console.error("[DB ERROR] rollback eliminando operacion:", rollbackErr);
-    }
+    console.error("❌ Error al eliminar operación:", err);
     sendDbError(res, err, "Error eliminando operación");
-  } finally {
-    client.release();
   }
 });
+
 
 // Exporta el router para usarlo en el archivo principal de rutas
 export default router;

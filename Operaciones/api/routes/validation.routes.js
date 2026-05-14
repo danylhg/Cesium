@@ -58,7 +58,7 @@ router.post("/validate/disponibilidad", requireAuth, async (req, res) => {
          JOIN operacion o ON o.id_operacion = a.id_operacion
          WHERE a.id_personal = ANY($1::int[])
            AND a.estado_asignacion NOT IN ('LIBERADO')
-           AND o.estado IN ('PLANIFICADA', 'ACTIVA')
+           AND o.estado NOT IN ('CANCELADA', 'CERRADA', 'FINALIZADA')
            AND ${cond}
          ORDER BY a.id_personal, o.id_operacion`,
         params
@@ -92,7 +92,7 @@ router.post("/validate/disponibilidad", requireAuth, async (req, res) => {
          JOIN operacion o ON o.id_operacion = vo.id_operacion
          WHERE vo.id_vehiculo = ANY($1::int[])
            AND vo.estado_asignacion NOT IN ('LIBERADO')
-           AND o.estado IN ('PLANIFICADA', 'ACTIVA')
+           AND o.estado NOT IN ('CANCELADA', 'CERRADA', 'FINALIZADA')
            AND ${cond}
          ORDER BY vo.id_vehiculo, o.id_operacion`,
         params
@@ -126,7 +126,7 @@ router.post("/validate/disponibilidad", requireAuth, async (req, res) => {
          JOIN operacion o ON o.id_operacion = oe.id_operacion
          WHERE oe.id_equipo = ANY($1::int[])
            AND oe.estado_asignacion NOT IN ('LIBERADO')
-           AND o.estado IN ('PLANIFICADA', 'ACTIVA')
+           AND o.estado NOT IN ('CANCELADA', 'CERRADA', 'FINALIZADA')
            AND ${cond}
          ORDER BY oe.id_equipo, o.id_operacion`,
         params

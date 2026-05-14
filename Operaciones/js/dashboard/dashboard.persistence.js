@@ -42,7 +42,7 @@ export function serializeEntity(ent) {
       const pos = cartesianToLatLng(ent.position.getValue(Cesium.JulianDate.now()));
       data.lat = pos.lat;
       data.lng = pos.lng;
-    } catch {}
+    } catch { }
   }
 
   // Billboard (for icons: mil-dropped, poi with icon, building)
@@ -50,7 +50,7 @@ export function serializeEntity(ent) {
     try {
       data.image = ent.billboard.image?.getValue?.(Cesium.JulianDate.now()) || ent.billboard.image;
       data.scale = ent.billboard.scale?.getValue?.(Cesium.JulianDate.now()) || ent.billboard.scale || 0.08;
-    } catch {}
+    } catch { }
   }
 
   // Point (for basic POI)
@@ -59,7 +59,7 @@ export function serializeEntity(ent) {
       data.pixelSize = ent.point.pixelSize?.getValue?.(Cesium.JulianDate.now()) || 10;
       const c = ent.point.color?.getValue?.(Cesium.JulianDate.now());
       if (c) data.pointColor = { r: c.red, g: c.green, b: c.blue, a: c.alpha };
-    } catch {}
+    } catch { }
   }
 
   // Label
@@ -68,7 +68,7 @@ export function serializeEntity(ent) {
       data.labelText = ent.label.text?.getValue?.(Cesium.JulianDate.now()) || ent.label.text || "";
       const fc = ent.label.fillColor?.getValue?.(Cesium.JulianDate.now());
       if (fc) data.labelColor = { r: fc.red, g: fc.green, b: fc.blue, a: fc.alpha };
-    } catch {}
+    } catch { }
   }
 
   // Ellipse (circle)
@@ -79,7 +79,7 @@ export function serializeEntity(ent) {
       if (mat?.color) data.fillColor = { r: mat.color.red, g: mat.color.green, b: mat.color.blue, a: mat.color.alpha };
       const oc = ent.ellipse.outlineColor?.getValue?.(Cesium.JulianDate.now());
       if (oc) data.outlineColor = { r: oc.red, g: oc.green, b: oc.blue, a: oc.alpha };
-    } catch {}
+    } catch { }
   }
 
   // Polygon
@@ -91,7 +91,7 @@ export function serializeEntity(ent) {
       }
       const mat = ent.polygon.material?.getValue?.(Cesium.JulianDate.now());
       if (mat?.color) data.fillColor = { r: mat.color.red, g: mat.color.green, b: mat.color.blue, a: mat.color.alpha };
-    } catch {}
+    } catch { }
   }
 
   // Polyline (perimeter, polyline)
@@ -108,7 +108,7 @@ export function serializeEntity(ent) {
         if (matVal?.color) data.lineColor = { r: matVal.color.red, g: matVal.color.green, b: matVal.color.blue, a: matVal.color.alpha };
         if (matVal?.dashLength) data.dashLength = matVal.dashLength;
       }
-    } catch {}
+    } catch { }
   }
 
   return data;
@@ -159,7 +159,7 @@ export function saveTacticalData() {
     try {
       const h = dashboardState.planningAreaFill.polygon.hierarchy.getValue(Cesium.JulianDate.now());
       planningData = { points: h.positions.map(p => cartesianToLatLng(p)) };
-    } catch {}
+    } catch { }
   }
 
   // BACKEND: tactical_data se guarda en localStorage hoy.
@@ -188,7 +188,7 @@ export function restoreTacticalData() {
   if (Array.isArray(payload.tactical)) {
     payload.tactical.forEach(d => {
       if (d?.type === "poi" || d?.type === "building" || d?.type === "label" || d?.type === "mil-dropped" || d?.type === "perimeter") return;
-      try { restoreOneEntity(d); } catch {}
+      try { restoreOneEntity(d); } catch { }
     });
   }
 

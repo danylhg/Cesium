@@ -18,8 +18,7 @@ router.get("/ops/:id/zona", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id_zona, id_operacion, nombre, geometria,
-              centroide_lat, centroide_lon, zoom_inicial, color,
-              estado_operacion_creacion
+              centroide_lat, centroide_lon, zoom_inicial, color
        FROM zona_operacion WHERE id_operacion = $1 LIMIT 1`,
       [id_operacion]
     );

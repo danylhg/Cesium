@@ -11,50 +11,6 @@ function rowsToEvents(rows, mapFn) {
   return rows.map(mapFn).filter(Boolean);
 }
 
-function toTimestamp(value) {
-  if (value instanceof Date) {
-    const ms = value.getTime();
-    return Number.isFinite(ms) ? ms : NaN;
-  }
-  if (typeof value === "number") {
-    return Number.isFinite(value) ? value : NaN;
-  }
-  if (!value) return NaN;
-
-  const ms = new Date(value).getTime();
-  return Number.isFinite(ms) ? ms : NaN;
-}
-
-function firstTimestamp(...values) {
-  for (const value of values) {
-    const ms = toTimestamp(value);
-    if (Number.isFinite(ms)) return ms;
-  }
-  return NaN;
-}
-
-function minTimestamp(values) {
-  const finite = values.filter(Number.isFinite);
-  return finite.length ? Math.min(...finite) : NaN;
-}
-
-function maxTimestamp(values) {
-  const finite = values.filter(Number.isFinite);
-  return finite.length ? Math.max(...finite) : NaN;
-}
-
-async function optionalReplayQuery(sql, params) {
-  try {
-    return await pool.query(sql, params);
-  } catch (error) {
-    if (["42P01", "42703"].includes(error?.code)) {
-      console.warn("[replay] tabla o columna opcional no disponible:", error.message);
-      return { rows: [] };
-    }
-    throw error;
-  }
-}
-
 router.get("/ops/:id/replay", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) {
@@ -77,19 +33,7 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, mensaje: "Operacion no existe" });
     }
 
-    const [
-      zona,
-      eventos,
-      chat,
-      avisosOperacionales,
-      novedadesOperacionales,
-      trackingPersonal,
-      trackingVehiculos,
-      capas,
-      personalAsignado,
-      vehiculosAsignados,
-      equiposAsignados
-    ] = await Promise.all([
+    const [zona, eventos, chat, trackingPersonal, trackingVehiculos, capas] = await Promise.all([
       pool.query(
         `SELECT id_zona, id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color
            FROM zona_operacion
@@ -111,27 +55,6 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
            JOIN chat_operacion co ON co.id_chat = v.id_chat
           WHERE co.id_operacion = $1
           ORDER BY v.fecha_envio ASC, v.id_mensaje ASC`,
-        [id_operacion]
-      ),
-      optionalReplayQuery(
-        `SELECT a.*,
-                pe.apodo AS emisor_apodo,
-                pe.rol AS emisor_rol,
-                pr.apodo AS receptor_personal_apodo,
-                u.nombre || ' ' || u.apellido AS receptor_usuario_nombre
-           FROM aviso_operacion a
-           LEFT JOIN personal pe ON pe.id_personal = a.id_personal_emisor
-           LEFT JOIN personal pr ON pr.id_personal = a.id_personal_receptor
-           LEFT JOIN usuario u ON u.id_usuario = a.id_usuario_receptor
-          WHERE a.id_operacion = $1
-          ORDER BY a.fecha_envio ASC, a.id_aviso ASC`,
-        [id_operacion]
-      ),
-      optionalReplayQuery(
-        `SELECT n.*
-           FROM novedad_operacion n
-          WHERE n.id_operacion = $1
-          ORDER BY n.fecha_registro ASC, n.id_novedad ASC`,
         [id_operacion]
       ),
       pool.query(
@@ -158,255 +81,7 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
         pool.query(`SELECT * FROM ruta_navegacion WHERE id_operacion = $1 ORDER BY fecha_creacion ASC`, [id_operacion]),
         pool.query(`SELECT * FROM dibujo_libre_operacion WHERE id_operacion = $1 ORDER BY fecha_creacion ASC`, [id_operacion]),
         pool.query(`SELECT * FROM zona_operacion WHERE id_operacion = $1 ORDER BY fecha_creacion ASC`, [id_operacion])
-      ]),
-      pool.query(
-        `SELECT DISTINCT ON (p.id_personal)
-            p.id_personal,
-            p.apodo,
-            p.nombre,
-            p.apellido,
-            p.rol,
-            p.puesto,
-            a.rol_en_operacion,
-            a.estado_asignacion,
-            a.estado_operacion_creacion,
-            go.id_grupo_operacion,
-            go.nombre AS grupo_nombre,
-            go.apodo AS grupo_apodo,
-            gp_padre.id_grupo_operacion AS grupo_padre_id,
-            gp_padre.nombre AS grupo_padre_nombre,
-            gp_padre.apodo AS grupo_padre_apodo,
-            t.latitud,
-            t.longitud,
-            t.ultima_actualizacion
-         FROM asignacion_operacion_personal a
-         JOIN personal p ON p.id_personal = a.id_personal
-         LEFT JOIN (
-           SELECT gper2.id_personal, gper2.id_grupo_operacion
-           FROM grupo_personal gper2
-           JOIN grupo_operacion go2 ON go2.id_grupo_operacion = gper2.id_grupo_operacion
-           WHERE go2.id_operacion = $1
-         ) gper ON gper.id_personal = p.id_personal
-         LEFT JOIN grupo_operacion go ON go.id_grupo_operacion = gper.id_grupo_operacion
-         LEFT JOIN grupo_operacion gp_padre ON gp_padre.id_grupo_operacion = go.id_grupo_padre
-         LEFT JOIN v_ultima_posicion_personal t
-           ON t.id_personal = a.id_personal AND t.id_operacion = a.id_operacion
-         WHERE a.id_operacion = $1
-         ORDER BY p.id_personal,
-                  CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
-                  CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
-                  go.id_grupo_operacion`,
-        [id_operacion]
-      ),
-      pool.query(
-        `WITH personal_ctx AS (
-            SELECT DISTINCT ON (p.id_personal)
-              p.id_personal,
-              p.apodo,
-              p.nombre,
-              p.apellido,
-              p.puesto,
-              aop.rol_en_operacion AS personal_rol,
-              go.id_grupo_operacion AS grupo_personal_id,
-              go.nombre AS grupo_personal_nombre,
-              go.apodo AS grupo_personal_apodo,
-              gp_padre.nombre AS grupo_personal_padre_nombre,
-              gp_padre.apodo AS grupo_personal_padre_apodo,
-              CASE
-                WHEN p.rol = 'CET' THEN p.id_personal
-                ELSE mo.id_cet
-              END AS id_cet_ref,
-              CASE
-                WHEN p.rol = 'CET' THEN p.apodo
-                ELSE cet.apodo
-              END AS cet_apodo,
-              CASE
-                WHEN p.rol = 'CET' THEN CONCAT_WS(' ', p.nombre, p.apellido)
-                ELSE CONCAT_WS(' ', cet.nombre, cet.apellido)
-              END AS cet_nombre
-            FROM asignacion_operacion_personal aop
-            JOIN personal p
-              ON p.id_personal = aop.id_personal
-            LEFT JOIN grupo_personal gper
-              ON gper.id_personal = p.id_personal
-             AND EXISTS (
-               SELECT 1
-               FROM grupo_operacion gox
-               WHERE gox.id_grupo_operacion = gper.id_grupo_operacion
-                 AND gox.id_operacion = aop.id_operacion
-             )
-            LEFT JOIN grupo_operacion go
-              ON go.id_grupo_operacion = gper.id_grupo_operacion
-            LEFT JOIN grupo_operacion gp_padre
-              ON gp_padre.id_grupo_operacion = go.id_grupo_padre
-            LEFT JOIN mando_operacion mo
-              ON mo.id_operacion = aop.id_operacion
-             AND mo.id_cell = aop.id_personal
-            LEFT JOIN personal cet
-              ON cet.id_personal = mo.id_cet
-            WHERE aop.id_operacion = $1
-            ORDER BY
-              p.id_personal,
-              CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
-              CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
-              go.id_grupo_operacion
-         )
-         SELECT
-            v.id_vehiculo,
-            v.codigo_interno,
-            v.tipo,
-            v.alias,
-            v.alias AS nombre,
-            vo.estado_asignacion,
-            vo.estado_operacion_creacion,
-            vo.nivel_asignacion,
-            vo.nivel_asignacion AS tipo_destino,
-            vo.id_personal,
-            per_ctx.apodo AS asignado_a_apodo,
-            per_ctx.nombre AS asignado_a_nombre,
-            per_ctx.apellido AS asignado_a_apellido,
-            per_ctx.nombre AS personal_nombre,
-            per_ctx.apellido AS personal_apellido,
-            per_ctx.puesto AS personal_puesto,
-            per_ctx.personal_rol,
-            per_ctx.id_cet_ref,
-            per_ctx.cet_apodo,
-            per_ctx.cet_nombre,
-            COALESCE(go_dest.nombre, per_ctx.grupo_personal_nombre, '') AS grupo_nombre,
-            COALESCE(go_dest.apodo, per_ctx.grupo_personal_apodo, '') AS grupo_apodo,
-            CASE
-              WHEN go_dest.id_grupo_operacion IS NOT NULL THEN go_dest.nombre
-              ELSE COALESCE(per_ctx.grupo_personal_nombre, '')
-            END AS grupo_directo_nombre,
-            CASE
-              WHEN go_dest.id_grupo_operacion IS NOT NULL THEN COALESCE(gp_dest.nombre, '')
-              ELSE COALESCE(per_ctx.grupo_personal_padre_nombre, '')
-            END AS grupo_padre_nombre,
-            tv.latitud,
-            tv.longitud,
-            tv.ultima_actualizacion
-         FROM vehiculo_operacion vo
-         JOIN vehiculo v
-           ON v.id_vehiculo = vo.id_vehiculo
-         LEFT JOIN personal_ctx per_ctx
-           ON per_ctx.id_personal = vo.id_personal
-         LEFT JOIN grupo_operacion go_dest
-           ON go_dest.id_grupo_operacion = vo.id_grupo_operacion
-         LEFT JOIN grupo_operacion gp_dest
-           ON gp_dest.id_grupo_operacion = go_dest.id_grupo_padre
-         LEFT JOIN v_ultima_posicion_vehiculo tv
-           ON tv.id_vehiculo = vo.id_vehiculo AND tv.id_operacion = vo.id_operacion
-         WHERE vo.id_operacion = $1
-         ORDER BY
-           v.tipo,
-           v.codigo_interno,
-           CASE per_ctx.personal_rol WHEN 'CET' THEN 0 ELSE 1 END,
-           per_ctx.cet_nombre,
-           per_ctx.nombre,
-           per_ctx.apellido`,
-        [id_operacion]
-      ),
-      pool.query(
-        `WITH personal_ctx AS (
-            SELECT DISTINCT ON (p.id_personal)
-              p.id_personal,
-              go.nombre AS grupo_nombre,
-              gp_padre.nombre AS grupo_padre_nombre
-            FROM asignacion_operacion_personal aop
-            JOIN personal p ON p.id_personal = aop.id_personal
-            LEFT JOIN grupo_personal gper
-              ON gper.id_personal = p.id_personal
-             AND EXISTS (
-               SELECT 1
-               FROM grupo_operacion gox
-               WHERE gox.id_grupo_operacion = gper.id_grupo_operacion
-                 AND gox.id_operacion = aop.id_operacion
-             )
-            LEFT JOIN grupo_operacion go ON go.id_grupo_operacion = gper.id_grupo_operacion
-            LEFT JOIN grupo_operacion gp_padre ON gp_padre.id_grupo_operacion = go.id_grupo_padre
-            WHERE aop.id_operacion = $1
-            ORDER BY
-              p.id_personal,
-              CASE WHEN go.id_grupo_padre IS NOT NULL THEN 0 ELSE 1 END,
-              CASE WHEN go.id_grupo_operacion IS NULL THEN 1 ELSE 0 END,
-              go.id_grupo_operacion
-          )
-          SELECT
-            e.id_equipo,
-            e.numero_serie,
-            e.nombre,
-            e.categoria,
-            e.estado,
-            oe.cantidad,
-            oe.uso_en_operacion,
-            oe.estado_asignacion,
-            oe.estado_operacion_creacion,
-            ueo.estado_operacion_creacion AS uso_estado_operacion_creacion,
-            COALESCE(ec.imagen_eqcom, et.imagen_eqtac) AS imagen_eq,
-            ec.marca,
-            ec.modelo,
-            et.tipo_tactico,
-            CASE
-              WHEN UPPER(COALESCE(e.categoria, '')) = 'COMUNICACION'
-                THEN COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ec.marca, ec.modelo)), ''), 'Equipo de comunicacion')
-              WHEN UPPER(COALESCE(e.categoria, '')) = 'TACTICO'
-                THEN COALESCE(NULLIF(TRIM(et.tipo_tactico), ''), 'Equipo tactico')
-              ELSE COALESCE(NULLIF(TRIM(e.categoria), ''), 'Equipo')
-            END AS tipo_equipo,
-            CASE
-              WHEN ueo.id_vehiculo_contexto IS NOT NULL THEN 'VEHICULO'
-              WHEN ueo.id_grupo_operacion   IS NOT NULL THEN 'GRUPO'
-              WHEN ueo.id_personal          IS NOT NULL THEN 'PERSONAL'
-              ELSE NULL
-            END AS tipo_destino,
-            COALESCE(
-              NULLIF(TRIM(CONCAT_WS(' ', p_ueo.puesto, p_ueo.nombre, p_ueo.apellido)), ''),
-              p_ueo.apodo
-            ) AS asignado_a_personal,
-            p_ueo.rol AS personal_rol,
-            v_ueo.codigo_interno AS asignado_a_vehiculo,
-            v_ueo.alias          AS vehiculo_alias,
-            go_ueo.nombre AS grupo_asignado,
-            gp_ueo.nombre AS flotilla_asignada,
-            per_ctx.grupo_nombre AS personal_grupo_nombre,
-            per_ctx.grupo_padre_nombre AS personal_flotilla_nombre,
-            veh_ctx.flotillas_vinculadas,
-            veh_ctx.grupos_vinculados
-          FROM operacion_equipo oe
-          JOIN equipo e ON e.id_equipo = oe.id_equipo
-          LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
-          LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
-          LEFT JOIN uso_equipo_operacion ueo
-            ON ueo.id_operacion = oe.id_operacion
-           AND ueo.id_equipo    = oe.id_equipo
-           AND ueo.fecha_devolucion IS NULL
-          LEFT JOIN personal        p_ueo  ON p_ueo.id_personal          = ueo.id_personal
-          LEFT JOIN vehiculo        v_ueo  ON v_ueo.id_vehiculo           = ueo.id_vehiculo_contexto
-          LEFT JOIN grupo_operacion go_ueo ON go_ueo.id_grupo_operacion   = ueo.id_grupo_operacion
-          LEFT JOIN grupo_operacion gp_ueo ON gp_ueo.id_grupo_operacion   = go_ueo.id_grupo_padre
-          LEFT JOIN personal_ctx per_ctx   ON per_ctx.id_personal         = ueo.id_personal
-          LEFT JOIN LATERAL (
-            SELECT
-              STRING_AGG(DISTINCT COALESCE(pc.grupo_padre_nombre, pc.grupo_nombre), ', ')
-                FILTER (WHERE COALESCE(pc.grupo_padre_nombre, pc.grupo_nombre) IS NOT NULL) AS flotillas_vinculadas,
-              STRING_AGG(DISTINCT pc.grupo_nombre, ', ')
-                FILTER (WHERE pc.grupo_nombre IS NOT NULL) AS grupos_vinculados
-            FROM vehiculo_operacion vo2
-            LEFT JOIN personal_ctx pc ON pc.id_personal = vo2.id_personal
-            WHERE vo2.id_operacion = oe.id_operacion
-              AND vo2.id_vehiculo = ueo.id_vehiculo_contexto
-          ) veh_ctx ON TRUE
-          WHERE oe.id_operacion = $1
-          ORDER BY
-            CASE
-              WHEN UPPER(COALESCE(e.categoria, '')) = 'COMUNICACION' THEN 0
-              WHEN UPPER(COALESCE(e.categoria, '')) = 'TACTICO' THEN 1
-              ELSE 2
-            END,
-            e.nombre,
-            e.numero_serie`,
-        [id_operacion]
-      )
+      ])
     ]);
 
     const [pois, areas, estructuras, rutasTacticas, rutasNavegacion, dibujos, zonas] = capas;
@@ -426,19 +101,7 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
     };
 
     const generatedEvents = [
-      eventIfMissing("operacion_activada", "operacion", id_operacion, opRows[0].fecha_inicio || opRows[0].fecha_creacion, {
-        codigo: opRows[0].codigo,
-        nombre: opRows[0].nombre,
-        estado: opRows[0].estado,
-      }),
-      opRows[0].fecha_fin ? eventIfMissing("operacion_cerrada", "operacion", id_operacion, opRows[0].fecha_fin, {
-        codigo: opRows[0].codigo,
-        nombre: opRows[0].nombre,
-        estado: opRows[0].estado,
-      }) : null,
       ...rowsToEvents(chat.rows, row => eventIfMissing("chat_mensaje", "mensaje_chat", row.id_mensaje, row.fecha_envio, row)),
-      ...rowsToEvents(avisosOperacionales.rows, row => eventIfMissing("aviso_operacion", "aviso_operacion", row.id_aviso, row.fecha_envio, row)),
-      ...rowsToEvents(novedadesOperacionales.rows, row => eventIfMissing("novedad_operacion", "novedad_operacion", row.id_novedad, row.fecha_registro, row)),
       ...rowsToEvents(trackingPersonal.rows, row => ({
         tipo_evento: "tracking_personal",
         entidad_tipo: "tracking_personal",
@@ -475,26 +138,20 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
         : null),
       ...rowsToEvents(dibujos.rows, row => eventIfMissing("dibujo_creado", "dibujo", row.id_dibujo, row.fecha_creacion, row)),
       ...rowsToEvents(zonas.rows, row => eventIfMissing("zona_creada", "zona", row.id_zona, row.fecha_creacion, row))
-    ].filter(Boolean);
+    ];
 
     const allEvents = [...eventos.rows, ...generatedEvents].sort((a, b) => {
-      const at = toTimestamp(a.occurred_at);
-      const bt = toTimestamp(b.occurred_at);
+      const at = new Date(a.occurred_at).getTime();
+      const bt = new Date(b.occurred_at).getTime();
       return at - bt;
     });
     const eventTimes = allEvents
-      .map(event => toTimestamp(event.occurred_at))
+      .map(event => new Date(event.occurred_at).getTime())
       .filter(Number.isFinite);
-    const opStartMs = firstTimestamp(opRows[0].fecha_inicio, opRows[0].fecha_creacion);
-    const opEndMs = firstTimestamp(opRows[0].fecha_fin, opRows[0].fecha_actualizacion);
-    const fallbackMs = firstTimestamp(opStartMs, eventTimes[0], Date.now());
-    const timelineStartMs = minTimestamp([opStartMs, ...eventTimes, fallbackMs]);
-    const timelineEndMs = Math.max(
-      timelineStartMs,
-      maxTimestamp([opEndMs, ...eventTimes, timelineStartMs])
-    );
-    const timelineStart = new Date(timelineStartMs).toISOString();
-    const timelineEnd = new Date(timelineEndMs).toISOString();
+    const opStartMs = new Date(opRows[0].fecha_inicio || opRows[0].fecha_creacion).getTime();
+    const opEndMs = new Date(opRows[0].fecha_fin || opRows[0].fecha_actualizacion).getTime();
+    const timelineStart = new Date(Math.min(opStartMs, ...eventTimes)).toISOString();
+    const timelineEnd = new Date(Math.max(opEndMs, ...eventTimes)).toISOString();
 
     res.json({
       ok: true,
@@ -513,15 +170,7 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
         rutas_navegacion: rutasNavegacion.rows,
         dibujos: dibujos.rows,
         zonas: zonas.rows
-      },
-      asignacion: {
-        personal: personalAsignado.rows,
-        vehiculos: vehiculosAsignados.rows,
-        equipos: equiposAsignados.rows
-      },
-      personal: personalAsignado.rows,
-      vehiculos: vehiculosAsignados.rows,
-      equipos: equiposAsignados.rows
+      }
     });
   } catch (err) {
     sendDbError(res, err, "Error obteniendo replay de operacion");

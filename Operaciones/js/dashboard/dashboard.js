@@ -9,7 +9,7 @@ import {
 import {
   renderInfoPanel,
   updateChatAvailability,
-  openPanel
+  togglePanel
 } from "./dashboard.ui.js";
 import { bindDashboardEvents } from "./dashboard.events.js";
 import { initChat, bindChatEvents } from "./dashboard.chat.js";
@@ -20,7 +20,6 @@ import {
   loadPoisFromBackend,
   loadAreasFromBackend,
   loadStructuresFromBackend,
-  loadRoutesFromBackend,
   loadOperationZoneFromBackend
 } from "./dashboard.tactical.js";
 import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
@@ -34,6 +33,8 @@ import {
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
 import { initCameraFeeds } from "./dashboard.camera.js";
+
+Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";
@@ -71,20 +72,6 @@ function setServerConnectionState(isConnected, message = CONNECTION_LOST_MESSAGE
   const banner = ensureConnectionBanner();
   banner.textContent = message;
   banner.style.display = isConnected ? "none" : "block";
-}
-
-async function loadCesiumToken() {
-  const data = await apiFetch("/config/cesium-token");
-
-  if (data?.token) {
-    Cesium.Ion.defaultAccessToken = data.token;
-    localStorage.setItem("CESIUM_TOKEN", data.token);
-    return true;
-  }
-
-  localStorage.removeItem("CESIUM_TOKEN");
-  setServerConnectionState(false, "Token de Cesium no configurado en el servidor.");
-  return false;
 }
 
 async function apiFetchEstado(opId, nuevoEstado) {
@@ -297,45 +284,41 @@ function bindPlanningLogoutChoice() {
 window.addEventListener("load", async () => {
   ensureConnectionBanner();
   bindPlanningLogoutChoice();
-  await loadCesiumToken();
   initCesium();
   bindChatEvents();
   bindTacticalEvents();
   bindAreaEvents();
   bindDashboardEvents();
   bindDrawingEvents();
+  initCameraFeeds();
   setTacticalUI();
   loadCurrentOperationOnMap();
 
   if (dom.recenterMapBtn) {
     dom.recenterMapBtn.onclick = () => {
-      const currentOperation = getCurrentOperation();
-      const operationZone =
-        dashboardState.currentOperationZone ||
-        currentOperation?.zona_operacion ||
-        dashboardState.currentOperation?.zona_operacion;
-
-      if (operationZone) {
-        centerMapOnOperationZone(operationZone);
-        return;
-      }
-
+      // 1. Si hay puntos de un área que se está marcando o se acaba de marcar
       if (dashboardState.areaPoints && dashboardState.areaPoints.length > 0) {
         const lats = dashboardState.areaPoints.map(p => p.lat);
         const lngs = dashboardState.areaPoints.map(p => p.lng);
         const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
         const centerLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
-
+        
+        // Calculamos un zoom aproximado basado en la dispersión (o 5000 por defecto)
         dashboardState.viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, 4500)
         });
         return;
       }
+
+      // 2. Fallback: Zona de operación guardada en la BD
+      if (dashboardState.currentOperation?.zona_operacion) {
+        centerMapOnOperationZone(dashboardState.currentOperation.zona_operacion);
+      }
     };
   }
 
   // Abrir panel de info al cargar
-  openPanel(dom.infoPanel, dom.toggleInfoPanel);
+  togglePanel(dom.infoPanel, dom.toggleInfoPanel);
 
   // Cargar datos de la operación desde BD
   const bdData = await loadDashboardFromBD();
@@ -344,21 +327,15 @@ window.addEventListener("load", async () => {
     saveCurrentOperation({
       ...bdData.operacion,
       id: bdData.operacion.id_operacion,
-      zona_operacion: bdData.zona_operacion || null,
-      personal: bdData.personal || [],
-      vehiculos: bdData.vehiculos || [],
-      equipos: bdData.equipos || []
+      zona_operacion: bdData.zona_operacion || null
     });
-    dashboardState.currentOperation = getCurrentOperation();
     renderInfoPanel(bdData);
-    initCameraFeeds();
     setTacticalUI();
     if (bdData.zona_operacion) {
       centerMapOnOperationZone(bdData.zona_operacion);
     }
   } else {
     renderInfoPanel();
-    initCameraFeeds();
   }
   updateChatAvailability();
 
@@ -366,7 +343,6 @@ window.addEventListener("load", async () => {
   await loadPoisFromBackend();
   await loadAreasFromBackend();
   await loadStructuresFromBackend();
-  await loadRoutesFromBackend();
   await loadOperationZoneFromBackend();
   await loadDrawingsFromBackend();
 
@@ -388,7 +364,6 @@ window.addEventListener("load", async () => {
       initPoiSocket(socket);
       initTrackingSocket(socket);
       initDrawingSocket(socket);
-      initCameraFeeds(opId, socket);
     }
   }
 
@@ -405,14 +380,9 @@ window.addEventListener("load", async () => {
       saveCurrentOperation({
         ...fresh.operacion,
         id: fresh.operacion.id_operacion,
-        zona_operacion: fresh.zona_operacion || null,
-        personal: fresh.personal || [],
-        vehiculos: fresh.vehiculos || [],
-        equipos: fresh.equipos || []
+        zona_operacion: fresh.zona_operacion || null
       });
-      dashboardState.currentOperation = getCurrentOperation();
       renderInfoPanel(fresh);
-      initCameraFeeds();
       setTacticalUI();
     }
     updateChatAvailability();

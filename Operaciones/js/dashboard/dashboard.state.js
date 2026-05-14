@@ -22,8 +22,6 @@ export const dashboardState = {
   planningAreaLabel: null,
   operationZoneBorder: null,
   currentOperationZone: null,
-  gridEntities: [],
-  gridQuadrants: [],
 
   selectedEntity: null,
   draggingEntity: null,
@@ -42,6 +40,10 @@ export const dashboardState = {
   drawingMode: null,        // "pencil" | "eraser" | null
   drawingEntities: [],      // freehand polyline entities
 
+  // Grid / Cuadrantes
+  gridEntities: [],
+  gridQuadrants: [],
+
   currentChatChannel: "cet",
   mediaRecorder: null,
   audioChunks: [],
@@ -52,7 +54,5 @@ export const dashboardState = {
   remoteRouteEntities: new Map(), // id_ruta → { ruta, entities: [cesiumEntity, ...] }
   trackingEntities: new Map(),    // "P:id_personal" | "V:id_vehiculo" → cesiumEntity
   trackingHistory: new Map(),     // "P:id" | "V:id" → { lat, lng, time, speed, bearing }
-  trackingClusters: new Map(),    // "V:id" → Set(["P:id1", "P:id2"])
-  followedPersonalId: null,
-  followedPersonalZoom: 800
+  trackingClusters: new Map()     // "V:id" → Set(["P:id1", "P:id2"])
 };

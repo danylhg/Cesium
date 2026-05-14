@@ -13,131 +13,6 @@ import { STORAGE_OPERACION_ACTUAL } from "../../core/constants.js";
 import { state } from "../../core/state.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-let operacionBackendSaveTimer = null;
-let operacionBackendSavePromise = Promise.resolve(null);
-let operacionBackendSaveResolve = null;
-
-function normalizeDateForInput(value) {
-  if (!value) return "";
-  const str = String(value);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  if (str.includes("T")) return str.split("T")[0];
-
-  const d = new Date(str);
-  if (Number.isNaN(d.getTime())) return str;
-  return d.toISOString().split("T")[0];
-}
-
-function normalizeTimeForInput(value) {
-  if (!value) return "";
-  const str = String(value);
-  if (/^\d{2}:\d{2}/.test(str)) return str.slice(0, 5);
-  if (str.includes("T")) return (str.split("T")[1] || "").slice(0, 5);
-
-  const d = new Date(str);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
-}
-
-function buildFechaInicioForApi(datosFormulario = {}) {
-  const fecha = normalizeText(datosFormulario.fecha_inicio);
-  const hora = normalizeText(datosFormulario.hora_inicio);
-
-  if (!fecha) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(fecha) && /^\d{2}:\d{2}$/.test(hora)) {
-    return `${fecha}T${hora}:00.000Z`;
-  }
-
-  return fecha;
-}
-
-function normalizeEstadoOperacion(value) {
-  if (!value) return "";
-  const normalized = String(value).trim().toUpperCase();
-  if (normalized === "PLANIFICADA" || normalized === "PLANIFICADO") return "PLANIFICADA";
-  if (normalized === "ACTIVA" || normalized === "ACTIVO") return "ACTIVA";
-  return normalized;
-}
-
-function getOperacionIdFrom(op = {}) {
-  return op.id_operacion || op.id || localStorage.getItem("active_operation_id") || null;
-}
-
-function normalizeOperacionBackendForStorage(backendOp, fallback = {}) {
-  if (!backendOp) return fallback;
-
-  const id = backendOp.id_operacion ?? backendOp.id ?? fallback.id ?? fallback.id_operacion ?? null;
-  const title = backendOp.nombre ?? backendOp.title ?? backendOp.titulo ?? fallback.title ?? fallback.titulo ?? "";
-  const description = backendOp.descripcion ?? backendOp.description ?? fallback.description ?? fallback.descripcion ?? "";
-  const estado = backendOp.estado ?? fallback.estado ?? fallback.estado_operacion ?? "";
-
-  return {
-    ...fallback,
-    id,
-    id_operacion: id,
-    codigo: backendOp.codigo ?? fallback.codigo,
-    title,
-    titulo: title,
-    description,
-    descripcion: description,
-    fecha_inicio: Object.prototype.hasOwnProperty.call(backendOp, "fecha_inicio")
-      ? normalizeDateForInput(backendOp.fecha_inicio)
-      : normalizeDateForInput(fallback.fecha_inicio),
-    hora_inicio: (backendOp.hora_inicio ?? normalizeTimeForInput(backendOp.fecha_inicio)) || fallback.hora_inicio || "",
-    prioridad: backendOp.prioridad ?? fallback.prioridad ?? "",
-    estado,
-    estado_operacion: estado,
-    phase: estado ? String(estado).toLowerCase() : fallback.phase,
-    fecha_fin: backendOp.fecha_fin ?? fallback.fecha_fin,
-    fecha_creacion: backendOp.fecha_creacion ?? fallback.fecha_creacion,
-    created_at: backendOp.fecha_creacion ?? fallback.created_at ?? new Date().toISOString()
-  };
-}
-
-function saveBackendOperacionIntoStorage(backendOp) {
-  const current = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
-  const normalized = normalizeOperacionBackendForStorage(backendOp, current);
-
-  if (normalized.id) {
-    localStorage.setItem("active_operation_id", normalized.id);
-  }
-
-  return saveOperacionActual(normalized);
-}
-
-async function runOperacionBackendSave() {
-  try {
-    const localOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
-    const formOp = collectOperacionActualFromForm();
-    const idOperacion = getOperacionIdFrom(formOp) || getOperacionIdFrom(localOp);
-    const estado = normalizeEstadoOperacion(
-      formOp.estado_operacion || formOp.estado || localOp.estado_operacion || localOp.estado || formOp.phase || localOp.phase
-    );
-
-    if (!idOperacion) return null;
-    if (estado && estado !== "PLANIFICADA") return null;
-
-    const saved = await guardarOperacionBaseDatos(
-      { ...formOp, id: idOperacion, id_operacion: idOperacion },
-      {
-        id_operacion: idOperacion,
-        estado_operacion: estado || "PLANIFICADA"
-      }
-    );
-
-    return saved ? saveBackendOperacionIntoStorage(saved) : null;
-  } catch (error) {
-    console.error("No se pudo guardar la cabecera de operacion en BD:", error);
-    throw error;
-  }
-}
-
-function resolvePendingOperacionBackendSave(value) {
-  if (operacionBackendSaveResolve) {
-    operacionBackendSaveResolve(value);
-    operacionBackendSaveResolve = null;
-  }
-}
 
 async function apiFetch(path, method = "GET", body = null) {
   const token = localStorage.getItem("token");
@@ -168,7 +43,7 @@ async function apiFetch(path, method = "GET", body = null) {
     console.error(`Fallo en petición [${method} ${path}]:`, error.message);
     if (
       String(error?.message || "").toLowerCase().includes("ya existe una operacion con ese nombre") ||
-      String(error?.message || "").toLowerCase().includes("ya existe una operación con ese nombre")
+      String(error?.message || "").toLowerCase().includes("ya existe una operaciÃ³n con ese nombre")
     ) {
       showNombreOperacionError("Ya existe una operación con ese nombre.");
     }
@@ -437,7 +312,7 @@ export function getOperacionNombreActual() {
 export function collectOperacionActualFromForm() {
   const prev = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
 
-  let safeId = prev.id || prev.id_operacion || localStorage.getItem("active_operation_id");
+  let safeId = prev.id;
   if (typeof safeId === 'string' && isNaN(Number(safeId))) {
     safeId = null; // Reemplazar UUIDs o strings basura por null para que el backend cree la operación
   }
@@ -451,7 +326,6 @@ export function collectOperacionActualFromForm() {
   return {
     ...prev,
     id: safeId,
-    id_operacion: safeId,
     title,
     titulo: title,
     description,
@@ -470,26 +344,24 @@ export function collectOperacionActual() {
 export function saveOperacionActual(op = collectOperacionActualFromForm()) {
   writeStorage(STORAGE_OPERACION_ACTUAL, op);
 
-  const opId = op.id || op.id_operacion;
-
-  if (opId) {
-    writeStorage(`operacion_op_${opId}`, op);
+  if (op.id) {
+    writeStorage(`operacion_op_${op.id}`, op);
   }
 
   try {
     const opsList = JSON.parse(localStorage.getItem("operations") || "[]");
     const idx = opsList.findIndex(
-      x => String(x.id) === String(opId) || x.name === op.title || x.name === op.titulo
+      x => x.id === op.id || x.name === op.title || x.name === op.titulo
     );
 
     if (idx !== -1) {
-      if (Object.prototype.hasOwnProperty.call(op, "fecha_inicio")) opsList[idx].fecha_inicio = op.fecha_inicio || "";
-      if (Object.prototype.hasOwnProperty.call(op, "hora_inicio")) opsList[idx].hora_inicio = op.hora_inicio || "";
-      if (opId) opsList[idx].id = opId;
+      if (op.fecha_inicio) opsList[idx].fecha_inicio = op.fecha_inicio;
+      if (op.hora_inicio) opsList[idx].hora_inicio = op.hora_inicio;
+      if (op.id) opsList[idx].id = op.id;
       opsList[idx].name = op.title || op.titulo || opsList[idx].name;
-    } else if (opId && (op.title || op.titulo)) {
+    } else if (op.id && (op.title || op.titulo)) {
       opsList.push({
-        id: opId,
+        id: op.id,
         name: op.title || op.titulo,
         phase: op.phase || "planificada",
         fecha_inicio: op.fecha_inicio || "",
@@ -506,46 +378,6 @@ export function saveOperacionActual(op = collectOperacionActualFromForm()) {
   }
 
   return op;
-}
-
-export function schedulePersistOperacionActualEnBackend(delay = 650) {
-  saveOperacionActual();
-
-  if (operacionBackendSaveTimer) {
-    clearTimeout(operacionBackendSaveTimer);
-    resolvePendingOperacionBackendSave(null);
-  }
-
-  operacionBackendSavePromise = new Promise((resolve) => {
-    operacionBackendSaveResolve = resolve;
-    operacionBackendSaveTimer = setTimeout(async () => {
-      operacionBackendSaveTimer = null;
-      try {
-        const result = await runOperacionBackendSave();
-        resolvePendingOperacionBackendSave(result);
-      } catch {
-        resolvePendingOperacionBackendSave(null);
-      }
-    }, delay);
-  });
-
-  return operacionBackendSavePromise;
-}
-
-export async function flushPersistOperacionActualEnBackend() {
-  if (operacionBackendSaveTimer) {
-    clearTimeout(operacionBackendSaveTimer);
-    operacionBackendSaveTimer = null;
-  }
-
-  try {
-    const result = await runOperacionBackendSave();
-    resolvePendingOperacionBackendSave(result);
-    return result;
-  } catch (error) {
-    resolvePendingOperacionBackendSave(null);
-    throw error;
-  }
 }
 
 export function loadOperacionActualIntoForm() {
@@ -585,11 +417,10 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
     // CUÁNDO: Si NO hay id_operacion en state
     // PARA QUÉ: Crear nueva operación
     if (!id_operacion) {
-      const fechaInicioApi = buildFechaInicioForApi(datosFormulario);
       const payload = {
         nombre: datosFormulario.title || datosFormulario.titulo || datosFormulario.nombre,
         descripcion: datosFormulario.description || datosFormulario.descripcion,
-        fecha_inicio: fechaInicioApi,
+        fecha_inicio: datosFormulario.fecha_inicio,
         hora_inicio: datosFormulario.hora_inicio,
         prioridad: datosFormulario.prioridad
       };
@@ -649,11 +480,10 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
     // CUÁNDO: Si YA hay id y el estado === "PLANIFICADA" o no está definido
     // PARA QUÉ: Actualizar nombre/descripción/prioridad/fechas
     else if (id_operacion && (!estado_operacion || estado_operacion === 'PLANIFICADA')) {
-      const fechaInicioApi = buildFechaInicioForApi(datosFormulario);
       const operacionActualizada = await apiFetch(`/ops/${id_operacion}`, 'PUT', {
         nombre: datosFormulario.title || datosFormulario.titulo || datosFormulario.nombre,
         descripcion: datosFormulario.description || datosFormulario.descripcion,
-        fecha_inicio: fechaInicioApi,
+        fecha_inicio: datosFormulario.fecha_inicio,
         hora_inicio: datosFormulario.hora_inicio,
         prioridad: datosFormulario.prioridad
       });

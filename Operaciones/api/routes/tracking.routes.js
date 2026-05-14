@@ -42,7 +42,7 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_tracking, timestamp`,
       [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
         altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
     );
@@ -85,8 +85,7 @@ router.get("/ops/:id/tracking/personal/:id_personal/historial", requireAuth, asy
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
     const { rows } = await pool.query(
-      `SELECT id_tracking, latitud, longitud, altitud, precision_m, timestamp,
-              estado_operacion_creacion
+      `SELECT id_tracking, latitud, longitud, altitud, precision_m, timestamp
        FROM tracking_personal
        WHERE id_operacion=$1 AND id_personal=$2
        ORDER BY timestamp ASC`,
@@ -114,7 +113,7 @@ router.post("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO tracking_vehiculo (id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_tracking, timestamp`,
       [id_operacion, Number(id_vehiculo), Number(latitud), Number(longitud),
         altitud != null ? Number(altitud) : null,
         velocidad_kmh != null ? Number(velocidad_kmh) : null,
@@ -162,8 +161,7 @@ router.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, as
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
     const { rows } = await pool.query(
-      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp,
-              estado_operacion_creacion
+      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp
        FROM tracking_vehiculo
        WHERE id_operacion=$1 AND id_vehiculo=$2
        ORDER BY timestamp ASC`,

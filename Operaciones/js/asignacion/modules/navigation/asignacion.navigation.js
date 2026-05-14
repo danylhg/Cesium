@@ -1,9 +1,10 @@
 import { btnBack, btnVolver, btnDashboardGo } from "../../core/dom.js";
 import { state } from "../../core/state.js";
-import {
-  flushPersistOperacionActualEnBackend,
-  saveOperacionActual,
-  syncOperacionCompleta
+import { 
+  saveOperacionActual, 
+  collectOperacionActual, 
+  guardarOperacionBaseDatos, 
+  syncOperacionCompleta 
 } from "../operacion/operacion.service.js";
 import { saveOperacionYAsignacion } from "../asignacion/asignacion.service.js";
 import { removeStorage, readObjectStorage } from "../../core/storage.js";
@@ -51,26 +52,27 @@ export function bindNavigation() {
   });
 
   btnDashboardGo?.addEventListener("click", async () => {
-    btnDashboardGo.disabled = true;
+    // 1. Guardar cambios en local
+    saveOperacionActual();
+    
+    // 2. Sincronizar con el backend
+    const fromForm = collectOperacionActual();
+    const storedOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+    const estadoActual = {
+      id_operacion: storedOp.id,
+      estado_operacion: storedOp.estado
+    };
 
     try {
-      await flushPersistOperacionActualEnBackend();
-      await saveOperacionYAsignacion(saveOperacionActual);
-      const storedOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
-      const opId = storedOp.id || storedOp.id_operacion || localStorage.getItem("active_operation_id");
-
-      if (opId) {
-        const syncResult = await syncOperacionCompleta(opId);
-        if (syncResult?.ok === false) {
-          throw new Error(syncResult.error || "No se pudo sincronizar la asignación.");
-        }
+      if (storedOp.id) {
+        await guardarOperacionBaseDatos(fromForm, estadoActual);
+        await syncOperacionCompleta(storedOp.id);
       }
-
-      window.location.href = "dashboard.html";
-    } catch (error) {
-      console.error("No se pudo guardar la operacion antes de volver al dashboard:", error);
-      alert("No se pudo guardar la operacion. Revisa los datos e intenta de nuevo.");
-      btnDashboardGo.disabled = false;
+      await saveOperacionYAsignacion();
+    } catch (err) {
+      console.error("Error al sincronizar cambios antes de ir al dashboard:", err);
     }
+
+    window.location.href = "dashboard.html";
   });
 }

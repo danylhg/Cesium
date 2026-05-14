@@ -38,7 +38,6 @@ export function getCesiumColor(name, alpha = 1) {
 
 // IDs de POIs que acabo de enviar yo (evita redibujar lo que ya dibujé localmente)
 const _mySentPoiIds = new Set();
-const _mySentRouteIds = new Set();
 
 function getAreaCreatorPayload() {
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
@@ -97,17 +96,6 @@ function pointsToPolygonCoordinates(points) {
   return [ring];
 }
 
-function pointsToLineString(points) {
-  if (!Array.isArray(points) || points.length < 2) return null;
-
-  const coordinates = points
-    .map(point => [Number(point.lng), Number(point.lat)])
-    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
-
-  if (coordinates.length < 2) return null;
-  return { type: "LineString", coordinates };
-}
-
 function getPolygonLabelPosition(points) {
   if (!Array.isArray(points) || points.length === 0) return null;
 
@@ -147,8 +135,6 @@ function getOperationZonePoints(zona) {
 function clearOperationZoneEntities() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
-
-  clearGrid();
 
   // Remove the main zone border
   if (dashboardState.operationZoneBorder) {
@@ -272,36 +258,11 @@ export function renderIntegratedWindRose(zona, points) {
   const lineColor = Cesium.Color.fromCssColorString("rgba(0,0,0,0.75)");
   const lineWidth = 3;
 
-  // Horizontal Line (E-W)
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([minLng, boxCenterLat, maxLng, boxCenterLat]),
-      width: lineWidth,
-      material: lineColor,
-      clampToGround: true
-    },
-    properties: zoneProps
-  });
-
-  // Vertical Line (N-S)
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([boxCenterLng, minLat, boxCenterLng, maxLat]),
-      width: lineWidth,
-      material: lineColor,
-      clampToGround: true
-    },
-    properties: zoneProps
-  });
-
-  // Cardinal Labels
   const labels = [
     { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },
     { text: "S", lat: minLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, 15) },
     { text: "E", lat: boxCenterLat, lng: maxLng, offset: new Cesium.Cartesian2(15, 0) },
-    { text: "W", lat: boxCenterLat, lng: minLng, offset: new Cesium.Cartesian2(-15, 0) }
+    { text: "O", lat: boxCenterLat, lng: minLng, offset: new Cesium.Cartesian2(-15, 0) }
   ];
 
   labels.forEach(lbl => {
@@ -338,9 +299,9 @@ function generateRadarCanvas(size, _unused, colorHex, radiusMeters) {
   // Line/label colors: black-based, stronger for visibility
   const lineStrong = "rgba(0,0,0,0.75)";
   const lineMedium = "rgba(0,0,0,0.45)";
-  const lineLight  = "rgba(0,0,0,0.20)";
-  const labelDark  = "rgba(0,0,0,0.90)";
-  const labelMid   = "rgba(0,0,0,0.60)";
+  const lineLight = "rgba(0,0,0,0.20)";
+  const labelDark = "rgba(0,0,0,0.90)";
+  const labelMid = "rgba(0,0,0,0.60)";
 
   // ── 1. Outer border ring (REMOVED) ──
 
@@ -358,8 +319,8 @@ function generateRadarCanvas(size, _unused, colorHex, radiusMeters) {
 
   // ── 3. Bearing labels (N, E, S, W) ──
   const cardinalLabels = [
-    { deg: 0,   sub: "N"  },
-    { deg: 90,  sub: "E"  },
+    { deg: 0, sub: "N" },
+    { deg: 90, sub: "E" },
     { deg: 180, sub: "S" },
     { deg: 270, sub: "W" }
   ];
@@ -501,7 +462,11 @@ function getMilSymbolInstance(sidc, size = 200) {
   try {
     return new ms.Symbol(sidc, {
       size,
-      colorMode: "Light"
+      outlineWidth: 4,      // Estilo Map.Army: contorno blanco marcado
+      outlineColor: "white",
+      strokeWidth: 3,       // Líneas más gruesas para visibilidad
+      fill: true,
+      colorMode: "Light"    // Colores vibrantes y nítidos
     });
   } catch (err) {
     console.warn("[MIL] SIDC invalido para milsymbol:", sidc, err);
@@ -509,9 +474,10 @@ function getMilSymbolInstance(sidc, size = 200) {
   }
 }
 
-function renderMilSymbolImage(sidc, size = 200) {
+export function renderMilSymbolImage(sidc, size = 200) {
   const symbol = getMilSymbolInstance(sidc, size);
-  return symbol ? symbol.asCanvas() : null;
+  // Devolvemos el DataURL para que sea compatible con <img> y Billboards de Cesium
+  return symbol ? symbol.toDataURL() : null;
 }
 
 function getMilBillboardSize() {
@@ -686,79 +652,12 @@ async function saveStructureToBackend(lat, lng, nombre, tipoEstructura) {
   }
 }
 
-function parseJsonObject(value) {
-  if (!value) return null;
-  if (typeof value === "string") {
-    try {
-      return JSON.parse(value);
-    } catch {
-      return null;
-    }
-  }
-  return typeof value === "object" ? value : null;
-}
-
-function normalizeAreaGeometry(area) {
-  return parseJsonObject(area?.geometria ?? area?.geometry);
-}
-
-function normalizeAreaMeta(area, geometry) {
-  return parseJsonObject(geometry?.meta)
-    || parseJsonObject(geometry?.metadata)
-    || parseJsonObject(geometry?.properties)
-    || parseJsonObject(area?.meta)
-    || parseJsonObject(area?.metadata)
-    || {};
-}
-
-function getCircleCenter(area, meta) {
-  const center = Array.isArray(meta.center) ? meta.center : null;
-  if (center && center.length >= 2) {
-    return {
-      lng: Number(center[0]),
-      lat: Number(center[1])
-    };
-  }
-
-  return {
-    lng: Number(area?.center_lon ?? area?.centroide_lon ?? area?.longitud ?? area?.lon ?? area?.lng),
-    lat: Number(area?.center_lat ?? area?.centroide_lat ?? area?.latitud ?? area?.lat)
-  };
-}
-
-function makeCircleAreaData(idArea, lat, lng, radius, nombre, colorName) {
-  return {
-    id_area: idArea,
-    nombre: nombre || "Círculo de cobertura",
-    color: COLOR_HEX_MAP[colorName] || "#FF4500",
-    geometria: {
-      type: "Polygon",
-      coordinates: circleToPolygonCoordinates(lat, lng, radius),
-      meta: {
-        shape: "circle",
-        center: [lng, lat],
-        radius_m: radius,
-        opacity: getOpacity(),
-        outline_width: getLineWidth()
-      }
-    }
-  };
-}
-
-function removeTacticalEntity(entity) {
-  const viewer = dashboardState.viewer;
-  if (!viewer || !entity) return;
-  viewer.entities.remove(entity);
-  dashboardState.tacticalEntities = (dashboardState.tacticalEntities || [])
-    .filter(ent => ent !== entity);
-}
-
 function buildAreaEntity(area) {
   const viewer = dashboardState.viewer;
   if (!viewer) return null;
 
-  const geometry = normalizeAreaGeometry(area);
-  const meta = normalizeAreaMeta(area, geometry);
+  const geometry = area?.geometria;
+  const meta = geometry?.meta || {};
   if (geometry?.type !== "Polygon") return null;
 
   const opacity = Number(meta.opacity ?? 0.35);
@@ -770,20 +669,20 @@ function buildAreaEntity(area) {
 
   if (entityId && viewer.entities.getById(entityId)) return null;
 
-  if (String(meta?.shape || "").toLowerCase() === "circle") {
-    const center = getCircleCenter(area, meta);
-    const radius = Number(meta.radius_m ?? area?.radius_m ?? area?.radio_m);
+  if (meta?.shape === "circle") {
+    const center = Array.isArray(meta.center) ? meta.center : null;
+    const radius = Number(meta.radius_m);
 
-    if (!Number.isFinite(radius) || radius <= 0) {
+    if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) {
       return null;
     }
 
-    const { lng, lat } = center;
+    const [lng, lat] = center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
     return viewer.entities.add({
       id: entityId,
-      name: area.nombre || "Círculo de cobertura",
+      name: area.nombre || "CÃ­rculo de cobertura",
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
       ellipse: {
         semiMajorAxis: radius,
@@ -811,7 +710,7 @@ function buildAreaEntity(area) {
     });
   }
 
-  if (String(meta?.shape || "polygon").toLowerCase() !== "polygon") return null;
+  if (meta?.shape !== "polygon") return null;
 
   const coordinates = Array.isArray(geometry?.coordinates?.[0]) ? geometry.coordinates[0] : null;
   if (!coordinates || coordinates.length < 4) return null;
@@ -830,7 +729,7 @@ function buildAreaEntity(area) {
 
   return viewer.entities.add({
     id: entityId,
-    name: area.nombre || "Polígono / Zona",
+    name: area.nombre || "PolÃ­gono / Zona",
     position: labelPosition
       ? Cesium.Cartesian3.fromDegrees(labelPosition.lng, labelPosition.lat)
       : undefined,
@@ -941,46 +840,6 @@ function buildStructureEntity(estructura) {
   });
 }
 
-function buildRouteEntity(ruta) {
-  const viewer = dashboardState.viewer;
-  if (!viewer) return null;
-
-  let geometry = ruta?.geometria;
-  if (typeof geometry === "string") {
-    try { geometry = JSON.parse(geometry); } catch { return null; }
-  }
-  if (geometry?.type !== "LineString" || !Array.isArray(geometry.coordinates)) return null;
-
-  const points = geometry.coordinates
-    .map(coord => ({
-      lng: Number(coord?.[0]),
-      lat: Number(coord?.[1])
-    }))
-    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
-  if (points.length < 2) return null;
-
-  const entityId = ruta.id_ruta ? `ruta_operacion_${ruta.id_ruta}` : undefined;
-  if (entityId && viewer.entities.getById(entityId)) return null;
-
-  const color = Cesium.Color.fromCssColorString(ruta.color || "#1E90FF");
-
-  return viewer.entities.add({
-    id: entityId,
-    name: ruta.nombre || "Linea tactica",
-    polyline: {
-      positions: toCartesianArray(points),
-      width: Number(ruta.grosor || ruta.width || getLineWidth()),
-      material: color,
-      clampToGround: true
-    },
-    properties: {
-      tacticalType: "polyline",
-      draggable: false,
-      id_ruta: ruta.id_ruta ?? null
-    }
-  });
-}
-
 async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
   try {
     const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
@@ -1045,7 +904,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (!token || !opId) return null;
 
     const body = {
-      nombre: nombre || "Polígono / Zona",
+      nombre: nombre || "PolÃ­gono / Zona",
       descripcion: "Poligono o zona",
       color: COLOR_HEX_MAP[colorName] || "#FFD700",
       geometria: {
@@ -1071,7 +930,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     const data = await res.json();
 
     if (!res.ok || !data?.ok) {
-      const mensaje = data?.mensaje || "No se pudo guardar el polígono.";
+      const mensaje = data?.mensaje || "No se pudo guardar el polÃ­gono.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
       alert(mensaje);
       return null;
@@ -1079,57 +938,11 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
 
     return data.area || null;
   } catch (err) {
-    console.error("Error guardando área poligonal en backend:", err);
+    console.error("Error guardando Ã¡rea poligonal en backend:", err);
     if (dom.tbHint) {
-      dom.tbHint.textContent = "Error de conexión al guardar el polígono.";
+      dom.tbHint.textContent = "Error de conexiÃ³n al guardar el polÃ­gono.";
     }
-    alert("Error de conexión al guardar el polígono.");
-    return null;
-  }
-}
-
-async function saveTacticalRouteToBackend(points, nombre, colorName) {
-  const geometria = pointsToLineString(points);
-  if (!geometria) return null;
-
-  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token = localStorage.getItem("token");
-  const opId = localStorage.getItem("active_operation_id");
-  if (!token || !opId) return null;
-
-  try {
-    const res = await fetch(`${API_BASE}/ops/${opId}/rutas`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        nombre: nombre || "Linea tactica",
-        descripcion: "Linea tactica dibujada en dashboard",
-        geometria,
-        color: COLOR_HEX_MAP[colorName] || "#1E90FF",
-        ...getAreaCreatorPayload()
-      })
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data?.ok) {
-      const mensaje = data?.mensaje || "No se pudo guardar la linea tactica.";
-      if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
-      return null;
-    }
-
-    if (data.ruta?.id_ruta) {
-      _mySentRouteIds.add(data.ruta.id_ruta);
-      setTimeout(() => _mySentRouteIds.delete(data.ruta.id_ruta), 5000);
-    }
-
-    return data.ruta || null;
-  } catch (err) {
-    console.error("[RUTA] Error guardando linea tactica:", err);
-    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al guardar la linea tactica.";
+    alert("Error de conexiÃ³n al guardar el polÃ­gono.");
     return null;
   }
 }
@@ -1354,11 +1167,14 @@ function syncTacticalToolAvailability(currentOperation = getCurrentOperation()) 
     perimeterOption.disabled = !isPlanningOperation;
   }
 
+  // Se permite marcar zona de operación en cualquier fase si el usuario lo activa manualmente
+  /*
   if (!isPlanningOperation && dashboardState.toolMode === "perimeter") {
     dashboardState.toolMode = "none";
     if (dom.toolSelect) dom.toolSelect.value = "none";
     resetDrawingState();
   }
+  */
 
   return { isActiveOperation };
 }
@@ -1367,33 +1183,37 @@ export function setTacticalUI() {
   const currentOperation = getCurrentOperation();
   const { isActiveOperation } = syncTacticalToolAvailability(currentOperation);
   const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
+  const isCerrada = ["cerrada", "cancelada"].includes(phase);
   const isPlanningOperation = !isActiveOperation && phase === "planificada";
   const isToolActive = dashboardState.toolMode !== "none";
   const isMil = dashboardState.toolMode === "mil";
   const isPoi = dashboardState.toolMode === "poi";
   const isPencil = dashboardState.toolMode === "pencil";
   const isEraser = dashboardState.drawingMode === "eraser";
-  const isDrawingTool = isPencil;
+  const isDrawingTool = isPencil; 
   const isBuilding = dashboardState.toolMode === "building";
+  const isPolyline = dashboardState.toolMode === "polyline";
+  const isPerimeter = dashboardState.toolMode === "perimeter";
   const isGrid = dashboardState.toolMode === "grid";
   const usesPlaceOnly = ["poi", "mil", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter", "building"].includes(dashboardState.toolMode);
+  const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "building"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
-  const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
-  const showCancelButton = !isGrid && !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const showFinishButton = !isGrid && (isMultiPoint || dashboardState.areaDrawing);
-  const showLabelInput = !isGrid && needsLabel && !isMil && !isDrawingTool;
-  const showColorInput = !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
-  const showOpacityInput = !isGrid && !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
-  const showWidthInput = !isGrid && !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
+  const isMultiPoint = ["polygon", "polyline"].includes(dashboardState.toolMode);
+  const showCancelButton = isToolActive && !isMil && !isDrawingTool && !isBuilding && !isPerimeter && !["poi", "circle", "label"].includes(dashboardState.toolMode);
+  const showFinishButton = isToolActive && !isBuilding && !isPerimeter && (isMultiPoint || dashboardState.areaDrawing);
+  const showLabelInput = isToolActive && needsLabel && !isMil && !isDrawingTool && !isPerimeter && !isGrid;
+  const showColorInput = isToolActive && !isMil && !isEraser && !isBuilding && !isPerimeter && !isGrid;
+  const showOpacityInput = isToolActive && !isMil && !isPoi && !isDrawingTool && !isPolyline && !isBuilding && !isPerimeter && !isGrid;
+  const showWidthInput = isToolActive && !isMil && !isPoi && !isEraser && !isBuilding && !isPerimeter && !isGrid && dashboardState.toolMode !== "circle";
 
   const milTitle = document.getElementById("milSymbolTitle");
-  if (milTitle) milTitle.style.display = isMil ? "block" : "none";
+  if (milTitle) milTitle.style.display = (isMil || isPolyline) ? "block" : "none";
 
-  if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = isMil ? "block" : "none";
+  if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = (isMil || isPolyline) ? "block" : "none";
 
   const buildingPreview = document.getElementById("buildingPreview");
   if (buildingPreview) buildingPreview.style.display = isBuilding ? "block" : "none";
+
   if (dom.gridSubmenu) dom.gridSubmenu.style.display = isGrid ? "block" : "none";
 
   if (dom.pencilSubmenu) dom.pencilSubmenu.style.display = isPencil ? "block" : "none";
@@ -1412,10 +1232,43 @@ export function setTacticalUI() {
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
-  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = (isMil || isDrawingTool || isGrid) ? "none" : "grid";
-  if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
-  if (dom.finishShape) dom.finishShape.style.display = showFinishButton ? "" : "none";
-  if (dom.clearTactical) dom.clearTactical.style.display = isPlanningOperation ? "" : "none";
+  
+  if (dom.tacticalActionButtons) {
+    dom.tacticalActionButtons.style.display = (isToolActive && !isMil && !isDrawingTool && !isBuilding && !isPerimeter && !isGrid) ? "grid" : "none";
+  }
+  
+  if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "block" : "none";
+  
+  if (dom.finishShape) {
+    dom.finishShape.style.display = showFinishButton ? "block" : "none";
+    dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
+  }
+  
+  if (dom.clearTactical) {
+    dom.clearTactical.style.display = (isPlanningOperation || isActiveOperation) ? "block" : "none";
+  }
+  
+  if (dom.placeBtn) {
+    dom.placeBtn.disabled = !isToolActive || isMil || isDrawingTool;
+    dom.placeBtn.style.display = (isToolActive && !isMil && !isDrawingTool && !isBuilding) ? "block" : "none";
+    dom.placeBtn.textContent = "Colocar";
+  }
+
+  // Manage Zone UI (Route Panel)
+  const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
+  if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
+  if (dom.markZoneBtn) {
+    const isModeZone = dashboardState.toolMode === "perimeter";
+    dom.markZoneBtn.style.background = isModeZone ? "#00ffa6" : "";
+    dom.markZoneBtn.style.color = isModeZone ? "#001b1b" : "#000000";
+    dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
+  }
+
+  if (dom.toggleChatPanel) dom.toggleChatPanel.style.display = isActiveOperation ? "flex" : "none";
+  if (dom.toggleCameraPanel) dom.toggleCameraPanel.style.display = isActiveOperation ? "flex" : "none";
+  
+  if (dom.activateOpBtn) dom.activateOpBtn.style.display = isPlanningOperation ? "inline-block" : "none";
+  if (dom.closeActiveOpBtn) dom.closeActiveOpBtn.style.display = (isActiveOperation && !isCerrada) ? "inline-block" : "none";
 
   if (dom.symLabel) dom.symLabel.disabled = !showLabelInput;
   if (dom.radiusInput) dom.radiusInput.disabled = !needsRadius;
@@ -1424,37 +1277,6 @@ export function setTacticalUI() {
   }
 
   if (isMil) updateMilSymbolPreview();
-
-  if (dom.placeBtn) {
-    dom.placeBtn.disabled = !isToolActive || isMil || isDrawingTool || isGrid;
-    dom.placeBtn.style.display = (isMil || isDrawingTool || isGrid) ? "none" : "";
-    dom.placeBtn.textContent = usesPlaceOnly
-      ? "Colocar"
-      : "Colocar / iniciar";
-  }
-  if (dom.finishShape) dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
-
-  const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
-  if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
-  if (dom.finishZoneBtn) dom.finishZoneBtn.style.display = isDrawingZone ? "block" : "none";
-  if (dom.markZoneBtn) {
-    const isModeZone = dashboardState.toolMode === "perimeter";
-    dom.markZoneBtn.disabled = !isPlanningOperation;
-    dom.markZoneBtn.style.background = isModeZone ? "#00ffa6" : "";
-    dom.markZoneBtn.style.color = isModeZone ? "#001b1b" : "";
-    dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
-    dom.markZoneBtn.title = isPlanningOperation
-      ? "Delimitar zona de operacion"
-      : "La zona solo se puede editar en operaciones planificadas";
-  }
-  if (dom.clearZoneBtn) {
-    dom.clearZoneBtn.disabled = isActiveOperation || !dashboardState.currentOperationZone;
-    dom.clearZoneBtn.title = isActiveOperation
-      ? "La zona no se puede eliminar mientras la operacion esta activa"
-      : "Limpiar zona de operacion";
-  }
-  if (dom.zoneColorSelect) dom.zoneColorSelect.disabled = !isPlanningOperation;
-  if (dom.zoneWidthRange) dom.zoneWidthRange.disabled = !isPlanningOperation;
 
   // Manage cursor for draw modes
   const mapEl = document.getElementById("map");
@@ -1598,58 +1420,31 @@ export async function createLabel(lat, lng) {
 }
 
 export async function createCircle(lat, lng) {
-  const viewer = dashboardState.viewer;
-  if (!viewer) return;
-
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
   const radius = getRadius();
-  const localArea = makeCircleAreaData(`local_${Date.now()}`, lat, lng, radius, label, colorName);
-  const localEntity = buildAreaEntity(localArea);
-  if (localEntity) dashboardState.tacticalEntities.push(localEntity);
-  if (dom.tbHint) dom.tbHint.textContent = "Círculo de cobertura colocado.";
+  let savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
 
-  const savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
   if (!savedArea) {
-    if (localEntity?.id) {
-      saveTacticalData();
-      pushUndoAction({
-        type: "add",
-        entityId: localEntity.id,
-        entityRef: localEntity,
-        source: "tactical"
-      });
-    }
-    return;
-  }
-  
-  if (localEntity) removeTacticalEntity(localEntity);
-
-  const existing = viewer.entities.getById(`area_${savedArea.id_area}`);
-  if (existing) return;
-
-  /*
     // Fallback local
     const fallbackId = `local_${Date.now()}`;
     savedArea = {
-        id_area: fallbackId,
-        nombre: label || "Círculo de cobertura",
-        color: COLOR_HEX_MAP[colorName] || "#FF4500",
-        geometria: {
-            type: "Polygon",
-            coordinates: circleToPolygonCoordinates(lat, lng, radius),
-            meta: {
-              shape: "circle",
-              center: [lng, lat],
-              radius_m: radius,
-              opacity: getOpacity(),
-              outline_width: getLineWidth()
-            }
+      id_area: fallbackId,
+      nombre: label || "Círculo de cobertura",
+      color: COLOR_HEX_MAP[colorName] || "#FF4500",
+      geometria: {
+        type: "Polygon",
+        coordinates: circleToPolygonCoordinates(lat, lng, radius),
+        meta: {
+          shape: "circle",
+          center: [lng, lat],
+          radius_m: radius,
+          opacity: getOpacity(),
+          outline_width: getLineWidth()
         }
+      }
     };
   }
-
-  */
 
   const entFromBackend = buildAreaEntity(savedArea);
   if (!entFromBackend) return;
@@ -1670,31 +1465,31 @@ export async function finishPolygon() {
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
   let savedArea = await savePolygonAreaToBackend(dashboardState.drawingPoints, label, colorName);
-  
+
   if (!savedArea) {
-      // Fallback local
-      const coordinates = pointsToPolygonCoordinates(dashboardState.drawingPoints);
-      if (coordinates) {
-          savedArea = {
-              id_area: `local_${Date.now()}`,
-              nombre: label || "Polígono / Zona",
-              color: COLOR_HEX_MAP[colorName] || "#FFD700",
-              geometria: {
-                type: "Polygon",
-                coordinates,
-                meta: {
-                  shape: "polygon",
-                  opacity: getOpacity(),
-                  outline_width: getLineWidth()
-                }
-              }
-          };
-      }
+    // Fallback local
+    const coordinates = pointsToPolygonCoordinates(dashboardState.drawingPoints);
+    if (coordinates) {
+      savedArea = {
+        id_area: `local_${Date.now()}`,
+        nombre: label || "Polígono / Zona",
+        color: COLOR_HEX_MAP[colorName] || "#FFD700",
+        geometria: {
+          type: "Polygon",
+          coordinates,
+          meta: {
+            shape: "polygon",
+            opacity: getOpacity(),
+            outline_width: getLineWidth()
+          }
+        }
+      };
+    }
   }
 
   if (savedArea) {
-      const entFromBackend = buildAreaEntity(savedArea);
-      if (entFromBackend) addTacticalEntity(entFromBackend);
+    const entFromBackend = buildAreaEntity(savedArea);
+    if (entFromBackend) addTacticalEntity(entFromBackend);
   }
 
   resetDrawingState();
@@ -1702,7 +1497,7 @@ export async function finishPolygon() {
   setTacticalUI();
 }
 
-export async function finishPolyline() {
+export function finishPolyline() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
@@ -1714,18 +1509,8 @@ export async function finishPolyline() {
   const positions = toCartesianArray(dashboardState.drawingPoints);
   const color = getCesiumColor(getCurrentColorName(), 1);
   const label = getCurrentLabel();
-  const colorName = getCurrentColorName();
-  let savedRoute = await saveTacticalRouteToBackend(dashboardState.drawingPoints, label, colorName);
 
-  if (savedRoute) {
-    const entFromBackend = buildRouteEntity(savedRoute);
-    if (entFromBackend) addTacticalEntity(entFromBackend);
-  } else {
-    savedRoute = { id_ruta: `local_${Date.now()}` };
-  }
-
-  if (String(savedRoute.id_ruta).startsWith("local_")) {
-    const ent = viewer.entities.add({
+  const ent = viewer.entities.add({
     name: label || "Línea táctica",
     polyline: {
       positions,
@@ -1735,13 +1520,11 @@ export async function finishPolyline() {
     },
     properties: {
       tacticalType: "polyline",
-      draggable: false,
-      id_ruta: savedRoute.id_ruta
+      draggable: false
     }
   });
 
-    addTacticalEntity(ent);
-  }
+  addTacticalEntity(ent);
 
   if (label) {
     const last = dashboardState.drawingPoints[dashboardState.drawingPoints.length - 1];
@@ -1764,6 +1547,20 @@ export async function finishPolyline() {
       }
     });
     addTacticalEntity(labelEnt);
+  }
+
+  // --- NUEVO: Si se dibujó una ruta (polyline) y hay un símbolo MIL configurado, lo agregamos al inicio ---
+  if (isPolyline) {
+    const sidc = buildMilSidc();
+    // No agregamos si es el genérico vacío (S-G-P-------) o similar, pero aquí lo dejamos libre para el usuario
+    if (sidc) {
+      const first = dashboardState.drawingPoints[0];
+      const canvas = renderMilSymbolImage(sidc, 150);
+      if (canvas) {
+        const iconPath = canvas.toDataURL();
+        createMilSymbol(first.lat, first.lng, label || "Unidad en ruta", iconPath, 0.1, sidc);
+      }
+    }
   }
 
   resetDrawingState();
@@ -1929,9 +1726,24 @@ export function handleTacticalPlacement(lat, lng) {
 
     dashboardState.drawingVertexEntities.push(ent);
 
+
     if (dom.tbHint) {
-      dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
+      if (dashboardState.toolMode === "perimeter") {
+        const remaining = 4 - dashboardState.drawingPoints.length;
+        dom.tbHint.textContent = remaining > 0
+          ? `Punto ${dashboardState.drawingPoints.length}/4 agregado. Faltan ${remaining}.`
+          : "Finalizando zona...";
+      } else {
+        dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
+      }
     }
+
+    // Auto-finish zone perimeter at exactly 4 points
+    if (dashboardState.toolMode === "perimeter" && dashboardState.drawingPoints.length >= 4) {
+      finishOperationZonePerimeter();
+      return true;
+    }
+
     return true;
   }
 
@@ -1967,16 +1779,15 @@ function applyStructureUpdateToEntity(entity, estructura) {
 }
 
 function applyAreaUpdateToEntity(entity, area) {
-  const geometry = normalizeAreaGeometry(area);
-  const meta = normalizeAreaMeta(area, geometry);
-  if (String(meta?.shape || "").toLowerCase() !== "circle") return;
+  const geometry = area?.geometria;
+  const meta = geometry?.meta || {};
+  if (meta?.shape !== "circle") return;
 
-  const center = getCircleCenter(area, meta);
-  const radius = Number(meta.radius_m ?? area?.radius_m ?? area?.radio_m);
-  if (!Number.isFinite(radius) || radius <= 0) return;
+  const center = Array.isArray(meta.center) ? meta.center : null;
+  const radius = Number(meta.radius_m);
+  if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) return;
 
-  const { lng, lat } = center;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+  const [lng, lat] = center;
   entity.position = Cesium.Cartesian3.fromDegrees(lng, lat);
 }
 
@@ -2135,35 +1946,6 @@ async function deleteStructureFromBackend(idMarca) {
   }
 }
 
-async function deleteRouteFromBackend(idRuta) {
-  if (String(idRuta).startsWith("local_")) return true;
-  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token = localStorage.getItem("token");
-  const opId = localStorage.getItem("active_operation_id");
-  if (!token || !opId || !idRuta) return false;
-
-  try {
-    const res = await fetch(`${API_BASE}/ops/${opId}/rutas/${idRuta}`, {
-      method: "DELETE",
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      const mensaje = data?.mensaje || "No se pudo eliminar la ruta tactica.";
-      if (dom.tbHint) dom.tbHint.textContent = mensaje;
-      alert(mensaje);
-      return false;
-    }
-
-    return true;
-  } catch (err) {
-    console.error("[RUTA] Error eliminando ruta tactica:", err);
-    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al eliminar la ruta tactica.";
-    return false;
-  }
-}
-
 async function deleteCurrentOperationZoneFromBackend(idZona) {
   if (idZona && String(idZona).startsWith("local_")) return true; // nunca llegó al backend
   const currentOperation = getCurrentOperation();
@@ -2210,10 +1992,19 @@ async function clearTacticalPersistedData() {
     const idArea = entity.properties?.id_area?.getValue?.() ?? entity.properties?.id_area;
     const idMarca = entity.properties?.id_marca?.getValue?.() ?? entity.properties?.id_marca;
     const idZona = entity.properties?.id_zona?.getValue?.() ?? entity.properties?.id_zona;
-    const idRuta = entity.properties?.id_ruta?.getValue?.() ?? entity.properties?.id_ruta;
 
-    // La zona de operacion/perimetro persistido no se toca desde este boton.
-    if (idZona || ["operation-zone", "perimeter"].includes(String(tacticalType))) {
+    if (idZona && String(tacticalType) === "operation-zone") {
+      const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
+      if (!deleted) {
+        failures.push(`Zona Operacion`);
+        continue;
+      }
+      clearOperationZoneEntities();
+      continue;
+    }
+
+    if (["operation-zone", "perimeter"].includes(String(tacticalType))) {
+      clearOperationZoneEntities();
       continue;
     }
 
@@ -2256,16 +2047,6 @@ async function clearTacticalPersistedData() {
       continue;
     }
 
-    if (idRuta && String(tacticalType) === "polyline") {
-      const deleted = await deleteRouteFromBackend(idRuta);
-      if (!deleted) {
-        failures.push(`Ruta ${idRuta}`);
-        continue;
-      }
-      removeTacticalEntityLocally(entity);
-      continue;
-    }
-
     // Todo lo no persistido en backend se limpia localmente.
     removeTacticalEntityLocally(entity);
   }
@@ -2277,8 +2058,8 @@ async function clearTacticalPersistedData() {
     dashboardState.selectedEntity = null;
   }
 
-  clearGrid();
   clearPlanningArea();
+  clearGrid();
   clearTacticalStorageSnapshot();
 
   const drawingFailures = await clearAllDrawings();
@@ -2303,7 +2084,6 @@ export async function deleteSelectedEntity() {
   const idArea = selected.properties?.id_area?.getValue?.() ?? selected.properties?.id_area;
   const idMarca = selected.properties?.id_marca?.getValue?.() ?? selected.properties?.id_marca;
   const idZona = selected.properties?.id_zona?.getValue?.() ?? selected.properties?.id_zona;
-  const idRuta = selected.properties?.id_ruta?.getValue?.() ?? selected.properties?.id_ruta;
 
   if (idPoi && ["poi", "mil-dropped", "radar-part"].includes(String(tacticalType))) {
     const deleted = await deletePoiFromBackend(idPoi);
@@ -2321,11 +2101,6 @@ export async function deleteSelectedEntity() {
 
   if (idMarca && ["building", "label"].includes(String(tacticalType))) {
     const deleted = await deleteStructureFromBackend(idMarca);
-    if (!deleted) return;
-  }
-
-  if (idRuta && String(tacticalType) === "polyline") {
-    const deleted = await deleteRouteFromBackend(idRuta);
     if (!deleted) return;
   }
 
@@ -2439,31 +2214,6 @@ export async function loadStructuresFromBackend() {
   }
 }
 
-export async function loadRoutesFromBackend() {
-  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token = localStorage.getItem("token");
-  const opId = localStorage.getItem("active_operation_id");
-  const viewer = dashboardState.viewer;
-  if (!token || !opId || !viewer) return;
-
-  try {
-    const res = await fetch(`${API_BASE}/ops/${opId}/rutas`, {
-      headers: { "Authorization": `Bearer ${token}` }
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    const items = data.items || [];
-
-    items.forEach(ruta => {
-      if (!ruta?.id_ruta) return;
-      const ent = buildRouteEntity(ruta);
-      if (ent) addTacticalEntity(ent);
-    });
-  } catch (err) {
-    console.error("[RUTA] Error cargando rutas tacticas desde backend:", err);
-  }
-}
-
 export async function loadOperationZoneFromBackend() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
@@ -2478,7 +2228,6 @@ export async function loadOperationZoneFromBackend() {
 
     if (res.status === 404) {
       clearOperationZoneEntities();
-      setTacticalUI();
       return null;
     }
 
@@ -2487,12 +2236,10 @@ export async function loadOperationZoneFromBackend() {
     const zona = data.zona || null;
     if (!zona) {
       clearOperationZoneEntities();
-      setTacticalUI();
       return null;
     }
 
     buildOperationZoneEntity(zona);
-    setTacticalUI();
     return zona;
   } catch (err) {
     console.error("[ZONA] Error cargando zona de operacion:", err);
@@ -2632,53 +2379,18 @@ export function initPoiSocket(socket) {
       return Number(entIdMarca) !== Number(id_marca);
     });
   });
-
-  socket.on("ruta_operacion_creada", ({ ruta }) => {
-    if (!ruta?.id_ruta) return;
-    if (_mySentRouteIds.has(ruta.id_ruta)) return;
-
-    const viewer = dashboardState.viewer;
-    if (!viewer) return;
-
-    const ent = buildRouteEntity(ruta);
-    if (ent) addTacticalEntity(ent);
-  });
-
-  socket.on("ruta_operacion_eliminada", ({ id_ruta }) => {
-    if (!id_ruta) return;
-
-    const viewer = dashboardState.viewer;
-    if (!viewer) return;
-
-    const entity = viewer.entities.getById(`ruta_operacion_${id_ruta}`);
-    if (entity) viewer.entities.remove(entity);
-
-    dashboardState.tacticalEntities = dashboardState.tacticalEntities.filter(ent => {
-      const entIdRuta = ent.properties?.id_ruta?.getValue?.() ?? ent.properties?.id_ruta;
-      return Number(entIdRuta) !== Number(id_ruta);
-    });
-  });
 }
 
 export function clearGrid() {
   const viewer = dashboardState.viewer;
-  const gridEntities = dashboardState.gridEntities || [];
+  if (!viewer) return;
 
-  if (viewer) {
-    gridEntities.forEach((ent) => {
-      if (ent) viewer.entities.remove(ent);
-    });
+  if (dashboardState.gridEntities) {
+    dashboardState.gridEntities.forEach(ent => viewer.entities.remove(ent));
   }
-
-  if (dashboardState.selectedEntity && gridEntities.includes(dashboardState.selectedEntity)) {
-    dashboardState.selectedEntity = null;
-    updateSelectionInfo(null);
-    if (dom.entityPopup) dom.entityPopup.style.display = "none";
-  }
-
   dashboardState.gridEntities = [];
   dashboardState.gridQuadrants = [];
-
+  
   if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "none";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "none";
@@ -2686,53 +2398,42 @@ export function clearGrid() {
 
 export function generateGrid() {
   const viewer = dashboardState.viewer;
-  const zona = dashboardState.currentOperationZone;
-
-  if (!viewer || !zona) {
-    setRouteInfo("Delimita una zona de operacion antes de generar la cuadricula.");
-    alert("No hay una zona de operacion activa. Usa Marcar zona primero.");
+  if (!viewer || !dashboardState.currentOperationZone) {
+    if (dom.tbHint) dom.tbHint.textContent = "Debes delimitar una zona de operación primero.";
+    alert("No hay una Zona de Operación activa. Por favor usa 'Marcar zona' en Rutas y mapa primero.");
     return;
   }
 
-  const points = getOperationZonePoints(zona);
-  if (!points || points.length < 3) {
-    setRouteInfo("La zona de operacion no tiene geometria suficiente para generar cuadricula.");
-    return;
-  }
+  const puntos = getOperationZonePoints(dashboardState.currentOperationZone);
+  if (!puntos || puntos.length < 3) return;
 
   clearGrid();
 
-  let minLat = Infinity;
-  let maxLat = -Infinity;
-  let minLng = Infinity;
-  let maxLng = -Infinity;
-
-  points.forEach((point) => {
-    minLat = Math.min(minLat, point.lat);
-    maxLat = Math.max(maxLat, point.lat);
-    minLng = Math.min(minLng, point.lng);
-    maxLng = Math.max(maxLng, point.lng);
+  let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
+  puntos.forEach(p => {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
   });
 
-  const sizeStr = dom.gridSizeSelect?.value || "3x3";
+  const sizeStr = dom.gridSizeSelect ? dom.gridSizeSelect.value : "3x3";
   const [rows, cols] = sizeStr.split("x").map(Number);
-  if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows < 1 || cols < 1) return;
 
   const latStep = (maxLat - minLat) / rows;
   const lngStep = (maxLng - minLng) / cols;
-  if (!Number.isFinite(latStep) || !Number.isFinite(lngStep) || latStep <= 0 || lngStep <= 0) return;
 
   const colors = [
-    Cesium.Color.fromCssColorString("#FFA000"),
-    Cesium.Color.fromCssColorString("#1E88E5"),
-    Cesium.Color.fromCssColorString("#E53935"),
-    Cesium.Color.fromCssColorString("#00897B"),
-    Cesium.Color.fromCssColorString("#8E24AA"),
-    Cesium.Color.fromCssColorString("#FB8C00"),
-    Cesium.Color.fromCssColorString("#D81B60"),
-    Cesium.Color.fromCssColorString("#039BE5"),
-    Cesium.Color.fromCssColorString("#43A047"),
-    Cesium.Color.fromCssColorString("#FDD835")
+    Cesium.Color.fromCssColorString("#FFA000"), // Ambar/Naranja (Alfa)
+    Cesium.Color.fromCssColorString("#1E88E5"), // Azul (Bravo)
+    Cesium.Color.fromCssColorString("#E53935"), // Rojo (Charlie)
+    Cesium.Color.fromCssColorString("#00897B"), // Teal/Verde (Delta)
+    Cesium.Color.fromCssColorString("#8E24AA"), // Morado (Echo)
+    Cesium.Color.fromCssColorString("#FB8C00"), // Naranja Intenso
+    Cesium.Color.fromCssColorString("#D81B60"), // Rosa/Magenta
+    Cesium.Color.fromCssColorString("#039BE5"), // Celeste
+    Cesium.Color.fromCssColorString("#43A047"), // Verde bosque
+    Cesium.Color.fromCssColorString("#FDD835")  // Amarillo
   ];
 
   const phonetic = [
@@ -2744,17 +2445,18 @@ export function generateGrid() {
 
   let colorIdx = 0;
 
-  for (let col = 1; col < cols; col += 1) {
-    const lng = minLng + col * lngStep;
+  // 1. Líneas Verticales Internas (Divisores)
+  for (let c = 1; c < cols; c++) {
+    const lng = minLng + c * lngStep;
     const color = colors[colorIdx % colors.length];
-    colorIdx += 1;
+    colorIdx++;
     const line = viewer.entities.add({
       polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray([lng, minLat, lng, maxLat]),
         width: 3,
         material: new Cesium.PolylineDashMaterialProperty({
           color: color.withAlpha(0.7),
-          dashLength: 16
+          dashLength: 16.0
         }),
         clampToGround: true
       },
@@ -2763,17 +2465,18 @@ export function generateGrid() {
     dashboardState.gridEntities.push(line);
   }
 
-  for (let row = 1; row < rows; row += 1) {
-    const lat = minLat + row * latStep;
+  // 2. Líneas Horizontales Internas (Divisores)
+  for (let r = 1; r < rows; r++) {
+    const lat = minLat + r * latStep;
     const color = colors[colorIdx % colors.length];
-    colorIdx += 1;
+    colorIdx++;
     const line = viewer.entities.add({
       polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray([minLng, lat, maxLng, lat]),
         width: 3,
         material: new Cesium.PolylineDashMaterialProperty({
           color: color.withAlpha(0.7),
-          dashLength: 16
+          dashLength: 16.0
         }),
         clampToGround: true
       },
@@ -2782,22 +2485,24 @@ export function generateGrid() {
     dashboardState.gridEntities.push(line);
   }
 
+  let count = 0;
   if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
 
-  let count = 0;
-  for (let row = 0; row < rows; row += 1) {
-    const latTop = maxLat - row * latStep;
-    const latBottom = maxLat - (row + 1) * latStep;
-
-    for (let col = 0; col < cols; col += 1) {
-      const lngLeft = minLng + col * lngStep;
-      const lngRight = minLng + (col + 1) * lngStep;
+  for (let r = 0; r < rows; r++) {
+    const latTop = maxLat - (r * latStep);
+    const latBottom = maxLat - ((r + 1) * latStep);
+    
+    for (let c = 0; c < cols; c++) {
+      const lngLeft = minLng + (c * lngStep);
+      const lngRight = minLng + ((c + 1) * lngStep);
+      const centerLat = latTop - (latStep / 2);
+      const centerLng = lngLeft + (lngStep / 2);
+      
       const color = colors[count % colors.length];
-      const baseName = phonetic[count % phonetic.length] || `Q${count + 1}`;
-      const cycle = Math.floor(count / phonetic.length);
-      const defaultName = cycle > 0 ? `${baseName}-${cycle + 1}` : baseName;
+      const defaultName = phonetic[count % phonetic.length] || `Q${count + 1}`;
 
-      const polygon = viewer.entities.add({
+      // 3. Relleno del cuadrante (Muy tenue: 0.08)
+      const polyEnt = viewer.entities.add({
         polygon: {
           hierarchy: Cesium.Cartesian3.fromDegreesArray([
             lngLeft, latBottom,
@@ -2810,9 +2515,10 @@ export function generateGrid() {
         },
         properties: { tacticalType: "grid-part", quadrantId: count }
       });
-      dashboardState.gridEntities.push(polygon);
+      dashboardState.gridEntities.push(polyEnt);
 
-      const label = viewer.entities.add({
+      // 4. Etiqueta en la esquina superior izquierda
+      const labelEnt = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lngLeft, latTop),
         label: {
           text: ` ${defaultName} `,
@@ -2828,41 +2534,43 @@ export function generateGrid() {
         },
         properties: { tacticalType: "grid-part", quadrantId: count }
       });
-      dashboardState.gridEntities.push(label);
-      dashboardState.gridQuadrants.push({ id: count, labelEnt: label, defaultName });
+      dashboardState.gridEntities.push(labelEnt);
+
+      dashboardState.gridQuadrants.push({ id: count, labelEnt, defaultName });
 
       if (dom.gridNamesContainer) {
         const wrapper = document.createElement("div");
         wrapper.style.display = "flex";
         wrapper.style.flexDirection = "column";
 
-        const nameLabel = document.createElement("label");
-        nameLabel.className = "fieldLabel";
-        nameLabel.style.fontSize = "10px";
-        nameLabel.textContent = `Cuadrante ${defaultName}`;
+        const lbl = document.createElement("label");
+        lbl.className = "fieldLabel";
+        lbl.style.fontSize = "10px";
+        lbl.textContent = `Cuadrante ${defaultName}`;
 
-        const input = document.createElement("input");
-        input.type = "text";
-        input.className = "opsInput";
-        input.value = defaultName;
-        input.style.padding = "4px";
-        input.addEventListener("input", (event) => {
-          const value = event.target.value || defaultName;
-          label.label.text = ` ${value} `;
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "opsInput";
+        inp.value = defaultName;
+        inp.style.padding = "4px";
+        
+        inp.addEventListener("input", (e) => {
+          labelEnt.label.text = e.target.value || defaultName;
         });
 
-        wrapper.appendChild(nameLabel);
-        wrapper.appendChild(input);
+        wrapper.appendChild(lbl);
+        wrapper.appendChild(inp);
         dom.gridNamesContainer.appendChild(wrapper);
       }
 
-      count += 1;
+      count++;
     }
   }
 
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "block";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
-  setRouteInfo(`Cuadricula ${rows}x${cols} generada en la zona de operacion.`);
+  
+  if (dom.tbHint) dom.tbHint.textContent = `Cuadrícula de ${rows}x${cols} generada.`;
 }
 
 export function bindTacticalEvents() {
@@ -2870,14 +2578,21 @@ export function bindTacticalEvents() {
     dom.toolSelect.addEventListener("change", (e) => {
       const newMode = e.target.value;
 
-      // Stop any active drawing mode when switching tools.
+      // Stop any active drawing/eraser mode when switching tools
       stopAllDrawingModes();
 
       dashboardState.toolMode = newMode;
       resetDrawingState();
 
+      // Activate pencil mode (eraser is now a sub-mode)
       if (newMode === "pencil") {
         startPencilMode();
+      }
+
+      // Auto-enter placing mode for building and label (click map to place)
+      if (["building", "label", "poi"].includes(newMode)) {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Toca el mapa para colocar.";
       }
 
       setTacticalUI();
@@ -2900,11 +2615,8 @@ export function bindTacticalEvents() {
         if (dom.toolSelect) dom.toolSelect.value = "none";
       } else {
         stopAllDrawingModes();
-        dashboardState.toolMode = "pencil";
-        if (dom.toolSelect) dom.toolSelect.value = "pencil";
         startPencilMode();
       }
-
       setTacticalUI();
     });
   }
@@ -2917,11 +2629,8 @@ export function bindTacticalEvents() {
         if (dom.toolSelect) dom.toolSelect.value = "none";
       } else {
         stopAllDrawingModes();
-        dashboardState.toolMode = "pencil";
-        if (dom.toolSelect) dom.toolSelect.value = "pencil";
         startEraserMode();
       }
-
       setTacticalUI();
     });
   }
@@ -2970,7 +2679,7 @@ export function bindTacticalEvents() {
       }
 
       if (result.ok) {
-        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos y dibujos limpiados. La zona de operacion se conservo.";
+        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos limpiados. Se ha vaciado todo el mapa.";
       } else if (dom.tbHint) {
         dom.tbHint.textContent = `Se limpiaron elementos tacticos, pero fallaron algunos borrados: ${result.failures.join(", ")}.`;
       }
@@ -3019,30 +2728,20 @@ export function bindTacticalEvents() {
     });
   }
 
+  // Zone operation events (Route Panel)
   if (dom.markZoneBtn) {
     dom.markZoneBtn.addEventListener("click", () => {
-      const currentOperation = getCurrentOperation();
-      const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
-      if (phase !== "planificada") {
-        alert("La zona de operacion solo se puede editar en operaciones planificadas.");
-        setTacticalUI();
-        return;
-      }
-
       if (dashboardState.toolMode === "perimeter") {
         stopAllDrawingModes();
         dashboardState.toolMode = "none";
-        if (dom.toolSelect) dom.toolSelect.value = "none";
         resetDrawingState();
       } else {
         stopAllDrawingModes();
         dashboardState.toolMode = "perimeter";
-        if (dom.toolSelect) dom.toolSelect.value = "perimeter";
         resetDrawingState();
         dashboardState.placingMode = true;
-        setRouteInfo("Haz clic en el mapa para delimitar la zona de operacion.");
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para empezar a delimitar la zona de operacion.";
       }
-
       setTacticalUI();
     });
   }
@@ -3052,11 +2751,10 @@ export function bindTacticalEvents() {
       if (!dashboardState.currentOperationZone) return;
       const idZona = dashboardState.currentOperationZone.id_zona;
       const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
-      if (!deleted) return;
-
-      clearOperationZoneEntities();
-      setRouteInfo("Zona de operacion eliminada.");
-      setTacticalUI();
+      if (deleted) {
+        clearOperationZoneEntities();
+        if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion eliminada.";
+      }
     });
   }
 
@@ -3098,16 +2796,15 @@ export function bindTacticalEvents() {
 /* ── Generador MILSymbol ───────────────────────────── */
 
 export function updateMilSymbolPreview() {
-  if (!dom.milPreviewContainer) return;
   const sidc = buildMilSidc();
-
   if (!sidc) return;
 
-  const canvas = renderMilSymbolImage(sidc, 130);
-  if (!canvas) return;
-
-  dom.milPreviewContainer.innerHTML = "";
-  dom.milPreviewContainer.appendChild(canvas);
-  dom.milPreviewContainer.dataset.sidc = sidc;
-  dom.milPreviewContainer.dataset.title = dom.milIcon.options[dom.milIcon.selectedIndex].text;
+  const src = renderMilSymbolImage(sidc, 130);
+  if (dom.milPreviewContainer) {
+    dom.milPreviewContainer.innerHTML = `<img src="${src}" alt="Preview" style="max-width:100%; max-height:100%;">`;
+    dom.milPreviewContainer.dataset.sidc = sidc;
+    if (dom.milIcon) {
+      dom.milPreviewContainer.dataset.title = dom.milIcon.options[dom.milIcon.selectedIndex].text;
+    }
+  }
 }

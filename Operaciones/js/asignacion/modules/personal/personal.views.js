@@ -321,7 +321,7 @@ export function pintarChipsGrupos(cet, container) {
     const sinGrupoBtn = document.createElement("button");
     sinGrupoBtn.className = "chip" + (info.active === null ? " active" : "");
     sinGrupoBtn.textContent = "Sin grupo";
-
+    
     sinGrupoBtn.addEventListener("click", () => {
       info.active = null; // Modo Mando Directo
       saveAsignacionActual();

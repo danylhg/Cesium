@@ -7,6 +7,7 @@ import {
   opInicioEl,
   opHoraInicioEl,
   opPrioridadEl
+
 } from "./core/dom.js";
 
 import { state } from "./core/state.js";
@@ -20,7 +21,7 @@ import { validateDateTime } from "./core/utils.js";
 import { showDashboardButton } from "./core/ui.js";
 
 import {
-  schedulePersistOperacionActualEnBackend,
+  saveOperacionActual,
   loadOperacionActualIntoForm,
   cargarOperacionRemota
 } from "./modules/operacion/operacion.service.js";
@@ -30,8 +31,6 @@ import { bindNavigation } from "./modules/navigation/asignacion.navigation.js";
 import { renderHome } from "./views/home.view.js";
 
 function bindFormEvents() {
-  const saveOperacionChange = () => schedulePersistOperacionActualEnBackend();
-
   if (btnHoy && opInicioEl) {
     btnHoy.addEventListener("click", () => {
       const d = new Date();
@@ -39,7 +38,7 @@ function bindFormEvents() {
       const mm = String(d.getMonth() + 1).padStart(2, "0");
       const dd = String(d.getDate()).padStart(2, "0");
       opInicioEl.value = `${yyyy}-${mm}-${dd}`;
-      saveOperacionChange();
+      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
     });
   }
 
@@ -50,7 +49,7 @@ function bindFormEvents() {
         v = v.substring(0, 2) + ":" + v.substring(2, 4);
       }
       e.target.value = v;
-      saveOperacionChange();
+      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
     });
 
     opHoraInicioEl.addEventListener("blur", function (e) {
@@ -61,7 +60,7 @@ function bindFormEvents() {
         m = Math.min(59, parseInt(m) || 0);
         e.target.value = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
         validateDateTime(opInicioEl, opHoraInicioEl);
-        saveOperacionChange();
+        saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
       }
     });
   }
@@ -73,7 +72,7 @@ function bindFormEvents() {
     const eventType = field.tagName === "SELECT" ? "change" : "input";
     field.addEventListener(eventType, () => {
       if (field === opInicioEl) validateDateTime(opInicioEl, opHoraInicioEl);
-      
+
       // Limpiar error visual si el usuario escribe
       if (field.value.trim()) {
         field.style.borderColor = "";
@@ -83,7 +82,7 @@ function bindFormEvents() {
         }
       }
 
-      saveOperacionChange();
+      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
       if (field === opNombreEl && lblOperacion) {
         lblOperacion.textContent = opNombreEl.value || "—";
       }

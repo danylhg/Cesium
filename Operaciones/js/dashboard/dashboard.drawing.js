@@ -10,8 +10,8 @@ import { getCesiumColor, getCurrentColorName, getLineWidth } from "./dashboard.t
 
 function getApiContext() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token    = localStorage.getItem("token");
-  const opId     = localStorage.getItem("active_operation_id");
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
   return { API_BASE, token, opId };
 }
 
@@ -19,11 +19,11 @@ async function saveDrawingToBackend(coords, color, grosor) {
   const { API_BASE, token, opId } = getApiContext();
   if (!token || !opId) return null;
 
-  const userData    = JSON.parse(localStorage.getItem("userData") || "{}");
-  const tabla       = userData.tabla || "usuario";
+  const userData = JSON.parse(localStorage.getItem("userData") || "{}");
+  const tabla = userData.tabla || "usuario";
   const tipo_creador = tabla === "personal" ? "PERSONAL" : "USUARIO";
-  const idKey       = tabla === "personal" ? "id_personal" : "id_usuario";
-  const idVal       = tabla === "personal" ? userData.id_personal : userData.id_usuario;
+  const idKey = tabla === "personal" ? "id_personal" : "id_usuario";
+  const idVal = tabla === "personal" ? userData.id_personal : userData.id_usuario;
 
   try {
     const res = await fetch(`${API_BASE}/ops/${opId}/dibujos`, {
@@ -55,29 +55,6 @@ async function deleteDrawingFromBackend(id_dibujo) {
 
 // Map: cesium entity id → id_dibujo del backend
 const _drawingBackendIds = new Map();
-const _drawingPendingDeletes = new Set();
-const _drawingPendingSaves = new Map();
-
-function sameCoord(a, b) {
-  return Math.abs(Number(a?.lat) - Number(b?.lat)) < 0.000001 &&
-    Math.abs(Number(a?.lng) - Number(b?.lng)) < 0.000001;
-}
-
-function isSameDrawingPayload(localData, dibujo) {
-  const puntos = dibujo?.puntos;
-  if (!localData || !Array.isArray(localData.coords) || !Array.isArray(puntos)) return false;
-  if (localData.coords.length !== puntos.length) return false;
-  if (String(localData.color || "").toLowerCase() !== String(dibujo.color || "").toLowerCase()) return false;
-  if (Number(localData.width || 3) !== Number(dibujo.grosor || 3)) return false;
-  return localData.coords.every((coord, index) => sameCoord(coord, puntos[index]));
-}
-
-function findPendingDrawingEntityId(dibujo) {
-  for (const [entityId, data] of _drawingPendingSaves.entries()) {
-    if (isSameDrawingPayload(data, dibujo)) return entityId;
-  }
-  return null;
-}
 
 /* ─── Backend sync helpers for undo/redo ────────────────────── */
 
@@ -93,13 +70,10 @@ function getTacticalBackendIds(entityRef) {
   const idMarca = get("id_marca");
   if (idMarca != null && !String(idMarca).startsWith("local_"))
     return { kind: "structure", id: Number(idMarca) };
-  const idRuta = get("id_ruta");
-  if (idRuta != null && !String(idRuta).startsWith("local_"))
-    return { kind: "route", id: Number(idRuta) };
   return null;
 }
 
-const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios", route: "rutas" };
+const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios" };
 
 async function deleteTacticalFromBackend(kind, id) {
   const { API_BASE, token, opId } = getApiContext();
@@ -232,9 +206,6 @@ export function undo() {
 
     // Re-add to appropriate list
     if (action.entityRef) {
-      if (action.source === "drawing") {
-        _drawingPendingDeletes.delete(action.entityId);
-      }
       if (action.source === "tactical") {
         dashboardState.tacticalEntities = dashboardState.tacticalEntities || [];
         if (!dashboardState.tacticalEntities.includes(action.entityRef)) {
@@ -398,26 +369,6 @@ export function startPencilMode() {
       const pos = cartesianToLatLng(cartesian);
       _currentDrawCoords.push(pos);
     }
-
-    const colorName = getCurrentColorName();
-    const cesiumColor = getCesiumColor(colorName, 1);
-    _currentPreviewEntity = viewer.entities.add({
-      polyline: {
-        positions: new Cesium.CallbackProperty(() => {
-          if (_currentDrawCoords.length < 2) return [];
-          return _currentDrawCoords.map(c =>
-            Cesium.Cartesian3.fromDegrees(c.lng, c.lat)
-          );
-        }, false),
-        width: getLineWidth(),
-        material: cesiumColor,
-        clampToGround: true
-      },
-      properties: {
-        tacticalType: "freehand-drawing-preview",
-        draggable: false
-      }
-    });
   }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
 
   _pencilHandler.setInputAction((movement) => {
@@ -431,7 +382,26 @@ export function startPencilMode() {
     const pos = cartesianToLatLng(cartesian);
     _currentDrawCoords.push(pos);
 
-    viewer.scene.requestRender?.();
+    // Update live preview
+    if (_currentDrawCoords.length >= 2) {
+      if (_currentPreviewEntity) viewer.entities.remove(_currentPreviewEntity);
+
+      const positions = _currentDrawCoords.map(c =>
+        Cesium.Cartesian3.fromDegrees(c.lng, c.lat)
+      );
+
+      const colorName = getCurrentColorName();
+      const cesiumColor = getCesiumColor(colorName, 1);
+
+      _currentPreviewEntity = viewer.entities.add({
+        polyline: {
+          positions,
+          width: getLineWidth(),
+          material: cesiumColor,
+          clampToGround: true
+        }
+      });
+    }
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
   _pencilHandler.setInputAction(() => {
@@ -476,29 +446,16 @@ export function startPencilMode() {
           source: "drawing"
         });
 
-        _drawingPendingSaves.set(ent.id, data);
-
         // Guardar en backend y registrar el id_dibujo devuelto.
         // Si el usuario hizo undo antes de que la respuesta llegara,
         // la entidad ya no está visible → borramos del backend en lugar de registrar.
         saveDrawingToBackend(data.coords, colorCss, width).then(dibujo => {
           if (dibujo?.id_dibujo) {
-            const currentEntity = viewer.entities.getById(ent.id);
-            const wasRemovedBeforeSave =
-              _drawingPendingDeletes.has(ent.id) ||
-              ent.show === false ||
-              !currentEntity;
-
-            _drawingPendingSaves.delete(ent.id);
-
-            if (wasRemovedBeforeSave) {
+            if (ent.show === false) {
               deleteDrawingFromBackend(dibujo.id_dibujo);
-              _drawingPendingDeletes.delete(ent.id);
             } else {
-              _drawingBackendIds.set(currentEntity.id, dibujo.id_dibujo);
+              _drawingBackendIds.set(ent.id, dibujo.id_dibujo);
             }
-          } else {
-            _drawingPendingSaves.delete(ent.id);
           }
         });
       }
@@ -566,8 +523,6 @@ export function startEraserMode() {
       if (id_dibujo) {
         deleteDrawingFromBackend(id_dibujo);
         _drawingBackendIds.delete(entity.id);
-      } else {
-        _drawingPendingDeletes.add(entity.id);
       }
 
       viewer.entities.remove(entity);
@@ -629,8 +584,8 @@ export async function loadDrawingsFromBackend() {
 
       const ent = rebuildDrawingEntity({
         coords: item.puntos,
-        color:  item.color  || "#FFFFFF",
-        width:  item.grosor || 3
+        color: item.color || "#FFFFFF",
+        width: item.grosor || 3
       });
 
       if (ent) {
@@ -649,23 +604,6 @@ export async function loadDrawingsFromBackend() {
 export function initDrawingSocket(socket) {
   socket.on("dibujo_creado", ({ dibujo }) => {
     if (!dibujo?.id_dibujo) return;
-
-    const pendingEntityId = findPendingDrawingEntityId(dibujo);
-    if (pendingEntityId) {
-      _drawingPendingSaves.delete(pendingEntityId);
-
-      if (_drawingPendingDeletes.has(pendingEntityId)) {
-        deleteDrawingFromBackend(dibujo.id_dibujo);
-        return;
-      }
-
-      const viewer = dashboardState.viewer;
-      if (viewer?.entities?.getById(pendingEntityId)) {
-        _drawingBackendIds.set(pendingEntityId, dibujo.id_dibujo);
-        return;
-      }
-    }
-
     // Ignorar eco: si yo ya tengo ese id_dibujo mapeado, no lo redibujamos
     if ([..._drawingBackendIds.values()].includes(dibujo.id_dibujo)) return;
 
@@ -677,8 +615,8 @@ export function initDrawingSocket(socket) {
 
     const ent = rebuildDrawingEntity({
       coords: puntos,
-      color:  dibujo.color  || "#FFFFFF",
-      width:  dibujo.grosor || 3
+      color: dibujo.color || "#FFFFFF",
+      width: dibujo.grosor || 3
     });
 
     if (ent) {
@@ -762,16 +700,14 @@ export async function clearAllDrawings() {
         _drawingBackendIds.delete(entity.id);
       } catch (err) {
         failures.push(`Dibujo ${id_dibujo}`);
-        continue;
+        continue; // Fallo al borrar, lo saltamos
       }
-    } else {
-      _drawingPendingDeletes.add(entity.id);
     }
     viewer.entities.remove(entity);
   }
 
-  dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
-    .filter(entity => viewer.entities.contains(entity));
+  dashboardState.drawingEntities = (dashboardState.drawingEntities || []).filter(e => viewer.entities.contains(e));
 
   return failures;
 }
+

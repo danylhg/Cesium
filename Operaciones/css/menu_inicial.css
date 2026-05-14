@@ -399,12 +399,10 @@ body{
   transition: all 0.2s ease;
   box-shadow: inset 0 2px 4px rgba(2,6,23,.02);
 }
-
 .opFilterInput:hover{
   border-color: rgba(37,99,235,.3);
   background: rgba(255,255,255,0.9);
 }
-
 .opFilterInput:focus{
   border-color: var(--blue);
   background: #fff;
@@ -447,7 +445,6 @@ select.opFilterInput {
   transition: 0.2s;
   color: var(--text);
 }
-
 .categoryBtn:hover{
   background: rgba(255,255,255,.9);
   border-color: rgba(37,99,235,.3);

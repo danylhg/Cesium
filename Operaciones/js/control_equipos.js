@@ -136,6 +136,7 @@
   const modalTitle = document.getElementById("modalTitle");
   const btnCloseModal = document.getElementById("btnCloseModal");
   const btnCancel = document.getElementById("btnCancel");
+  const btnDeleteModal = document.getElementById("btnDeleteModal");
   const form = document.getElementById("form");
 
   const dropZoneEq = document.getElementById("dropZoneEq");
@@ -341,8 +342,8 @@
           <td>${escapeHtml(e.fecha_registro || "-")}</td>
         `;
 
-        tr.addEventListener("click", (e) => {
-          e.stopPropagation();
+        tr.addEventListener("click", (ev) => {
+          ev.stopPropagation();
           if (selectedId == e.id_equipo) {
             selectedId = null;
           } else {
@@ -350,6 +351,14 @@
           }
           updateButtons();
           renderTable();
+        });
+
+        tr.addEventListener("dblclick", (ev) => {
+          ev.stopPropagation();
+          selectedId = e.id_equipo;
+          updateButtons();
+          renderTable();
+          openModal("edit");
         });
 
         tbody.appendChild(tr);
@@ -367,6 +376,7 @@
     mode = newMode;
     modal.classList.remove("hidden");
     modal.setAttribute("aria-hidden", "false");
+    if (btnDeleteModal) btnDeleteModal.style.display = mode === "edit" ? "inline-flex" : "none";
 
     if (mode === "add") {
       modalTitle.textContent = "Agregar equipo";
@@ -401,6 +411,7 @@
 
   btnCloseModal?.addEventListener("click", closeModal);
   btnCancel?.addEventListener("click", closeModal);
+  btnDeleteModal?.addEventListener("click", () => btnDelete?.click());
 
   modal?.addEventListener("click", (e) => {
     if (e.target?.dataset?.close === "true") closeModal();
@@ -430,6 +441,7 @@
       await loadFromApi();
       selectedId = null;
       renderTable();
+      closeModal();
     } catch (err) {
       alert(err.message);
     }

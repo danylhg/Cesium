@@ -16,7 +16,6 @@ import chatRoutes from "./routes/chat.routes.js";
 import mapaRoutes from "./routes/mapa.routes.js";
 import rutasRoutes from "./routes/rutas.routes.js";
 import trackingRoutes from "./routes/tracking.routes.js";
-import streamingRoutes from "./routes/streaming.routes.js";
 import zonaRoutes from "./routes/zona.routes.js";
 import validationRoutes from "./routes/validation.routes.js";
 import replayRoutes from "./routes/replay.routes.js";
@@ -26,13 +25,7 @@ const app = express();
 app.use(cors({
   origin: true,
   credentials: true,
-  allowedHeaders: [
-    "Content-Type",
-    "Authorization",
-    "X-File-Name",
-    "X-Attachment-Kind",
-    "X-Duration-Ms"
-  ],
+  allowedHeaders: ["Content-Type", "Authorization"],
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 }));
 
@@ -53,7 +46,6 @@ app.use("/", chatRoutes);
 app.use("/", mapaRoutes);
 app.use("/", rutasRoutes);
 app.use("/", trackingRoutes);
-app.use("/", streamingRoutes);
 app.use("/", zonaRoutes);
 app.use("/", validationRoutes);
 app.use("/", replayRoutes);

@@ -3,20 +3,21 @@
 import { dashboardState } from "./dashboard.state.js";
 import { dom } from "./dashboard.dom.js";
 import { setRouteInfo } from "./dashboard.ui.js";
+import { renderMilSymbolImage } from "./dashboard.tactical.js";
 
-const OSRM_BASE    = "https://router.project-osrm.org";
-const API_BASE     = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+const OSRM_BASE = "https://router.project-osrm.org";
+const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
 const ROUTE_COLORS = [
-  Cesium.Color.MAGENTA,    Cesium.Color.ORANGE,   Cesium.Color.LIMEGREEN,
-  Cesium.Color.PINK,       Cesium.Color.DEEPSKYBLUE, Cesium.Color.HOTPINK,
-  Cesium.Color.GOLD,       Cesium.Color.VIOLET,   Cesium.Color.SPRINGGREEN
+  Cesium.Color.MAGENTA, Cesium.Color.ORANGE, Cesium.Color.LIMEGREEN,
+  Cesium.Color.PINK, Cesium.Color.DEEPSKYBLUE, Cesium.Color.HOTPINK,
+  Cesium.Color.GOLD, Cesium.Color.VIOLET, Cesium.Color.SPRINGGREEN
 ];
 
 // Colores por rol — mismos que la app Android (map.html)
 function getRolColor(rol) {
   switch ((rol || "").toUpperCase()) {
-    default:      return Cesium.Color.fromCssColorString("#00BFFF");
+    default: return Cesium.Color.fromCssColorString("#00BFFF");
   }
 }
 
@@ -58,12 +59,22 @@ function drawPolyline(coords, color, width = 5, alpha = 0.95) {
   });
 }
 
-function drawPoint(lat, lon, color, label, pixelSize = 12) {
+function drawPoint(lat, lon, color, label, pixelSize = 12, sidc = null, icono = null) {
   const viewer = dashboardState.viewer;
   if (!viewer) return null;
+
+  let billboard = null;
+  if (sidc) {
+    const canvas = renderMilSymbolImage(sidc, 150);
+    if (canvas) billboard = { image: canvas.toDataURL(), scale: 0.12, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND };
+  } else if (icono) {
+    billboard = { image: icono, scale: 0.12, heightReference: Cesium.HeightReference.CLAMP_TO_GROUND };
+  }
+
   return viewer.entities.add({
     position: Cesium.Cartesian3.fromDegrees(lon, lat),
-    point: { pixelSize, color },
+    point: billboard ? undefined : { pixelSize, color },
+    billboard: billboard || undefined,
     label: {
       text: label,
       font: "bold 14px sans-serif",
@@ -71,7 +82,7 @@ function drawPoint(lat, lon, color, label, pixelSize = 12) {
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 4,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      pixelOffset: new Cesium.Cartesian2(0, -24)
+      pixelOffset: new Cesium.Cartesian2(0, -28)
     }
   });
 }
@@ -105,11 +116,11 @@ function clearSelectedRouteEntities() {
   removeEntity(dashboardState.endEntity);
   removeEntity(dashboardState.routeEntity);
   dashboardState.startEntity = null;
-  dashboardState.endEntity   = null;
+  dashboardState.endEntity = null;
   dashboardState.routeEntity = null;
-  dashboardState.startPoint  = null;
-  dashboardState.endPoint    = null;
-  dashboardState.lastRoute   = null;
+  dashboardState.startPoint = null;
+  dashboardState.endPoint = null;
+  dashboardState.lastRoute = null;
   dashboardState.lastRouteId = null;
 }
 
@@ -133,20 +144,31 @@ function drawRemoteRoute(ruta) {
 
   const colorStr = ruta.color && ruta.color.toUpperCase() !== "#1E90FF" ? ruta.color : null;
   const color = colorStr ? Cesium.Color.fromCssColorString(colorStr) : getStableColor(ruta.id_vehiculo);
-  const geojson  = typeof ruta.geojson === "string" ? JSON.parse(ruta.geojson) : ruta.geojson;
+  const geojson = typeof ruta.geojson === "string" ? JSON.parse(ruta.geojson) : ruta.geojson;
   const entities = [];
-  const vehNombre = ruta.id_vehiculo ? getVehicleName(ruta.id_vehiculo) : null;
-  const labelText = ruta.id_vehiculo ? (vehNombre || "Vehículo") : "Ruta General";
+  const vehId = ruta.id_vehiculo != null ? String(ruta.id_vehiculo) : null;
+  const vehNombre = vehId ? getVehicleName(vehId) : null;
+  const labelText = vehId ? (vehNombre || "Vehículo") : "Ruta General";
+
+  // Buscar metadatos del vehiculo en el selector para el icono
+  let sidc = null, icono = null;
+  if (vehId) {
+    const opt = [...(document.getElementById("routeVehicleSelect")?.options || [])].find(o => o.value === vehId);
+    if (opt) {
+      sidc = opt.dataset.sidc;
+      icono = opt.dataset.icono;
+    }
+  }
 
   const originEnt = drawPoint(ruta.origen_lat, ruta.origen_lon, Cesium.Color.LIME,
-    `ORIGEN: ${labelText}`, 8);
+    `ORIGEN: ${labelText}`, 8, sidc, icono);
   if (originEnt) {
     originEnt._routeId = ruta.id_ruta;
     entities.push(originEnt);
   }
 
   const destEnt = drawPoint(ruta.destino_lat, ruta.destino_lon, Cesium.Color.YELLOW,
-    `DESTINO: ${labelText}`, 8);
+    `DESTINO: ${labelText}`, 8, sidc, icono);
   if (destEnt) {
     destEnt._routeId = ruta.id_ruta;
     entities.push(destEnt);
@@ -237,11 +259,11 @@ async function saveRouteToDB(start, end, route) {
   try {
     const selectedId = selectedVehicleId();
     const body = {
-      geojson:     route.geometry,
-      origen_lat:  start.lat,  origen_lon:  start.lng,
-      destino_lat: end.lat,    destino_lon: end.lng,
+      geojson: route.geometry,
+      origen_lat: start.lat, origen_lon: start.lng,
+      destino_lat: end.lat, destino_lon: end.lng,
       distancia_m: route.distance,
-      duracion_s:  route.duration
+      duracion_s: route.duration
     };
     if (selectedId !== "global") body.id_vehiculo = Number(selectedId);
 
@@ -290,7 +312,7 @@ async function loadExistingRoutes() {
   const opId = localStorage.getItem("active_operation_id");
   if (!opId) return;
   try {
-    const res  = await apiFetch(`/ops/${opId}/rutas/navegacion`);
+    const res = await apiFetch(`/ops/${opId}/rutas/navegacion`);
     const data = await res.json();
     if (!data.ok || !Array.isArray(data.items)) return;
     data.items.forEach(ruta => drawRemoteRoute(ruta));
@@ -313,7 +335,7 @@ export async function autoCalcRoute() {
     const selectedId = selectedVehicleId();
     drawSelectedRoute(route.geometry, selectedId);
 
-    const km  = route.distance / 1000;
+    const km = route.distance / 1000;
     const min = route.duration / 60;
     setRouteInfo(`Ruta lista. ${km.toFixed(2)} km · ${min.toFixed(1)} min`);
 
@@ -346,11 +368,12 @@ export function clearRoute() {
   const selectedId = selectedVehicleId();
   let deletedAny = false;
 
+  // Si hay una ruta remota seleccionada manualmente, o pertenece al vehículo seleccionado, o fue la última creada
   dashboardState.remoteRouteEntities.forEach((entry, id_ruta) => {
     const rutaVehId = entry.ruta.id_vehiculo != null ? String(entry.ruta.id_vehiculo) : "global";
     if (
-      rutaVehId === selectedId ||
-      dashboardState.selectedRemoteRouteId === id_ruta ||
+      rutaVehId === selectedId || 
+      dashboardState.selectedRemoteRouteId === id_ruta || 
       dashboardState.lastRouteId === id_ruta
     ) {
       deleteRoutFromDB(id_ruta);
@@ -359,7 +382,9 @@ export function clearRoute() {
     }
   });
 
+  // Limpiar variables locales temporales
   clearSelectedRouteEntities();
+  
   if (dom.opLat) dom.opLat.value = "";
   if (dom.opLng) dom.opLng.value = "";
 
@@ -381,15 +406,17 @@ export function populateRouteVehicleSelect(vehiculos = []) {
   vehiculos.forEach(v => {
     // Acepta formato del backend (id_vehiculo, alias, tipo, codigo_interno)
     // o formato legacy (id, nombre, unidad, alias)
-    const id    = v.id_vehiculo ?? v.id ?? v.unidad ?? v.nombre;
+    const id = v.id_vehiculo ?? v.id ?? v.unidad ?? v.nombre;
     const label = [v.tipo, v.alias].filter(Boolean).join(" ") || v.codigo_interno || v.nombre || "Vehículo";
     if (!id) return;
     const key = String(id);
     if (seen.has(key)) return;
     seen.add(key);
     const opt = document.createElement("option");
-    opt.value       = key;
+    opt.value = key;
     opt.textContent = `Vehículo: ${label}`;
+    opt.dataset.sidc = v.sidc || "";
+    opt.dataset.icono = v.icono_src || "";
     selectEl.appendChild(opt);
   });
 
@@ -421,20 +448,20 @@ export function applyRouteFilter(vehiculoIdStr) {
       ? true
       : String(ruta.id_vehiculo ?? "") === vehiculoIdStr;
 
-    const lineEnt  = entities.find(e => e.polyline);
+    const lineEnt = entities.find(e => e.polyline);
     const pointEnts = entities.filter(e => e.point);
 
     if (lineEnt) {
       const colorStr = ruta.color && ruta.color.toUpperCase() !== "#1E90FF" ? ruta.color : null;
       const baseColor = colorStr ? Cesium.Color.fromCssColorString(colorStr) : getStableColor(ruta.id_vehiculo);
       if (isSelected) {
-        lineEnt.polyline.width    = new Cesium.ConstantProperty(8);
+        lineEnt.polyline.width = new Cesium.ConstantProperty(8);
         lineEnt.polyline.material = new Cesium.ColorMaterialProperty(Cesium.Color.WHITE.withAlpha(0.97));
       } else if (matches) {
-        lineEnt.polyline.width    = new Cesium.ConstantProperty(5);
+        lineEnt.polyline.width = new Cesium.ConstantProperty(5);
         lineEnt.polyline.material = new Cesium.ColorMaterialProperty(baseColor.withAlpha(0.95));
       } else {
-        lineEnt.polyline.width    = new Cesium.ConstantProperty(2);
+        lineEnt.polyline.width = new Cesium.ConstantProperty(2);
         lineEnt.polyline.material = new Cesium.ColorMaterialProperty(baseColor.withAlpha(0.25));
       }
     }

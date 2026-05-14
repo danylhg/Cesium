@@ -181,7 +181,8 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
         // y marca fecha_fin_asignacion
         await client.query(
           `UPDATE asignacion_operacion_personal
-           SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+           SET estado_asignacion = 'LIBERADO',
+               fecha_fin_asignacion = GREATEST($1::timestamptz, fecha_asignacion)
            WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
           [ahora, id_operacion]
         );
@@ -190,7 +191,8 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
         // y marca fecha_fin_asignacion
         await client.query(
           `UPDATE vehiculo_operacion
-           SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+           SET estado_asignacion = 'LIBERADO',
+               fecha_fin_asignacion = GREATEST($1::timestamptz, fecha_asignacion)
            WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
           [ahora, id_operacion]
         );
@@ -198,9 +200,10 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
         // Libera todos los equipos reservados/asignados a la operación
         await client.query(
           `UPDATE operacion_equipo
-           SET estado_asignacion = 'LIBERADO'
+           SET estado_asignacion = 'LIBERADO',
+               fecha_fin_asignacion = GREATEST($2::timestamptz, fecha_asignacion)
            WHERE id_operacion = $1 AND estado_asignacion != 'LIBERADO'`,
-          [id_operacion]
+          [id_operacion, ahora]
         );
       }
 
@@ -253,10 +256,8 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
     const params = [nuevoEstado, id_operacion];
 
     if (nuevoEstado === "ACTIVA") q += `, fecha_inicio = NOW()`;
-    if (nuevoEstado === "CERRADA") q += `, fecha_fin = NOW()`;
-    if (nuevoEstado === "CANCELADA") {
-      q += `, nombre = $3`;
-      params.push(`${nombreOp} - CANCELADA`);
+    if (nuevoEstado === "CERRADA" || nuevoEstado === "CANCELADA") {
+      q += `, fecha_fin = GREATEST(NOW(), fecha_inicio)`;
     }
 
     // Ejecuta el cambio de estado

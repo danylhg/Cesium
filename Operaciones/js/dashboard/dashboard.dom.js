@@ -74,7 +74,7 @@ export const dom = {
   clearAreaBtn: document.getElementById("clearAreaBtn"),
   areaInfo: document.getElementById("areaInfo"),
 
-  // Selección
+  // Zona de operación (Nuevos)
   markZoneBtn: document.getElementById("markZoneBtn"),
   clearZoneBtn: document.getElementById("clearZoneBtn"),
   zoneColorSelect: document.getElementById("zoneColorSelect"),
@@ -82,6 +82,7 @@ export const dom = {
   finishZoneBtn: document.getElementById("finishZoneBtn"),
   zoneActionBtns: document.getElementById("zoneActionBtns"),
 
+  // Selección
   selectionInfo: document.getElementById("selectionInfo"),
   deleteSelectedBtn: document.getElementById("deleteSelectedBtn"),
   clearSelectionBtn: document.getElementById("clearSelectionBtn"),
@@ -96,6 +97,8 @@ export const dom = {
   map: document.getElementById("map"),
 
   // Botones operación
+  activateOpBtn: document.getElementById("activateOpBtn"),
+  closeActiveOpBtn: document.getElementById("closeActiveOpBtn"),
   saveOpMapBtn: document.getElementById("saveOpMapBtn"),
   cancelOpMapBtn: document.getElementById("cancelOpMapBtn"),
   recenterMapBtn: document.getElementById("recenterMapBtn"),
@@ -118,7 +121,7 @@ export const dom = {
   confirmationMessage: document.getElementById("confirmationMessage"),
   confirmationConfirmBtn: document.getElementById("confirmationConfirmBtn"),
   confirmationCancelBtn: document.getElementById("confirmationCancelBtn"),
-
+  
   // Modal Detalle Personal
   personnelDetailModal: document.getElementById("personnelDetailModal"),
   personnelDetailBackdrop: document.getElementById("personnelDetailBackdrop"),

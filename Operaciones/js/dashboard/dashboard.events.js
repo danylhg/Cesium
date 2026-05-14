@@ -8,7 +8,6 @@ import {
 } from "./dashboard.storage.js";
 import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
-import { clearPersonnelLiveCamera } from "./dashboard.camera.js";
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -44,14 +43,19 @@ function bindPanelEvents() {
 
   if (dom.toggleCameraPanel) {
     dom.toggleCameraPanel.addEventListener("click", () => {
-      if (!isOperationActive()) {
-        alert("El panel de cámaras solo está disponible cuando la operación está activa.");
-        return;
-      }
 
-      const isOpen = dom.cameraPanel?.classList.contains("open");
-      dom.cameraPanel?.classList.toggle("open", !isOpen);
-      dom.toggleCameraPanel?.classList.toggle("active", !isOpen);
+
+
+
+      // Independent toggle: doesn't close others, and others don't close it
+      const isOpen = dom.cameraPanel.classList.contains("open");
+      if (isOpen) {
+        dom.cameraPanel.classList.remove("open");
+        dom.toggleCameraPanel.classList.remove("active");
+      } else {
+        dom.cameraPanel.classList.add("open");
+        dom.toggleCameraPanel.classList.add("active");
+      }
     });
   }
 }
@@ -88,15 +92,16 @@ async function apiFetchEstado(opId, nuevoEstado) {
   return res;
 }
 
+/**
+ * Muestra un modal de confirmación premium.
+ */
 function showConfirmationModal({ title, message, confirmText = "Confirmar", onConfirm }) {
-  if (!dom.confirmationModal) {
-    onConfirm?.();
-    return;
-  }
+  if (!dom.confirmationModal) return;
 
   dom.confirmationTitle.textContent = title;
   dom.confirmationMessage.textContent = message;
   dom.confirmationConfirmBtn.textContent = confirmText;
+
   dom.confirmationModal.classList.remove("hidden");
 
   const close = () => {
@@ -106,7 +111,7 @@ function showConfirmationModal({ title, message, confirmText = "Confirmar", onCo
   };
 
   const handleConfirm = () => {
-    onConfirm?.();
+    onConfirm();
     close();
   };
 
@@ -156,8 +161,6 @@ function bindOperationActionEvents() {
         alert("No se encontró la operación activa.");
         return;
       }
-
-
 
       showConfirmationModal({
         title: "¿Cancelar operación?",
@@ -228,8 +231,6 @@ function bindOperationActionEvents() {
         return;
       }
 
-
-
       showConfirmationModal({
         title: "¿Terminar operación?",
         message: `¿Estás seguro de que quieres terminar la operación "${opName}"?`,
@@ -264,22 +265,37 @@ export function bindDashboardEvents() {
 }
 
 function bindPersonnelDetailEvents() {
+  // Delegate clicks on .person-link inside infoPanel
   if (dom.infoPanel) {
-    dom.infoPanel.addEventListener("click", (event) => {
-      const link = event.target.closest(".person-link");
-      if (!link) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      showPersonnelDetail(link.dataset.personId || link.dataset.pid);
+    dom.infoPanel.addEventListener('click', (e) => {
+      const link = e.target.closest('.person-link');
+      if (link) {
+        const personId = link.getAttribute('data-person-id');
+        showPersonnelDetail(personId, {
+          x: e.clientX,
+          y: e.clientY,
+          name: link.getAttribute('data-person-name') || link.textContent || ""
+        });
+      }
     });
   }
 
-  const closeDetail = () => {
-    dom.personnelDetailModal?.classList.add("hidden");
-    dom.personnelDetailModal?.setAttribute("aria-hidden", "true");
-    clearPersonnelLiveCamera();
-  };
+  // Close modal
+  if (dom.btnClosePersonnelDetail) {
+    dom.btnClosePersonnelDetail.onclick = () => {
+      dom.personnelDetailModal.classList.add('hidden');
+    };
+  }
 
-  dom.btnClosePersonnelDetail?.addEventListener("click", closeDetail);
-  dom.personnelDetailBackdrop?.addEventListener("click", closeDetail);
+  if (dom.personnelDetailBackdrop) {
+    dom.personnelDetailBackdrop.onclick = () => {
+      dom.personnelDetailModal.classList.add('hidden');
+    };
+  }
+
+  if (dom.btnClosePersonInfoPopup) {
+    dom.btnClosePersonInfoPopup.onclick = () => {
+      dom.personInfoPopup?.classList.add('hidden');
+    };
+  }
 }

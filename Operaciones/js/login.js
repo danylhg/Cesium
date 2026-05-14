@@ -25,7 +25,7 @@ async function attemptLogin() {
   msg.textContent = "";
 
   if (!u || !p) {
-    msg.textContent = "Ingresa usuario y contraseña.";
+    msg.textContent = "Ingresa usuario y contraseÃ±a.";
     return;
   }
 
@@ -39,7 +39,7 @@ async function attemptLogin() {
     const data = await res.json();
 
     if (!res.ok || !data.ok) {
-      msg.textContent = data.mensaje ?? "Usuario o contraseña incorrectos.";
+      msg.textContent = data.mensaje ?? "Usuario o contraseÃ±a incorrectos.";
       return;
     }
 

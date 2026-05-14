@@ -2,16 +2,16 @@
 
 import { dom } from "./dashboard.dom.js";
 import { escapeHtml } from "./dashboard.storage.js";
-import { formatTime, openPanel } from "./dashboard.ui.js";
+import { formatTime } from "./dashboard.ui.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
-let _opId      = null;
-let _socket    = null;
+let _opId = null;
+let _socket = null;
 let _activeTab = "global";
 let _channelType = "global";
 let _channelTarget = "";
-let _allMsgs   = [];             // todos los mensajes en memoria
+let _allMsgs = [];             // todos los mensajes en memoria
 let _dismissedEmergencyMsgs = new Set();
 let _chatDirectory = {
   cets: [],
@@ -21,7 +21,7 @@ let _chatDirectory = {
   personalById: new Map()
 };
 
-// ── JWT helper ──────────────────────────────────────────────
+
 function getMyInfo() {
   const token = localStorage.getItem("token");
   if (!token) return {};
@@ -34,8 +34,8 @@ function getMyInfo() {
 function isMine(msg) {
   const { sub, tabla } = getMyInfo();
   if (!sub) return false;
-  if (tabla === "usuario")   return String(msg.id_usuario)  === String(sub);
-  if (tabla === "personal")  return String(msg.id_personal) === String(sub);
+  if (tabla === "usuario") return String(msg.id_usuario) === String(sub);
+  if (tabla === "personal") return String(msg.id_personal) === String(sub);
   return false;
 }
 
@@ -118,9 +118,9 @@ function personBelongsToFlotilla(personId, flotillaId) {
   );
 }
 
-// ── Visibilidad según tab activo ────────────────────────────
-// Tab CET  → solo mensajes de ADMIN, CUT y CET
-// Tab Global → todos
+// â”€â”€ Visibilidad segÃºn tab activo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// Tab CET  â†’ solo mensajes de ADMIN, CUT y CET
+// Tab Global â†’ todos
 function isVisibleInTab(msg) {
   const destinatario = (msg.destinatario_rol || "GLOBAL").toUpperCase();
   const destinoTipo = String(msg.destino_tipo || "").toUpperCase();
@@ -137,7 +137,9 @@ function isVisibleInTab(msg) {
   }
   if (_channelType === "flotilla") {
     return flotillaMessageMatchesTarget(msg)
-      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget));
+      || destinoTipo === "CETS"
+      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget))
+      || (destinoTipo === "CET" && personBelongsToFlotilla(destinoId, _channelTarget));
   }
   if (_channelType === "grupo") {
     return destinoTipo === "GRUPO" && destinoId === String(_channelTarget);
@@ -354,15 +356,15 @@ function getDestinoPayload() {
   };
 }
 
-// ── Build a single chat bubble ──────────────────────────────
+// â”€â”€ Build a single chat bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function isEmergencyMessage(msg) {
-  const tipo = String(msg?.tipo_mensaje || "").toUpperCase();
-  const contenido = String(msg?.contenido || "").trim().toUpperCase();
+  const tipo = String(msg.tipo_mensaje || "").toUpperCase();
+  const contenido = String(msg.contenido || "").trim().toUpperCase();
   return tipo === "URGENTE" || contenido.startsWith("EMERGENCIA:");
 }
 
 function emergencyMessageKey(msg) {
-  return String(msg?.id_mensaje ?? msg?.fecha_envio ?? msg?.contenido ?? "");
+  return String(msg.id_mensaje ?? msg.fecha_envio ?? msg.contenido ?? "");
 }
 
 function buildEmergencyAlert(msg) {
@@ -372,7 +374,7 @@ function buildEmergencyAlert(msg) {
   const key = escapeHtml(emergencyMessageKey(msg));
 
   return `
-    <div class="emergencyAlertItem" data-id="${escapeHtml(msg.id_mensaje ?? "")}">
+    <div class="emergencyAlertItem" data-id="${msg.id_mensaje ?? ""}">
       <button class="emergencyAlertClose" type="button" data-alert-close="${key}" aria-label="Cerrar alerta">x</button>
       <div class="emergencyAlertItemHeader">
         <span class="emergencyAlertLabel">
@@ -416,83 +418,45 @@ function formatDestino(msg) {
   return `para ${label}`;
 }
 
-function shouldHideChatMessage(msg) {
-  const tipo = String(msg?.tipo_mensaje || "").toUpperCase();
-  const contenido = String(msg?.contenido || "").toLowerCase();
-  if (tipo !== "SISTEMA") return false;
-  return (
-    contenido.includes("trigger de bd") ||
-    contenido.includes("operacion activada autom") ||
-    contenido.includes("operación activada autom")
-  );
-}
-
 function buildBubble(msg) {
-  if (shouldHideChatMessage(msg)) return "";
-  const mine  = isMine(msg);
+  const mine = isMine(msg);
   const autor = escapeHtml(msg.autor_nombre || "Sistema");
-  const hora  = escapeHtml(formatTime(msg.fecha_envio));
+  const hora = escapeHtml(formatTime(msg.fecha_envio));
   const texto = escapeHtml(msg.contenido || "");
-  const tipo  = (msg.tipo_mensaje || "NORMAL").toUpperCase();
-  const rol   = (msg.autor_rol   || "").toLowerCase();    // admin | cut | cet | cell
+  const tipo = (msg.tipo_mensaje || "NORMAL").toUpperCase();
+  const rol = (msg.autor_rol || "").toLowerCase();    // admin | cut | cet | cell
   const destinoText = formatDestino(msg);
   const destino = destinoText
     ? `${escapeHtml(destinoText)} - ${hora}`
     : hora;
 
   const typeExtra = tipo === "URGENTE" ? " urgente" : tipo === "SISTEMA" ? " sistema" : "";
-  const rolClass  = rol ? ` rol-${rol}` : "";
+  const rolClass = rol ? ` rol-${rol}` : "";
 
   const header = tipo !== "SISTEMA"
     ? `<div class="chatBubbleHeader"><span>${autor}</span><span>${destino}</span></div>`
     : `<div class="chatBubbleTime">${hora}</div>`;
-  const attachment = buildAttachmentMarkup(msg);
 
   return `
     <div class="chatBubble${mine ? " mine" : ""}${typeExtra}${rolClass}" data-id="${msg.id_mensaje ?? ""}">
       ${header}
       <div class="chatBubbleText">${texto}</div>
-      ${attachment}
     </div>
   `;
 }
 
-function buildAttachmentMarkup(msg) {
-  const url = msg.attachment_url;
-  if (!url) return "";
-
-  const absolute = /^https?:\/\//i.test(url) ? url : `${API_BASE}${String(url).startsWith("/") ? "" : "/"}${url}`;
-  const kind = String(msg.attachment_kind || "").toUpperCase();
-  const name = escapeHtml(msg.attachment_name || "Adjunto");
-  const safeUrl = escapeHtml(absolute);
-
-  if (kind === "IMAGE") {
-    return `<a class="chatAttachment" href="${safeUrl}" target="_blank" rel="noopener"><img src="${safeUrl}" alt="${name}"></a>`;
-  }
-
-  if (kind === "VIDEO") {
-    return `<video class="chatAttachmentMedia" src="${safeUrl}" controls playsinline></video>`;
-  }
-
-  if (kind === "AUDIO") {
-    return `<audio class="chatAttachmentMedia" src="${safeUrl}" controls></audio>`;
-  }
-
-  return `<a class="chatAttachmentFile" href="${safeUrl}" target="_blank" rel="noopener">${name}</a>`;
-}
-
-// ── Re-renderiza todos los mensajes visibles ────────────────
+// â”€â”€ Re-renderiza todos los mensajes visibles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderMessages() {
   if (!dom.chatMessages) return;
   dom.chatMessages.innerHTML = "";
-  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && !isEmergencyMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
+  _allMsgs.filter((msg) => !isEmergencyMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
     dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
   });
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
   renderEmergencyAlerts();
 }
 
-// ── Agrega un mensaje (guard de duplicados) ─────────────────
+// â”€â”€ Agrega un mensaje (guard de duplicados) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function appendMessage(msg) {
   if (!dom.chatMessages) return;
 
@@ -500,11 +464,11 @@ function appendMessage(msg) {
   if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return;
   _allMsgs.push(msg);
 
-  if (shouldHideChatMessage(msg)) return;
   if (isEmergencyMessage(msg)) {
     renderEmergencyAlerts();
     return;
   }
+
   if (!isVisibleInTab(msg)) return;
 
   const atBottom =
@@ -516,12 +480,12 @@ function appendMessage(msg) {
   if (atBottom) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 }
 
-// ── Carga historial desde backend ──────────────────────────
+// â”€â”€ Carga historial desde backend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadMessages() {
   if (!_opId) return;
   try {
     const token = localStorage.getItem("token");
-    const res   = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
+    const res = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
     if (!res.ok) return;
@@ -536,7 +500,7 @@ async function loadMessages() {
   }
 }
 
-// ── Envía un mensaje (POST → socket lo devuelve) ────────────
+// â”€â”€ EnvÃ­a un mensaje (POST â†’ socket lo devuelve) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function sendMessage() {
   if (!_opId) return;
   const text = dom.chatInput?.value.trim();
@@ -547,7 +511,7 @@ async function sendMessage() {
 
   try {
     const token = localStorage.getItem("token");
-    const res   = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
+    const res = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -564,7 +528,7 @@ async function sendMessage() {
       console.error("[CHAT] Error al enviar:", res.status);
       if (dom.chatInput) dom.chatInput.value = text;
     }
-    // El mensaje llega vía socket — no se agrega localmente aquí
+    // El mensaje llega vÃ­a socket â€” no se agrega localmente aquÃ­
   } catch (err) {
     console.error("[CHAT] Error enviando mensaje:", err);
     if (dom.chatInput) dom.chatInput.value = text;
@@ -574,9 +538,9 @@ async function sendMessage() {
   }
 }
 
-// ── Público: inicializa chat con socket ─────────────────────
+// â”€â”€ PÃºblico: inicializa chat con socket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function initChat(opId, socket) {
-  _opId   = opId;
+  _opId = opId;
   _socket = socket;
 
   socket.on("chat_message", (msg) => {
@@ -587,11 +551,11 @@ export function initChat(opId, socket) {
   loadMessages();
 }
 
-// ── Público: enlaza eventos de UI ───────────────────────────
+// â”€â”€ PÃºblico: enlaza eventos de UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function bindChatEvents() {
   if (dom.emergencyAlertList) {
-    dom.emergencyAlertList.addEventListener("click", (event) => {
-      const closeBtn = event.target.closest("[data-alert-close]");
+    dom.emergencyAlertList.addEventListener("click", (e) => {
+      const closeBtn = e.target.closest("[data-alert-close]");
       if (!closeBtn) return;
       _dismissedEmergencyMsgs.add(String(closeBtn.dataset.alertClose || ""));
       closeBtn.closest(".emergencyAlertItem")?.remove();
@@ -632,7 +596,8 @@ export function bindChatEvents() {
       setChannel("vehiculo", id);
     }
 
-    openPanel(dom.chatPanel, dom.toggleChatPanel);
+    dom.chatPanel?.classList.add("open");
+    dom.toggleChatPanel?.classList.add("active");
     dom.chatInput?.focus();
   });
 
