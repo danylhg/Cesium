@@ -269,6 +269,22 @@ async function connectSocket(opId) {
     setServerConnectionState(false);
   });
 
+  socket.on("operacion_estado_actualizado", ({ operacion }) => {
+    const activeId = localStorage.getItem("active_operation_id");
+    if (!operacion || String(operacion.id_operacion) !== String(activeId)) return;
+
+    const current = getCurrentOperation();
+    saveCurrentOperation({
+      ...current,
+      ...operacion,
+      id: operacion.id_operacion
+    });
+    dashboardState.currentOperation = getCurrentOperation();
+    renderInfoPanel();
+    updateChatAvailability();
+    setTacticalUI();
+  });
+
   return socket;
 }
 

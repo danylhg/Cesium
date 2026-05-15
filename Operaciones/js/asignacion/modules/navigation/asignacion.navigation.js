@@ -10,6 +10,7 @@ import { removeStorage, readObjectStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL, STORAGE_ASIGNACION_ACTUAL } from "../../core/constants.js";
 import { renderHome } from "../../views/home.view.js";
 import { renderCUT, renderCET, renderCelulas } from "../personal/personal.views.js";
+import { releaseAsignacionPresence } from "../operacion/operacion.presence.js";
 
 export function bindNavigation() {
   btnBack.addEventListener("click", () => {
@@ -44,7 +45,8 @@ export function bindNavigation() {
     }
   });
 
-  btnVolver.addEventListener("click", () => {
+  btnVolver.addEventListener("click", async () => {
+    await releaseAsignacionPresence();
     removeStorage(STORAGE_OPERACION_ACTUAL);
     removeStorage(STORAGE_ASIGNACION_ACTUAL);
     window.location.href = "menu_inicial.html";
@@ -66,6 +68,7 @@ export function bindNavigation() {
         }
       }
 
+      await releaseAsignacionPresence(opId);
       window.location.href = "dashboard.html";
     } catch (error) {
       console.error("No se pudo guardar la operacion antes de volver al dashboard:", error);

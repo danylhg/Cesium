@@ -11,6 +11,7 @@ import { normalizeText, generateUUID } from "../../core/utils.js";
 import { readObjectStorage, writeStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL } from "../../core/constants.js";
 import { state } from "../../core/state.js";
+import { touchAsignacionPresence } from "./operacion.presence.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 let operacionBackendSaveTimer = null;
@@ -599,6 +600,7 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
         console.log("Operación creada en BD con éxito:", nuevaOperacion);
         if (nuevaOperacion?.id_operacion) {
           localStorage.setItem("active_operation_id", nuevaOperacion.id_operacion);
+          void touchAsignacionPresence(nuevaOperacion.id_operacion);
         }
         return nuevaOperacion;
       } catch (postErr) {
@@ -657,6 +659,7 @@ export async function guardarOperacionBaseDatos(datosFormulario, estadoActual) {
         hora_inicio: datosFormulario.hora_inicio,
         prioridad: datosFormulario.prioridad
       });
+      void touchAsignacionPresence(id_operacion);
       console.log("Operación actualizada en BD con éxito:", operacionActualizada);
       return operacionActualizada;
     }

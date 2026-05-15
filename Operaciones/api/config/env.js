@@ -28,6 +28,13 @@ export const JWT_SECRET = requireEnv("JWT_SECRET");
 // Puerto HTTP del API. Si no se define PORT, usa 3001 para desarrollo local.
 export const PORT = Number(process.env.PORT || 3001);
 
+// Intervalo del revisor que activa automaticamente operaciones planificadas.
+const parsedAutoActivationInterval = Number(process.env.OPERATION_AUTO_ACTIVATION_INTERVAL_MS);
+export const OPERATION_AUTO_ACTIVATION_INTERVAL_MS =
+  Number.isFinite(parsedAutoActivationInterval) && parsedAutoActivationInterval > 0
+    ? parsedAutoActivationInterval
+    : 15000;
+
 // Configuracion compartida de PostgreSQL.
 export const PGHOST = requireEnv("PGHOST");
 export const PGPORT = Number(process.env.PGPORT || 5432);

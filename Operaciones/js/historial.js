@@ -1,6 +1,6 @@
 import { downloadRecording, loadCesiumToken, loadReplay, loadStreamRecordings } from "./historial/historial.api.js";
 import { dom, readHistoryDom } from "./historial/historial.dom.js";
-import { initHistoryMap, buildMapEntities, focusOnReplay, resizeHistoryMap } from "./historial/historial.map.js";
+import { initHistoryMap, buildMapEntities, resizeHistoryMap } from "./historial/historial.map.js";
 import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
 import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages, updateChatToTime, updateEventLogToTime } from "./historial/historial.ui.js";
 import { replayState } from "./historial/historial.state.js";
@@ -49,7 +49,6 @@ async function main() {
     renderEventLog(replay.timeline?.eventos || []);
     updateEventLogToTime(replayState.currentTimeMs);
     buildMapEntities(replay);
-    focusOnReplay(replay);
   } catch (error) {
     console.error("Error cargando replay", error);
     renderError(error.message || "No se pudo cargar el historial de la operación.");

@@ -24,6 +24,7 @@ import {
   loadOperacionActualIntoForm,
   cargarOperacionRemota
 } from "./modules/operacion/operacion.service.js";
+import { startAsignacionPresenceHeartbeat } from "./modules/operacion/operacion.presence.js";
 
 import { hydrateCatalogsFromControl, hydrateAsignacionFromBD } from "./modules/catalogos/catalogos.service.js";
 import { bindNavigation } from "./modules/navigation/asignacion.navigation.js";
@@ -212,6 +213,7 @@ async function init() {
   renderHome();
   bindNavigation();
   bindFormEvents();
+  startAsignacionPresenceHeartbeat();
 
   const tieneNombre = !!(storedOp.title || storedOp.titulo);
   const tieneId = !!storedOp.id;
