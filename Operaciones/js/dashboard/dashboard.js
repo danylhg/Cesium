@@ -20,7 +20,8 @@ import {
   loadPoisFromBackend,
   loadAreasFromBackend,
   loadStructuresFromBackend,
-  loadOperationZoneFromBackend
+  loadOperationZoneFromBackend,
+  restoreGridFromStorage
 } from "./dashboard.tactical.js";
 import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
 import { bindAreaEvents } from "./dashboard.area.js";
@@ -344,6 +345,7 @@ window.addEventListener("load", async () => {
   await loadAreasFromBackend();
   await loadStructuresFromBackend();
   await loadOperationZoneFromBackend();
+  restoreGridFromStorage();
   await loadDrawingsFromBackend();
 
   // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)

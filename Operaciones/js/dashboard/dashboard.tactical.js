@@ -2381,7 +2381,34 @@ export function initPoiSocket(socket) {
   });
 }
 
-export function clearGrid() {
+function getGridStorageKey() {
+  const opId = dashboardState.currentOperation?.id
+    || dashboardState.currentOperation?.id_operacion
+    || localStorage.getItem("active_operation_id");
+  return opId ? `operation_grid_${opId}` : null;
+}
+
+function getGridNamesFromInputs() {
+  if (!dom.gridNamesContainer) return [];
+  return Array.from(dom.gridNamesContainer.querySelectorAll("input"))
+    .map(input => input.value || "");
+}
+
+function saveGridState() {
+  const key = getGridStorageKey();
+  if (!key || !dom.gridSizeSelect || !dashboardState.gridEntities?.length) return;
+  localStorage.setItem(key, JSON.stringify({
+    size: dom.gridSizeSelect.value || "3x3",
+    names: getGridNamesFromInputs()
+  }));
+}
+
+function removeGridState() {
+  const key = getGridStorageKey();
+  if (key) localStorage.removeItem(key);
+}
+
+export function clearGrid({ persist = true } = {}) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
@@ -2394,9 +2421,40 @@ export function clearGrid() {
   if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "none";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "none";
+
+  if (persist) removeGridState();
 }
 
-export function generateGrid() {
+export function restoreGridFromStorage() {
+  const key = getGridStorageKey();
+  if (!key || !dashboardState.currentOperationZone) return;
+
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(key) || "null");
+  } catch {
+    return;
+  }
+  if (!saved) return;
+
+  if (dom.gridSizeSelect && saved.size) {
+    dom.gridSizeSelect.value = saved.size;
+  }
+
+  generateGrid({ persist: false });
+
+  const inputs = dom.gridNamesContainer
+    ? Array.from(dom.gridNamesContainer.querySelectorAll("input"))
+    : [];
+  inputs.forEach((input, index) => {
+    const name = saved.names?.[index];
+    if (!name) return;
+    input.value = name;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+export function generateGrid({ persist = true } = {}) {
   const viewer = dashboardState.viewer;
   if (!viewer || !dashboardState.currentOperationZone) {
     if (dom.tbHint) dom.tbHint.textContent = "Debes delimitar una zona de operación primero.";
@@ -2407,7 +2465,7 @@ export function generateGrid() {
   const puntos = getOperationZonePoints(dashboardState.currentOperationZone);
   if (!puntos || puntos.length < 3) return;
 
-  clearGrid();
+  clearGrid({ persist: false });
 
   let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
   puntos.forEach(p => {
@@ -2555,7 +2613,8 @@ export function generateGrid() {
         inp.style.padding = "4px";
         
         inp.addEventListener("input", (e) => {
-          labelEnt.label.text = e.target.value || defaultName;
+          labelEnt.label.text = ` ${e.target.value || defaultName} `;
+          saveGridState();
         });
 
         wrapper.appendChild(lbl);
@@ -2571,6 +2630,7 @@ export function generateGrid() {
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
   
   if (dom.tbHint) dom.tbHint.textContent = `Cuadrícula de ${rows}x${cols} generada.`;
+  if (persist) saveGridState();
 }
 
 export function bindTacticalEvents() {
