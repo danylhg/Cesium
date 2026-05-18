@@ -626,9 +626,10 @@ export function renderInfoPanel(bdData = null) {
 
 export function updateChatAvailability() {
   const op = getCurrentOperation();
-  const phase = op.phase;
+  const phase = String(op.phase || op.estado || "").toLowerCase();
   const active = phase === "activa";
   const closed = phase === "cerrada" || phase === "cancelada";
+  const planned = phase === "planificada" || !phase;
 
   const badge = document.getElementById("opStatusBadge");
   const title = document.getElementById("topbarTitle");
@@ -636,19 +637,31 @@ export function updateChatAvailability() {
   const actionBtns = document.getElementById("mapActionButtons");
   const activateOpBtn = document.getElementById("activateOpBtn");
   const closeActiveBtn = document.getElementById("closeActiveOpBtn");
+  const saveOpMapBtn = document.getElementById("saveOpMapBtn");
+  const cancelOpMapBtn = document.getElementById("cancelOpMapBtn");
 
   if (badge) badge.style.display = active ? "inline-block" : "none";
   if (title) title.textContent = active ? (op.title || op.titulo || "Operacion") : "Panorama tactico";
   if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
-  if (actionBtns) actionBtns.style.display = active || closed ? "none" : "flex";
-  if (activateOpBtn) activateOpBtn.style.display = !active && !closed ? "inline-flex" : "none";
-  if (closeActiveBtn) closeActiveBtn.style.display = active ? "inline-flex" : "none";
+  if (actionBtns) actionBtns.style.display = "flex";
+  if (saveOpMapBtn) saveOpMapBtn.disabled = !planned || closed;
+  if (cancelOpMapBtn) cancelOpMapBtn.disabled = !planned || closed;
+  if (activateOpBtn) {
+    activateOpBtn.style.display = "inline-flex";
+    activateOpBtn.disabled = !planned || closed;
+  }
+  if (closeActiveBtn) {
+    closeActiveBtn.style.display = "inline-flex";
+    closeActiveBtn.disabled = !active;
+  }
 
   if (dom.toggleChatPanel) {
-    dom.toggleChatPanel.style.display = active ? "flex" : "none";
+    dom.toggleChatPanel.style.display = "flex";
+    dom.toggleChatPanel.disabled = !active;
   }
   if (dom.toggleCameraPanel) {
-    dom.toggleCameraPanel.style.display = active ? "flex" : "none";
+    dom.toggleCameraPanel.style.display = "flex";
+    dom.toggleCameraPanel.disabled = !active;
   }
 
   if (!active) {

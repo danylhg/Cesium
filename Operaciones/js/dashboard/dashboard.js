@@ -21,7 +21,8 @@ import {
   loadAreasFromBackend,
   loadStructuresFromBackend,
   loadRoutesFromBackend,
-  loadOperationZoneFromBackend
+  loadOperationZoneFromBackend,
+  restoreGridFromBackend
 } from "./dashboard.tactical.js";
 import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
 import { bindAreaEvents } from "./dashboard.area.js";
@@ -191,6 +192,8 @@ async function loadDashboardFromBD() {
       personal: data.personal || [],
       vehiculos: data.vehiculos || [],
       equipos: data.equipos || [],
+      grid: data.grid || data.cuadricula_operacion || null,
+      cuadricula_operacion: data.cuadricula_operacion || data.grid || null,
       _mapaData: data   // para tracking
     };
   } catch {
@@ -384,6 +387,7 @@ window.addEventListener("load", async () => {
   await loadStructuresFromBackend();
   await loadRoutesFromBackend();
   await loadOperationZoneFromBackend();
+  await restoreGridFromBackend(bdData?.grid || bdData?.cuadricula_operacion);
   await loadDrawingsFromBackend();
 
   // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)

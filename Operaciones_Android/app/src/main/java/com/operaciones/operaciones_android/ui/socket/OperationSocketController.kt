@@ -63,6 +63,8 @@ class OperationSocketController(
         fun onSocketStructureDeleted(idMarca: Int)
         fun onSocketDrawingCreated(dibujo: JSONObject)
         fun onSocketDrawingDeleted(idDibujo: Int)
+        fun onSocketGridUpdated(grid: JSONObject)
+        fun onSocketGridDeleted()
         fun onSocketConnected()
         fun onSocketDisconnected()
     }
@@ -173,6 +175,15 @@ class OperationSocketController(
             },
             onDibujoEliminado = { data ->
                 host.runSocketOnUi { host.onSocketDrawingDeleted(data.optInt("id_dibujo", -1)) }
+            },
+            onGridActualizada = { data ->
+                host.runSocketOnUi {
+                    val grid = data.optJSONObject("grid") ?: data.optJSONObject("cuadricula") ?: return@runSocketOnUi
+                    host.onSocketGridUpdated(grid)
+                }
+            },
+            onGridEliminada = {
+                host.runSocketOnUi { host.onSocketGridDeleted() }
             },
             onConnected = {
                 host.runSocketOnUi { host.onSocketConnected() }

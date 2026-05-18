@@ -102,20 +102,34 @@ export function initSocket(server) {
         `📍 tracking_personal op=${opId} personal=${id_personal} lat=${latitud} lon=${longitud}`
       );
 
+      let savedTracking = null;
       try {
-        await pool.query(
+        const { rows } = await pool.query(
           `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
+           VALUES ($1,$2,$3,$4,$5,$6)
+           RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, timestamp, estado_operacion_creacion`,
           [opId, Number(id_personal), Number(latitud), Number(longitud),
             altitud != null ? Number(altitud) : null,
             precision_m != null ? Number(precision_m) : null]
         );
+        savedTracking = rows[0];
       } catch (err) {
         console.error("[SOCKET] Error guardando tracking_personal:", err.message);
+        socket.emit("tracking_personal_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_personal",
+        });
+        return;
       }
 
       // Retransmite a todos los demás en el room (incluye web y otros Android)
-      socket.to(`op_${opId}`).emit("tracking_personal", { ...data, id_operacion: opId });
+      socket.to(`op_${opId}`).emit("tracking_personal", {
+        ...data,
+        ...savedTracking,
+        apodo: data.apodo,
+        nombre: data.nombre,
+        rol: data.rol,
+      });
     });
 
     // Persiste en BD y retransmite al room
@@ -136,22 +150,35 @@ export function initSocket(server) {
         `📍 tracking_vehiculo op=${opId} vehiculo=${id_vehiculo} lat=${latitud} lon=${longitud}`
       );
 
+      let savedTracking = null;
       try {
-        await pool.query(
+        const { rows } = await pool.query(
           `INSERT INTO tracking_vehiculo (id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING id_tracking, id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp, estado_operacion_creacion`,
           [opId, Number(id_vehiculo), Number(latitud), Number(longitud),
             altitud != null ? Number(altitud) : null,
             velocidad_kmh != null ? Number(velocidad_kmh) : null,
             rumbo_grados != null ? Number(rumbo_grados) : null,
             precision_m != null ? Number(precision_m) : null]
         );
+        savedTracking = rows[0];
       } catch (err) {
         console.error("[SOCKET] Error guardando tracking_vehiculo:", err.message);
+        socket.emit("tracking_vehiculo_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_vehiculo",
+        });
+        return;
       }
 
       // Retransmite a todos los demás en el room
-      socket.to(`op_${opId}`).emit("tracking_vehiculo", { ...data, id_operacion: opId });
+      socket.to(`op_${opId}`).emit("tracking_vehiculo", {
+        ...data,
+        ...savedTracking,
+        alias: data.alias,
+        nombre: data.nombre,
+      });
     });
 
     socket.on("stream_join", async (payload, ack) => {
@@ -457,6 +484,16 @@ export function emitDibujoCreado(io, idOperacion, dibujo) {
 
 export function emitDibujoEliminado(io, idOperacion, idDibujo) {
   io.to(`op_${idOperacion}`).emit("dibujo_eliminado", { id_dibujo: idDibujo });
+}
+
+export function emitCuadriculaActualizada(io, idOperacion, grid) {
+  io.to(`op_${idOperacion}`).emit("cuadricula_actualizada", { grid });
+  io.to(`op_${idOperacion}`).emit("grid_updated", { grid });
+}
+
+export function emitCuadriculaEliminada(io, idOperacion) {
+  io.to(`op_${idOperacion}`).emit("cuadricula_eliminada", { id_operacion: idOperacion });
+  io.to(`op_${idOperacion}`).emit("grid_deleted", { id_operacion: idOperacion });
 }
 
 export function emitRutaOperacionCreada(io, idOperacion, ruta) {

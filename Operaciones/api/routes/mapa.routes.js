@@ -19,7 +19,9 @@ import {
   emitEstructuraActualizada,
   emitEstructuraEliminada,
   emitDibujoCreado,
-  emitDibujoEliminado
+  emitDibujoEliminado,
+  emitCuadriculaActualizada,
+  emitCuadriculaEliminada
 } from "../sockets/index.js";
 
 // Helper para responder errores de BD/backend de forma uniforme
@@ -28,6 +30,7 @@ import { sendDbError } from "../utils/dbErrors.js";
 // Helper para validar enteros
 import { isInt } from "../utils/validators.js";
 import { getActorFromRequest, logOperacionEvento } from "../utils/timeline.js";
+import { ensureGridSchema, fetchOperationGrid, normalizeGridPayload } from "../utils/grid.js";
 
 // Crea la instancia del router
 const router = Router();
@@ -804,6 +807,144 @@ router.delete("/ops/:id/edificios/:id_marca", requireAuth, async (req, res) => {
   }
 });
 
+// ===============================
+// CUADRICULA DE OPERACION
+// ===============================
+
+router.get(["/ops/:id/grid", "/ops/:id/cuadricula"], requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    const grid = await fetchOperationGrid(pool, id_operacion);
+    if (!grid) {
+      return res.status(404).json({ ok: false, mensaje: "Sin cuadricula guardada" });
+    }
+
+    return res.json({ ok: true, grid, cuadricula: grid });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo cuadricula");
+  }
+});
+
+async function saveGridHandler(req, res) {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  const parsed = normalizeGridPayload(req.body);
+  if (!parsed.ok) {
+    return res.status(parsed.status).json({ ok: false, mensaje: parsed.mensaje });
+  }
+
+  const actor = getActorFromRequest(req);
+
+  try {
+    await ensureGridSchema(pool);
+
+    const { rows } = await pool.query(
+      `INSERT INTO operacion_cuadricula (
+         id_operacion, size, filas, columnas, nombres, activo,
+         creado_por_tipo, id_usuario, id_personal, fecha_actualizacion
+       )
+       VALUES ($1,$2,$3,$4,$5::jsonb,TRUE,$6,$7,$8,NOW())
+       ON CONFLICT (id_operacion) DO UPDATE SET
+         size = EXCLUDED.size,
+         filas = EXCLUDED.filas,
+         columnas = EXCLUDED.columnas,
+         nombres = EXCLUDED.nombres,
+         activo = TRUE,
+         creado_por_tipo = EXCLUDED.creado_por_tipo,
+         id_usuario = EXCLUDED.id_usuario,
+         id_personal = EXCLUDED.id_personal,
+         fecha_actualizacion = NOW()
+       RETURNING id_cuadricula, id_operacion, size, filas AS rows, columnas AS cols,
+                 nombres, nombres AS names,
+                 activo, creado_por_tipo, id_usuario, id_personal,
+                 fecha_creacion, fecha_actualizacion`,
+      [
+        id_operacion,
+        parsed.size,
+        parsed.rows,
+        parsed.cols,
+        JSON.stringify(parsed.nombres),
+        actor.actor_tipo || null,
+        actor.id_usuario ?? null,
+        actor.id_personal ?? null
+      ]
+    );
+
+    const grid = rows[0];
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "cuadricula_guardada",
+      entidad_tipo: "cuadricula",
+      entidad_id: grid.id_cuadricula,
+      payload: grid,
+      occurred_at: grid.fecha_actualizacion,
+      actor
+    });
+
+    const io = req.app.get("io");
+    if (io) emitCuadriculaActualizada(io, id_operacion, grid);
+
+    return res.json({ ok: true, grid, cuadricula: grid });
+  } catch (err) {
+    return sendDbError(res, err, "Error guardando cuadricula");
+  }
+}
+
+router.post(["/ops/:id/grid", "/ops/:id/cuadricula"], requireAuth, saveGridHandler);
+router.put(["/ops/:id/grid", "/ops/:id/cuadricula"], requireAuth, saveGridHandler);
+
+router.delete(["/ops/:id/grid", "/ops/:id/cuadricula"], requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    await ensureGridSchema(pool);
+
+    const { rows } = await pool.query(
+      `UPDATE operacion_cuadricula
+          SET activo = FALSE,
+              fecha_actualizacion = NOW()
+        WHERE id_operacion = $1 AND activo = TRUE
+        RETURNING id_cuadricula, id_operacion, size, filas AS rows, columnas AS cols,
+                  nombres, nombres AS names,
+                  activo, creado_por_tipo, id_usuario, id_personal,
+                  fecha_creacion, fecha_actualizacion`,
+      [id_operacion]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Cuadricula no existe" });
+    }
+
+    const actor = getActorFromRequest(req);
+    await logOperacionEvento(pool, {
+      id_operacion,
+      tipo_evento: "cuadricula_eliminada",
+      entidad_tipo: "cuadricula",
+      entidad_id: rows[0].id_cuadricula,
+      payload: rows[0],
+      occurred_at: rows[0].fecha_actualizacion,
+      actor
+    });
+
+    const io = req.app.get("io");
+    if (io) emitCuadriculaEliminada(io, id_operacion);
+
+    return res.json({ ok: true, grid: rows[0], cuadricula: rows[0] });
+  } catch (err) {
+    return sendDbError(res, err, "Error eliminando cuadricula");
+  }
+});
+
 
 // ===============================
 // MAPA COMPLETO — todas las capas de una operación
@@ -847,7 +988,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       personalRes,
       vehiculosRes,
       equiposRes,
-      rutasNavegacionRes
+      rutasNavegacionRes,
+      grid
     ] = await Promise.all([
 
       // -------------------------------------------------
@@ -1261,7 +1403,9 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
            WHERE rn.id_operacion = $1 AND rn.activo = true`,
           [id_operacion]
         );
-      })()
+      })(),
+
+      fetchOperationGrid(pool, id_operacion)
     ]);
 
     // Si la operación no existe, corta con 404
@@ -1279,7 +1423,9 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       personal: personalRes.rows,
       vehiculos: vehiculosRes.rows,
       equipos: equiposRes.rows,
-      rutas_navegacion: rutasNavegacionRes.rows
+      rutas_navegacion: rutasNavegacionRes.rows,
+      cuadricula_operacion: grid,
+      grid
     });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo mapa");

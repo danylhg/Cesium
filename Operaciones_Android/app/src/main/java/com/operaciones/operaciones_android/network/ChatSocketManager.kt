@@ -22,6 +22,8 @@ class ChatSocketManager(
     private val onDibujoEliminado: ((JSONObject) -> Unit)? = null,
     private val onTacticalRouteCreada: ((JSONObject) -> Unit)? = null,
     private val onTacticalRouteEliminada: ((JSONObject) -> Unit)? = null,
+    private val onGridActualizada: ((JSONObject) -> Unit)? = null,
+    private val onGridEliminada: ((JSONObject) -> Unit)? = null,
     private val onConnected: (() -> Unit)? = null,
     private val onDisconnected: ((String) -> Unit)? = null,
     private val onConnectionError: ((String) -> Unit)? = null,
@@ -146,6 +148,16 @@ class ChatSocketManager(
         socket?.on("dibujo_eliminado") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onDibujoEliminado?.invoke(data)
+        }
+
+        socket?.on("cuadricula_actualizada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onGridActualizada?.invoke(data)
+        }
+
+        socket?.on("cuadricula_eliminada") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: JSONObject()
+            onGridEliminada?.invoke(data)
         }
 
         socket?.connect()

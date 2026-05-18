@@ -39,6 +39,8 @@ export function getCesiumColor(name, alpha = 1) {
 // IDs de POIs que acabo de enviar yo (evita redibujar lo que ya dibujé localmente)
 const _mySentPoiIds = new Set();
 const _mySentRouteIds = new Set();
+let gridSaveTimer = null;
+let lastLocalGridSaveAt = 0;
 
 function getAreaCreatorPayload() {
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
@@ -148,7 +150,7 @@ function clearOperationZoneEntities() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
-  clearGrid();
+  clearGrid({ persist: false });
 
   // Remove the main zone border
   if (dashboardState.operationZoneBorder) {
@@ -219,9 +221,6 @@ function buildOperationZoneEntity(zona) {
   dashboardState.operationZoneBorder = entity;
   dashboardState.currentOperationZone = zona;
 
-  // Integrated Wind Rose (Radar) inside the zone
-  renderIntegratedWindRose(zona, closedPoints);
-
   return entity;
 }
 
@@ -245,79 +244,6 @@ function getHullRadius(center, points) {
     if (d > maxDist) maxDist = d;
   });
   return maxDist;
-}
-
-export function renderIntegratedWindRose(zona, points) {
-  const viewer = dashboardState.viewer;
-  if (!viewer) return;
-
-  const center = calculateCentroid(points);
-  if (!center) return;
-  const idZona = zona.id_zona;
-  const zoneProps = { tacticalType: "operation-zone-part", id_zona: idZona };
-
-  // ── Bounding box of the zone polygon ──
-  let minLat = Infinity, maxLat = -Infinity;
-  let minLng = Infinity, maxLng = -Infinity;
-  points.forEach(p => {
-    if (p.lat < minLat) minLat = p.lat;
-    if (p.lat > maxLat) maxLat = p.lat;
-    if (p.lng < minLng) minLng = p.lng;
-    if (p.lng > maxLng) maxLng = p.lng;
-  });
-
-  const boxCenterLat = (minLat + maxLat) / 2;
-  const boxCenterLng = (minLng + maxLng) / 2;
-
-  const lineColor = Cesium.Color.fromCssColorString("rgba(0,0,0,0.75)");
-  const lineWidth = 3;
-
-  // Horizontal Line (E-W)
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([minLng, boxCenterLat, maxLng, boxCenterLat]),
-      width: lineWidth,
-      material: lineColor,
-      clampToGround: true
-    },
-    properties: zoneProps
-  });
-
-  // Vertical Line (N-S)
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([boxCenterLng, minLat, boxCenterLng, maxLat]),
-      width: lineWidth,
-      material: lineColor,
-      clampToGround: true
-    },
-    properties: zoneProps
-  });
-
-  // Cardinal Labels
-  const labels = [
-    { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },
-    { text: "S", lat: minLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, 15) },
-    { text: "E", lat: boxCenterLat, lng: maxLng, offset: new Cesium.Cartesian2(15, 0) },
-    { text: "W", lat: boxCenterLat, lng: minLng, offset: new Cesium.Cartesian2(-15, 0) }
-  ];
-
-  labels.forEach(lbl => {
-    viewer.entities.add({
-      name: "Radar Estereográfico",
-      position: Cesium.Cartesian3.fromDegrees(lbl.lng, lbl.lat),
-      label: {
-        text: lbl.text,
-        font: "bold 24px monospace",
-        fillColor: Cesium.Color.fromCssColorString("rgba(0,0,0,0.90)"),
-        pixelOffset: lbl.offset,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-      },
-      properties: zoneProps
-    });
-  });
 }
 
 /**
@@ -1381,7 +1307,6 @@ export function setTacticalUI() {
   const needsRadius = dashboardState.toolMode === "circle";
   const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
   const showCancelButton = !isGrid && !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const showFinishButton = !isGrid && (isMultiPoint || dashboardState.areaDrawing);
   const showLabelInput = !isGrid && needsLabel && !isMil && !isDrawingTool;
   const showColorInput = !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
   const showOpacityInput = !isGrid && !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
@@ -1412,10 +1337,16 @@ export function setTacticalUI() {
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
-  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = (isMil || isDrawingTool || isGrid) ? "none" : "grid";
+  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = "grid";
   if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
-  if (dom.finishShape) dom.finishShape.style.display = showFinishButton ? "" : "none";
-  if (dom.clearTactical) dom.clearTactical.style.display = isPlanningOperation ? "" : "none";
+  if (dom.finishShape) dom.finishShape.style.display = "";
+  if (dom.clearTactical) {
+    dom.clearTactical.style.display = "";
+    dom.clearTactical.disabled = !isPlanningOperation;
+    dom.clearTactical.title = isPlanningOperation
+      ? "Limpiar objetos tacticos"
+      : "Solo se puede limpiar en operaciones planificadas";
+  }
 
   if (dom.symLabel) dom.symLabel.disabled = !showLabelInput;
   if (dom.radiusInput) dom.radiusInput.disabled = !needsRadius;
@@ -1427,7 +1358,7 @@ export function setTacticalUI() {
 
   if (dom.placeBtn) {
     dom.placeBtn.disabled = !isToolActive || isMil || isDrawingTool || isGrid;
-    dom.placeBtn.style.display = (isMil || isDrawingTool || isGrid) ? "none" : "";
+    dom.placeBtn.style.display = "";
     dom.placeBtn.textContent = usesPlaceOnly
       ? "Colocar"
       : "Colocar / iniciar";
@@ -2277,7 +2208,9 @@ async function clearTacticalPersistedData() {
     dashboardState.selectedEntity = null;
   }
 
-  clearGrid();
+  const gridDeleted = await deleteGridFromBackend();
+  if (!gridDeleted) failures.push("Cuadricula");
+  clearGrid({ persist: false });
   clearPlanningArea();
   clearTacticalStorageSnapshot();
 
@@ -2658,11 +2591,101 @@ export function initPoiSocket(socket) {
       return Number(entIdRuta) !== Number(id_ruta);
     });
   });
+
+  socket.on("cuadricula_actualizada", ({ grid }) => {
+    if (Date.now() - lastLocalGridSaveAt < 1500) return;
+    void restoreGridFromBackend(grid);
+  });
+
+  socket.on("cuadricula_eliminada", () => {
+    clearGrid({ persist: false });
+  });
 }
 
-export function clearGrid() {
+function getGridNamesFromInputs() {
+  if (!dom.gridNamesContainer) return [];
+  return Array.from(dom.gridNamesContainer.querySelectorAll("input"))
+    .map(input => input.value || "");
+}
+
+async function saveGridToBackend() {
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId || !dom.gridSizeSelect) return null;
+
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const payload = {
+    size: dom.gridSizeSelect.value || "3x3",
+    names: getGridNamesFromInputs()
+  };
+
+  try {
+    lastLocalGridSaveAt = Date.now();
+    const res = await fetch(`${API_BASE}/ops/${opId}/grid`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.mensaje || "No se pudo guardar la cuadricula.");
+    }
+
+    return data.grid || data.cuadricula || null;
+  } catch (err) {
+    console.error("[GRID] Error guardando cuadricula:", err);
+    setRouteInfo("No se pudo guardar la cuadricula en el servidor.");
+    return null;
+  }
+}
+
+function scheduleSaveGridToBackend() {
+  if (gridSaveTimer) window.clearTimeout(gridSaveTimer);
+  gridSaveTimer = window.setTimeout(() => {
+    gridSaveTimer = null;
+    void saveGridToBackend();
+  }, 500);
+}
+
+async function deleteGridFromBackend() {
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId) return true;
+
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/grid`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (res.status === 404) return true;
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.mensaje || "No se pudo eliminar la cuadricula.");
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[GRID] Error eliminando cuadricula:", err);
+    setRouteInfo("No se pudo eliminar la cuadricula del servidor.");
+    return false;
+  }
+}
+
+export function clearGrid({ persist = false } = {}) {
   const viewer = dashboardState.viewer;
   const gridEntities = dashboardState.gridEntities || [];
+
+  if (gridSaveTimer) {
+    window.clearTimeout(gridSaveTimer);
+    gridSaveTimer = null;
+  }
 
   if (viewer) {
     gridEntities.forEach((ent) => {
@@ -2682,9 +2705,11 @@ export function clearGrid() {
   if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "none";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "none";
+
+  if (persist) void deleteGridFromBackend();
 }
 
-export function generateGrid() {
+export function generateGrid({ persist = true, names = null } = {}) {
   const viewer = dashboardState.viewer;
   const zona = dashboardState.currentOperationZone;
 
@@ -2700,7 +2725,7 @@ export function generateGrid() {
     return;
   }
 
-  clearGrid();
+  clearGrid({ persist: false });
 
   let minLat = Infinity;
   let maxLat = -Infinity;
@@ -2844,12 +2869,15 @@ export function generateGrid() {
         const input = document.createElement("input");
         input.type = "text";
         input.className = "opsInput";
-        input.value = defaultName;
+        const savedName = Array.isArray(names) ? names[count] : "";
+        input.value = savedName || defaultName;
         input.style.padding = "4px";
         input.addEventListener("input", (event) => {
           const value = event.target.value || defaultName;
           label.label.text = ` ${value} `;
+          scheduleSaveGridToBackend();
         });
+        if (savedName) label.label.text = ` ${savedName} `;
 
         wrapper.appendChild(nameLabel);
         wrapper.appendChild(input);
@@ -2863,6 +2891,55 @@ export function generateGrid() {
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "block";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
   setRouteInfo(`Cuadricula ${rows}x${cols} generada en la zona de operacion.`);
+
+  if (persist) void saveGridToBackend();
+}
+
+export async function restoreGridFromBackend(initialGrid = null) {
+  const opId = localStorage.getItem("active_operation_id");
+  if (!opId || !dashboardState.currentOperationZone) return null;
+
+  let grid = initialGrid;
+
+  if (!grid) {
+    const token = localStorage.getItem("token");
+    if (!token) return null;
+
+    const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+
+    try {
+      const res = await fetch(`${API_BASE}/ops/${opId}/grid`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.status === 404) return null;
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.mensaje || "No se pudo cargar la cuadricula.");
+      }
+
+      grid = data.grid || data.cuadricula || null;
+    } catch (err) {
+      console.error("[GRID] Error cargando cuadricula:", err);
+      return null;
+    }
+  }
+
+  if (!grid?.size) return null;
+
+  if (dom.gridSizeSelect) {
+    dom.gridSizeSelect.value = grid.size;
+  }
+
+  const names = Array.isArray(grid.names)
+    ? grid.names
+    : Array.isArray(grid.nombres)
+      ? grid.nombres
+      : [];
+
+  generateGrid({ persist: false, names });
+  return grid;
 }
 
 export function bindTacticalEvents() {
@@ -2889,7 +2966,7 @@ export function bindTacticalEvents() {
   }
 
   if (dom.clearGridBtn) {
-    dom.clearGridBtn.addEventListener("click", clearGrid);
+    dom.clearGridBtn.addEventListener("click", () => clearGrid({ persist: true }));
   }
 
   if (dom.btnSelectPencil) {

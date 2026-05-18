@@ -70,8 +70,8 @@
     <div id="map" class="mapBox"></div>
 
     <div id="mapTopRightActions" class="mapTopRightActions">
-      <button id="activateOpBtn" class="mapTopActionBtn" style="display:none;">Activar operación</button>
-      <button id="closeActiveOpBtn" class="mapTopActionBtn" style="display:none;">Cerrar operación</button>
+      <button id="activateOpBtn" class="mapTopActionBtn" style="display:inline-flex;" disabled>Activar operación</button>
+      <button id="closeActiveOpBtn" class="mapTopActionBtn" style="display:inline-flex;" disabled>Cerrar operación</button>
     </div>
 
     <!-- Popup flotante para eliminar elemento seleccionado -->
@@ -425,7 +425,7 @@
       </div>
     </div>
 
-    <div id="tacticalActionButtons" class="btnGrid" style="display:none; margin-top:20px;">
+    <div id="tacticalActionButtons" class="btnGrid" style="display:grid; margin-top:20px;">
       <button id="placeBtn" class="btnBeige" disabled>Colocar</button>
       <button id="clearTactical" class="btnBeige">Limpiar táctico</button>
       <button id="finishShape" class="btnBeige" style="grid-column: 1 / -1;">Terminar figura</button>

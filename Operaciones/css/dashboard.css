@@ -189,6 +189,22 @@ body {
   background: rgba(75, 12, 12, 0.92);
 }
 
+.mapTopActionBtn:disabled,
+.toolFab:disabled,
+.actionBtn:disabled {
+  opacity: .48;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+  filter: grayscale(.35);
+}
+
+.toolFab:disabled:hover,
+.actionBtn:disabled:hover,
+.mapTopActionBtn:disabled:hover {
+  transform: none;
+}
+
 @media (max-width: 768px) {
   .mapTopRightActions {
     top: 56px;

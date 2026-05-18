@@ -122,8 +122,10 @@ BEGIN
     'grupo_vehiculo',
     'mando_operacion',
     'puntos_interes',
+    'dibujo_libre_operacion',
     'area_interes',
     'ruta_operacion',
+    'ruta_navegacion',
     'marca_edificio',
     'zona_operacion',
     'chat_operacion',
@@ -170,8 +172,24 @@ BEGIN
   WHERE o.id_operacion = v_id_operacion;
 
   IF v_estado IN ('CERRADA','CANCELADA') THEN
+    IF TG_TABLE_NAME = 'chat_operacion' THEN
+      IF TG_OP IN ('INSERT','UPDATE') AND NEW.activo = FALSE THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
     IF TG_TABLE_NAME = 'mensaje_chat' THEN
-      IF NEW.tipo_mensaje = 'SISTEMA' THEN
+      IF TG_OP <> 'DELETE' AND NEW.tipo_mensaje = 'SISTEMA' THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
+    IF TG_TABLE_NAME = 'participante_chat' THEN
+      IF TG_OP = 'UPDATE'
+         AND NEW.id_chat = OLD.id_chat
+         AND NEW.tipo = OLD.tipo
+         AND NEW.id_usuario IS NOT DISTINCT FROM OLD.id_usuario
+         AND NEW.id_personal IS NOT DISTINCT FROM OLD.id_personal THEN
         RETURN NEW;
       END IF;
     END IF;

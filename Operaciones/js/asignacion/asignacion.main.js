@@ -93,7 +93,7 @@ function bindFormEvents() {
 }
 
 function restoreSavedState() {
-  // BACKEND: Esta función desaparece. La asignación se carga del servidor vía GET /ops/:id/personal, GET /ops/:id/vehiculos, GET /ops/:id/equipos, GET /ops/:id/grupos
+  // BACKEND: Esta funcion desaparece. La asignacion se carga del servidor via GET /ops/:id/personal, GET /ops/:id/vehiculos-asignados y GET /ops/:id/equipos-asignados.
   const storedOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
   const asigKey = storedOp.id ? `asignacion_op_${storedOp.id}` : STORAGE_ASIGNACION_ACTUAL;
   const savedAsig =

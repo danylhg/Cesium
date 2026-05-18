@@ -10,5 +10,6 @@ data class OperationMapData(
     val pois: List<PoiItem> = emptyList(),
     val coverageCircles: List<CoverageCircleItem> = emptyList(),
     val areaPolygons: List<AreaPolygonItem> = emptyList(),
-    val structures: List<StructureItem> = emptyList()
+    val structures: List<StructureItem> = emptyList(),
+    val operationGrid: OperationGridItem? = null
 )

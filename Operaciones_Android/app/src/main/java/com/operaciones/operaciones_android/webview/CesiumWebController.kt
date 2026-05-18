@@ -381,6 +381,40 @@ class CesiumWebController(
         }
     }
 
+    fun loadOperationGrid(gridJson: String) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof loadOperationGrid === 'function') {
+                        loadOperationGrid($gridJson);
+                        return 'OK';
+                    }
+                    return 'ERROR:loadOperationGrid no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun clearOperationGrid() {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof clearOperationGrid === 'function') {
+                        clearOperationGrid();
+                        return 'OK';
+                    }
+                    return 'ERROR:clearOperationGrid no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
     fun addPoiToMap(idPoi: Int, lat: Double, lon: Double, nombre: String, tipoPoi: String, color: String, iconoSrc: String? = null, sidc: String? = null) {
         val safeNombre = nombre.replace("'", "\\'")
         val safeTipo = tipoPoi.replace("'", "\\'")

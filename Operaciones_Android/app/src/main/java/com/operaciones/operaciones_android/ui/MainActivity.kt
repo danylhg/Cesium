@@ -758,6 +758,14 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun onSocketGridUpdated(grid: JSONObject) {
+        mapDataController.onOperationGridUpdated(grid)
+    }
+
+    override fun onSocketGridDeleted() {
+        mapDataController.onOperationGridDeleted()
+    }
+
     override fun onSocketConnected() {
         setServerConnectionBanner(false)
         syncMapStateFromBackend()

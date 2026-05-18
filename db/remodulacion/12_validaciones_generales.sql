@@ -337,8 +337,10 @@ BEGIN
     'grupo_vehiculo',
     'mando_operacion',
     'puntos_interes',
+    'dibujo_libre_operacion',
     'area_interes',
     'ruta_operacion',
+    'ruta_navegacion',
     'marca_edificio',
     'zona_operacion',
     'chat_operacion',
@@ -385,9 +387,24 @@ BEGIN
   WHERE o.id_operacion = v_id_operacion;
 
   IF v_estado IN ('CERRADA','CANCELADA') THEN
+    IF TG_TABLE_NAME = 'chat_operacion' THEN
+      IF TG_OP IN ('INSERT','UPDATE') AND NEW.activo = FALSE THEN
+        RETURN NEW;
+      END IF;
+    END IF;
 
     IF TG_TABLE_NAME = 'mensaje_chat' THEN
-      IF NEW.tipo_mensaje = 'SISTEMA' THEN
+      IF TG_OP <> 'DELETE' AND NEW.tipo_mensaje = 'SISTEMA' THEN
+        RETURN NEW;
+      END IF;
+    END IF;
+
+    IF TG_TABLE_NAME = 'participante_chat' THEN
+      IF TG_OP = 'UPDATE'
+         AND NEW.id_chat = OLD.id_chat
+         AND NEW.tipo = OLD.tipo
+         AND NEW.id_usuario IS NOT DISTINCT FROM OLD.id_usuario
+         AND NEW.id_personal IS NOT DISTINCT FROM OLD.id_personal THEN
         RETURN NEW;
       END IF;
     END IF;
@@ -612,6 +629,17 @@ BEGIN
   v_id_chat := fn_get_or_create_chat_operacion(p_id_operacion);
 
   IF p_id_usuario IS NOT NULL THEN
+    SELECT id_participante
+      INTO v_id_participante
+    FROM participante_chat
+    WHERE id_chat = v_id_chat
+      AND id_usuario = p_id_usuario
+    LIMIT 1;
+
+    IF v_id_participante IS NOT NULL THEN
+      RETURN v_id_participante;
+    END IF;
+
     INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
     VALUES (v_id_chat, 'USUARIO', p_id_usuario, NULL)
     ON CONFLICT (id_chat, id_usuario) DO UPDATE
@@ -619,6 +647,17 @@ BEGIN
     RETURNING id_participante INTO v_id_participante;
 
   ELSIF p_id_personal IS NOT NULL THEN
+    SELECT id_participante
+      INTO v_id_participante
+    FROM participante_chat
+    WHERE id_chat = v_id_chat
+      AND id_personal = p_id_personal
+    LIMIT 1;
+
+    IF v_id_participante IS NOT NULL THEN
+      RETURN v_id_participante;
+    END IF;
+
     INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
     VALUES (v_id_chat, 'PERSONAL', NULL, p_id_personal)
     ON CONFLICT (id_chat, id_personal) DO UPDATE
@@ -792,153 +831,142 @@ $$ LANGUAGE plpgsql;
 -- =========================================================
 
 -- ── vehiculo_operacion ────────────────────────────────────
--- Valida que el destino (tipo_destino + FK) sea coherente
--- y que cuando sea GRUPO, apunte a un subgrupo real, no al padre.
+-- Valida que el responsable humano esté asignado a la operación
+-- y que el contexto de grupo, cuando existe, apunte a un subgrupo real.
 CREATE OR REPLACE FUNCTION fn_validar_destino_vehiculo_operacion()
 RETURNS TRIGGER AS $$
 DECLARE
   v_op_grupo   INT;
   v_grupo_padre INT;
 BEGIN
-  -- Sin destino aún → planificación en curso, se permite
-  IF NEW.tipo_destino IS NULL THEN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM asignacion_operacion_personal
+    WHERE id_operacion = NEW.id_operacion
+      AND id_personal = NEW.id_personal
+      AND estado_asignacion <> 'LIBERADO'
+  ) THEN
+    RAISE EXCEPTION
+      'vehiculo_operacion: id_personal=% no está asignado activo a la operación %',
+      NEW.id_personal, NEW.id_operacion;
+  END IF;
+
+  -- Sin contexto de grupo: el destino es la operación/persona.
+  IF NEW.id_grupo_operacion IS NULL THEN
     RETURN NEW;
   END IF;
 
-  IF NEW.tipo_destino = 'PERSONAL' THEN
-    IF NEW.id_personal IS NULL THEN
-      RAISE EXCEPTION 'vehiculo_operacion: tipo_destino=PERSONAL requiere id_personal';
-    END IF;
-    IF NOT EXISTS (
-      SELECT 1 FROM asignacion_operacion_personal
-      WHERE id_operacion = NEW.id_operacion
-        AND id_personal   = NEW.id_personal
-        AND estado_asignacion <> 'LIBERADO'
-    ) THEN
-      RAISE EXCEPTION
-        'vehiculo_operacion: id_personal=% no está asignado a la operación %',
-        NEW.id_personal, NEW.id_operacion;
-    END IF;
-    RETURN NEW;
+  SELECT id_operacion, id_grupo_padre
+    INTO v_op_grupo, v_grupo_padre
+  FROM grupo_operacion
+  WHERE id_grupo_operacion = NEW.id_grupo_operacion;
+
+  IF v_op_grupo IS NULL THEN
+    RAISE EXCEPTION
+      'vehiculo_operacion: id_grupo_operacion=% no existe', NEW.id_grupo_operacion;
   END IF;
 
-  IF NEW.tipo_destino = 'GRUPO' THEN
-    IF NEW.id_grupo_operacion IS NULL THEN
-      RAISE EXCEPTION 'vehiculo_operacion: tipo_destino=GRUPO requiere id_grupo_operacion';
-    END IF;
-
-    -- El grupo debe pertenecer a la misma operación
-    SELECT id_operacion, id_grupo_padre
-      INTO v_op_grupo, v_grupo_padre
-    FROM grupo_operacion
-    WHERE id_grupo_operacion = NEW.id_grupo_operacion;
-
-    IF v_op_grupo IS NULL THEN
-      RAISE EXCEPTION
-        'vehiculo_operacion: id_grupo_operacion=% no existe', NEW.id_grupo_operacion;
-    END IF;
-
-    IF v_op_grupo <> NEW.id_operacion THEN
-      RAISE EXCEPTION
-        'vehiculo_operacion: id_grupo_operacion=% pertenece a la operación %, no a %',
-        NEW.id_grupo_operacion, v_op_grupo, NEW.id_operacion;
-    END IF;
-
-    -- Solo subgrupos (tienen padre): la flotilla es el grupo raíz y no recibe recursos
-    IF v_grupo_padre IS NULL THEN
-      RAISE EXCEPTION
-        'vehiculo_operacion: id_grupo_operacion=% es un grupo padre (flotilla). Solo los subgrupos pueden recibir vehículos.',
-        NEW.id_grupo_operacion;
-    END IF;
-
-    RETURN NEW;
+  IF v_op_grupo <> NEW.id_operacion THEN
+    RAISE EXCEPTION
+      'vehiculo_operacion: id_grupo_operacion=% pertenece a la operación %, no a %',
+      NEW.id_grupo_operacion, v_op_grupo, NEW.id_operacion;
   END IF;
 
-  RAISE EXCEPTION 'vehiculo_operacion: tipo_destino=% no es válido', NEW.tipo_destino;
+  IF v_grupo_padre IS NULL THEN
+    RAISE EXCEPTION
+      'vehiculo_operacion: id_grupo_operacion=% es una flotilla. Solo los subgrupos pueden recibir vehículos.',
+      NEW.id_grupo_operacion;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM grupo_personal
+    WHERE id_grupo_operacion = NEW.id_grupo_operacion
+      AND id_personal = NEW.id_personal
+  ) THEN
+    RAISE EXCEPTION
+      'vehiculo_operacion: id_personal=% no pertenece al grupo %',
+      NEW.id_personal, NEW.id_grupo_operacion;
+  END IF;
+
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
 
 -- ── uso_equipo_operacion ──────────────────────────────────
--- Valida coherencia del destino flexible y aplica la misma
--- regla: solo subgrupos (no la flotilla) reciben equipos.
+-- Valida coherencia del destino flexible derivado de las columnas
+-- id_vehiculo_contexto/id_grupo_operacion. Ambas pueden convivir
+-- cuando un equipo está en un vehículo dentro de un grupo.
 CREATE OR REPLACE FUNCTION fn_validar_destino_uso_equipo_operacion()
 RETURNS TRIGGER AS $$
 DECLARE
   v_op_grupo    INT;
   v_grupo_padre INT;
 BEGIN
-  -- Sin destino aún → planificación en curso, se permite
-  IF NEW.tipo_destino IS NULL THEN
-    RETURN NEW;
+  IF NOT EXISTS (
+    SELECT 1
+    FROM asignacion_operacion_personal
+    WHERE id_operacion = NEW.id_operacion
+      AND id_personal = NEW.id_personal
+      AND estado_asignacion <> 'LIBERADO'
+  ) THEN
+    RAISE EXCEPTION
+      'uso_equipo_operacion: id_personal=% no está asignado activo a la operación %',
+      NEW.id_personal, NEW.id_operacion;
   END IF;
 
-  IF NEW.tipo_destino = 'PERSONAL' THEN
-    IF NEW.id_personal IS NULL THEN
-      RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=PERSONAL requiere id_personal';
-    END IF;
+  IF NEW.id_vehiculo_contexto IS NOT NULL THEN
     IF NOT EXISTS (
-      SELECT 1 FROM asignacion_operacion_personal
+      SELECT 1
+      FROM vehiculo_operacion
       WHERE id_operacion = NEW.id_operacion
-        AND id_personal   = NEW.id_personal
+        AND id_vehiculo = NEW.id_vehiculo_contexto
         AND estado_asignacion <> 'LIBERADO'
     ) THEN
       RAISE EXCEPTION
-        'uso_equipo_operacion: id_personal=% no está asignado a la operación %',
-        NEW.id_personal, NEW.id_operacion;
+        'uso_equipo_operacion: id_vehiculo_contexto=% no está asignado activo a la operación %',
+        NEW.id_vehiculo_contexto, NEW.id_operacion;
     END IF;
+  END IF;
+
+  IF NEW.id_grupo_operacion IS NULL THEN
     RETURN NEW;
   END IF;
 
-  IF NEW.tipo_destino = 'VEHICULO' THEN
-    IF NEW.id_vehiculo IS NULL THEN
-      RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=VEHICULO requiere id_vehiculo';
-    END IF;
-    IF NOT EXISTS (
-      SELECT 1 FROM vehiculo_operacion
-      WHERE id_operacion    = NEW.id_operacion
-        AND id_vehiculo     = NEW.id_vehiculo
-        AND estado_asignacion <> 'LIBERADO'
-    ) THEN
-      RAISE EXCEPTION
-        'uso_equipo_operacion: id_vehiculo=% no está asignado a la operación %',
-        NEW.id_vehiculo, NEW.id_operacion;
-    END IF;
-    RETURN NEW;
+  SELECT id_operacion, id_grupo_padre
+    INTO v_op_grupo, v_grupo_padre
+  FROM grupo_operacion
+  WHERE id_grupo_operacion = NEW.id_grupo_operacion;
+
+  IF v_op_grupo IS NULL THEN
+    RAISE EXCEPTION
+      'uso_equipo_operacion: id_grupo_operacion=% no existe', NEW.id_grupo_operacion;
   END IF;
 
-  IF NEW.tipo_destino = 'GRUPO' THEN
-    IF NEW.id_grupo_operacion IS NULL THEN
-      RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=GRUPO requiere id_grupo_operacion';
-    END IF;
-
-    -- El grupo debe pertenecer a la misma operación
-    SELECT id_operacion, id_grupo_padre
-      INTO v_op_grupo, v_grupo_padre
-    FROM grupo_operacion
-    WHERE id_grupo_operacion = NEW.id_grupo_operacion;
-
-    IF v_op_grupo IS NULL THEN
-      RAISE EXCEPTION
-        'uso_equipo_operacion: id_grupo_operacion=% no existe', NEW.id_grupo_operacion;
-    END IF;
-
-    IF v_op_grupo <> NEW.id_operacion THEN
-      RAISE EXCEPTION
-        'uso_equipo_operacion: id_grupo_operacion=% pertenece a la operación %, no a %',
-        NEW.id_grupo_operacion, v_op_grupo, NEW.id_operacion;
-    END IF;
-
-    -- Solo subgrupos: la flotilla es el grupo raíz y no recibe recursos
-    IF v_grupo_padre IS NULL THEN
-      RAISE EXCEPTION
-        'uso_equipo_operacion: id_grupo_operacion=% es un grupo padre (flotilla). Solo los subgrupos pueden recibir equipos.',
-        NEW.id_grupo_operacion;
-    END IF;
-
-    RETURN NEW;
+  IF v_op_grupo <> NEW.id_operacion THEN
+    RAISE EXCEPTION
+      'uso_equipo_operacion: id_grupo_operacion=% pertenece a la operación %, no a %',
+      NEW.id_grupo_operacion, v_op_grupo, NEW.id_operacion;
   END IF;
 
-  RAISE EXCEPTION 'uso_equipo_operacion: tipo_destino=% no es válido', NEW.tipo_destino;
+  IF v_grupo_padre IS NULL THEN
+    RAISE EXCEPTION
+      'uso_equipo_operacion: id_grupo_operacion=% es una flotilla. Solo los subgrupos pueden recibir equipos.',
+      NEW.id_grupo_operacion;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM grupo_personal
+    WHERE id_grupo_operacion = NEW.id_grupo_operacion
+      AND id_personal = NEW.id_personal
+  ) THEN
+    RAISE EXCEPTION
+      'uso_equipo_operacion: id_personal=% no pertenece al grupo %',
+      NEW.id_personal, NEW.id_grupo_operacion;
+  END IF;
+
+  RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

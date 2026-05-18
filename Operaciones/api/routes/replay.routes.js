@@ -4,6 +4,7 @@ import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
 import { isInt } from "../utils/validators.js";
 import { ensureTimelineSchema } from "../utils/timeline.js";
+import { fetchOperationGrid } from "../utils/grid.js";
 
 const router = Router();
 
@@ -88,7 +89,8 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
       capas,
       personalAsignado,
       vehiculosAsignados,
-      equiposAsignados
+      equiposAsignados,
+      grid
     ] = await Promise.all([
       pool.query(
         `SELECT id_zona, id_operacion, nombre, geometria, centroide_lat, centroide_lon, zoom_inicial, color
@@ -406,7 +408,8 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
             e.nombre,
             e.numero_serie`,
         [id_operacion]
-      )
+      ),
+      fetchOperationGrid(pool, id_operacion)
     ]);
 
     const [pois, areas, estructuras, rutasTacticas, rutasNavegacion, dibujos, zonas] = capas;
@@ -474,7 +477,14 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
         ? eventIfMissing("ruta_navegacion_eliminada", "ruta_navegacion", row.id_ruta, row.fecha_eliminacion, row)
         : null),
       ...rowsToEvents(dibujos.rows, row => eventIfMissing("dibujo_creado", "dibujo", row.id_dibujo, row.fecha_creacion, row)),
-      ...rowsToEvents(zonas.rows, row => eventIfMissing("zona_creada", "zona", row.id_zona, row.fecha_creacion, row))
+      ...rowsToEvents(zonas.rows, row => eventIfMissing("zona_creada", "zona", row.id_zona, row.fecha_creacion, row)),
+      grid ? eventIfMissing(
+        "cuadricula_guardada",
+        "cuadricula",
+        grid.id_cuadricula,
+        grid.fecha_actualizacion || grid.fecha_creacion,
+        grid
+      ) : null
     ].filter(Boolean);
 
     const allEvents = [...eventos.rows, ...generatedEvents].sort((a, b) => {
@@ -512,8 +522,11 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
         rutas_tacticas: rutasTacticas.rows,
         rutas_navegacion: rutasNavegacion.rows,
         dibujos: dibujos.rows,
-        zonas: zonas.rows
+        zonas: zonas.rows,
+        cuadriculas: grid ? [grid] : []
       },
+      cuadricula_operacion: grid,
+      grid,
       asignacion: {
         personal: personalAsignado.rows,
         vehiculos: vehiculosAsignados.rows,

@@ -498,7 +498,7 @@ class MediaStreamingService : Service() {
         val candidate = source.optString("candidate", "")
         if (candidate.isBlank()) return null
         return IceCandidate(
-            source.optString("sdpMid", null),
+            source.optString("sdpMid", ""),
             source.optInt("sdpMLineIndex", source.optInt("sdp_m_line_index", 0)),
             candidate
         )
@@ -514,12 +514,16 @@ class MediaStreamingService : Service() {
         isRunning = false
         mainHandler.removeCallbacks(pingRunnable)
 
-        if (notifyServer && streamId > 0 && socket?.connected() == true) {
-            socket?.emit("stream_stop", JSONObject().apply {
-                put("id_operacion", operationId)
-                put("id_stream", streamId)
-                put("status", "STOPPED")
-            })
+        if (notifyServer && streamId > 0) {
+            val status = "STOPPED"
+            if (socket?.connected() == true) {
+                socket?.emit("stream_stop", JSONObject().apply {
+                    put("id_operacion", operationId)
+                    put("id_stream", streamId)
+                    put("status", status)
+                })
+            }
+            notifyStreamStopHttp(status)
         }
 
         peerConnections.values.forEach { it.dispose() }
@@ -554,6 +558,34 @@ class MediaStreamingService : Service() {
 
         releaseWakeLock()
         Log.d(TAG, "Transmision detenida")
+    }
+
+    private fun notifyStreamStopHttp(status: String) {
+        if (operationId <= 0 || streamId <= 0 || token.isBlank()) return
+
+        val body = JSONObject()
+            .put("status", status)
+            .toString()
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+
+        val request = Request.Builder()
+            .url("${ApiConfig.BASE_URL}/ops/$operationId/streams/$streamId/stop")
+            .addHeader("Authorization", "Bearer $token")
+            .patch(body)
+            .build()
+
+        Thread {
+            try {
+                httpClient.newCall(request).execute().use { response ->
+                    val responseBody = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "PATCH stop stream fallo ${response.code}: $responseBody")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo confirmar stop stream por HTTP: ${e.message}")
+            }
+        }.start()
     }
 
     private fun createNotificationChannel() {

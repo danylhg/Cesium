@@ -1130,8 +1130,10 @@
     const poiEntities = new Map(); // id_poi → entity
     const structureEntities = new Map();
     const areaEntities = new Map();
+    const operationGridEntities = [];
     let operationZoneEntity = null;
-    const operationZoneRoseEntities = [];
+    let operationZoneForGrid = null;
+    let pendingOperationGrid = null;
 
     function getMilSymbolCanvas(sidc) {
       try {
@@ -1384,15 +1386,13 @@
           viewer.entities.remove(operationZoneEntity);
           operationZoneEntity = null;
         }
-        operationZoneRoseEntities.forEach(e => viewer.entities.remove(e));
-        operationZoneRoseEntities.length = 0;
-
         const hexColor = (zoneObj.color && String(zoneObj.color).startsWith('#')) ? zoneObj.color : '#3b82f6';
         const outline = Cesium.Color.fromCssColorString(hexColor);
         const closedPoints = [...zoneObj.points, zoneObj.points[0]];
         const positions = closedPoints.map(point =>
           Cesium.Cartesian3.fromDegrees(Number(point.lon), Number(point.lat))
         );
+        operationZoneForGrid = zoneObj;
 
         operationZoneEntity = viewer.entities.add({
           id: 'zona_operacion_' + (zoneObj.id_zona || 'actual'),
@@ -1406,67 +1406,187 @@
             clampToGround: true
           }
         });
-
-        // ── Rosa de los vientos (cruz cardinal sobre el bounding box) ──
-        const pts = zoneObj.points;
-        let minLat = Infinity, maxLat = -Infinity;
-        let minLon = Infinity, maxLon = -Infinity;
-        pts.forEach(function (p) {
-          const la = Number(p.lat), lo = Number(p.lon);
-          if (la < minLat) minLat = la;
-          if (la > maxLat) maxLat = la;
-          if (lo < minLon) minLon = lo;
-          if (lo > maxLon) maxLon = lo;
-        });
-        const cLat = (minLat + maxLat) / 2;
-        const cLon = (minLon + maxLon) / 2;
-        const lineColor = Cesium.Color.fromCssColorString('rgba(0,0,0,0.80)');
-
-        // Línea E–W
-        operationZoneRoseEntities.push(viewer.entities.add({
-          polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArray([minLon, cLat, maxLon, cLat]),
-            width: 3,
-            material: lineColor,
-            clampToGround: true
-          }
-        }));
-
-        // Línea N–S
-        operationZoneRoseEntities.push(viewer.entities.add({
-          polyline: {
-            positions: Cesium.Cartesian3.fromDegreesArray([cLon, minLat, cLon, maxLat]),
-            width: 3,
-            material: lineColor,
-            clampToGround: true
-          }
-        }));
-
-        // Etiquetas cardinales
-        var cardinals = [
-          { text: 'N', lat: maxLat, lon: cLon,   px: 0,   py: -18 },
-          { text: 'S', lat: minLat, lon: cLon,   px: 0,   py:  18 },
-          { text: 'E', lat: cLat,   lon: maxLon, px: 18,  py:  0  },
-          { text: 'W', lat: cLat,   lon: minLon, px: -18, py:  0  }
-        ];
-        cardinals.forEach(function (c) {
-          operationZoneRoseEntities.push(viewer.entities.add({
-            position: Cesium.Cartesian3.fromDegrees(c.lon, c.lat),
-            label: {
-              text: c.text,
-              font: 'bold 22px monospace',
-              fillColor: Cesium.Color.fromCssColorString('rgba(0,0,0,0.90)'),
-              outlineColor: Cesium.Color.WHITE,
-              outlineWidth: 3,
-              style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-              pixelOffset: new Cesium.Cartesian2(c.px, c.py),
-              heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-            }
-          }));
-        });
-
+        if (pendingOperationGrid) {
+          const grid = pendingOperationGrid;
+          pendingOperationGrid = null;
+          renderOperationGrid(grid);
+        }
       } catch (e) {
         console.error('Error loadOperationZone: ' + e.message);
+      }
+    };
+
+    window.clearOperationGrid = function () {
+      try {
+        operationGridEntities.forEach(function (entity) {
+          if (entity) viewer.entities.remove(entity);
+        });
+        operationGridEntities.length = 0;
+        pendingOperationGrid = null;
+      } catch (e) {
+        console.error('Error clearOperationGrid: ' + e.message);
+      }
+    };
+
+    function operationGridDefaultName(index) {
+      const phonetic = [
+        'ALFA', 'BRAVO', 'CHARLIE', 'DELTA', 'ECHO', 'FOXTROT', 'GOLF', 'HOTEL',
+        'INDIA', 'JULIETT', 'KILO', 'LIMA', 'MIKE', 'NOVEMBER', 'OSCAR', 'PAPA',
+        'QUEBEC', 'ROMEO', 'SIERRA', 'TANGO', 'UNIFORM', 'VICTOR', 'WHISKEY', 'X-RAY',
+        'YANKEE', 'ZULU'
+      ];
+      const baseName = phonetic[index % phonetic.length] || ('Q' + (index + 1));
+      const cycle = Math.floor(index / phonetic.length);
+      return cycle > 0 ? (baseName + '-' + (cycle + 1)) : baseName;
+    }
+
+    function operationGridBounds(points) {
+      let minLat = Infinity;
+      let maxLat = -Infinity;
+      let minLon = Infinity;
+      let maxLon = -Infinity;
+
+      points.forEach(function (point) {
+        const lat = Number(point.lat);
+        const lon = Number(point.lon);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+        minLon = Math.min(minLon, lon);
+        maxLon = Math.max(maxLon, lon);
+      });
+
+      if (!Number.isFinite(minLat) || !Number.isFinite(maxLat) ||
+          !Number.isFinite(minLon) || !Number.isFinite(maxLon)) return null;
+
+      return { minLat, maxLat, minLon, maxLon };
+    }
+
+    function renderOperationGrid(gridObj) {
+      try {
+        if (!viewer || !gridObj) return;
+        if (!operationZoneForGrid || !Array.isArray(operationZoneForGrid.points) || operationZoneForGrid.points.length < 3) {
+          pendingOperationGrid = gridObj;
+          return;
+        }
+
+        clearOperationGrid();
+
+        const size = String(gridObj.size || '').toLowerCase();
+        const match = size.match(/^(\d+)x(\d+)$/);
+        const rows = Number(gridObj.rows || (match && match[1]));
+        const cols = Number(gridObj.cols || (match && match[2]));
+        if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows <= 0 || cols <= 0) return;
+
+        const bounds = operationGridBounds(operationZoneForGrid.points);
+        if (!bounds) return;
+
+        const latStep = (bounds.maxLat - bounds.minLat) / rows;
+        const lonStep = (bounds.maxLon - bounds.minLon) / cols;
+        if (!Number.isFinite(latStep) || !Number.isFinite(lonStep) || latStep <= 0 || lonStep <= 0) return;
+
+        const colors = [
+          '#FFA000', '#1E88E5', '#E53935', '#00897B', '#8E24AA',
+          '#FB8C00', '#D81B60', '#039BE5', '#43A047', '#FDD835'
+        ].map(function (color) { return Cesium.Color.fromCssColorString(color); });
+
+        let colorIndex = 0;
+        for (let col = 1; col < cols; col += 1) {
+          const lon = bounds.minLon + col * lonStep;
+          const color = colors[colorIndex % colors.length];
+          colorIndex += 1;
+          operationGridEntities.push(viewer.entities.add({
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray([lon, bounds.minLat, lon, bounds.maxLat]),
+              width: 3,
+              material: new Cesium.PolylineDashMaterialProperty({
+                color: color.withAlpha(0.72),
+                dashLength: 16
+              }),
+              clampToGround: true
+            }
+          }));
+        }
+
+        for (let row = 1; row < rows; row += 1) {
+          const lat = bounds.minLat + row * latStep;
+          const color = colors[colorIndex % colors.length];
+          colorIndex += 1;
+          operationGridEntities.push(viewer.entities.add({
+            polyline: {
+              positions: Cesium.Cartesian3.fromDegreesArray([bounds.minLon, lat, bounds.maxLon, lat]),
+              width: 3,
+              material: new Cesium.PolylineDashMaterialProperty({
+                color: color.withAlpha(0.72),
+                dashLength: 16
+              }),
+              clampToGround: true
+            }
+          }));
+        }
+
+        const names = Array.isArray(gridObj.names)
+          ? gridObj.names
+          : (Array.isArray(gridObj.nombres) ? gridObj.nombres : []);
+
+        let index = 0;
+        for (let row = 0; row < rows; row += 1) {
+          const latTop = bounds.maxLat - row * latStep;
+          const latBottom = bounds.maxLat - (row + 1) * latStep;
+
+          for (let col = 0; col < cols; col += 1) {
+            const lonLeft = bounds.minLon + col * lonStep;
+            const lonRight = bounds.minLon + (col + 1) * lonStep;
+            const color = colors[index % colors.length];
+            const label = String(names[index] || '').trim() || operationGridDefaultName(index);
+
+            operationGridEntities.push(viewer.entities.add({
+              polygon: {
+                hierarchy: Cesium.Cartesian3.fromDegreesArray([
+                  lonLeft, latBottom,
+                  lonRight, latBottom,
+                  lonRight, latTop,
+                  lonLeft, latTop
+                ]),
+                material: color.withAlpha(0.08),
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+              }
+            }));
+
+            operationGridEntities.push(viewer.entities.add({
+              position: Cesium.Cartesian3.fromDegrees(lonLeft, latTop),
+              label: {
+                text: ' ' + label + ' ',
+                font: 'bold 13px monospace',
+                fillColor: Cesium.Color.WHITE,
+                backgroundColor: Cesium.Color.BLACK.withAlpha(0.72),
+                showBackground: true,
+                horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+                verticalOrigin: Cesium.VerticalOrigin.TOP,
+                heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+                pixelOffset: new Cesium.Cartesian2(5, 5),
+                disableDepthTestDistance: Number.POSITIVE_INFINITY,
+                scaleByDistance: SCALE_BY_DIST
+              }
+            }));
+
+            index += 1;
+          }
+        }
+      } catch (e) {
+        console.error('Error renderOperationGrid: ' + e.message);
+      }
+    }
+
+    window.loadOperationGrid = function (gridObj) {
+      try {
+        if (!gridObj) {
+          clearOperationGrid();
+          return;
+        }
+        renderOperationGrid(gridObj);
+      } catch (e) {
+        console.error('Error loadOperationGrid: ' + e.message);
       }
     };
 

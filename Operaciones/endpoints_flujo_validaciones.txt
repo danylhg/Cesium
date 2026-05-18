@@ -757,8 +757,6 @@ Casos:
 - items con relaciones nuevas reemplaza todo.
 Prueba:
 - OK en id=5 e id=6.
-Nota:
-- GET /ops/:id/mando no existe.
 
 POST /ops/:id/grupos
 Auth: si
@@ -814,8 +812,6 @@ Casos:
 - Enviar operacion cerrada/cancelada.
 Prueba:
 - OK en id=5 e id=6.
-Nota:
-- GET /ops/:id/grupos no existe.
 
 GET /ops/:id/vehiculos-asignados
 Auth: si
@@ -1360,8 +1356,6 @@ Flujo:
 - Emite socket.
 Prueba:
 - OK en id=5 e id=6.
-Nota:
-- PUT /ops/:id/dibujos/:id_dibujo no existe.
 
 ============================================================
 6. RUTAS TACTICAS, NAVEGACION Y OSRM
@@ -1408,8 +1402,6 @@ Flujo:
 - Registra evento y emite socket.
 Prueba:
 - OK en id=5 e id=6.
-Nota:
-- PUT /ops/:id/rutas/:id_ruta no existe.
 
 DELETE /ops/:id/rutas/:id_ruta
 Auth: si
@@ -1513,8 +1505,6 @@ Flujo:
 - Registra evento y emite socket filtrado.
 Prueba:
 - OK en id=5 e id=6.
-Nota:
-- PUT /ops/:id/rutas/navegacion/:id_ruta no existe.
 
 DELETE /ops/:id/rutas/navegacion/:id_ruta
 Auth: si
@@ -1708,7 +1698,6 @@ Flujo:
 - Guarda fecha_atencion=NOW().
 Nota:
 - No valida que el aviso pertenezca a la operacion del path.
-- DELETE /ops/:id/avisos/:id_aviso no existe.
 Prueba:
 - OK en id=5 e id=6.
 
@@ -1875,48 +1864,7 @@ Prueba:
 - OK 200.
 
 ============================================================
-10. ENDPOINTS REVISADOS QUE NO EXISTEN
-============================================================
-
-Estos endpoints se revisaron en codigo y contra API local.
-Todos respondieron 404 "Ruta no existe".
-
-GET /ops/:id/grupos
-Existe: no
-Impacto:
-- No hay forma directa de consultar jerarquia guardada de flotillas/grupos/celulas.
-Recomendacion:
-- Implementarlo si el frontend necesita leer jerarquia sin reconstruir con POST.
-
-GET /ops/:id/mando
-Existe: no
-Impacto:
-- No hay endpoint directo para consultar relaciones CET -> CELL.
-Recomendacion:
-- Implementarlo si se requiere consultar mando separado del personal enriquecido.
-
-PUT /ops/:id/rutas/:id_ruta
-Existe: no
-Impacto:
-- No hay edicion de nombre, descripcion, geometria o color de ruta tactica.
-
-PUT /ops/:id/rutas/navegacion/:id_ruta
-Existe: no
-Impacto:
-- No hay edicion de ruta de navegacion guardada.
-
-PUT /ops/:id/dibujos/:id_dibujo
-Existe: no
-Impacto:
-- No hay edicion de puntos, color o grosor de dibujo.
-
-DELETE /ops/:id/avisos/:id_aviso
-Existe: no
-Impacto:
-- No hay borrado/cancelacion de avisos; solo GET, POST y PATCH de estado.
-
-============================================================
-11. CASOS GENERALES PARA POSTMAN
+10. CASOS GENERALES PARA POSTMAN
 ============================================================
 
 Auth:
@@ -1962,12 +1910,8 @@ Enums canonicos:
 - Ruta tactica estado: PLANIFICADA, ACTIVA, COMPLETADA, CANCELADA.
 
 ============================================================
-12. PENDIENTES / SIGUIENTE PASO
+11. PENDIENTES / SIGUIENTE PASO
 ============================================================
 
 1. Probar GET /route/osrm con coordenadas reales e internet disponible para confirmar 200.
-2. Decidir si se implementan:
-   - GET /ops/:id/grupos
-   - GET /ops/:id/mando
-3. Decidir si se necesitan endpoints PUT para editar rutas/dibujos.
-4. Si se quiere limpieza de datos POSTMAN_TEST, hacerla con cuidado desde BD porque no existe DELETE /ops.
+2. Si se quiere limpieza de datos POSTMAN_TEST, hacerla con cuidado desde BD porque no existe DELETE /ops.
