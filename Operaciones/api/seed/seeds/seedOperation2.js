@@ -1,6 +1,7 @@
 import { getAdminId, getPersonalByUsername, getPersonalIdStrict } from "../helpers/personal.js";
 import { getVehiculoByCodigo, getEquipoBySerie, getGrupoId } from "../helpers/lookup.js";
 import { ensureChatParticipantUsuario, ensureChatParticipantPersonal } from "../helpers/chat.js";
+import { seedOperationGrid } from "../helpers/grid.js";
 
 export async function seedOperation2(client) {
   const creadoPor = await getAdminId(client);
@@ -272,5 +273,25 @@ export async function seedOperation2(client) {
      19.5405, -96.9240, 6500, "#f97316", creadoPor]
   );
 
-  return { codigo: OP_CODIGO, estado: "PLANIFICADA", idOp };
+  const grid = await seedOperationGrid(client, {
+    idOperacion: idOp,
+    size: "4x4",
+    names: [
+      "Norte A1", "Norte A2", "Norte A3", "Norte A4",
+      "Alfa Oeste", "Aguila 1", "Mando Norte", "Alfa Este",
+      "Bravo Oeste", "Aguila 2", "Flotilla Norte", "Bravo Este",
+      "Sur A1", "Sur A2", "Sur A3", "Sur A4",
+    ],
+    idUsuario: creadoPor,
+  });
+
+  return {
+    codigo: OP_CODIGO,
+    estado: "PLANIFICADA",
+    idOp,
+    personalAsignado: personalAsignado.length,
+    vehiculosFijos: 2,
+    equiposFijos: 2,
+    cuadricula: grid.size,
+  };
 }

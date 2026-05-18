@@ -1366,6 +1366,7 @@ export function setTacticalUI() {
   if (dom.finishShape) dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
 
   const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
+  if (dom.operationZoneControls) dom.operationZoneControls.style.display = isPlanningOperation ? "" : "none";
   if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
   if (dom.finishZoneBtn) dom.finishZoneBtn.style.display = isDrawingZone ? "block" : "none";
   if (dom.markZoneBtn) {

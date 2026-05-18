@@ -77,6 +77,7 @@ export const dom = {
   // Selección
   markZoneBtn: document.getElementById("markZoneBtn"),
   clearZoneBtn: document.getElementById("clearZoneBtn"),
+  operationZoneControls: document.getElementById("operationZoneControls"),
   zoneColorSelect: document.getElementById("zoneColorSelect"),
   zoneWidthRange: document.getElementById("zoneWidthRange"),
   finishZoneBtn: document.getElementById("finishZoneBtn"),

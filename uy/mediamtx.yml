@@ -1,0 +1,22 @@
+logLevel: info
+logDestinations: [stdout]
+
+rtsp: true
+rtspAddress: :8554
+
+rtmp: true
+rtmpAddress: :1935
+
+hls: true
+hlsAddress: :8888
+hlsAllowOrigins: ['*']
+hlsAlwaysRemux: true
+hlsVariant: fmp4
+hlsSegmentCount: 6
+hlsSegmentDuration: 2s
+
+webrtc: true
+webrtcAddress: :8889
+
+paths:
+  all_others:

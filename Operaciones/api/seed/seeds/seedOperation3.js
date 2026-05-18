@@ -1,6 +1,7 @@
 import { getAdminId, getPersonalByUsername, getPersonalIdStrict } from "../helpers/personal.js";
 import { getEquipoBySerie, getGrupoId, getVehiculoByCodigo } from "../helpers/lookup.js";
 import { ensureChatParticipantUsuario, ensureChatParticipantPersonal } from "../helpers/chat.js";
+import { ensureSeedGridSchema, seedOperationGrid } from "../helpers/grid.js";
 
 const OP3_CODIGO = "OP-HISTORICA-003";
 const OP3_INICIO = "2024-09-12 06:00:00-06";
@@ -208,6 +209,9 @@ async function bulkInsert(client, table, columns, rows, {
 }
 
 async function resetOp3Simulation(client, idOp3) {
+  await ensureSeedGridSchema(client);
+  await client.query(`DELETE FROM operacion_cuadricula WHERE id_operacion = $1`, [idOp3]);
+
   await client.query(
     `DELETE FROM mensaje_chat
      WHERE id_chat IN (SELECT id_chat FROM chat_operacion WHERE id_operacion = $1)`,
@@ -1006,7 +1010,7 @@ export async function seedOperation3(client) {
       `
       INSERT INTO asignacion_operacion_personal
         (id_operacion, id_personal, rol_en_operacion, estado_asignacion, asignado_por, fecha_asignacion)
-      VALUES ($1,$2,$3,'EN_CURSO',$4,$5)
+      VALUES ($1,$2,$3,'ASIGNADO',$4,$5)
       ON CONFLICT (id_operacion, id_personal) DO UPDATE
         SET rol_en_operacion     = EXCLUDED.rol_en_operacion,
             estado_asignacion    = EXCLUDED.estado_asignacion,
@@ -1173,6 +1177,20 @@ export async function seedOperation3(client) {
     ]
   );
 
+  const grid = await seedOperationGrid(client, {
+    idOperacion: idOp3,
+    size: "5x5",
+    names: [
+      "NW Reserva", "Norte 1", "Norte 2", "Norte 3", "NE Salida",
+      "Condor 1 W", "Condor 1", "Punto Control", "Ruta Norte", "Observacion NE",
+      "Mando W", "Base Reunion", "Puesto Mando", "Corredor Medio", "Mando E",
+      "Condor 2 W", "Ruta Sur", "Area Inspeccion", "Condor 2", "Salida SE",
+      "SW Logistica", "Sur 1", "Sur 2", "Sur 3", "SE Cierre",
+    ],
+    idUsuario: creadoPor,
+    fecha: SIM_START,
+  });
+
   const mapLayers = buildMapLayers(idOp3, creadoPor, cet3);
   const pois = buildTacticalPois(idOp3, creadoPor, personalAsignado3);
   const trackingPersonal = buildTrackingPersonalRows(idOp3, personalAsignado3);
@@ -1329,6 +1347,17 @@ export async function seedOperation3(client) {
   ], novedades, { returning: "*" });
 
   const timelineEvents = buildTimelineEvents(idOp3, creadoPor, avisosInsertados, novedadesInsertadas);
+  timelineEvents.push({
+    id_operacion: idOp3,
+    tipo_evento: "cuadricula_guardada",
+    entidad_tipo: "cuadricula",
+    entidad_id: grid.id_cuadricula,
+    payload: grid,
+    actor_tipo: "USUARIO",
+    id_usuario: creadoPor,
+    id_personal: null,
+    occurred_at: grid.fecha_actualizacion,
+  });
   await bulkInsert(client, "operacion_evento", [
     "id_operacion",
     "tipo_evento",
@@ -1341,32 +1370,9 @@ export async function seedOperation3(client) {
     "occurred_at",
   ], timelineEvents, { jsonbColumns: ["payload"] });
 
-  await client.query(
-    `UPDATE asignacion_operacion_personal
-     SET estado_asignacion = 'LIBERADO',
-         fecha_fin_asignacion = $2
-     WHERE id_operacion = $1`,
-    [idOp3, SIM_END]
-  );
-
-  await client.query(
-    `UPDATE vehiculo_operacion
-     SET estado_asignacion = 'LIBERADO',
-         fecha_fin_asignacion = $2
-     WHERE id_operacion = $1`,
-    [idOp3, SIM_END]
-  );
-
+  // Los triggers de destino esperan que el personal siga activo al liberar recursos.
   await client.query(
     `UPDATE grupo_vehiculo
-     SET estado_asignacion = 'LIBERADO',
-         fecha_fin_asignacion = $2
-     WHERE id_operacion = $1`,
-    [idOp3, SIM_END]
-  );
-
-  await client.query(
-    `UPDATE operacion_equipo
      SET estado_asignacion = 'LIBERADO',
          fecha_fin_asignacion = $2
      WHERE id_operacion = $1`,
@@ -1384,6 +1390,30 @@ export async function seedOperation3(client) {
   await client.query(
     `UPDATE uso_equipo_operacion
      SET fecha_devolucion = $2
+     WHERE id_operacion = $1`,
+    [idOp3, SIM_END]
+  );
+
+  await client.query(
+    `UPDATE vehiculo_operacion
+     SET estado_asignacion = 'LIBERADO',
+         fecha_fin_asignacion = $2
+     WHERE id_operacion = $1`,
+    [idOp3, SIM_END]
+  );
+
+  await client.query(
+    `UPDATE operacion_equipo
+     SET estado_asignacion = 'LIBERADO',
+         fecha_fin_asignacion = $2
+     WHERE id_operacion = $1`,
+    [idOp3, SIM_END]
+  );
+
+  await client.query(
+    `UPDATE asignacion_operacion_personal
+     SET estado_asignacion = 'LIBERADO',
+         fecha_fin_asignacion = $2
      WHERE id_operacion = $1`,
     [idOp3, SIM_END]
   );
@@ -1433,5 +1463,6 @@ export async function seedOperation3(client) {
     mensajes: mensajes.length,
     objetosTacticos: pois.length,
     avisos: avisosInsertados.length,
+    cuadricula: grid.size,
   };
 }

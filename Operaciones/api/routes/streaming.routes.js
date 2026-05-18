@@ -54,6 +54,47 @@ function joinStreamUrl(base, streamKey) {
   return `${cleanBase}/${streamKey}`;
 }
 
+function getRequestHostname(req) {
+  const forwardedHost = String(req.headers["x-forwarded-host"] || "").split(",")[0].trim();
+  const host = forwardedHost || String(req.headers.host || "").trim();
+  if (!host) return "";
+  if (host.startsWith("[")) return host.replace(/\](:\d+)?$/, "]");
+  return host.replace(/:\d+$/, "");
+}
+
+function getRtmpPublishBaseUrl(req) {
+  const configured = process.env.RTMP_PUBLISH_BASE_URL?.trim();
+  if (configured) return configured;
+  const hostname = getRequestHostname(req);
+  return hostname ? `rtmp://${hostname}/live` : RTMP_PUBLISH_BASE_URL;
+}
+
+function getRtmpPlaybackBaseUrl() {
+  return process.env.RTMP_PLAYBACK_BASE_URL?.trim() || RTMP_PLAYBACK_BASE_URL;
+}
+
+function joinHlsUrl(base, streamKey) {
+  const cleanBase = String(base || "").trim().replace(/\/+$/, "");
+  if (!cleanBase) return null;
+  return `${cleanBase}/${streamKey}/index.m3u8`;
+}
+
+function getRtmpPlaybackUrl(req, streamKey, playbackBaseUrl = null) {
+  const template = process.env.RTMP_PLAYBACK_URL_TEMPLATE?.trim();
+  if (template) {
+    const hostname = getRequestHostname(req);
+    return template
+      .replaceAll("{streamKey}", streamKey)
+      .replaceAll("{stream_key}", streamKey)
+      .replaceAll("{host}", hostname);
+  }
+  if (playbackBaseUrl) return joinHlsUrl(playbackBaseUrl, streamKey);
+  const configuredBase = getRtmpPlaybackBaseUrl();
+  if (configuredBase) return joinHlsUrl(configuredBase, streamKey);
+  const hostname = getRequestHostname(req);
+  return hostname ? joinHlsUrl(`http://${hostname}:8888/live`, streamKey) : null;
+}
+
 function getActorColumns(req) {
   const id = Number(req.user.sub);
   return {
@@ -252,8 +293,9 @@ router.get("/ops/:id/streams/webrtc-config", requireAuth, async (req, res) => {
         iceCandidateEvent: "webrtc_ice_candidate",
       },
       rtmp: {
-        publishBaseUrl: RTMP_PUBLISH_BASE_URL,
-        playbackBaseUrl: RTMP_PLAYBACK_BASE_URL || null,
+        publishBaseUrl: getRtmpPublishBaseUrl(req),
+        playbackBaseUrl: getRtmpPlaybackBaseUrl() || null,
+        playbackUrlTemplate: process.env.RTMP_PLAYBACK_URL_TEMPLATE?.trim() || null,
       },
     },
   });
@@ -361,14 +403,20 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
 
   const label = req.body?.label != null ? String(req.body.label).trim() : null;
   const stream_key = randomUUID();
+  const rtmpPublishBaseUrl = req.body?.rtmp_publish_base_url != null
+    ? String(req.body.rtmp_publish_base_url).trim()
+    : getRtmpPublishBaseUrl(req);
+  const rtmpPlaybackBaseUrl = req.body?.rtmp_playback_base_url != null
+    ? String(req.body.rtmp_playback_base_url).trim()
+    : null;
   const rtmp_publish_url =
     req.body?.rtmp_publish_url != null
       ? String(req.body.rtmp_publish_url).trim()
-      : joinStreamUrl(RTMP_PUBLISH_BASE_URL, stream_key);
+      : joinStreamUrl(rtmpPublishBaseUrl, stream_key);
   const rtmp_playback_url =
     req.body?.rtmp_playback_url != null
       ? String(req.body.rtmp_playback_url).trim()
-      : joinStreamUrl(RTMP_PLAYBACK_BASE_URL, stream_key);
+      : getRtmpPlaybackUrl(req, stream_key, rtmpPlaybackBaseUrl);
   const playback_url = req.body?.playback_url != null ? String(req.body.playback_url).trim() : rtmp_playback_url;
 
   try {
@@ -419,14 +467,20 @@ router.post("/ops/:id/streams/external", requireAuth, async (req, res) => {
   if (!label) return sendError(res, 400, "Falta label");
 
   const stream_key = String(req.body?.stream_key || randomUUID()).trim();
+  const rtmpPublishBaseUrl = req.body?.rtmp_publish_base_url != null
+    ? String(req.body.rtmp_publish_base_url).trim()
+    : getRtmpPublishBaseUrl(req);
+  const rtmpPlaybackBaseUrl = req.body?.rtmp_playback_base_url != null
+    ? String(req.body.rtmp_playback_base_url).trim()
+    : null;
   const rtmp_publish_url =
     req.body?.rtmp_publish_url != null
       ? String(req.body.rtmp_publish_url).trim()
-      : joinStreamUrl(RTMP_PUBLISH_BASE_URL, stream_key);
+      : joinStreamUrl(rtmpPublishBaseUrl, stream_key);
   const rtmp_playback_url =
     req.body?.rtmp_playback_url != null
       ? String(req.body.rtmp_playback_url).trim()
-      : joinStreamUrl(RTMP_PLAYBACK_BASE_URL, stream_key);
+      : getRtmpPlaybackUrl(req, stream_key, rtmpPlaybackBaseUrl);
   const playback_url = req.body?.playback_url != null ? String(req.body.playback_url).trim() : rtmp_playback_url;
   const external_device_id = req.body?.external_device_id != null
     ? String(req.body.external_device_id).trim()

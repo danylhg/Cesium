@@ -36,12 +36,16 @@ const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_SIDE_RATIO = 0.38;
 const VIDEO_BUFFER_DB = "operaciones-video-buffer";
 const VIDEO_BUFFER_STORE = "segments";
+const SETUP_CLEANUP_MARKER_URL = "/Operaciones/runtime/setup_cleanup.json";
+const SETUP_CLEANUP_STORAGE_KEY = "operaciones_video_buffer_setup_cleanup_token";
 const playbackArchives = new Map();
 let playbackUiTimer = null;
 let videoBufferDbPromise = null;
 let operationArchiveLoadPromise = null;
 let operationArchiveLoadKey = "";
 let uploadRetryBound = false;
+let hlsScriptPromise = null;
+const hlsPlayers = new WeakMap();
 
 export function initCameraFeeds(opId = null, socket = null) {
   activeOperationId = opId || activeOperationId || localStorage.getItem("active_operation_id");
@@ -62,12 +66,15 @@ export function initCameraFeeds(opId = null, socket = null) {
   bindCameraEvents();
   makePanelDraggable();
   ensurePlaybackUiTimer();
-  void openVideoBufferDb();
   bindUploadRetryEvents();
-  void retryPendingRecordingUploads();
-  const localCleanup = shouldClearVideoBufferFromUrl()
-    ? clearLocalVideoBufferForOperation({ render: false }).then(clearVideoBufferUrlFlag)
-    : Promise.resolve();
+  const setupCleanup = clearLocalVideoBufferAfterSetupReset();
+  void setupCleanup.then(() => openVideoBufferDb());
+  void setupCleanup.then(() => retryPendingRecordingUploads());
+  const localCleanup = setupCleanup.then(() => (
+    shouldClearVideoBufferFromUrl()
+      ? clearLocalVideoBufferForOperation({ render: false }).then(clearVideoBufferUrlFlag)
+      : Promise.resolve()
+  ));
   void localCleanup
     .then(() => pruneDeletedRemoteSegmentsForOperation())
     .then(() => loadPersistedSegmentsForOperation())
@@ -96,6 +103,26 @@ function absoluteUrl(url) {
   if (!url) return "";
   if (/^https?:\/\//i.test(url) || /^rtmp:\/\//i.test(url)) return url;
   return `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function isHlsUrl(url) {
+  return /\.m3u8(?:[?#].*)?$/i.test(String(url || ""));
+}
+
+function ensureHlsScript() {
+  if (window.Hls) return Promise.resolve(window.Hls);
+  if (hlsScriptPromise) return hlsScriptPromise;
+
+  hlsScriptPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js";
+    script.async = true;
+    script.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error("hls.js no disponible"));
+    script.onerror = () => reject(new Error("No se pudo cargar hls.js"));
+    document.head.appendChild(script);
+  });
+
+  return hlsScriptPromise;
 }
 
 function loadPlaceholderCameraData() {
@@ -885,7 +912,79 @@ async function clearLocalVideoBufferForOperation({ render = true } = {}) {
   return keys.length;
 }
 
+function clearLocalVideoBufferMemory(keys = null) {
+  const targetKeys = keys ? new Set(keys.filter(Boolean)) : null;
+
+  const clearArchive = (archive) => {
+    const nextSegments = [];
+    (archive.segments || []).forEach((segment) => {
+      if (!targetKeys || targetKeys.has(segment.key)) {
+        if (segment.url) URL.revokeObjectURL(segment.url);
+        return;
+      }
+      nextSegments.push(segment);
+    });
+    archive.segments = nextSegments;
+    archive.activeSegmentIndex = Math.min(archive.activeSegmentIndex || 0, Math.max(0, nextSegments.length - 1));
+    archive.reviewMode = false;
+    archive.localReviewInitialized = false;
+    archive.forcedLocalReview = false;
+  };
+
+  playbackArchives.forEach(clearArchive);
+  playbackGroups.forEach(clearArchive);
+  cameraData = cameraData.filter((camera) => !camera.localArchiveOnly);
+  operationArchiveLoadPromise = null;
+}
+
+async function clearAllLocalVideoBuffer({ render = true } = {}) {
+  const db = await openVideoBufferDb();
+  if (!db) return 0;
+
+  const keys = await new Promise((resolve) => {
+    const tx = db.transaction(VIDEO_BUFFER_STORE, "readonly");
+    const request = tx.objectStore(VIDEO_BUFFER_STORE).getAllKeys();
+    request.onsuccess = () => resolve(request.result || []);
+    request.onerror = () => resolve([]);
+  });
+
+  await new Promise((resolve) => {
+    const tx = db.transaction(VIDEO_BUFFER_STORE, "readwrite");
+    tx.objectStore(VIDEO_BUFFER_STORE).clear();
+    tx.oncomplete = resolve;
+    tx.onerror = resolve;
+  });
+
+  clearLocalVideoBufferMemory(keys.map(String));
+
+  if (render) {
+    renderFeeds();
+    attachLiveFeeds();
+    renderActivePersonnelCamera();
+  }
+
+  return keys.length;
+}
+
+async function clearLocalVideoBufferAfterSetupReset() {
+  try {
+    const res = await fetch(`${SETUP_CLEANUP_MARKER_URL}?ts=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return false;
+
+    const marker = await res.json().catch(() => null);
+    const token = String(marker?.token || "").trim();
+    if (!token || localStorage.getItem(SETUP_CLEANUP_STORAGE_KEY) === token) return false;
+
+    await clearAllLocalVideoBuffer({ render: false });
+    localStorage.setItem(SETUP_CLEANUP_STORAGE_KEY, token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 window.clearOperacionesVideoBuffer = () => clearLocalVideoBufferForOperation();
+window.clearOperacionesVideoBufferAll = () => clearAllLocalVideoBuffer();
 
 function addPersistedSegmentToArchive(archive, item, existingKeys = null) {
   if (!archive || !item?.blob?.size) return false;
@@ -1462,9 +1561,13 @@ function createFeedElement(camera) {
 
 function buildMediaMarkup(camera) {
   if (camera.isPlayableUrl) {
+    const playbackUrl = absoluteUrl(camera.playbackUrl);
+    const hlsAttr = isHlsUrl(playbackUrl)
+      ? `data-hls-src="${escapeHtml(playbackUrl)}"`
+      : `src="${escapeHtml(playbackUrl)}"`;
     return `
       <video
-        src="${escapeHtml(absoluteUrl(camera.playbackUrl))}"
+        ${hlsAttr}
         autoplay
         muted
         playsinline
@@ -1841,12 +1944,44 @@ function bindCameraSurfaceInteractions(feed, camera) {
 }
 
 function attachLiveFeeds() {
+  attachPlayableUrlFeeds();
   cameraData.forEach((camera) => {
     if (camera.isWebRtc && camera.streamId) {
       joinWebRtcStream(camera);
     }
   });
   attachKnownMediaStreams();
+}
+
+function attachPlayableUrlFeeds() {
+  document.querySelectorAll("video[data-hls-src]").forEach((video) => {
+    if (video.dataset.hlsAttached === "1") return;
+    const url = video.dataset.hlsSrc;
+    if (!url) return;
+
+    if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = url;
+      video.dataset.hlsAttached = "1";
+      video.play?.().catch(() => {});
+      return;
+    }
+
+    ensureHlsScript()
+      .then((Hls) => {
+        if (!Hls.isSupported()) return;
+        const previous = hlsPlayers.get(video);
+        previous?.destroy?.();
+        const hls = new Hls({ lowLatencyMode: true });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+        hlsPlayers.set(video, hls);
+        video.dataset.hlsAttached = "1";
+        video.play?.().catch(() => {});
+      })
+      .catch((err) => {
+        console.warn("[CAMERAS] No se pudo preparar HLS:", err.message);
+      });
+  });
 }
 
 export async function showPersonnelLiveCamera(personId, displayName = "") {

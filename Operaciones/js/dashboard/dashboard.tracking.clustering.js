@@ -8,12 +8,18 @@ const CLUSTER_DISTANCE_METERS = 30; // Distancia para considerar "adentro" o "vi
  * Recibe una actualización de ubicación y actualiza su historial local.
  * Luego reevalua a qué vehículo pertenece el personal.
  */
-export function processTrackingUpdate(key, lat, lng) {
+export function processTrackingUpdate(key, lat, lng, extra = {}) {
   const now = Date.now();
   const historyMap = dashboardState.trackingHistory;
 
   // Actualizar historial básico de este punto
-  historyMap.set(key, { lat, lng, time: now });
+  historyMap.set(key, {
+    ...(historyMap.get(key) || {}),
+    ...extra,
+    lat,
+    lng,
+    time: now
+  });
 
   // Si actualizamos a un vehículo, o un personal, reevaluamos clusters:
   // Es más fácil reevaluar todo el personal activo contra todos los vehículos activos

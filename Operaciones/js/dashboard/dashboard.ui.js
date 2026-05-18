@@ -11,6 +11,11 @@ import {
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 import { dashboardState } from "./dashboard.state.js";
 
+const PERSONAL_CONNECTION_STALE_MS = 30000;
+const personalLiveData = new Map();
+let activePersonInfoPopup = null;
+let personInfoRefreshTimer = null;
+
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
 }
@@ -639,19 +644,27 @@ export function updateChatAvailability() {
   const closeActiveBtn = document.getElementById("closeActiveOpBtn");
   const saveOpMapBtn = document.getElementById("saveOpMapBtn");
   const cancelOpMapBtn = document.getElementById("cancelOpMapBtn");
+  const operationZoneControls = document.getElementById("operationZoneControls");
 
   if (badge) badge.style.display = active ? "inline-block" : "none";
   if (title) title.textContent = active ? (op.title || op.titulo || "Operacion") : "Panorama tactico";
   if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
-  if (actionBtns) actionBtns.style.display = "flex";
-  if (saveOpMapBtn) saveOpMapBtn.disabled = !planned || closed;
-  if (cancelOpMapBtn) cancelOpMapBtn.disabled = !planned || closed;
+  if (actionBtns) actionBtns.style.display = planned ? "flex" : "none";
+  if (operationZoneControls) operationZoneControls.style.display = planned ? "" : "none";
+  if (saveOpMapBtn) {
+    saveOpMapBtn.style.display = planned ? "" : "none";
+    saveOpMapBtn.disabled = !planned || closed;
+  }
+  if (cancelOpMapBtn) {
+    cancelOpMapBtn.style.display = planned ? "" : "none";
+    cancelOpMapBtn.disabled = !planned || closed;
+  }
   if (activateOpBtn) {
-    activateOpBtn.style.display = "inline-flex";
+    activateOpBtn.style.display = planned ? "inline-flex" : "none";
     activateOpBtn.disabled = !planned || closed;
   }
   if (closeActiveBtn) {
-    closeActiveBtn.style.display = "inline-flex";
+    closeActiveBtn.style.display = active ? "inline-flex" : "none";
     closeActiveBtn.disabled = !active;
   }
 
@@ -749,6 +762,71 @@ function formatBattery(value) {
   if (battery == null) return "-";
   const text = String(battery).trim();
   return text.endsWith("%") ? text : `${text}%`;
+}
+
+function parseTimestamp(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatStatusTime(timestamp) {
+  return timestamp ? formatTime(new Date(timestamp).toISOString()) : "";
+}
+
+function getPersonalLiveRecord(personId, anchor = {}) {
+  const id = String(personId || "").trim();
+  const stored = personalLiveData.get(id) || {};
+  const history = dashboardState.trackingHistory?.get(`P:${id}`) || {};
+  const liveData = history.liveData || {};
+  return {
+    ...stored,
+    ...liveData,
+    ...anchor,
+    lat: firstValue(anchor.lat, liveData.lat, liveData.latitud, stored.lat, stored.latitud, history.lat),
+    lng: firstValue(anchor.lng, anchor.lon, liveData.lng, liveData.lon, liveData.longitud, stored.lng, stored.lon, stored.longitud, history.lng),
+    timestamp: firstValue(
+      anchor.timestamp,
+      anchor.updated_at,
+      liveData.timestamp,
+      liveData.updated_at,
+      liveData.fecha_actualizacion,
+      liveData.ultima_actualizacion,
+      stored.timestamp,
+      stored.updated_at,
+      history.time
+    )
+  };
+}
+
+function getConnectionStatus(personId, person = {}, live = {}) {
+  const timestamp = parseTimestamp(live.timestamp);
+  if (!timestamp) {
+    return {
+      online: false,
+      text: "SIN CONEXIÓN",
+      detail: "Sin ubicación reciente",
+      timestamp: null
+    };
+  }
+
+  const ageMs = Date.now() - timestamp;
+  if (ageMs <= PERSONAL_CONNECTION_STALE_MS) {
+    return {
+      online: true,
+      text: "EN LÍNEA",
+      detail: `Actualizado ${formatStatusTime(timestamp)}`,
+      timestamp
+    };
+  }
+
+  return {
+    online: false,
+    text: "SIN CONEXIÓN",
+    detail: `Última vez ${formatStatusTime(timestamp)}`,
+    timestamp
+  };
 }
 
 function sameText(a, b) {
@@ -850,18 +928,20 @@ export function showPersonnelDetail(personId, anchor = {}) {
     return;
   }
 
+  const id = String(personId);
+  const live = getPersonalLiveRecord(id, anchor);
   const nombre = getPersonName(person) || anchor.name || `Personal ${personId}`;
   const liveCoords = getPersonalEntityCoordinates(personId);
-  const lat = firstValue(anchor.lat, liveCoords?.lat, person.latitud, person.lat);
-  const lng = firstValue(anchor.lng, liveCoords?.lon, person.longitud, person.lng, person.lon);
-  const velocidad = firstValue(anchor.velocidad, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
-  const curso = firstValue(anchor.curso, person.curso, person.heading, person.rumbo, "-");
-  const estado = firstValue(person.estado, person.estatus, person.activo === false ? "INACTIVO" : "ACTIVO");
+  const lat = firstValue(live.lat, liveCoords?.lat, person.latitud, person.lat);
+  const lng = firstValue(live.lng, liveCoords?.lon, person.longitud, person.lng, person.lon);
+  const velocidad = firstValue(live.velocidad, live.speed, live.velocidad_kmh, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
+  const curso = firstValue(live.curso, live.heading, live.rumbo, person.curso, person.heading, person.rumbo, "-");
+  const connectionStatus = getConnectionStatus(id, person, live);
   const sidc = firstValue(person.sidc, person.codigo_sidc, "-");
-  const fc = firstValue(person.frecuencia_cardiaca, person.fc, person.heart_rate, "-");
-  const baro = firstValue(person.barometro, person.baro, person.presion, person.pressure, "-");
-  const bateria = formatBattery(firstValue(person.bateria, person.battery, person.battery_level));
-  const actualizado = firstValue(person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
+  const fc = firstValue(live.frecuencia_cardiaca, live.fc, live.heart_rate, person.frecuencia_cardiaca, person.fc, person.heart_rate, "-");
+  const baro = firstValue(live.barometro, live.baro, live.presion, live.pressure, person.barometro, person.baro, person.presion, person.pressure, "-");
+  const bateria = formatBattery(firstValue(live.bateria, live.battery, live.battery_level, person.bateria, person.battery, person.battery_level));
+  const actualizado = firstValue(live.timestamp, person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
   const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
 
   dom.personInfoPopupContent.innerHTML = `
@@ -873,7 +953,10 @@ export function showPersonnelDetail(personId, anchor = {}) {
       <div class="personInfoLabel">Curso:</div><div class="personInfoValue">${escapeHtml(String(curso))}${String(curso) !== "-" ? "&deg;" : ""}</div>
       <div class="personInfoLabel">SIDC:</div><div class="personInfoValue">${escapeHtml(String(sidc))}</div>
     </div>
-    <div class="personInfoStatus">Estado <strong>${escapeHtml(String(estado).toUpperCase())}</strong></div>
+    <div class="personInfoStatus ${connectionStatus.online ? "online" : "offline"}">
+      Estado <strong>${escapeHtml(connectionStatus.text)}</strong>
+      <span>${escapeHtml(connectionStatus.detail)}</span>
+    </div>
     <div class="personInfoBio">
       <div class="personInfoBioTitle">Biometricos (Galaxy Watch)</div>
       <div class="personInfoGrid">
@@ -881,7 +964,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
         <div class="personInfoLabel">Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
         <div class="personInfoLabel">Bateria:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
       </div>
-      <div class="personInfoUpdated">Actualizado ${escapeHtml(actualizado ? formatTime(actualizado) : formatTime(new Date().toISOString()))}</div>
+      <div class="personInfoUpdated">${escapeHtml(actualizado ? `Actualizado ${formatTime(actualizado)}` : "Sin datos recientes")}</div>
     </div>
     <div class="personInfoCamera">
       <img src="${escapeHtml(cameraImage)}" alt="Camara de ${escapeHtml(nombre)}">
@@ -891,9 +974,56 @@ export function showPersonnelDetail(personId, anchor = {}) {
   if (dom.btnClosePersonInfoPopup) {
     dom.btnClosePersonInfoPopup.onclick = () => {
       dom.personInfoPopup?.classList.add("hidden");
+      activePersonInfoPopup = null;
+      stopPersonInfoRefreshTimer();
     };
   }
 
+  activePersonInfoPopup = { personId: id, anchor };
+  startPersonInfoRefreshTimer();
   dom.personInfoPopup.classList.remove("hidden");
   placePersonInfoPopup(anchor);
+}
+
+function startPersonInfoRefreshTimer() {
+  if (personInfoRefreshTimer) return;
+  personInfoRefreshTimer = window.setInterval(() => {
+    if (!activePersonInfoPopup || dom.personInfoPopup?.classList.contains("hidden")) {
+      stopPersonInfoRefreshTimer();
+      return;
+    }
+    showPersonnelDetail(activePersonInfoPopup.personId, activePersonInfoPopup.anchor);
+  }, 5000);
+}
+
+function stopPersonInfoRefreshTimer() {
+  if (!personInfoRefreshTimer) return;
+  window.clearInterval(personInfoRefreshTimer);
+  personInfoRefreshTimer = null;
+}
+
+export function refreshPersonnelInfoPopup(personId, data = {}) {
+  const id = String(personId || data?.id_personal || "").trim();
+  if (!id) return;
+
+  personalLiveData.set(id, {
+    ...(personalLiveData.get(id) || {}),
+    ...data,
+    timestamp: firstValue(
+      data.timestamp,
+      data.updated_at,
+      data.fecha_actualizacion,
+      data.ultima_actualizacion,
+      Date.now()
+    )
+  });
+
+  if (!activePersonInfoPopup || activePersonInfoPopup.personId !== id || dom.personInfoPopup?.classList.contains("hidden")) {
+    return;
+  }
+
+  showPersonnelDetail(id, {
+    ...activePersonInfoPopup.anchor,
+    ...data
+  });
 }

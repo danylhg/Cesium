@@ -1414,19 +1414,6 @@ body {
   -webkit-backdrop-filter: blur(14px);
 }
 
-.personInfoPopup::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  bottom: -9px;
-  width: 18px;
-  height: 18px;
-  transform: translateX(-50%) rotate(45deg);
-  background: rgba(245, 248, 252, 0.96);
-  border-right: 1px solid rgba(15, 23, 42, 0.10);
-  border-bottom: 1px solid rgba(15, 23, 42, 0.10);
-}
-
 .personInfoPopupClose {
   position: absolute;
   top: 7px;
@@ -1479,6 +1466,18 @@ body {
 
 .personInfoStatus strong {
   color: #0f8a5f;
+}
+
+.personInfoStatus.offline strong {
+  color: #b42318;
+}
+
+.personInfoStatus span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .personInfoBio {

@@ -1,6 +1,7 @@
 import { getAdminId, getPersonalByUsername, getPersonalIdStrict } from "../helpers/personal.js";
 import { getVehiculoByCodigo, getEquipoBySerie, getGrupoId } from "../helpers/lookup.js";
 import { ensureChatParticipantUsuario, ensureChatParticipantPersonal } from "../helpers/chat.js";
+import { seedOperationGrid } from "../helpers/grid.js";
 
 export async function seedOperation1(client) {
   const creadoPor = await getAdminId(client);
@@ -20,10 +21,10 @@ export async function seedOperation1(client) {
   await client.query(
     `INSERT INTO operacion
        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
-     VALUES ($1,$2,$3,'MEDIA','ACTIVA','2025-02-09 08:00:00-06','2025-06-09 23:59:59-06',$4,$5)
+     VALUES ($1,$2,$3,'MEDIA','ACTIVA','2026-02-09 08:00:00-06','2026-12-31 23:59:59-06',$4,$5)
      ON CONFLICT (codigo) DO UPDATE SET
        nombre=$2, descripcion=$3, prioridad='MEDIA', estado='ACTIVA',
-       fecha_inicio='2025-02-09 08:00:00-06', fecha_fin='2025-06-09 23:59:59-06',
+       fecha_inicio='2026-02-09 08:00:00-06', fecha_fin='2026-12-31 23:59:59-06',
        creada_por=$4, id_cut=$5`,
     [OP_CODIGO,
      "Operacion de Prueba SEDAM",
@@ -219,7 +220,7 @@ export async function seedOperation1(client) {
   if (total === 0 && idAdmin) {
     await client.query(
       `INSERT INTO mensaje_chat (id_chat, id_participante, contenido, tipo_mensaje)
-       VALUES ($1,$2,'OPERACIÓN INICIADA 9 DE FEBRERO DEL 2025.','SISTEMA')`,
+       VALUES ($1,$2,'OPERACIÓN INICIADA 9 DE FEBRERO DEL 2026.','SISTEMA')`,
       [idChat, idAdmin]
     );
   }
@@ -240,5 +241,24 @@ export async function seedOperation1(client) {
      19.0475, -95.972075, 1000, "#3b82f6", creadoPor]
   );
 
-  return { codigo: OP_CODIGO, estado: "ACTIVA", idOp };
+  const grid = await seedOperationGrid(client, {
+    idOperacion: idOp,
+    size: "3x3",
+    names: [
+      "Alfa NW", "Alfa Norte", "Alfa NE",
+      "Aguila 1", "Puesto Mando", "Aguila 2",
+      "Acceso SW", "Corredor Sur", "Acceso SE",
+    ],
+    idUsuario: creadoPor,
+  });
+
+  return {
+    codigo: OP_CODIGO,
+    estado: "ACTIVA",
+    idOp,
+    personalAsignado: personalAsignado.length,
+    vehiculosFijos: 2,
+    equiposFijos: 2,
+    cuadricula: grid.size,
+  };
 }

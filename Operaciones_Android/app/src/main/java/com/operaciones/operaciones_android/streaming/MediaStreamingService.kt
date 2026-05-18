@@ -20,6 +20,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.config.ApiConfig
+import com.pedro.common.ConnectChecker
+import com.pedro.library.rtmp.RtmpCamera2
 import io.socket.client.IO
 import io.socket.client.Socket
 import okhttp3.MediaType.Companion.toMediaType
@@ -51,7 +53,7 @@ import org.webrtc.VideoTrack
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 
-class MediaStreamingService : Service() {
+class MediaStreamingService : Service(), ConnectChecker {
 
     companion object {
         const val ACTION_START = "com.operaciones.operaciones_android.streaming.START"
@@ -72,6 +74,12 @@ class MediaStreamingService : Service() {
         private const val CHANNEL_ID = "sedam_media_stream"
         private const val NOTIFICATION_ID = 3001
         private const val LOCAL_STREAM_ID = "sedam_local_stream"
+        private const val RTMP_VIDEO_WIDTH = 1280
+        private const val RTMP_VIDEO_HEIGHT = 720
+        private const val RTMP_VIDEO_FPS = 30
+        private const val RTMP_VIDEO_BITRATE = 2_500 * 1024
+        private const val RTMP_AUDIO_BITRATE = 128 * 1024
+        private const val RTMP_AUDIO_SAMPLE_RATE = 44_100
     }
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -97,6 +105,7 @@ class MediaStreamingService : Service() {
     private var audioSource: AudioSource? = null
     private var localVideoTrack: VideoTrack? = null
     private var localAudioTrack: AudioTrack? = null
+    private var rtmpCamera: RtmpCamera2? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var iceServers: List<PeerConnection.IceServer> = defaultIceServers()
     private var stopping = false
@@ -161,16 +170,33 @@ class MediaStreamingService : Service() {
                 streamId = stream.getInt("id_stream")
                 rtmpPublishUrl = stream.optString("rtmp_publish_url", "")
                 rtmpPlaybackUrl = stream.optString("rtmp_playback_url", stream.optString("playback_url", ""))
-                iceServers = fetchIceServers()
+                if (!isRtmpUrl(rtmpPublishUrl)) {
+                    iceServers = fetchIceServers()
+                }
 
                 mainHandler.post {
                     try {
-                        startWebRtcPublisher()
+                        if (isRtmpUrl(rtmpPublishUrl)) {
+                            startRtmpPublisher()
+                        } else {
+                            startWebRtcPublisher()
+                        }
                         connectSignalingSocket()
-                        updateNotification("Transmitiendo camara y microfono en vivo por WebRTC/RTMP")
+                        updateNotification(
+                            if (isRtmpUrl(rtmpPublishUrl)) {
+                                "Transmitiendo camara y microfono en vivo por RTMP"
+                            } else {
+                                "Transmitiendo camara y microfono en vivo por WebRTC"
+                            }
+                        )
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error iniciando WebRTC", e)
-                        stopStreaming(notifyServer = true)
+                        Log.e(TAG, "Error iniciando transmision", e)
+                        if (isRtmpUrl(rtmpPublishUrl)) {
+                            notifyStreamStopHttp("ERROR")
+                            stopStreaming(notifyServer = false)
+                        } else {
+                            stopStreaming(notifyServer = true)
+                        }
                         stopSelf()
                     }
                 }
@@ -200,8 +226,10 @@ class MediaStreamingService : Service() {
     private fun createStreamSession(): JSONObject {
         val body = JSONObject().apply {
             put("kind", "AUDIO_VIDEO")
-            put("protocol", "HYBRID")
+            put("protocol", "RTMP")
             put("label", userName.ifBlank { "Android" })
+            put("rtmp_publish_base_url", ApiConfig.RTMP_PUBLISH_BASE_URL)
+            put("rtmp_playback_base_url", ApiConfig.HLS_PLAYBACK_BASE_URL)
             put("consent_ack", true)
             put("foreground_notice", true)
         }
@@ -270,6 +298,41 @@ class MediaStreamingService : Service() {
 
     private fun defaultIceServers(): List<PeerConnection.IceServer> =
         listOf(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+
+    @SuppressLint("MissingPermission")
+    private fun startRtmpPublisher() {
+        val url = rtmpPublishUrl.trim()
+        if (!isRtmpUrl(url)) throw IllegalStateException("URL RTMP invalida: $url")
+
+        val camera = RtmpCamera2(applicationContext, this)
+        rtmpCamera = camera
+
+        val videoReady = camera.prepareVideo(
+            RTMP_VIDEO_WIDTH,
+            RTMP_VIDEO_HEIGHT,
+            RTMP_VIDEO_FPS,
+            RTMP_VIDEO_BITRATE,
+            2,
+            0
+        )
+        val audioReady = camera.prepareAudio(
+            RTMP_AUDIO_BITRATE,
+            RTMP_AUDIO_SAMPLE_RATE,
+            true
+        )
+        if (!videoReady || !audioReady) {
+            throw IllegalStateException("No se pudo preparar encoder RTMP video=$videoReady audio=$audioReady")
+        }
+
+        camera.startStream(url)
+        Log.d(TAG, "RTMP publisher iniciando streamId=$streamId publish=$url playback=$rtmpPlaybackUrl")
+    }
+
+    private fun isRtmpUrl(url: String?): Boolean {
+        val value = url?.trim().orEmpty()
+        return value.startsWith("rtmp://", ignoreCase = true) ||
+            value.startsWith("rtmps://", ignoreCase = true)
+    }
 
     @SuppressLint("MissingPermission")
     private fun startWebRtcPublisher() {
@@ -529,6 +592,20 @@ class MediaStreamingService : Service() {
         peerConnections.values.forEach { it.dispose() }
         peerConnections.clear()
 
+        rtmpCamera?.let { camera ->
+            try {
+                if (camera.isStreaming) camera.stopStream()
+            } catch (e: Exception) {
+                Log.w(TAG, "stop RTMP stream: ${e.message}")
+            }
+            try {
+                camera.stopCamera()
+            } catch (e: Exception) {
+                Log.w(TAG, "stop RTMP camera: ${e.message}")
+            }
+        }
+        rtmpCamera = null
+
         try {
             videoCapturer?.stopCapture()
         } catch (e: Exception) {
@@ -558,6 +635,51 @@ class MediaStreamingService : Service() {
 
         releaseWakeLock()
         Log.d(TAG, "Transmision detenida")
+    }
+
+    override fun onConnectionStarted(url: String) {
+        Log.d(TAG, "RTMP conectando: $url")
+        mainHandler.post { updateNotification("Conectando RTMP...") }
+    }
+
+    override fun onConnectionSuccess() {
+        Log.d(TAG, "RTMP conectado")
+        mainHandler.post { updateNotification("Transmitiendo por RTMP") }
+    }
+
+    override fun onConnectionFailed(reason: String) {
+        Log.e(TAG, "RTMP fallo: $reason")
+        notifyStreamStopHttp("ERROR")
+        mainHandler.post {
+            if (!stopping) {
+                updateNotification("RTMP fallo")
+                stopStreaming(notifyServer = false)
+                stopSelf()
+            }
+        }
+    }
+
+    override fun onNewBitrate(bitrate: Long) {
+        Log.d(TAG, "RTMP bitrate=$bitrate")
+    }
+
+    override fun onDisconnect() {
+        Log.d(TAG, "RTMP desconectado")
+    }
+
+    override fun onAuthError() {
+        Log.e(TAG, "RTMP auth error")
+        notifyStreamStopHttp("ERROR")
+        mainHandler.post {
+            if (!stopping) {
+                stopStreaming(notifyServer = false)
+                stopSelf()
+            }
+        }
+    }
+
+    override fun onAuthSuccess() {
+        Log.d(TAG, "RTMP auth OK")
     }
 
     private fun notifyStreamStopHttp(status: String) {

@@ -2,7 +2,11 @@
 
 import { dashboardState } from "./dashboard.state.js";
 import { processTrackingUpdate } from "./dashboard.tracking.clustering.js";
-import { activatePersonalLocation, updateFollowedPersonalLocation } from "./dashboard.ui.js";
+import {
+  activatePersonalLocation,
+  refreshPersonnelInfoPopup,
+  updateFollowedPersonalLocation
+} from "./dashboard.ui.js";
 
 const API_BASE = () => localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const token = () => localStorage.getItem("token");
@@ -39,10 +43,12 @@ function upsertPersonalTracking(item) {
 
   upsertTrackingEntity(`P:${item.id_personal}`, coords.lat, coords.lng, makePersonalLabel(item), COLOR_PERSONAL, {
     tacticalType: "personal",
-    trackingRole: item.rol_en_operacion || item.rol || ""
+    trackingRole: item.rol_en_operacion || item.rol || "",
+    liveData: item
   });
   activatePersonalLocation(item.id_personal, coords.lat, coords.lng);
   updateFollowedPersonalLocation(item.id_personal, coords.lat, coords.lng);
+  refreshPersonnelInfoPopup(item.id_personal, item);
 }
 
 function upsertVehiculoTracking(item) {
@@ -56,7 +62,7 @@ function upsertVehiculoTracking(item) {
 
 // ── Crear o mover una entidad de tracking ────────────────────
 function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
-  processTrackingUpdate(key, lat, lng);
+  processTrackingUpdate(key, lat, lng, meta.liveData ? { liveData: meta.liveData } : {});
 
   const viewer = dashboardState.viewer;
   if (!viewer) return;
