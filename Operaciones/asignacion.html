@@ -43,7 +43,33 @@
               <input class="inp" type="date" id="opInicio" />
 
               <label class="lbl">Hora de inicio de operación</label>
-              <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5" />
+              <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5" list="opHoraInicioList" autocomplete="off" />
+              <datalist id="opHoraInicioList">
+                <option value="00:00"></option>
+                <option value="01:00"></option>
+                <option value="02:00"></option>
+                <option value="03:00"></option>
+                <option value="04:00"></option>
+                <option value="05:00"></option>
+                <option value="06:00"></option>
+                <option value="07:00"></option>
+                <option value="08:00"></option>
+                <option value="09:00"></option>
+                <option value="10:00"></option>
+                <option value="11:00"></option>
+                <option value="12:00"></option>
+                <option value="13:00"></option>
+                <option value="14:00"></option>
+                <option value="15:00"></option>
+                <option value="16:00"></option>
+                <option value="17:00"></option>
+                <option value="18:00"></option>
+                <option value="19:00"></option>
+                <option value="20:00"></option>
+                <option value="21:00"></option>
+                <option value="22:00"></option>
+                <option value="23:00"></option>
+              </datalist>
 
               <label class="lbl">Prioridad</label>
               <select class="inp" id="opPrioridad">

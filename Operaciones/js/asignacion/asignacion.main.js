@@ -44,17 +44,22 @@ function bindFormEvents() {
 
   if (opHoraInicioEl) {
     opHoraInicioEl.addEventListener("input", function (e) {
-      let v = e.target.value.replace(/\D/g, "");
-      if (v.length > 2) {
+      let v = e.target.value.replace(/[^\d:]/g, "");
+      const firstColon = v.indexOf(":");
+      if (firstColon !== -1) {
+        v = v.slice(0, firstColon + 1) + v.slice(firstColon + 1).replace(/:/g, "");
+      }
+      if (!v.includes(":") && v.length > 2) {
         v = v.substring(0, 2) + ":" + v.substring(2, 4);
       }
+      v = v.substring(0, 5);
       e.target.value = v;
       saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
     });
 
     opHoraInicioEl.addEventListener("blur", function (e) {
       let v = e.target.value;
-      if (/^\d{2}:\d{2}$/.test(v)) {
+      if (/^\d{1,2}(:\d{0,2})?$/.test(v)) {
         let [h, m] = v.split(":");
         h = Math.min(23, parseInt(h) || 0);
         m = Math.min(59, parseInt(m) || 0);
