@@ -96,8 +96,7 @@ function getRtmpPlaybackUrl(req, streamKey, playbackBaseUrl = null) {
   if (playbackBaseUrl) return joinHlsUrl(playbackBaseUrl, streamKey);
   const configuredBase = getRtmpPlaybackBaseUrl();
   if (configuredBase) return joinHlsUrl(configuredBase, streamKey);
-  const hostname = getRequestHostname(req);
-  return hostname ? joinHlsUrl(`http://${hostname}:8888/live`, streamKey) : null;
+  return null;
 }
 
 function getActorColumns(req) {

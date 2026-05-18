@@ -26,6 +26,7 @@ const remoteStreams = new Map();
 const reconnectTimers = new Map();
 const cameraArchiveMetadata = new Map();
 const playbackGroups = new Map();
+const cameraAudioEnabled = new Set();
 let activePersonnelCamera = null;
 
 const RECORDING_SLICE_MS = 1000;
@@ -284,6 +285,62 @@ function getStreamPlaybackKey(streamId) {
   if (archive?.playbackKey) return archive.playbackKey;
 
   return getCameraPlaybackKey({ streamId: id, ...(metadata || {}) });
+}
+
+function getCameraAudioKey(camera = {}) {
+  return camera.playbackKey || getCameraPlaybackKey(camera);
+}
+
+function isCameraAudioEnabled(audioKey) {
+  const key = String(audioKey || "");
+  return Boolean(key) && cameraAudioEnabled.has(key);
+}
+
+function setVideoAudioState(video, enabled) {
+  if (!video) return;
+  video.muted = !enabled;
+  video.volume = enabled ? 1 : 0;
+  if (enabled) {
+    video.removeAttribute("muted");
+  } else {
+    video.setAttribute("muted", "");
+  }
+}
+
+function syncCameraAudioControls(audioKey = null) {
+  const targetKey = audioKey == null ? null : String(audioKey);
+  document.querySelectorAll("[data-audio-key]").forEach((element) => {
+    const key = element.dataset.audioKey || "";
+    if (targetKey && key !== targetKey) return;
+
+    const enabled = isCameraAudioEnabled(key);
+    if (element.tagName === "VIDEO") {
+      setVideoAudioState(element, enabled);
+    }
+
+    if (element.classList?.contains("cameraAudioBtn")) {
+      element.classList.toggle("active", enabled);
+      element.textContent = enabled ? "Con audio" : "Sin audio";
+      element.title = enabled ? "Silenciar audio" : "Activar audio";
+      element.setAttribute("aria-pressed", enabled ? "true" : "false");
+    }
+  });
+}
+
+function buildCameraAudioButton(camera = {}) {
+  if (!camera.isPlayableUrl && !camera.isWebRtc) return "";
+  const audioKey = getCameraAudioKey(camera);
+  if (!audioKey || audioKey === "unknown") return "";
+
+  const enabled = isCameraAudioEnabled(audioKey);
+  return `
+    <button
+      class="cameraAudioBtn${enabled ? " active" : ""}"
+      type="button"
+      data-audio-key="${escapeHtml(audioKey)}"
+      aria-pressed="${enabled ? "true" : "false"}"
+      title="${enabled ? "Silenciar audio" : "Activar audio"}">${enabled ? "Con audio" : "Sin audio"}</button>
+  `;
 }
 
 function getPlaybackGroup(playbackKey, create = true) {
@@ -1552,12 +1609,14 @@ function createFeedElement(camera) {
   const badge = camera.placeholder ? camera.status : displayProtocol;
   const media = buildMediaMarkup(camera);
   const playback = buildPlaybackMarkup(camera);
+  const audioButton = buildCameraAudioButton(camera);
   const urlHint = camera.playbackUrl && !camera.isPlayableUrl
-    ? `<div class="cameraFeedHint">RTMP listo para gateway de video</div>`
+    ? `<div class="cameraFeedHint">RTMP listo para FFmpeg/HLS</div>`
     : "";
 
   feed.innerHTML = `
     <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
+    ${audioButton}
     ${media}
     ${urlHint}
     ${playback}
@@ -1572,22 +1631,44 @@ function createFeedElement(camera) {
     toggleFocus(feed);
   });
 
+  bindCameraAudioButton(feed);
+
   bindPlaybackControls(feed, camera);
   bindCameraSurfaceInteractions(feed, camera);
   return feed;
 }
 
+function bindCameraAudioButton(container) {
+  container.querySelector(".cameraAudioBtn")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const key = event.currentTarget.dataset.audioKey || "";
+    if (!key) return;
+    if (cameraAudioEnabled.has(key)) {
+      cameraAudioEnabled.delete(key);
+    } else {
+      cameraAudioEnabled.add(key);
+    }
+    syncCameraAudioControls(key);
+    container.querySelectorAll("video[data-audio-key]").forEach((video) => {
+      if (video.dataset.audioKey === key) video.play?.().catch(() => {});
+    });
+  });
+}
+
 function buildMediaMarkup(camera) {
   if (camera.isPlayableUrl) {
     const playbackUrl = absoluteUrl(camera.playbackUrl);
+    const audioKey = getCameraAudioKey(camera);
+    const audioEnabled = isCameraAudioEnabled(audioKey);
     const hlsAttr = isHlsUrl(playbackUrl)
       ? `data-hls-src="${escapeHtml(playbackUrl)}"`
       : `src="${escapeHtml(playbackUrl)}"`;
     return `
       <video
         ${hlsAttr}
+        data-audio-key="${escapeHtml(audioKey)}"
         autoplay
-        muted
+        ${audioEnabled ? "" : "muted"}
         playsinline
         controls></video>
     `;
@@ -1595,9 +1676,11 @@ function buildMediaMarkup(camera) {
 
   if (camera.isWebRtc && (camera.streamId || camera.playbackKey)) {
     const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
+    const audioKey = getCameraAudioKey(camera);
+    const audioEnabled = isCameraAudioEnabled(audioKey);
     const streamAttr = camera.streamId ? ` data-stream-id="${escapeHtml(String(camera.streamId))}"` : "";
     return `
-      <video${streamAttr} data-playback-key="${escapeHtml(playbackKey)}" autoplay muted playsinline></video>
+      <video${streamAttr} data-playback-key="${escapeHtml(playbackKey)}" data-audio-key="${escapeHtml(audioKey)}" autoplay ${audioEnabled ? "" : "muted"} playsinline></video>
       <div class="cameraConnectionLostScreen" data-playback-key="${escapeHtml(playbackKey)}" aria-hidden="true">
         <div class="cameraConnectionLostText">se perdió la conexión</div>
       </div>
@@ -1694,6 +1777,7 @@ function attachMediaStateForPlaybackKey(playbackKey) {
         video.dataset.reviewUrl = "";
         if (streamId) video.dataset.streamId = String(streamId);
       }
+      setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
       video.play?.().catch(() => {});
       return;
     }
@@ -1750,6 +1834,7 @@ function attachReviewVideo(video, playbackKey) {
   if (Math.abs((video.currentTime || 0) - offset) > 0.35) {
     try { video.currentTime = offset; } catch {}
   }
+  setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
   video.play?.().catch(() => {});
 }
 
@@ -1934,7 +2019,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   let lastTapSide = "";
 
   feed.addEventListener("pointerup", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraFeedAction")) return;
+    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraAudioBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const now = Date.now();
     const isDoubleTap = side !== "center" && lastTapSide === side && now - lastTapAt <= DOUBLE_TAP_MS;
@@ -1949,7 +2034,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   });
 
   feed.addEventListener("dblclick", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraFeedAction")) return;
+    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraAudioBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const playbackKey = feed.dataset.playbackKey;
     if (side !== "center" && playbackKey) {
@@ -1980,6 +2065,7 @@ function attachPlayableUrlFeeds(root = document) {
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = url;
       video.dataset.hlsAttached = "1";
+      setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
       video.play?.().catch(() => {});
       return;
     }
@@ -2000,7 +2086,9 @@ function attachPlayableUrlFeeds(root = document) {
         hls.attachMedia(video);
         hlsPlayers.set(video, hls);
         video.dataset.hlsAttached = "1";
+        setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
           video.play?.().catch(() => {});
         });
       })
@@ -2060,15 +2148,18 @@ function renderActivePersonnelCamera() {
     ? buildMediaMarkup(camera)
     : `<img src="${escapeHtml(getPlaceholderCameraImage(activePersonnelCamera.personId))}" alt="${escapeHtml(name)}">`;
   const playback = camera ? buildPlaybackMarkup(camera) : "";
+  const audioButton = camera ? buildCameraAudioButton(camera) : "";
 
   destroyHlsPlayersIn(dom.personnelDetailCamera);
   dom.personnelDetailCamera.innerHTML = `
     <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
+    ${audioButton}
     ${media}
     ${playback}
     <div class="cameraFeedName">${escapeHtml(name)}</div>
   `;
 
+  if (camera) bindCameraAudioButton(dom.personnelDetailCamera);
   if (camera?.isWebRtc && camera.streamId) {
     joinWebRtcStream(camera);
     bindPlaybackControls(dom.personnelDetailCamera, camera);

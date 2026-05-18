@@ -9,7 +9,8 @@ object ApiConfig {
     private const val KEY_RTMP_PUBLISH_BASE_URL = "rtmp_publish_base_url"
     private const val KEY_HLS_PLAYBACK_BASE_URL = "hls_playback_base_url"
     private const val DEFAULT_API_PORT = 3001
-    private const val DEFAULT_HLS_PORT = 8888
+    private const val DEFAULT_HLS_PORT = 3000
+    private const val DEFAULT_FFMPEG_HLS_PATH = "/Operaciones/runtime/ffmpeg-streams"
 
     const val DEFAULT_BASE_URL = "http://192.168.202.103:3001"
 
@@ -104,7 +105,7 @@ object ApiConfig {
     fun defaultHlsPlaybackBaseUrl(apiBaseUrl: String = BASE_URL): String {
         val uri = Uri.parse(normalizeBaseUrl(apiBaseUrl))
         val host = uri.host ?: Uri.parse(DEFAULT_BASE_URL).host.orEmpty()
-        return "http://$host:$DEFAULT_HLS_PORT/live"
+        return "http://$host:$DEFAULT_HLS_PORT$DEFAULT_FFMPEG_HLS_PATH"
     }
 
     fun normalizeRtmpPublishBaseUrl(rawUrl: String, apiBaseUrl: String = BASE_URL): String {
@@ -142,14 +143,14 @@ object ApiConfig {
         val uri = Uri.parse(value)
         val scheme = uri.scheme?.lowercase()
         require((scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()) {
-            "Direccion HLS invalida. Usa http://IP:8888/live."
+            "Direccion HLS invalida. Usa http://IP:3000/Operaciones/runtime/ffmpeg-streams."
         }
 
         val path = uri.encodedPath.orEmpty()
         if (uri.port == -1 && (path.isBlank() || path == "/")) {
-            value = "$value:$DEFAULT_HLS_PORT/live"
+            value = "$value:$DEFAULT_HLS_PORT$DEFAULT_FFMPEG_HLS_PATH"
         } else if (path.isBlank() || path == "/") {
-            value = "$value/live"
+            value = "$value$DEFAULT_FFMPEG_HLS_PATH"
         }
 
         return value.trimEnd('/')

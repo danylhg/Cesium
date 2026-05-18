@@ -10,6 +10,7 @@ set INIT_SQL=C:\Users\PC\Desktop\cesium-proyecto\db\remodulacion\00_init.sql
 set PSQL="C:\Program Files\PostgreSQL\18\bin\psql.exe"
 set STREAM_STORAGE=%PROYECTO%\Operaciones\api\storage\streams
 set FRONT_RUNTIME=%PROYECTO%\Operaciones\runtime
+set FFMPEG_STREAM_ROOT=%FRONT_RUNTIME%\ffmpeg-streams
 set SETUP_CLEANUP_MARKER=%FRONT_RUNTIME%\setup_cleanup.json
 set FFMPEG_DIR=%PROYECTO%\tools\ffmpeg
 
@@ -42,6 +43,10 @@ if exist "%STREAM_STORAGE%" (
 mkdir "%STREAM_STORAGE%" 2>nul
 
 if not exist "%FRONT_RUNTIME%" mkdir "%FRONT_RUNTIME%"
+if exist "%FFMPEG_STREAM_ROOT%" (
+    rmdir /s /q "%FFMPEG_STREAM_ROOT%"
+)
+mkdir "%FFMPEG_STREAM_ROOT%" 2>nul
 > "%SETUP_CLEANUP_MARKER%" echo {"token":"%DATE% %TIME% %RANDOM%","scope":"operaciones-video-buffer"}
 
 for %%B in ("%LOCALAPPDATA%\Google\Chrome\User Data" "%LOCALAPPDATA%\Microsoft\Edge\User Data") do (
@@ -156,8 +161,11 @@ echo  LISTO!
 echo  - Base de datos %PGDATABASE% configurada con seed
 echo  - Frontend:  http://localhost:3000
 echo  - API:       http://localhost:3001
-echo  - Streaming: WebRTC desde Android, sin MediaMTX
-echo  - FFmpeg:    verificado
+echo  - Android:   WebRTC
+echo  - Drones:    RTMP/RTSP con FFmpeg a HLS
+echo  - HLS FFmpeg: http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams/STREAM/index.m3u8
+echo  - Guia:     Operaciones\ffmpeg_drones.md
+echo  - FFmpeg:    verificado en %FFMPEG_DIR%
 echo  - LAN IP:    %LAN_IP%
 echo  - Password de todos los usuarios: 1234
 echo ============================================================
