@@ -320,13 +320,13 @@ class LoginActivity : AppCompatActivity() {
             setPadding(dp(20), dp(8), dp(20), 0)
 
             addLabeledInput("API", inputAddress)
-            addLabeledInput("RTMP publicacion", inputRtmpAddress)
-            addLabeledInput("HLS visor", inputHlsAddress)
+            addLabeledInput("RTMP opcional", inputRtmpAddress)
+            addLabeledInput("HLS opcional", inputHlsAddress)
         }
 
         val dialog = AlertDialog.Builder(this)
             .setTitle("Direcciones del servidor")
-            .setMessage("Ingresa la IP o URL de la API. RTMP/HLS pueden quedarse vacios para usar esa misma IP.")
+            .setMessage("Ingresa la IP o URL de la API. Android transmite por WebRTC; RTMP/HLS solo se usan si configuras un flujo externo.")
             .setView(content)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Guardar", null)

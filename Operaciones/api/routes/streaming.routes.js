@@ -2,7 +2,12 @@ import { Router, raw } from "express";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { pool } from "../db.js";
-import { RTMP_PLAYBACK_BASE_URL, RTMP_PUBLISH_BASE_URL, WEBRTC_ICE_SERVERS } from "../config/env.js";
+import {
+  MEDIA_STREAM_DEFAULT_PROTOCOL,
+  RTMP_PLAYBACK_BASE_URL,
+  RTMP_PUBLISH_BASE_URL,
+  WEBRTC_ICE_SERVERS
+} from "../config/env.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
 import { sendError } from "../utils/http.js";
@@ -34,7 +39,7 @@ function normalizeStatus(value) {
 }
 
 function normalizeProtocol(value) {
-  const protocol = String(value || "HYBRID").trim().toUpperCase();
+  const protocol = String(value || MEDIA_STREAM_DEFAULT_PROTOCOL).trim().toUpperCase();
   return ["WEBRTC", "RTMP", "HYBRID"].includes(protocol) ? protocol : null;
 }
 
@@ -293,7 +298,7 @@ router.get("/ops/:id/streams/webrtc-config", requireAuth, async (req, res) => {
         iceCandidateEvent: "webrtc_ice_candidate",
       },
       rtmp: {
-        publishBaseUrl: getRtmpPublishBaseUrl(req),
+        publishBaseUrl: MEDIA_STREAM_DEFAULT_PROTOCOL === "WEBRTC" ? null : getRtmpPublishBaseUrl(req),
         playbackBaseUrl: getRtmpPlaybackBaseUrl() || null,
         playbackUrlTemplate: process.env.RTMP_PLAYBACK_URL_TEMPLATE?.trim() || null,
       },
@@ -403,21 +408,28 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
 
   const label = req.body?.label != null ? String(req.body.label).trim() : null;
   const stream_key = randomUUID();
-  const rtmpPublishBaseUrl = req.body?.rtmp_publish_base_url != null
-    ? String(req.body.rtmp_publish_base_url).trim()
-    : getRtmpPublishBaseUrl(req);
-  const rtmpPlaybackBaseUrl = req.body?.rtmp_playback_base_url != null
+  const needsRtmpUrls = protocol !== "WEBRTC";
+  const rtmpPublishBaseUrl = needsRtmpUrls
+    ? req.body?.rtmp_publish_base_url != null
+      ? String(req.body.rtmp_publish_base_url).trim()
+      : getRtmpPublishBaseUrl(req)
+    : "";
+  const rtmpPlaybackBaseUrl = needsRtmpUrls && req.body?.rtmp_playback_base_url != null
     ? String(req.body.rtmp_playback_base_url).trim()
     : null;
-  const rtmp_publish_url =
-    req.body?.rtmp_publish_url != null
+  const rtmp_publish_url = needsRtmpUrls
+    ? req.body?.rtmp_publish_url != null
       ? String(req.body.rtmp_publish_url).trim()
-      : joinStreamUrl(rtmpPublishBaseUrl, stream_key);
-  const rtmp_playback_url =
-    req.body?.rtmp_playback_url != null
+      : joinStreamUrl(rtmpPublishBaseUrl, stream_key)
+    : null;
+  const rtmp_playback_url = needsRtmpUrls
+    ? req.body?.rtmp_playback_url != null
       ? String(req.body.rtmp_playback_url).trim()
-      : getRtmpPlaybackUrl(req, stream_key, rtmpPlaybackBaseUrl);
-  const playback_url = req.body?.playback_url != null ? String(req.body.playback_url).trim() : rtmp_playback_url;
+      : getRtmpPlaybackUrl(req, stream_key, rtmpPlaybackBaseUrl)
+    : null;
+  const playback_url = req.body?.playback_url != null
+    ? String(req.body.playback_url).trim()
+    : rtmp_playback_url;
 
   try {
     await ensureStreamingTables();

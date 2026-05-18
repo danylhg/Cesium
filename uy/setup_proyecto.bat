@@ -11,9 +11,7 @@ set PSQL="C:\Program Files\PostgreSQL\18\bin\psql.exe"
 set STREAM_STORAGE=%PROYECTO%\Operaciones\api\storage\streams
 set FRONT_RUNTIME=%PROYECTO%\Operaciones\runtime
 set SETUP_CLEANUP_MARKER=%FRONT_RUNTIME%\setup_cleanup.json
-set MEDIAMTX_DIR=%PROYECTO%\tools\mediamtx
-set MEDIAMTX_EXE=%MEDIAMTX_DIR%\mediamtx.exe
-set MEDIAMTX_CONFIG=%PROYECTO%\uy\mediamtx.yml
+set FFMPEG_DIR=%PROYECTO%\tools\ffmpeg
 
 if not exist "%ENV_FILE%" (
     echo ERROR: No se encontro el archivo .env en %ENV_FILE%.
@@ -121,18 +119,23 @@ echo       Seed ejecutado correctamente.
 echo.
 
 :: ============================================================
-::  PASO 5: Instalar/verificar MediaMTX para RTMP/HLS
+::  PASO 5: Instalar/verificar FFmpeg
 :: ============================================================
-echo [5/6] Verificando MediaMTX RTMP/HLS ...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\ensure_mediamtx.ps1" -InstallDir "%MEDIAMTX_DIR%"
+echo [5/6] Verificando FFmpeg ...
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\ensure_ffmpeg.ps1" -InstallDir "%FFMPEG_DIR%"
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: No se pudo instalar o verificar MediaMTX.
-    echo        Puedes descargarlo manualmente y poner mediamtx.exe en:
-    echo        %MEDIAMTX_DIR%
+    echo ERROR: No se pudo instalar o verificar FFmpeg.
+    echo        Puedes instalarlo manualmente y agregar ffmpeg.exe al PATH.
     pause
     exit /b 1
 )
-echo       MediaMTX listo.
+echo       FFmpeg listo.
+echo.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\ensure_frontend_assets.ps1"
+if %ERRORLEVEL% NEQ 0 (
+    echo WARN: No se pudo descargar hls.js local. El visor intentara usar CDN.
+)
 echo.
 
 :: ============================================================
@@ -140,16 +143,12 @@ echo.
 :: ============================================================
 echo [6/6] Iniciando servidores ...
 
-:: Ventana 0 - MediaMTX (RTMP en 1935, HLS en 8888)
-start "MediaMTX RTMP-HLS" /D "%PROYECTO%\uy" cmd /k ""%MEDIAMTX_EXE%" "%MEDIAMTX_CONFIG%""
-timeout /t 2 /nobreak >nul
-
 :: Ventana 1 - npx serve (frontend estatico en puerto 3000)
 start "Frontend" cmd /k "cd /d %PROYECTO% && npx serve -l 3000"
 timeout /t 2 /nobreak >nul
 
 :: Ventana 2 - node server.js (API - lee Operaciones\api\.env)
-start "API Server" cmd /k "cd /d %PROYECTO%\operaciones\api && set RTMP_PUBLISH_BASE_URL=rtmp://%LAN_IP%/live&& set RTMP_PLAYBACK_BASE_URL=http://%LAN_IP%:8888/live&& node server.js"
+start "API Server" cmd /k "cd /d %PROYECTO%\operaciones\api && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
 
 echo.
 echo ============================================================
@@ -157,8 +156,8 @@ echo  LISTO!
 echo  - Base de datos %PGDATABASE% configurada con seed
 echo  - Frontend:  http://localhost:3000
 echo  - API:       http://localhost:3001
-echo  - RTMP:      rtmp://%LAN_IP%/live/{streamKey}
-echo  - HLS:       http://%LAN_IP%:8888/live/{streamKey}/index.m3u8
+echo  - Streaming: WebRTC desde Android, sin MediaMTX
+echo  - FFmpeg:    verificado
 echo  - LAN IP:    %LAN_IP%
 echo  - Password de todos los usuarios: 1234
 echo ============================================================

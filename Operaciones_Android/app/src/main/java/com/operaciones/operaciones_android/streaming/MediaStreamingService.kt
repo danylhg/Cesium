@@ -74,11 +74,11 @@ class MediaStreamingService : Service(), ConnectChecker {
         private const val CHANNEL_ID = "sedam_media_stream"
         private const val NOTIFICATION_ID = 3001
         private const val LOCAL_STREAM_ID = "sedam_local_stream"
-        private const val RTMP_VIDEO_WIDTH = 1280
-        private const val RTMP_VIDEO_HEIGHT = 720
-        private const val RTMP_VIDEO_FPS = 30
-        private const val RTMP_VIDEO_BITRATE = 2_500 * 1024
-        private const val RTMP_AUDIO_BITRATE = 128 * 1024
+        private const val RTMP_VIDEO_WIDTH = 854
+        private const val RTMP_VIDEO_HEIGHT = 480
+        private const val RTMP_VIDEO_FPS = 24
+        private const val RTMP_VIDEO_BITRATE = 1_200 * 1024
+        private const val RTMP_AUDIO_BITRATE = 96 * 1024
         private const val RTMP_AUDIO_SAMPLE_RATE = 44_100
     }
 
@@ -226,10 +226,8 @@ class MediaStreamingService : Service(), ConnectChecker {
     private fun createStreamSession(): JSONObject {
         val body = JSONObject().apply {
             put("kind", "AUDIO_VIDEO")
-            put("protocol", "RTMP")
+            put("protocol", "WEBRTC")
             put("label", userName.ifBlank { "Android" })
-            put("rtmp_publish_base_url", ApiConfig.RTMP_PUBLISH_BASE_URL)
-            put("rtmp_playback_base_url", ApiConfig.HLS_PLAYBACK_BASE_URL)
             put("consent_ack", true)
             put("foreground_notice", true)
         }
@@ -312,7 +310,7 @@ class MediaStreamingService : Service(), ConnectChecker {
             RTMP_VIDEO_HEIGHT,
             RTMP_VIDEO_FPS,
             RTMP_VIDEO_BITRATE,
-            2,
+            1,
             0
         )
         val audioReady = camera.prepareAudio(
@@ -717,7 +715,7 @@ class MediaStreamingService : Service(), ConnectChecker {
                 "Transmision de camara y microfono",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Canal de transmision WebRTC/RTMP en vivo SEDAM"
+                description = "Canal de transmision WebRTC en vivo SEDAM"
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }

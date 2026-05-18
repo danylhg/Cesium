@@ -69,5 +69,12 @@ export const WEBRTC_ICE_SERVERS = (() => {
   }
 })();
 
+const configuredMediaStreamProtocol = String(process.env.MEDIA_STREAM_DEFAULT_PROTOCOL || "WEBRTC")
+  .trim()
+  .toUpperCase();
+export const MEDIA_STREAM_DEFAULT_PROTOCOL = ["WEBRTC", "RTMP", "HYBRID"].includes(configuredMediaStreamProtocol)
+  ? configuredMediaStreamProtocol
+  : "WEBRTC";
+
 export const RTMP_PUBLISH_BASE_URL = process.env.RTMP_PUBLISH_BASE_URL?.trim() || "rtmp://localhost/live";
 export const RTMP_PLAYBACK_BASE_URL = process.env.RTMP_PLAYBACK_BASE_URL?.trim() || "";

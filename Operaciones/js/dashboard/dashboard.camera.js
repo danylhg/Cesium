@@ -45,7 +45,7 @@ let operationArchiveLoadPromise = null;
 let operationArchiveLoadKey = "";
 let uploadRetryBound = false;
 let hlsScriptPromise = null;
-const hlsPlayers = new WeakMap();
+const hlsPlayers = new Map();
 
 export function initCameraFeeds(opId = null, socket = null) {
   activeOperationId = opId || activeOperationId || localStorage.getItem("active_operation_id");
@@ -113,13 +113,29 @@ function ensureHlsScript() {
   if (window.Hls) return Promise.resolve(window.Hls);
   if (hlsScriptPromise) return hlsScriptPromise;
 
+  const sources = [
+    "/Operaciones/vendor/hls.min.js",
+    "https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js",
+  ];
+
   hlsScriptPromise = new Promise((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/hls.js@1.6.13/dist/hls.min.js";
-    script.async = true;
-    script.onload = () => window.Hls ? resolve(window.Hls) : reject(new Error("hls.js no disponible"));
-    script.onerror = () => reject(new Error("No se pudo cargar hls.js"));
-    document.head.appendChild(script);
+    let index = 0;
+    const tryNext = () => {
+      const src = sources[index++];
+      if (!src) {
+        reject(new Error("No se pudo cargar hls.js"));
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = src;
+      script.async = true;
+      script.onload = () => window.Hls ? resolve(window.Hls) : tryNext();
+      script.onerror = tryNext;
+      document.head.appendChild(script);
+    };
+
+    tryNext();
   });
 
   return hlsScriptPromise;
@@ -1428,10 +1444,12 @@ function handleStreamConnectionRestored(streamId, mediaStream) {
 
 function renderFeeds() {
   if (!dom.cameraFeeds) return;
+  destroyHlsPlayersIn(dom.cameraFeeds);
   dom.cameraFeeds.innerHTML = "";
   getRenderableCameraData().forEach((camera) => {
     dom.cameraFeeds.appendChild(createFeedElement(camera));
   });
+  attachPlayableUrlFeeds(dom.cameraFeeds);
   attachKnownMediaStreams();
 }
 
@@ -1953,8 +1971,8 @@ function attachLiveFeeds() {
   attachKnownMediaStreams();
 }
 
-function attachPlayableUrlFeeds() {
-  document.querySelectorAll("video[data-hls-src]").forEach((video) => {
+function attachPlayableUrlFeeds(root = document) {
+  root.querySelectorAll("video[data-hls-src]").forEach((video) => {
     if (video.dataset.hlsAttached === "1") return;
     const url = video.dataset.hlsSrc;
     if (!url) return;
@@ -1969,18 +1987,45 @@ function attachPlayableUrlFeeds() {
     ensureHlsScript()
       .then((Hls) => {
         if (!Hls.isSupported()) return;
-        const previous = hlsPlayers.get(video);
-        previous?.destroy?.();
-        const hls = new Hls({ lowLatencyMode: true });
+        destroyHlsPlayer(video);
+        const hls = new Hls({
+          lowLatencyMode: true,
+          liveSyncDuration: 1,
+          liveMaxLatencyDuration: 3,
+          maxLiveSyncPlaybackRate: 1.5,
+          backBufferLength: 0,
+          enableWorker: true,
+        });
         hls.loadSource(url);
         hls.attachMedia(video);
         hlsPlayers.set(video, hls);
         video.dataset.hlsAttached = "1";
-        video.play?.().catch(() => {});
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play?.().catch(() => {});
+        });
       })
       .catch((err) => {
         console.warn("[CAMERAS] No se pudo preparar HLS:", err.message);
       });
+  });
+}
+
+function destroyHlsPlayer(video) {
+  const hls = hlsPlayers.get(video);
+  if (!hls) return;
+  try {
+    hls.destroy();
+  } catch (err) {
+    console.warn("[CAMERAS] No se pudo cerrar HLS:", err.message);
+  }
+  hlsPlayers.delete(video);
+  video.dataset.hlsAttached = "";
+}
+
+function destroyHlsPlayersIn(root) {
+  if (!root) return;
+  root.querySelectorAll?.("video[data-hls-src]").forEach((video) => {
+    destroyHlsPlayer(video);
   });
 }
 
@@ -2000,6 +2045,7 @@ export async function showPersonnelLiveCamera(personId, displayName = "") {
 export function clearPersonnelLiveCamera() {
   activePersonnelCamera = null;
   if (dom.personnelDetailCamera) {
+    destroyHlsPlayersIn(dom.personnelDetailCamera);
     dom.personnelDetailCamera.innerHTML = "";
   }
 }
@@ -2015,6 +2061,7 @@ function renderActivePersonnelCamera() {
     : `<img src="${escapeHtml(getPlaceholderCameraImage(activePersonnelCamera.personId))}" alt="${escapeHtml(name)}">`;
   const playback = camera ? buildPlaybackMarkup(camera) : "";
 
+  destroyHlsPlayersIn(dom.personnelDetailCamera);
   dom.personnelDetailCamera.innerHTML = `
     <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
     ${media}
@@ -2027,6 +2074,7 @@ function renderActivePersonnelCamera() {
     bindPlaybackControls(dom.personnelDetailCamera, camera);
     bindCameraSurfaceInteractions(dom.personnelDetailCamera, camera);
   }
+  attachPlayableUrlFeeds(dom.personnelDetailCamera);
   attachKnownMediaStreams();
 }
 
