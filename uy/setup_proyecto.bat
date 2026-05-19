@@ -155,15 +155,20 @@ timeout /t 2 /nobreak >nul
 :: Ventana 2 - node server.js (API - lee Operaciones\api\.env)
 start "API Server" cmd /k "cd /d %PROYECTO%\operaciones\api && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
 
+:: Ventana 3 - OBS RTMP a HLS (OBS publica a rtmp://LAN_IP:1935/live con key obs-01)
+start "OBS RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_obs_rtmp_hls.ps1" -StreamKey "obs-01" -Port 1935 -PublicBaseUrl "http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams"
+
 echo.
 echo ============================================================
 echo  LISTO!
 echo  - Base de datos %PGDATABASE% configurada con seed
-echo  - Frontend:  http://localhost:3000
+echo  - Frontend:  http://%LAN_IP%:3000/Operaciones/login
 echo  - API:       http://localhost:3001
-echo  - Android:   WebRTC
-echo  - Drones:    RTMP/RTSP con FFmpeg a HLS
-echo  - HLS FFmpeg: http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams/STREAM/index.m3u8
+echo  - Android:   WebRTC 240p
+echo  - OBS RTMP:  Server rtmp://%LAN_IP%:1935/live  Key obs-01
+echo  - Drones:    RTMP/RTSP con FFmpeg a HLS 240p
+echo  - HLS OBS:   http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams/obs-01/index.m3u8  ^(240p^)
+echo  - HLS FFmpeg: http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams/STREAM/index.m3u8  ^(240p^)
 echo  - Guia:     Operaciones\ffmpeg_drones.md
 echo  - FFmpeg:    verificado en %FFMPEG_DIR%
 echo  - LAN IP:    %LAN_IP%

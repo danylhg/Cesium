@@ -23,6 +23,7 @@ const peerConnections = new Map();
 const joinedStreams = new Set();
 const peerTargets = new Map();
 const remoteStreams = new Map();
+const playableLiveStreams = new Map();
 const reconnectTimers = new Map();
 const cameraArchiveMetadata = new Map();
 const playbackGroups = new Map();
@@ -33,6 +34,11 @@ const RECORDING_SLICE_MS = 1000;
 const RECORDING_SEGMENT_MS = 10000;
 const MAX_LOCAL_ARCHIVE_SECONDS = 15 * 60;
 const LIVE_EDGE_THRESHOLD_SECONDS = 1.2;
+const PLAYABLE_INITIAL_STALE_MS = 15000;
+const PLAYABLE_STALE_CHECK_MS = 5000;
+const PLAYABLE_STALE_MS = 9000;
+const HLS_ATTACH_RETRY_INITIAL_MS = 1500;
+const HLS_ATTACH_RETRY_MAX_MS = 15000;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_SIDE_RATIO = 0.38;
 const VIDEO_BUFFER_DB = "operaciones-video-buffer";
@@ -47,6 +53,8 @@ let operationArchiveLoadKey = "";
 let uploadRetryBound = false;
 let hlsScriptPromise = null;
 const hlsPlayers = new Map();
+const playableUrlWatchers = new Map();
+const hlsAttachRetries = new Map();
 
 export function initCameraFeeds(opId = null, socket = null) {
   activeOperationId = opId || activeOperationId || localStorage.getItem("active_operation_id");
@@ -108,6 +116,27 @@ function absoluteUrl(url) {
 
 function isHlsUrl(url) {
   return /\.m3u8(?:[?#].*)?$/i.test(String(url || ""));
+}
+
+function frontendBaseUrl() {
+  if (window.location.protocol.startsWith("http")) {
+    return `${window.location.protocol}//${window.location.host}`;
+  }
+
+  const apiBaseUrl = /^https?:\/\//i.test(API_BASE) ? API_BASE : `http://${API_BASE}`;
+  const apiUrl = new URL(apiBaseUrl);
+  return `${apiUrl.protocol}//${apiUrl.hostname}:3000`;
+}
+
+function obsPlaybackUrl(streamKey) {
+  const key = encodeURIComponent(String(streamKey || "obs-01").trim() || "obs-01");
+  return `${frontendBaseUrl()}/Operaciones/runtime/ffmpeg-streams/${key}/index.m3u8`;
+}
+
+function setObsStatus(text, kind = "") {
+  if (!dom.obsStreamStatus) return;
+  dom.obsStreamStatus.textContent = text;
+  dom.obsStreamStatus.style.color = kind === "error" ? "#fca5a5" : kind === "ok" ? "#86efac" : "#bfdbfe";
 }
 
 function ensureHlsScript() {
@@ -196,6 +225,55 @@ async function loadLiveStreams() {
   }
 }
 
+async function registerObsStreamFromPanel() {
+  const key = String(dom.obsStreamKey?.value || "obs-01").trim() || "obs-01";
+  if (dom.obsStreamKey) dom.obsStreamKey.value = key;
+  if (!activeOperationId) {
+    setObsStatus("Sin operacion", "error");
+    return;
+  }
+
+  const playbackUrl = obsPlaybackUrl(key);
+  setObsStatus("Buscando OBS...");
+  await loadLiveStreams();
+
+  const existing = cameraData.find((camera) =>
+    String(camera.externalDeviceId || "") === key ||
+    String(camera.playbackUrl || "") === playbackUrl
+  );
+
+  if (existing) {
+    setObsStatus("Ya esta en camaras", "ok");
+    await loadLiveStreams();
+    return;
+  }
+
+  setObsStatus("Registrando...");
+  try {
+    const res = await fetch(`${API_BASE}/ops/${activeOperationId}/streams/external`, {
+      method: "POST",
+      headers: {
+        ...authHeaders(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        kind: "AUDIO_VIDEO",
+        label: `OBS ${key}`,
+        stream_key: `${key}-${Date.now()}`,
+        playback_url: playbackUrl,
+        external_device_id: key
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) throw new Error(data.mensaje || `HTTP ${res.status}`);
+
+    setObsStatus("OBS en camaras", "ok");
+    await loadLiveStreams();
+  } catch (err) {
+    setObsStatus(err.message || "Error OBS", "error");
+  }
+}
+
 function streamToCamera(stream) {
   const protocol = String(stream.protocol || "WEBRTC").toUpperCase();
   const playbackUrl = stream.playback_url || stream.rtmp_playback_url || "";
@@ -226,6 +304,12 @@ function streamToCamera(stream) {
 
 function getCameraBadge(camera) {
   if (camera.localArchiveOnly) return "LOCAL";
+  if (camera.isPlayableUrl) {
+    const state = getPlayableUrlStateForPlaybackKey(camera.playbackKey || getCameraPlaybackKey(camera));
+    if (state.live) return "EN VIVO";
+    if (state.stopped) return "SIN SENAL";
+    return "ESPERANDO";
+  }
   if (camera.placeholder) return camera.status || "SIN SEÑAL";
   if (camera.isWebRtc && !camera.hasPublisher) return "ESPERANDO";
   if (camera.protocol === "HYBRID" || camera.protocol === "WEBRTC") return "EN VIVO";
@@ -307,6 +391,39 @@ function setVideoAudioState(video, enabled) {
   }
 }
 
+function getLiveTracks(mediaStream, kind = "all") {
+  if (!mediaStream) return [];
+  const tracks = kind === "audio"
+    ? mediaStream.getAudioTracks()
+    : kind === "video"
+      ? mediaStream.getVideoTracks()
+      : mediaStream.getTracks();
+  return tracks.filter((track) => track.readyState === "live");
+}
+
+function getExpectedMediaKinds(streamId) {
+  const id = Number(streamId);
+  const camera = findCameraByStreamId(id);
+  const metadata = cameraArchiveMetadata.get(id);
+  const kind = String(camera?.kind || metadata?.kind || "AUDIO_VIDEO").trim().toUpperCase();
+  return {
+    audio: kind !== "VIDEO",
+    video: kind !== "AUDIO"
+  };
+}
+
+function getRecordingMediaStream(streamId, mediaStream) {
+  const expected = getExpectedMediaKinds(streamId);
+  const audioTracks = expected.audio ? getLiveTracks(mediaStream, "audio") : [];
+  const videoTracks = expected.video ? getLiveTracks(mediaStream, "video") : [];
+
+  if (expected.video && videoTracks.length === 0) return null;
+  if (expected.audio && !expected.video && audioTracks.length === 0) return null;
+  if (audioTracks.length === 0 && videoTracks.length === 0) return null;
+
+  return new MediaStream([...videoTracks, ...audioTracks]);
+}
+
 function syncCameraAudioControls(audioKey = null) {
   const targetKey = audioKey == null ? null : String(audioKey);
   document.querySelectorAll("[data-audio-key]").forEach((element) => {
@@ -320,7 +437,7 @@ function syncCameraAudioControls(audioKey = null) {
 
     if (element.classList?.contains("cameraAudioBtn")) {
       element.classList.toggle("active", enabled);
-      element.textContent = enabled ? "Con audio" : "Sin audio";
+      element.textContent = enabled ? "Audio activo" : "Activar audio";
       element.title = enabled ? "Silenciar audio" : "Activar audio";
       element.setAttribute("aria-pressed", enabled ? "true" : "false");
     }
@@ -339,7 +456,7 @@ function buildCameraAudioButton(camera = {}) {
       type="button"
       data-audio-key="${escapeHtml(audioKey)}"
       aria-pressed="${enabled ? "true" : "false"}"
-      title="${enabled ? "Silenciar audio" : "Activar audio"}">${enabled ? "Con audio" : "Sin audio"}</button>
+      title="${enabled ? "Silenciar audio" : "Activar audio"}">${enabled ? "Audio activo" : "Activar audio"}</button>
   `;
 }
 
@@ -495,6 +612,7 @@ function rememberCameraMetadata(camera = {}) {
     userId: camera.userId ?? camera.id_usuario ?? previous.userId ?? null,
     externalDeviceId: camera.externalDeviceId ?? camera.external_device_id ?? previous.externalDeviceId ?? "",
     name: camera.name || camera.label || previous.name || `Stream ${streamId}`,
+    kind: camera.kind || previous.kind || "AUDIO_VIDEO",
     protocol: camera.protocol || previous.protocol || "WEBRTC",
     sourceType: camera.sourceType || camera.source_type || previous.sourceType || "ANDROID"
   };
@@ -1195,13 +1313,27 @@ async function loadPersistedSegmentsForOperation() {
   return operationArchiveLoadPromise;
 }
 
-function getSupportedRecorderMimeType() {
+function getSupportedRecorderMimeType(mediaStream = null) {
   if (!window.MediaRecorder) return "";
-  const candidates = [
-    "video/webm;codecs=vp9,opus",
-    "video/webm;codecs=vp8,opus",
-    "video/webm"
-  ];
+  const hasVideo = Boolean(mediaStream?.getVideoTracks?.().length);
+  const hasAudio = Boolean(mediaStream?.getAudioTracks?.().length);
+  const candidates = hasVideo
+    ? hasAudio
+      ? [
+          "video/webm;codecs=vp9,opus",
+          "video/webm;codecs=vp8,opus",
+          "video/webm"
+        ]
+      : [
+          "video/webm;codecs=vp9",
+          "video/webm;codecs=vp8",
+          "video/webm"
+        ]
+    : [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "video/webm"
+      ];
   return candidates.find((type) => MediaRecorder.isTypeSupported(type)) || "";
 }
 
@@ -1214,6 +1346,7 @@ function getPlaybackArchive(streamId, create = true) {
       segments: [],
       recorder: null,
       recorderStream: null,
+      recorderSourceType: "",
       mimeType: "",
       currentChunks: [],
       currentStartedAt: 0,
@@ -1424,7 +1557,7 @@ function scheduleRecorderRoll(streamId) {
   }, RECORDING_SEGMENT_MS);
 }
 
-function startLocalRecorder(streamId, mediaStream) {
+function startLocalRecorder(streamId, mediaStream, recorderConfig = {}) {
   const id = Number(streamId);
   if (!id || !mediaStream || !window.MediaRecorder) return;
 
@@ -1432,13 +1565,17 @@ function startLocalRecorder(streamId, mediaStream) {
   if (!archive) return;
   if (archive.recorder && archive.recorder.state !== "inactive") return;
 
-  const mimeType = getSupportedRecorderMimeType();
-  const options = mimeType ? { mimeType } : undefined;
+  const recordingStream = getRecordingMediaStream(id, mediaStream);
+  if (!recordingStream) return;
+
+  const mimeType = getSupportedRecorderMimeType(recordingStream);
+  const recorderOptions = mimeType ? { mimeType } : undefined;
 
   try {
-    const recorder = new MediaRecorder(mediaStream, options);
+    const recorder = new MediaRecorder(recordingStream, recorderOptions);
     archive.recorder = recorder;
     archive.recorderStream = mediaStream;
+    archive.recorderSourceType = recorderConfig.sourceType || "webrtc";
     archive.mimeType = mimeType || recorder.mimeType || "";
     archive.currentChunks = [];
     archive.currentStartedAt = Date.now();
@@ -1451,13 +1588,19 @@ function startLocalRecorder(streamId, mediaStream) {
     recorder.onstop = () => {
       const shouldResume = archive.resumeAfterStop;
       const sourceStream = archive.recorderStream;
+      const sourceType = archive.recorderSourceType || "webrtc";
       archive.resumeAfterStop = false;
       archive.recorder = null;
       archive.recorderStream = null;
+      archive.recorderSourceType = "";
       finalizeCurrentSegment(id);
 
-      if (shouldResume && remoteStreams.get(id) === sourceStream) {
-        startLocalRecorder(id, sourceStream);
+      const stillLive = sourceType === "playable-url"
+        ? playableLiveStreams.get(id)?.stream === sourceStream
+        : remoteStreams.get(id) === sourceStream;
+
+      if (shouldResume && stillLive) {
+        startLocalRecorder(id, sourceStream, { sourceType });
       }
     };
 
@@ -1506,6 +1649,7 @@ function renderFeeds() {
   getRenderableCameraData().forEach((camera) => {
     dom.cameraFeeds.appendChild(createFeedElement(camera));
   });
+  ensureFocusedCameraInSpeakerLayout();
   attachPlayableUrlFeeds(dom.cameraFeeds);
   attachKnownMediaStreams();
 }
@@ -1600,8 +1744,10 @@ function getRenderableCameraData() {
 
 function createFeedElement(camera) {
   const feed = document.createElement("div");
+  const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
   feed.className = "cameraFeed";
   feed.id = camera.id;
+  feed.dataset.playbackKey = playbackKey;
   if (camera.localArchiveOnly) feed.classList.add("localArchive");
   if (camera.hasLocalArchive) feed.classList.add("hasLocalArchive");
 
@@ -1617,6 +1763,7 @@ function createFeedElement(camera) {
   feed.innerHTML = `
     <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
     ${audioButton}
+    <button class="cameraReturnBtn" type="button" title="Regresar a camaras">Camaras</button>
     ${media}
     ${urlHint}
     ${playback}
@@ -1629,6 +1776,10 @@ function createFeedElement(camera) {
   feed.querySelector(".cameraFeedAction")?.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleFocus(feed);
+  });
+  feed.querySelector(".cameraReturnBtn")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    returnToCameraGrid();
   });
 
   bindCameraAudioButton(feed);
@@ -1660,17 +1811,26 @@ function buildMediaMarkup(camera) {
     const playbackUrl = absoluteUrl(camera.playbackUrl);
     const audioKey = getCameraAudioKey(camera);
     const audioEnabled = isCameraAudioEnabled(audioKey);
+    const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
     const hlsAttr = isHlsUrl(playbackUrl)
       ? `data-hls-src="${escapeHtml(playbackUrl)}"`
       : `src="${escapeHtml(playbackUrl)}"`;
+    const streamAttr = camera.streamId ? ` data-stream-id="${escapeHtml(String(camera.streamId))}"` : "";
     return `
       <video
+        ${streamAttr}
         ${hlsAttr}
+        data-live-url="${escapeHtml(playbackUrl)}"
+        data-playable-url="1"
+        data-playback-key="${escapeHtml(playbackKey)}"
         data-audio-key="${escapeHtml(audioKey)}"
         autoplay
         ${audioEnabled ? "" : "muted"}
         playsinline
         controls></video>
+      <div class="cameraConnectionLostScreen" data-playback-key="${escapeHtml(playbackKey)}" aria-hidden="true">
+        <div class="cameraConnectionLostText">esperando senal RTMP</div>
+      </div>
     `;
   }
 
@@ -1692,7 +1852,7 @@ function buildMediaMarkup(camera) {
 }
 
 function buildPlaybackMarkup(camera) {
-  if (!camera.isWebRtc || (!camera.streamId && !camera.playbackKey)) return "";
+  if ((!camera.isWebRtc && !camera.isPlayableUrl) || (!camera.streamId && !camera.playbackKey)) return "";
   const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
 
   return `
@@ -1734,8 +1894,12 @@ function queryConnectionLostScreens(playbackKey) {
     .filter((screen) => screen.dataset.playbackKey === String(playbackKey));
 }
 
-function setConnectionLostScreen(playbackKey, visible) {
+function setConnectionLostScreen(playbackKey, visible, message = "") {
   queryConnectionLostScreens(playbackKey).forEach((screen) => {
+    if (message) {
+      const text = screen.querySelector(".cameraConnectionLostText");
+      if (text) text.textContent = message;
+    }
     screen.classList.toggle("visible", Boolean(visible));
     screen.setAttribute("aria-hidden", visible ? "false" : "true");
     screen.closest(".cameraFeed")?.classList.toggle("connectionLostFinal", Boolean(visible));
@@ -1765,6 +1929,18 @@ function attachMediaStateForPlaybackKey(playbackKey) {
     if (archive?.reviewMode) {
       setConnectionLostScreen(playbackKey, false);
       attachReviewVideo(video, playbackKey);
+      return;
+    }
+
+    if (video.dataset.playableUrl === "1") {
+      restorePlayableLiveVideo(video);
+      const state = getPlayableUrlStateForPlaybackKey(playbackKey);
+      setConnectionLostScreen(
+        playbackKey,
+        !state.live,
+        state.stopped ? "sin senal RTMP" : "esperando senal RTMP"
+      );
+      updateCameraBadgeForPlaybackKey(playbackKey);
       return;
     }
 
@@ -1803,6 +1979,8 @@ function attachReviewVideo(video, playbackKey) {
   const archive = getPlaybackGroup(playbackKey, false);
   if (!archive?.segments?.length) return;
   setConnectionLostScreen(playbackKey, false);
+  stopPlayableUrlRecording(video);
+  destroyHlsPlayer(video, { stopRecording: false, stopWatcher: false });
 
   const located = locateSegmentAt(archive, archive.reviewPosition);
   if (!located) return;
@@ -1851,7 +2029,7 @@ function advanceReviewPlayback(playbackKey) {
     return;
   }
 
-  if (getActiveRemoteStreamForGroup(archive).mediaStream) {
+  if (getActiveRemoteStreamForGroup(archive).mediaStream || hasPlayableLiveForPlaybackKey(playbackKey)) {
     returnToLive(playbackKey);
     return;
   }
@@ -1870,7 +2048,14 @@ function seekStreamPlayback(playbackKey, seconds) {
   const finalizedDuration = getArchiveDuration(archive);
   const target = Math.max(0, Math.min(Number(seconds) || 0, max));
 
-  if (getActiveRemoteStreamForGroup(archive).mediaStream && target >= Math.max(0, max - LIVE_EDGE_THRESHOLD_SECONDS)) {
+  if (
+    (
+      getActiveRemoteStreamForGroup(archive).mediaStream ||
+      hasPlayableLiveForPlaybackKey(playbackKey) ||
+      hasPlayableUrlForPlaybackKey(playbackKey)
+    ) &&
+    target >= Math.max(0, max - LIVE_EDGE_THRESHOLD_SECONDS)
+  ) {
     returnToLive(playbackKey);
     return;
   }
@@ -1923,14 +2108,23 @@ function updatePlaybackControls(playbackKey = null) {
     const archive = getPlaybackGroup(key, false);
     const max = archive ? getPlaybackMax(archive) : 0;
     const value = archive?.reviewMode ? archive.reviewPosition : max;
+    const playableState = getPlayableUrlStateForPlaybackKey(key);
     const hasRemote = Boolean(getActiveRemoteStreamForGroup(archive).mediaStream);
-    const status = archive?.segments?.length && !hasRemote
-      ? "LOCAL"
-      : archive?.reviewMode
-        ? "REV"
+    const hasLiveSignal = hasRemote || playableState.live;
+    const canReturnToLive = hasLiveSignal || playableState.hasSource || hasPlayableUrlForPlaybackKey(key);
+    const status = archive?.reviewMode
+      ? "REV"
+      : archive?.segments?.length && !hasLiveSignal
+        ? "LOCAL"
         : archive?.segments?.length
           ? "BUFFER"
-          : "LIVE";
+          : hasLiveSignal
+            ? "LIVE"
+            : playableState.hasSource
+              ? playableState.stopped ? "SIN SENAL" : "ESPERANDO"
+              : archive
+                ? "ESPERANDO"
+                : "SIN SENAL";
 
     queryPlaybackControls(key).forEach((control) => {
       const range = control.querySelector(".cameraPlaybackRange");
@@ -1952,16 +2146,20 @@ function updatePlaybackControls(playbackKey = null) {
         time.textContent = `${formatPlaybackTime(value)} / ${formatPlaybackTime(max)}`;
       }
       if (liveBtn) {
-        liveBtn.classList.toggle("active", !archive?.reviewMode && hasRemote);
-        liveBtn.disabled = !hasRemote;
+        liveBtn.classList.toggle("active", !archive?.reviewMode && hasLiveSignal);
+        liveBtn.disabled = !canReturnToLive;
       }
+      control.querySelectorAll(".cameraPlaybackBtn").forEach((button) => {
+        button.disabled = !archive || max <= 0;
+      });
       if (statusEl) {
         statusEl.textContent = status;
-        statusEl.dataset.status = status.toLowerCase();
+        statusEl.dataset.status = status.toLowerCase().replace(/\s+/g, "-");
         statusEl.classList.toggle("camLive", status === "LIVE" || status === "BUFFER");
         statusEl.classList.toggle("camBehind", status === "LOCAL" || status === "REV");
       }
     });
+    updateCameraBadgeForPlaybackKey(key);
   });
 }
 
@@ -1971,7 +2169,7 @@ function ensurePlaybackUiTimer() {
 }
 
 function bindPlaybackControls(container, camera) {
-  if (!camera?.isWebRtc || (!camera.streamId && !camera.playbackKey)) return;
+  if ((!camera?.isWebRtc && !camera?.isPlayableUrl) || (!camera.streamId && !camera.playbackKey)) return;
   const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
   const streamId = Number(camera.streamId || 0);
   if (streamId) void loadPersistedSegmentsForStream(streamId);
@@ -2019,7 +2217,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   let lastTapSide = "";
 
   feed.addEventListener("pointerup", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraReturnBtn, .cameraAudioBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const now = Date.now();
     const isDoubleTap = side !== "center" && lastTapSide === side && now - lastTapAt <= DOUBLE_TAP_MS;
@@ -2034,7 +2232,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   });
 
   feed.addEventListener("dblclick", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraReturnBtn, .cameraAudioBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const playbackKey = feed.dataset.playbackKey;
     if (side !== "center" && playbackKey) {
@@ -2056,51 +2254,508 @@ function attachLiveFeeds() {
   attachKnownMediaStreams();
 }
 
+function getVideoCaptureStream(video) {
+  if (!video) return null;
+  const capture = video.captureStream || video.mozCaptureStream;
+  if (typeof capture !== "function") return null;
+  try {
+    return capture.call(video);
+  } catch (err) {
+    console.warn("[CAMERAS] No se pudo capturar HLS para grabacion:", err.message);
+    return null;
+  }
+}
+
+function schedulePlayableRecordingRetry(video, delay = 1000) {
+  if (!video || video.dataset.playableRecordingRetry === "1") return;
+  video.dataset.playableRecordingRetry = "1";
+  window.setTimeout(() => {
+    video.dataset.playableRecordingRetry = "";
+    startPlayableUrlRecording(video);
+  }, delay);
+}
+
+function startPlayableUrlRecording(video) {
+  const streamId = Number(video?.dataset?.streamId || 0);
+  if (!streamId || !video?.dataset?.playableUrl) return;
+  if (video.dataset.reviewUrl) return;
+  if (isHlsUrl(getPlayableVideoUrl(video)) && !isPlayableVideoLive(video)) return;
+
+  const current = playableLiveStreams.get(streamId);
+  const captureStream = current?.video === video && current.stream
+    ? current.stream
+    : getVideoCaptureStream(video);
+  if (!captureStream) return;
+
+  const recordingStream = getRecordingMediaStream(streamId, captureStream);
+  if (!recordingStream) {
+    schedulePlayableRecordingRetry(video);
+    return;
+  }
+
+  video.dataset.playableStopped = "";
+  playableLiveStreams.set(streamId, { stream: captureStream, video });
+  const archive = getPlaybackArchive(streamId);
+  if (archive) {
+    archive.connectionLost = false;
+    archive.localReviewInitialized = false;
+  }
+  const group = getPlaybackGroup(archive?.playbackKey || video.dataset.playbackKey || getStreamPlaybackKey(streamId));
+  if (group) {
+    group.connectionLost = false;
+    group.activeStreamId = streamId;
+    group.streamIds.add(streamId);
+  }
+
+  startLocalRecorder(streamId, captureStream, { sourceType: "playable-url" });
+  updatePlaybackControls(group?.playbackKey || archive?.playbackKey || video.dataset.playbackKey || getStreamPlaybackKey(streamId));
+}
+
+function stopPlayableUrlRecording(video, { markLost = false } = {}) {
+  const streamId = Number(video?.dataset?.streamId || 0);
+  if (!streamId) return;
+
+  const current = playableLiveStreams.get(streamId);
+  if (current?.video === video) {
+    playableLiveStreams.delete(streamId);
+  }
+  stopLocalRecorder(streamId, { markLost });
+}
+
+function bindPlayableUrlRecording(video) {
+  if (!video || video.dataset.playableRecordingBound === "1") return;
+  video.dataset.playableRecordingBound = "1";
+
+  ["loadedmetadata", "canplay", "playing"].forEach((eventName) => {
+    video.addEventListener(eventName, () => startPlayableUrlRecording(video));
+  });
+  ["error"].forEach((eventName) => {
+    video.addEventListener(eventName, () => markPlayableUrlStopped(video));
+  });
+  video.addEventListener("ended", () => {
+    markPlayableUrlStopped(video);
+  });
+}
+
+function getPlayableVideoUrl(video) {
+  return video?.dataset?.liveUrl || video?.dataset?.hlsSrc || video?.currentSrc || video?.getAttribute?.("src") || "";
+}
+
+function isPlayableVideoLive(video) {
+  if (!video || video.dataset.playableUrl !== "1" || video.dataset.reviewUrl) return false;
+  const url = getPlayableVideoUrl(video);
+  if (isHlsUrl(url)) {
+    const watcher = playableUrlWatchers.get(video);
+    return Boolean(watcher?.live && !watcher.stopped);
+  }
+
+  const streamId = Number(video.dataset.streamId || 0);
+  return Boolean(streamId && playableLiveStreams.get(streamId)?.video === video);
+}
+
+function getPlayableUrlStateForPlaybackKey(playbackKey) {
+  const state = {
+    hasSource: false,
+    live: false,
+    waiting: false,
+    stopped: false
+  };
+
+  queryVideosForPlaybackKey(playbackKey).forEach((video) => {
+    if (video.dataset.playableUrl !== "1") return;
+    state.hasSource = true;
+
+    if (isPlayableVideoLive(video)) {
+      state.live = true;
+      return;
+    }
+
+    const watcher = playableUrlWatchers.get(video);
+    if (video.dataset.playableStopped === "1" || watcher?.stopped) {
+      state.stopped = true;
+      return;
+    }
+
+    state.waiting = true;
+  });
+
+  if (state.live) {
+    state.waiting = false;
+    state.stopped = false;
+  }
+
+  return state;
+}
+
+function updateCameraBadgeForPlaybackKey(playbackKey) {
+  const state = getPlayableUrlStateForPlaybackKey(playbackKey);
+  if (!state.hasSource) return;
+
+  const badgeText = state.live
+    ? "EN VIVO"
+    : state.stopped
+      ? "SIN SENAL"
+      : "ESPERANDO";
+
+  document.querySelectorAll(".cameraFeed[data-playback-key]").forEach((feed) => {
+    if (feed.dataset.playbackKey !== String(playbackKey)) return;
+    const badge = feed.querySelector(".cameraFeedBadge");
+    if (badge) badge.textContent = badgeText;
+  });
+}
+
+function markPlayableVideoLive(video, watcher = playableUrlWatchers.get(video)) {
+  if (!video || !watcher) return;
+  watcher.live = true;
+  watcher.stopped = false;
+  video.dataset.playableStopped = "";
+  const playbackKey = video.dataset.playbackKey || "";
+  if (playbackKey) {
+    const archive = getPlaybackGroup(playbackKey, false);
+    if (archive?.reviewMode && video.dataset.reviewUrl) {
+      returnToLive(playbackKey);
+      return;
+    }
+    setConnectionLostScreen(playbackKey, false);
+    updateCameraBadgeForPlaybackKey(playbackKey);
+    updatePlaybackControls(playbackKey);
+  }
+  startPlayableUrlRecording(video);
+}
+
+function hasPlayableLiveForPlaybackKey(playbackKey) {
+  return getPlayableUrlStateForPlaybackKey(playbackKey).live;
+}
+
+function hasPlayableUrlForPlaybackKey(playbackKey) {
+  return queryVideosForPlaybackKey(playbackKey).some((video) =>
+    video.dataset.playableUrl === "1" && Boolean(video.dataset.liveUrl || video.dataset.hlsSrc)
+  );
+}
+
+function restorePlayableLiveVideo(video) {
+  if (!video || video.dataset.playableUrl !== "1") return false;
+  const liveUrl = video.dataset.liveUrl || video.dataset.hlsSrc || video.currentSrc || "";
+  if (!liveUrl) return false;
+
+  video.pause?.();
+  video.srcObject = null;
+  video.dataset.reviewUrl = "";
+
+  if (isHlsUrl(liveUrl)) {
+    video.removeAttribute("src");
+    video.dataset.hlsSrc = liveUrl;
+    video.dataset.hlsAttached = "";
+    attachPlayableUrlFeeds(video.closest(".cameraFeed") || video.parentElement || document);
+  } else if (video.getAttribute("src") !== liveUrl) {
+    destroyHlsPlayer(video, { stopRecording: false });
+    video.src = liveUrl;
+    video.load?.();
+  }
+
+  setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
+  video.play?.().catch(() => {});
+  startPlayableUrlRecording(video);
+  return true;
+}
+
+function normalizeHlsManifestFingerprint(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith("#EXT-X-PROGRAM-DATE-TIME"))
+    .join("\n");
+}
+
+function hlsManifestHasMedia(text) {
+  return /#EXTINF\b|#EXT-X-PART\b/i.test(String(text || ""));
+}
+
+async function fetchHlsManifest(url) {
+  const res = await fetch(`${url}${url.includes("?") ? "&" : "?"}_=${Date.now()}`, {
+    cache: "no-store"
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const text = await res.text();
+  if (!/^#EXTM3U\b/i.test(text.trim())) throw new Error("Playlist HLS invalida");
+  return text;
+}
+
+function updatePlayableUrlFingerprint(video, fingerprint) {
+  const watcher = playableUrlWatchers.get(video);
+  if (!watcher) return;
+
+  const next = String(fingerprint || "").trim();
+  if (!next) return;
+
+  const now = Date.now();
+  if (watcher.fingerprint !== next) {
+    const hadFingerprint = Boolean(watcher.fingerprint);
+    watcher.fingerprint = next;
+    watcher.lastChangedAt = now;
+    watcher.changeCount = (watcher.changeCount || 0) + 1;
+    if (hadFingerprint) {
+      markPlayableVideoLive(video, watcher);
+    }
+  }
+  watcher.lastSeenAt = now;
+}
+
+function ensurePlayableUrlWatcher(video, url) {
+  if (!video || !url) return;
+
+  const current = playableUrlWatchers.get(video);
+  if (current?.url === url && !current.stopped) return;
+
+  stopPlayableUrlWatcher(video);
+  const watcher = {
+    url,
+    fingerprint: "",
+    changeCount: 0,
+    live: false,
+    lastChangedAt: Date.now(),
+    lastSeenAt: Date.now(),
+    createdAt: Date.now(),
+    checking: false,
+    stopped: false,
+    timer: window.setInterval(() => {
+      void checkPlayableUrlFreshness(video);
+    }, PLAYABLE_STALE_CHECK_MS)
+  };
+  playableUrlWatchers.set(video, watcher);
+  video.dataset.playableStopped = "";
+}
+
+function stopPlayableUrlWatcher(video) {
+  const watcher = playableUrlWatchers.get(video);
+  if (!watcher) return;
+  if (watcher.timer) window.clearInterval(watcher.timer);
+  playableUrlWatchers.delete(video);
+}
+
+async function checkPlayableUrlFreshness(video) {
+  const watcher = playableUrlWatchers.get(video);
+  if (!watcher) return;
+
+  const now = Date.now();
+  const elapsed = now - (watcher.live ? watcher.lastChangedAt : watcher.createdAt);
+  if (!watcher.stopped && ((watcher.live && elapsed > PLAYABLE_STALE_MS) || (!watcher.live && elapsed > PLAYABLE_INITIAL_STALE_MS))) {
+    markPlayableUrlStopped(video);
+    return;
+  }
+
+  if (!isHlsUrl(watcher.url) || watcher.checking) return;
+  watcher.checking = true;
+  try {
+    const text = await fetchHlsManifest(watcher.url);
+    const fingerprint = normalizeHlsManifestFingerprint(text);
+    updatePlayableUrlFingerprint(video, fingerprint);
+    if (hlsManifestHasMedia(text)) {
+      markPlayableVideoLive(video, watcher);
+    }
+    if (/#EXT-X-ENDLIST\b/i.test(text)) {
+      markPlayableUrlStopped(video);
+    }
+  } catch {
+    const staleFrom = watcher.live ? watcher.lastChangedAt : watcher.createdAt;
+    const staleLimit = watcher.live ? PLAYABLE_STALE_MS : PLAYABLE_INITIAL_STALE_MS;
+    if (Date.now() - staleFrom > staleLimit) {
+      markPlayableUrlStopped(video);
+    }
+  } finally {
+    watcher.checking = false;
+  }
+}
+
+function markPlayableUrlStopped(video) {
+  if (!video || video.dataset.reviewUrl) return;
+  video.dataset.playableStopped = "1";
+  const watcher = playableUrlWatchers.get(video);
+  if (watcher) {
+    watcher.stopped = true;
+    watcher.live = false;
+  }
+
+  const streamId = Number(video.dataset.streamId || 0);
+  const playbackKey = video.dataset.playbackKey || (streamId ? getStreamPlaybackKey(streamId) : "");
+  if (!playbackKey) return;
+
+  stopPlayableUrlRecording(video, { markLost: true });
+  const group = getPlaybackGroup(playbackKey, false);
+  if (group) group.connectionLost = true;
+
+  if (enterLocalReview(playbackKey)) {
+    attachMediaStateForPlaybackKey(playbackKey);
+  } else {
+    const liveUrl = getPlayableVideoUrl(video);
+    video.pause?.();
+    destroyHlsPlayer(video, { stopRecording: false, stopWatcher: false });
+    setConnectionLostScreen(playbackKey, true, "sin senal RTMP");
+    if (isHlsUrl(liveUrl)) scheduleHlsAttachWhenReady(video, liveUrl, HLS_ATTACH_RETRY_INITIAL_MS);
+  }
+  updateCameraBadgeForPlaybackKey(playbackKey);
+  updatePlaybackControls(playbackKey);
+}
+
+function clearHlsAttachRetry(video) {
+  const retry = hlsAttachRetries.get(video);
+  if (!retry) return;
+  if (retry.timer) window.clearTimeout(retry.timer);
+  hlsAttachRetries.delete(video);
+}
+
+function scheduleHlsAttachWhenReady(video, url, delay = 0) {
+  if (!video || !url) return;
+
+  const current = hlsAttachRetries.get(video);
+  if (current?.url === url && (current.timer || current.checking)) return;
+
+  clearHlsAttachRetry(video);
+  const retry = {
+    url,
+    delay: HLS_ATTACH_RETRY_INITIAL_MS,
+    timer: null,
+    checking: false
+  };
+  hlsAttachRetries.set(video, retry);
+
+  const run = async () => {
+    if (!document.contains(video) || video.dataset.hlsSrc !== url || video.dataset.reviewUrl) {
+      clearHlsAttachRetry(video);
+      return;
+    }
+    if (video.dataset.hlsAttached === "1") {
+      clearHlsAttachRetry(video);
+      return;
+    }
+
+    retry.timer = null;
+    retry.checking = true;
+
+    try {
+      const text = await fetchHlsManifest(url);
+      if (hlsAttachRetries.get(video) !== retry) return;
+
+      const watcher = playableUrlWatchers.get(video);
+      updatePlayableUrlFingerprint(video, normalizeHlsManifestFingerprint(text));
+      if (hlsManifestHasMedia(text)) {
+        markPlayableVideoLive(video, watcher);
+      }
+      clearHlsAttachRetry(video);
+      attachReadyHlsVideo(video, url);
+    } catch {
+      if (hlsAttachRetries.get(video) !== retry) return;
+
+      retry.checking = false;
+      const playbackKey = video.dataset.playbackKey || "";
+      if (playbackKey) {
+        setConnectionLostScreen(playbackKey, true, "esperando senal RTMP");
+        updateCameraBadgeForPlaybackKey(playbackKey);
+        updatePlaybackControls(playbackKey);
+      }
+
+      retry.timer = window.setTimeout(run, retry.delay);
+      retry.delay = Math.min(Math.round(retry.delay * 1.6), HLS_ATTACH_RETRY_MAX_MS);
+    }
+  };
+
+  retry.timer = window.setTimeout(run, Math.max(0, delay));
+}
+
+function attachReadyHlsVideo(video, url) {
+  if (!video || !url || video.dataset.hlsAttached === "1") return;
+  if (video.dataset.hlsSrc !== url) return;
+
+  clearHlsAttachRetry(video);
+
+  if (video.canPlayType("application/vnd.apple.mpegurl")) {
+    video.src = url;
+    video.dataset.hlsAttached = "1";
+    setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
+    markPlayableVideoLive(video);
+    video.play?.().then(() => startPlayableUrlRecording(video)).catch(() => {});
+    return;
+  }
+
+  ensureHlsScript()
+    .then((Hls) => {
+      if (!Hls.isSupported()) return;
+      if (!document.contains(video) || video.dataset.hlsSrc !== url || video.dataset.hlsAttached === "1") return;
+
+      destroyHlsPlayer(video, { stopRecording: false, stopWatcher: false });
+      const hls = new Hls({
+        lowLatencyMode: true,
+        liveSyncDuration: 1,
+        liveMaxLatencyDuration: 3,
+        maxLiveSyncPlaybackRate: 1.5,
+        backBufferLength: 0,
+        enableWorker: true,
+        manifestLoadingMaxRetry: 0,
+        levelLoadingMaxRetry: 0,
+        fragLoadingMaxRetry: 1,
+      });
+      hls.loadSource(url);
+      hls.attachMedia(video);
+      hlsPlayers.set(video, hls);
+      video.dataset.hlsAttached = "1";
+      setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
+        markPlayableVideoLive(video);
+        video.play?.().then(() => startPlayableUrlRecording(video)).catch(() => {});
+      });
+      if (Hls.Events.LEVEL_UPDATED) {
+        hls.on(Hls.Events.LEVEL_UPDATED, (event, data = {}) => {
+          const details = data.details || {};
+          updatePlayableUrlFingerprint(video, [
+            details.url || url,
+            details.mediaSequence ?? "",
+            details.endSN ?? "",
+            details.totalduration ?? ""
+          ].join(":"));
+          if (details.live === false) markPlayableUrlStopped(video);
+        });
+      }
+      hls.on(Hls.Events.ERROR, (event, data = {}) => {
+        if (data.fatal) markPlayableUrlStopped(video);
+      });
+    })
+    .catch((err) => {
+      console.warn("[CAMERAS] No se pudo preparar HLS:", err.message);
+    });
+}
+
 function attachPlayableUrlFeeds(root = document) {
   root.querySelectorAll("video[data-hls-src]").forEach((video) => {
+    bindPlayableUrlRecording(video);
     if (video.dataset.hlsAttached === "1") return;
     const url = video.dataset.hlsSrc;
     if (!url) return;
 
-    if (video.canPlayType("application/vnd.apple.mpegurl")) {
-      video.src = url;
-      video.dataset.hlsAttached = "1";
-      setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
-      video.play?.().catch(() => {});
-      return;
-    }
+    ensurePlayableUrlWatcher(video, url);
+    scheduleHlsAttachWhenReady(video, url);
+  });
 
-    ensureHlsScript()
-      .then((Hls) => {
-        if (!Hls.isSupported()) return;
-        destroyHlsPlayer(video);
-        const hls = new Hls({
-          lowLatencyMode: true,
-          liveSyncDuration: 1,
-          liveMaxLatencyDuration: 3,
-          maxLiveSyncPlaybackRate: 1.5,
-          backBufferLength: 0,
-          enableWorker: true,
-        });
-        hls.loadSource(url);
-        hls.attachMedia(video);
-        hlsPlayers.set(video, hls);
-        video.dataset.hlsAttached = "1";
-        setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
-          video.play?.().catch(() => {});
-        });
-      })
-      .catch((err) => {
-        console.warn("[CAMERAS] No se pudo preparar HLS:", err.message);
-      });
+  root.querySelectorAll("video[data-playable-url='1']:not([data-hls-src])").forEach((video) => {
+    bindPlayableUrlRecording(video);
+    setVideoAudioState(video, isCameraAudioEnabled(video.dataset.audioKey));
+    video.play?.().then(() => startPlayableUrlRecording(video)).catch(() => {});
   });
 }
 
-function destroyHlsPlayer(video) {
+function destroyHlsPlayer(video, { stopRecording = true, stopWatcher = true } = {}) {
+  if (stopRecording) stopPlayableUrlRecording(video);
+  if (stopWatcher) {
+    stopPlayableUrlWatcher(video);
+    clearHlsAttachRetry(video);
+  }
   const hls = hlsPlayers.get(video);
-  if (!hls) return;
+  if (!hls) {
+    if (video?.dataset) video.dataset.hlsAttached = "";
+    return;
+  }
   try {
     hls.destroy();
   } catch (err) {
@@ -2134,6 +2789,7 @@ export function clearPersonnelLiveCamera() {
   activePersonnelCamera = null;
   if (dom.personnelDetailCamera) {
     destroyHlsPlayersIn(dom.personnelDetailCamera);
+    dom.personnelDetailCamera.dataset.playbackKey = "";
     dom.personnelDetailCamera.innerHTML = "";
   }
 }
@@ -2143,6 +2799,7 @@ function renderActivePersonnelCamera() {
 
   const camera = findCameraForPerson(activePersonnelCamera.personId, activePersonnelCamera.displayName);
   const name = camera?.name || activePersonnelCamera.displayName || `Agente ${activePersonnelCamera.personId}`;
+  const playbackKey = camera ? (camera.playbackKey || getCameraPlaybackKey(camera)) : "";
   const badge = camera ? getCameraBadge(camera) : "SIN SEÑAL";
   const media = camera
     ? buildMediaMarkup(camera)
@@ -2151,6 +2808,7 @@ function renderActivePersonnelCamera() {
   const audioButton = camera ? buildCameraAudioButton(camera) : "";
 
   destroyHlsPlayersIn(dom.personnelDetailCamera);
+  dom.personnelDetailCamera.dataset.playbackKey = playbackKey;
   dom.personnelDetailCamera.innerHTML = `
     <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
     ${audioButton}
@@ -2160,8 +2818,8 @@ function renderActivePersonnelCamera() {
   `;
 
   if (camera) bindCameraAudioButton(dom.personnelDetailCamera);
-  if (camera?.isWebRtc && camera.streamId) {
-    joinWebRtcStream(camera);
+  if (camera) {
+    if (camera.isWebRtc && camera.streamId) joinWebRtcStream(camera);
     bindPlaybackControls(dom.personnelDetailCamera, camera);
     bindCameraSurfaceInteractions(dom.personnelDetailCamera, camera);
   }
@@ -2245,6 +2903,35 @@ async function joinWebRtcStream(camera, options = {}) {
   });
 }
 
+function addTrackToRemoteStream(streamId, track) {
+  if (!track) return null;
+
+  const id = Number(streamId);
+  if (!id) return null;
+
+  let mediaStream = remoteStreams.get(id);
+  if (!mediaStream) {
+    mediaStream = new MediaStream();
+    remoteStreams.set(id, mediaStream);
+  }
+
+  if (!mediaStream.getTracks().some((current) => current.id === track.id)) {
+    mediaStream.addTrack(track);
+    track.addEventListener("ended", () => {
+      const currentStream = remoteStreams.get(id);
+      if (!currentStream) return;
+      const hasLiveTracks = currentStream.getTracks().some((current) => current.readyState === "live");
+      if (!hasLiveTracks) {
+        remoteStreams.delete(id);
+        handleStreamConnectionLost(id);
+        attachMediaStateForStream(id);
+      }
+    });
+  }
+
+  return mediaStream;
+}
+
 async function ensurePeerConnection(streamId) {
   if (peerConnections.has(streamId)) return peerConnections.get(streamId);
 
@@ -2253,12 +2940,17 @@ async function ensurePeerConnection(streamId) {
   peerConnections.set(streamId, pc);
 
   pc.ontrack = (event) => {
-    if (event.streams?.[0]) {
-      const id = Number(streamId);
-      remoteStreams.set(id, event.streams[0]);
-      handleStreamConnectionRestored(id, event.streams[0]);
-      attachKnownMediaStreams();
-    }
+    const id = Number(streamId);
+    const incomingTracks = event.streams?.length
+      ? event.streams.flatMap((mediaStream) => mediaStream.getTracks())
+      : [event.track];
+
+    incomingTracks.forEach((track) => addTrackToRemoteStream(id, track));
+    const mediaStream = addTrackToRemoteStream(id, event.track);
+    if (!mediaStream) return;
+
+    handleStreamConnectionRestored(id, mediaStream);
+    attachKnownMediaStreams();
   };
 
   pc.onconnectionstatechange = () => {
@@ -2460,8 +3152,42 @@ function closePeer(streamId) {
 
 function toggleFocus(feed) {
   const wasFocused = feed.classList.contains("focused");
+  if (wasFocused) {
+    returnToCameraGrid();
+    return;
+  }
+  setCameraLayout("speaker", feed);
+}
+
+function ensureFocusedCameraInSpeakerLayout() {
+  if (!dom.cameraFeeds?.classList.contains("speaker-layout")) {
+    dom.cameraPanel?.classList.remove("is-focused");
+    return;
+  }
+
+  dom.cameraPanel?.classList.add("is-focused");
+  if (dom.cameraFeeds.querySelector(".cameraFeed.focused")) return;
+  dom.cameraFeeds.querySelector(".cameraFeed")?.classList.add("focused");
+}
+
+function setCameraLayout(layout, focusFeed = null) {
+  if (!dom.cameraFeeds) return;
+
+  const speaker = layout === "speaker";
+  dom.cameraFeeds.classList.toggle("speaker-layout", speaker);
+  dom.cameraFeeds.classList.toggle("grid-layout", !speaker);
+  dom.cameraPanel?.classList.toggle("is-focused", speaker);
+  dom.cameraLayoutSpeaker?.classList.toggle("active", speaker);
+  dom.cameraLayoutGrid?.classList.toggle("active", !speaker);
+
   document.querySelectorAll(".cameraFeed").forEach((item) => item.classList.remove("focused"));
-  if (!wasFocused) feed.classList.add("focused");
+  if (speaker) {
+    (focusFeed || dom.cameraFeeds.querySelector(".cameraFeed"))?.classList.add("focused");
+  }
+}
+
+function returnToCameraGrid() {
+  setCameraLayout("grid");
 }
 
 function bindCameraEvents() {
@@ -2469,24 +3195,33 @@ function bindCameraEvents() {
   cameraEventsBound = true;
 
   if (dom.cameraLayoutGrid && dom.cameraFeeds) {
-    dom.cameraLayoutGrid.onclick = () => {
-      dom.cameraFeeds.className = "cameraFeeds grid-layout";
-      dom.cameraLayoutGrid.classList.add("active");
-      dom.cameraLayoutSpeaker?.classList.remove("active");
-      document.querySelectorAll(".cameraFeed").forEach((feed) => feed.classList.remove("focused"));
-    };
+    dom.cameraLayoutGrid.onclick = returnToCameraGrid;
+  }
+
+  if (dom.cameraBackToGrid) {
+    dom.cameraBackToGrid.addEventListener("click", returnToCameraGrid);
   }
 
   if (dom.cameraLayoutSpeaker && dom.cameraFeeds) {
     dom.cameraLayoutSpeaker.onclick = () => {
-      dom.cameraFeeds.className = "cameraFeeds speaker-layout";
-      dom.cameraLayoutSpeaker.classList.add("active");
-      dom.cameraLayoutGrid?.classList.remove("active");
-
-      if (!document.querySelector(".cameraFeed.focused")) {
-        document.querySelector(".cameraFeed")?.classList.add("focused");
-      }
+      setCameraLayout("speaker", document.querySelector(".cameraFeed.focused"));
     };
+  }
+
+  if (dom.registerObsStreamBtn) {
+    dom.registerObsStreamBtn.addEventListener("click", registerObsStreamFromPanel);
+  }
+
+  if (dom.obsStreamKey) {
+    dom.obsStreamKey.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        registerObsStreamFromPanel();
+      }
+    });
+    dom.obsStreamKey.addEventListener("input", () => {
+      setObsStatus("");
+    });
   }
 }
 
@@ -2500,7 +3235,7 @@ function makePanelDraggable() {
   let previousY = 0;
 
   header.onmousedown = (event) => {
-    if (event.target.closest(".cameraControls") || event.target.closest(".layoutBtn")) return;
+    if (event.target.closest(".cameraControls") || event.target.closest(".obsControls") || event.target.closest(".layoutBtn")) return;
     event.preventDefault();
 
     previousX = event.clientX;

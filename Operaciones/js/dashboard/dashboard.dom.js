@@ -55,8 +55,12 @@ export const dom = {
 
   // Cámaras
   cameraFeeds: document.getElementById("cameraFeeds"),
+  cameraBackToGrid: document.getElementById("cameraBackToGrid"),
   cameraLayoutGrid: document.getElementById("cameraLayoutGrid"),
   cameraLayoutSpeaker: document.getElementById("cameraLayoutSpeaker"),
+  obsStreamKey: document.getElementById("obsStreamKey"),
+  registerObsStreamBtn: document.getElementById("registerObsStreamBtn"),
+  obsStreamStatus: document.getElementById("obsStreamStatus"),
 
   // Panels
   infoPanel: document.getElementById("infoPanel"),

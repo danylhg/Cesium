@@ -1216,6 +1216,15 @@ body {
 
 .cameraFeeds.speaker-layout {
   grid-template-columns: 1fr;
+  grid-auto-rows: minmax(360px, 1fr);
+}
+
+.cameraFeeds.speaker-layout .cameraFeed {
+  display: none;
+}
+
+.cameraFeeds.speaker-layout .cameraFeed.focused {
+  display: block;
 }
 
 .cameraFeed {
@@ -1548,6 +1557,74 @@ body {
   transition: opacity 0.18s ease;
 }
 
+.cameraBackBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+}
+
+.cameraPanel.is-focused .cameraBackBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.obsControls {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: min(410px, calc(100% - 72px));
+  opacity: 0.42;
+  transition: opacity 0.18s ease;
+}
+
+.obsControls:focus-within,
+.panelHeader:hover .obsControls {
+  opacity: 1;
+}
+
+.obsControls input {
+  width: 86px;
+  min-width: 0;
+  height: 24px;
+  border: 1px solid rgba(0, 255, 166, 0.26);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.52);
+  color: #e6edf3;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-weight: 800;
+  outline: none;
+}
+
+.obsControls button {
+  height: 24px;
+  border: 1px solid rgba(0, 255, 166, 0.3);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.5);
+  color: #e6edf3;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.obsControls button:hover {
+  background: #00ffa6;
+  color: #001b1b;
+}
+
+.obsControls span {
+  min-width: 0;
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .panelHeader:hover .cameraControls,
 .cameraControls:focus-within {
   opacity: 1;
@@ -1596,7 +1673,7 @@ body {
 }
 
 .cameraFeed.hasPlayback .cameraFeedName {
-  bottom: 22px;
+  bottom: 58px;
 }
 
 .cameraFeedBadge {
@@ -1636,7 +1713,7 @@ body {
   top: 10px;
   right: 10px;
   z-index: 5;
-  min-width: 74px;
+  min-width: 94px;
   height: 24px;
   padding: 0 9px;
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -1645,6 +1722,7 @@ body {
   color: #e6edf3;
   font-size: 10px;
   font-weight: 900;
+  white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 4px 10px rgba(0, 0, 0, 0.32);
 }
@@ -1653,6 +1731,37 @@ body {
 .cameraAudioBtn.active {
   background: rgba(0, 255, 166, 0.88);
   border-color: rgba(0, 255, 166, 0.9);
+  color: #001b1b;
+}
+
+.cameraReturnBtn {
+  display: none;
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 6;
+  min-width: 86px;
+  height: 26px;
+  border: 1px solid rgba(0, 255, 166, 0.36);
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #e6edf3;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 900;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.38);
+}
+
+.cameraFeed.focused .cameraReturnBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cameraReturnBtn:hover {
+  background: #00ffa6;
   color: #001b1b;
 }
 
@@ -1695,32 +1804,26 @@ body {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 9px;
+  bottom: 0;
   z-index: 4;
   display: grid;
-  grid-template-columns: 1fr;
-  grid-template-areas: "range";
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "back range forward live"
+    "time time time time";
   gap: 4px;
   align-items: center;
-  padding: 0;
-  border-radius: 999px;
-  background: transparent;
+  padding: 14px 8px 6px;
+  border-radius: 0 0 8px 8px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.62));
   border: 0;
   box-shadow: none;
-  opacity: 0.45;
+  opacity: 0.9;
   transition: opacity 0.18s ease, padding 0.18s ease, background 0.18s ease, bottom 0.18s ease;
 }
 
 .cameraPlayback:hover,
 .cameraPlayback:focus-within {
-  bottom: 0;
-  grid-template-columns: auto 1fr auto auto;
-  grid-template-areas:
-    "back range forward live"
-    "time time time time";
-  padding: 14px 8px 6px;
-  border-radius: 0 0 8px 8px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.62));
   opacity: 1;
 }
 
@@ -1791,7 +1894,9 @@ body {
 
 .cameraPlaybackBtn,
 .cameraLiveBtn {
-  display: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 28px;
   height: 22px;
   border: 1px solid rgba(255, 255, 255, 0.18);
@@ -1801,15 +1906,6 @@ body {
   font-size: 10px;
   font-weight: 900;
   cursor: pointer;
-}
-
-.cameraPlayback:hover .cameraPlaybackBtn,
-.cameraPlayback:hover .cameraLiveBtn,
-.cameraPlayback:focus-within .cameraPlaybackBtn,
-.cameraPlayback:focus-within .cameraLiveBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
 }
 
 .cameraPlaybackBtn:hover,
@@ -1825,17 +1921,17 @@ body {
   cursor: not-allowed;
 }
 
+.cameraPlaybackBtn:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
 .camTimeRow {
   grid-area: time;
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: space-between;
   min-width: 0;
-}
-
-.cameraPlayback:hover .camTimeRow,
-.cameraPlayback:focus-within .camTimeRow {
-  display: flex;
 }
 
 .cameraPlaybackTime,
@@ -1864,6 +1960,12 @@ body {
 .cameraPlaybackStatus[data-status="rev"] {
   background: rgba(59, 130, 246, 0.18);
   color: #bfdbfe;
+}
+
+.cameraPlaybackStatus[data-status="esperando"],
+.cameraPlaybackStatus[data-status="sin-senal"] {
+  background: rgba(148, 163, 184, 0.18);
+  color: #e2e8f0;
 }
 
 .chatAttachment,

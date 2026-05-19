@@ -44,6 +44,7 @@ import org.webrtc.MediaStream
 import org.webrtc.PeerConnection
 import org.webrtc.PeerConnectionFactory
 import org.webrtc.RtpReceiver
+import org.webrtc.RtpSender
 import org.webrtc.SessionDescription
 import org.webrtc.SdpObserver
 import org.webrtc.SurfaceTextureHelper
@@ -74,11 +75,11 @@ class MediaStreamingService : Service(), ConnectChecker {
         private const val CHANNEL_ID = "sedam_media_stream"
         private const val NOTIFICATION_ID = 3001
         private const val LOCAL_STREAM_ID = "sedam_local_stream"
-        private const val RTMP_VIDEO_WIDTH = 854
-        private const val RTMP_VIDEO_HEIGHT = 480
-        private const val RTMP_VIDEO_FPS = 24
-        private const val RTMP_VIDEO_BITRATE = 1_200 * 1024
-        private const val RTMP_AUDIO_BITRATE = 96 * 1024
+        private const val STREAM_VIDEO_WIDTH = 426
+        private const val STREAM_VIDEO_HEIGHT = 240
+        private const val STREAM_VIDEO_FPS = 15
+        private const val STREAM_VIDEO_BITRATE = 450 * 1024
+        private const val STREAM_AUDIO_BITRATE = 64 * 1024
         private const val RTMP_AUDIO_SAMPLE_RATE = 44_100
     }
 
@@ -306,15 +307,15 @@ class MediaStreamingService : Service(), ConnectChecker {
         rtmpCamera = camera
 
         val videoReady = camera.prepareVideo(
-            RTMP_VIDEO_WIDTH,
-            RTMP_VIDEO_HEIGHT,
-            RTMP_VIDEO_FPS,
-            RTMP_VIDEO_BITRATE,
+            STREAM_VIDEO_WIDTH,
+            STREAM_VIDEO_HEIGHT,
+            STREAM_VIDEO_FPS,
+            STREAM_VIDEO_BITRATE,
             1,
             0
         )
         val audioReady = camera.prepareAudio(
-            RTMP_AUDIO_BITRATE,
+            STREAM_AUDIO_BITRATE,
             RTMP_AUDIO_SAMPLE_RATE,
             true
         )
@@ -357,7 +358,7 @@ class MediaStreamingService : Service(), ConnectChecker {
         videoSource = peerConnectionFactory!!.createVideoSource(false)
         surfaceTextureHelper = SurfaceTextureHelper.create("SedamCameraThread", eglContext)
         videoCapturer?.initialize(surfaceTextureHelper, applicationContext, videoSource!!.capturerObserver)
-        videoCapturer?.startCapture(1280, 720, 30)
+        videoCapturer?.startCapture(STREAM_VIDEO_WIDTH, STREAM_VIDEO_HEIGHT, STREAM_VIDEO_FPS)
         localVideoTrack = peerConnectionFactory!!.createVideoTrack("sedam_video", videoSource)
 
         Log.d(TAG, "WebRTC publisher listo streamId=$streamId rtmp=$rtmpPublishUrl playback=$rtmpPlaybackUrl")
@@ -504,7 +505,10 @@ class MediaStreamingService : Service(), ConnectChecker {
 
         peerConnections[viewerSocketId] = peerConnection
         localAudioTrack?.let { peerConnection.addTrack(it, listOf(LOCAL_STREAM_ID)) }
-        localVideoTrack?.let { peerConnection.addTrack(it, listOf(LOCAL_STREAM_ID)) }
+        localVideoTrack?.let {
+            val sender = peerConnection.addTrack(it, listOf(LOCAL_STREAM_ID))
+            limitVideoSender(sender)
+        }
 
         val constraints = MediaConstraints().apply {
             mandatory.add(MediaConstraints.KeyValuePair("OfferToReceiveAudio", "false"))
@@ -538,6 +542,22 @@ class MediaStreamingService : Service(), ConnectChecker {
             }
             override fun onSetFailure(error: String?) {}
         }, constraints)
+    }
+
+    private fun limitVideoSender(sender: RtpSender?) {
+        if (sender == null) return
+        try {
+            val parameters = sender.parameters ?: return
+            parameters.degradationPreference = org.webrtc.RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
+            parameters.encodings.forEach { encoding ->
+                encoding.maxBitrateBps = STREAM_VIDEO_BITRATE
+                encoding.minBitrateBps = STREAM_VIDEO_BITRATE / 2
+                encoding.maxFramerate = STREAM_VIDEO_FPS
+            }
+            sender.parameters = parameters
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo limitar bitrate WebRTC: ${e.message}")
+        }
     }
 
     private fun sendIceCandidate(viewerSocketId: String, candidate: IceCandidate) {

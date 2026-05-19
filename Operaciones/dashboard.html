@@ -466,8 +466,15 @@
 
   <aside id="cameraPanel" class="glassPanel cameraPanel">
     <div class="panelHeader"
-      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: flex-end; padding: 5px;">
+      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: space-between; gap: 8px; padding: 5px;">
+      <div class="obsControls">
+        <input id="obsStreamKey" type="text" value="obs-01" aria-label="Clave OBS" />
+        <button id="registerObsStreamBtn" type="button" title="Registrar OBS en esta operacion">Ver OBS</button>
+        <span id="obsStreamStatus" aria-live="polite"></span>
+      </div>
       <div class="cameraControls">
+        <button id="cameraBackToGrid" class="layoutBtn cameraBackBtn" title="Regresar a camaras"
+          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 7px;">Camaras</button>
         <button id="cameraLayoutGrid" class="layoutBtn active" title="Vista en cuadrícula"
           style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">🔲</button>
         <button id="cameraLayoutSpeaker" class="layoutBtn" title="Vista enfocada"

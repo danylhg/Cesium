@@ -31,6 +31,37 @@
             android:textSize="13sp"
             android:lineSpacingExtra="1dp"/>
 
+        <ImageView
+            android:id="@+id/msgImageAttachment"
+            android:layout_width="240dp"
+            android:layout_height="160dp"
+            android:layout_marginTop="6dp"
+            android:adjustViewBounds="true"
+            android:background="#0f172a"
+            android:contentDescription="Imagen adjunta"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <VideoView
+            android:id="@+id/msgVideoAttachment"
+            android:layout_width="240dp"
+            android:layout_height="160dp"
+            android:layout_marginTop="6dp"
+            android:background="#0f172a"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/msgAudioAttachment"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_dest_btn"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="#bfdbfe"
+            android:textSize="12sp"
+            android:visibility="gone"/>
+
         <TextView
             android:id="@+id/msgAttachment"
             android:layout_width="wrap_content"

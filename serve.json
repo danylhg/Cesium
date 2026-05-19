@@ -1,0 +1,37 @@
+{
+  "cleanUrls": true,
+  "directoryListing": false,
+  "trailingSlash": false,
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/Operaciones/login",
+      "type": 302
+    },
+    {
+      "source": "/Operaciones",
+      "destination": "/Operaciones/login",
+      "type": 302
+    },
+    {
+      "source": "/Operaciones/",
+      "destination": "/Operaciones/login",
+      "type": 302
+    }
+  ],
+  "headers": [
+    {
+      "source": "**/*",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "same-origin"
+        }
+      ]
+    }
+  ]
+}
