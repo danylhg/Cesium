@@ -127,13 +127,17 @@ function restoreSavedState() {
     state.asignacionEquipos = savedAsig.asignacionEquipos;
   }
 
+  if (Array.isArray(savedAsig?.asignacionDispositivos)) {
+    state.asignacionDispositivos = savedAsig.asignacionDispositivos;
+  }
+
   return storedOp;
 }
 
 async function init() {
   // ── Validación de entrada ────────────────────────────────────
   // Entradas válidas:
-  //   "create"  → viene del botón "Crear operación" o "Emergencia" del menú inicial
+  //   "create"  → viene del botón "Crear operación" del menú inicial
   //   "edit"    → viene del botón "Editar" del dashboard
   // Cualquier otra entrada es inválida y se redirige.
   const entry = sessionStorage.getItem("asignacion_entry");

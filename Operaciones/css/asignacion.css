@@ -70,6 +70,17 @@ body {
   box-shadow: none;
 }
 
+.btnDashboardAction,
+.btnDownloadList {
+  max-width: 280px;
+  min-width: 220px;
+}
+
+.btnDownloadList {
+  background: linear-gradient(180deg, #0f766e, #115e59);
+  box-shadow: 0 10px 22px rgba(15, 118, 110, .24);
+}
+
 .btnGhost {
   border: 1px solid var(--stroke);
   background: #f7faff;

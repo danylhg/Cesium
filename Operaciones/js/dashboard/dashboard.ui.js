@@ -509,8 +509,10 @@ export function updateChatAvailability() {
   const activateOpBtn = document.getElementById("activateOpBtn");
   const closeActiveBtn = document.getElementById("closeActiveOpBtn");
 
-  if (badge) badge.style.display = active ? "inline-block" : "none";
-  if (title) title.textContent = active ? (op.title || op.titulo || "Operacion") : "Panorama tactico";
+  const operationName = op.nombre || op.title || op.titulo || op.name || "Operacion";
+
+  if (badge) badge.style.display = "none";
+  if (title) title.textContent = op?.id ? operationName : "Panorama tactico";
   if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
   if (actionBtns) actionBtns.style.display = active || closed ? "none" : "flex";
   if (activateOpBtn) activateOpBtn.style.display = !active && !closed ? "inline-flex" : "none";
@@ -532,6 +534,10 @@ export function updateChatAvailability() {
 
   if (dom.chatInput) dom.chatInput.disabled = !active;
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = !active;
+  if (dom.chatImageBtn) dom.chatImageBtn.disabled = !active;
+  if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
+  if (dom.chatCameraBtn) dom.chatCameraBtn.disabled = !active;
+  if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
   if (dom.chatTabCet) dom.chatTabCet.disabled = !active;
   if (dom.chatTabCells) dom.chatTabCells.disabled = !active;
 }
@@ -610,6 +616,13 @@ function formatBattery(value) {
   return text.endsWith("%") ? text : `${text}%`;
 }
 
+function formatOxygen(value) {
+  const oxygen = firstValue(value);
+  if (oxygen == null) return "-";
+  const text = String(oxygen).trim();
+  return text.endsWith("%") ? text : `${text}%`;
+}
+
 function sameText(a, b) {
   const clean = (value) => String(value || "")
     .trim()
@@ -635,6 +648,30 @@ function findPerson(personId, fallbackName = "") {
   const byId = people.find((p) => String(getPersonId(p) || "").trim() === id);
   if (byId) return byId;
   return people.find((p) => sameText(getPersonName(p), fallbackName));
+}
+
+function getAssignedDevice(person = {}, personId, personName) {
+  const op = getCurrentOperation();
+  const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
+  const devices = [
+    ...(Array.isArray(asignacion.dispositivos) ? asignacion.dispositivos : []),
+    ...(Array.isArray(op.dispositivos) ? op.dispositivos : []),
+    ...(Array.isArray(person.dispositivos) ? person.dispositivos : []),
+    ...(Array.isArray(person.devices) ? person.devices : [])
+  ];
+  const assignments = [
+    ...(Array.isArray(asignacion.asignacionDispositivos) ? asignacion.asignacionDispositivos : []),
+    ...(Array.isArray(op.asignacionDispositivos) ? op.asignacionDispositivos : [])
+  ];
+  const id = String(personId || getPersonId(person) || "").trim();
+  const name = personName || getPersonName(person);
+  const directAssignment = assignments.find((a) => String(a.id_personal || "").trim() === id);
+  if (directAssignment) {
+    const assignedId = String(directAssignment.id_dispositivo || "").trim();
+    const byId = devices.find((d) => String(d.id_dispositivo || d.id || "").trim() === assignedId);
+    if (byId) return byId;
+  }
+  return devices.find((d) => sameText(d.responsable || d.asignado_a_personal || d.personal_nombre, name));
 }
 
 function getPersonCameraImage(personId) {
@@ -696,13 +733,12 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const nombre = getPersonName(person) || anchor.name || `Personal ${personId}`;
   const lat = firstValue(anchor.lat, person.latitud, person.lat);
   const lng = firstValue(anchor.lng, person.longitud, person.lng, person.lon);
-  const velocidad = firstValue(anchor.velocidad, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
   const curso = firstValue(anchor.curso, person.curso, person.heading, person.rumbo, "-");
   const estado = firstValue(person.estado, person.estatus, person.activo === false ? "INACTIVO" : "ACTIVO");
-  const sidc = firstValue(person.sidc, person.codigo_sidc, "-");
-  const fc = firstValue(person.frecuencia_cardiaca, person.fc, person.heart_rate, "-");
-  const baro = firstValue(person.barometro, person.baro, person.presion, person.pressure, "-");
-  const bateria = formatBattery(firstValue(person.bateria, person.battery, person.battery_level));
+  const assignedDevice = getAssignedDevice(person, personId, nombre) || {};
+  const fc = firstValue(person.pulso, person.frecuencia_cardiaca, person.fc, person.heart_rate, assignedDevice.pulso, assignedDevice.frecuencia_cardiaca, assignedDevice.heart_rate, "-");
+  const oxigenacion = formatOxygen(firstValue(person.oxigenacion, person.oxigeno, person.saturacion_oxigeno, person.spo2, person.spO2, person.blood_oxygen, assignedDevice.oxigenacion, assignedDevice.oxigeno, assignedDevice.saturacion_oxigeno, assignedDevice.spo2, assignedDevice.spO2, assignedDevice.blood_oxygen));
+  const bateria = formatBattery(firstValue(assignedDevice.bateria, assignedDevice.battery, assignedDevice.battery_level, assignedDevice.nivel_bateria, person.dispositivo_bateria, person.device_battery, person.bateria_dispositivo, person.bateria, person.battery, person.battery_level));
   const actualizado = firstValue(person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
   const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
 
@@ -711,17 +747,14 @@ export function showPersonnelDetail(personId, anchor = {}) {
     <div class="personInfoGrid">
       <div class="personInfoLabel">Lat:</div><div class="personInfoValue">${escapeHtml(formatCoord(lat))}</div>
       <div class="personInfoLabel">Lng:</div><div class="personInfoValue">${escapeHtml(formatCoord(lng))}</div>
-      <div class="personInfoLabel">Vel:</div><div class="personInfoValue">${escapeHtml(String(velocidad))} km/h</div>
       <div class="personInfoLabel">Curso:</div><div class="personInfoValue">${escapeHtml(String(curso))}${String(curso) !== "-" ? "°" : ""}</div>
-      <div class="personInfoLabel">SIDC:</div><div class="personInfoValue">${escapeHtml(String(sidc))}</div>
     </div>
     <div class="personInfoStatus">Estado <strong>${escapeHtml(String(estado).toUpperCase())}</strong></div>
     <div class="personInfoBio">
-      <div class="personInfoBioTitle">⌚ Biométricos (Galaxy Watch)</div>
       <div class="personInfoGrid">
-        <div class="personInfoLabel">❤️ FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}</div>
-        <div class="personInfoLabel">↕ Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
-        <div class="personInfoLabel">🔋 Batería:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
+        <div class="personInfoLabel">Pulso:</div><div class="personInfoValue">${escapeHtml(String(fc))}</div>
+        <div class="personInfoLabel">Oxigenaci&oacute;n:</div><div class="personInfoValue">${escapeHtml(oxigenacion)}</div>
+        <div class="personInfoLabel">Bater&iacute;a:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
       </div>
       <div class="personInfoUpdated">Actualizado ${escapeHtml(actualizado ? formatTime(actualizado) : formatTime(new Date().toISOString()))}</div>
     </div>

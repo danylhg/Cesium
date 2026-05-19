@@ -50,8 +50,13 @@ export const dom = {
   chatMessages: document.getElementById("chatMessages"),
   chatInput: document.getElementById("chatInput"),
   sendChatBtn: document.getElementById("sendChatBtn"),
-  emergencyAlertPanel: document.getElementById("emergencyAlertPanel"),
-  emergencyAlertList: document.getElementById("emergencyAlertList"),
+  chatImageBtn: document.getElementById("chatImageBtn"),
+  chatEmojiBtn: document.getElementById("chatEmojiBtn"),
+  chatCameraBtn: document.getElementById("chatCameraBtn"),
+  chatAudioBtn: document.getElementById("chatAudioBtn"),
+  chatImageInput: document.getElementById("chatImageInput"),
+  chatCameraInput: document.getElementById("chatCameraInput"),
+  chatAttachStatus: document.getElementById("chatAttachStatus"),
 
   // Cámaras
   cameraFeeds: document.getElementById("cameraFeeds"),

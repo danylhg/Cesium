@@ -1,4 +1,4 @@
-import { btnBack, btnVolver, btnDashboardGo } from "../../core/dom.js";
+import { btnBack, btnVolver, btnDashboardGo, btnDownloadList } from "../../core/dom.js";
 import { state } from "../../core/state.js";
 import { 
   saveOperacionActual, 
@@ -11,6 +11,7 @@ import { removeStorage, readObjectStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL, STORAGE_ASIGNACION_ACTUAL } from "../../core/constants.js";
 import { renderHome } from "../../views/home.view.js";
 import { renderCUT, renderCET, renderCelulas } from "../personal/personal.views.js";
+import { downloadAssignmentList } from "../asignacion/asignacion.download.js";
 
 export function bindNavigation() {
   btnBack.addEventListener("click", () => {
@@ -49,6 +50,10 @@ export function bindNavigation() {
     removeStorage(STORAGE_OPERACION_ACTUAL);
     removeStorage(STORAGE_ASIGNACION_ACTUAL);
     window.location.href = "menu_inicial.html";
+  });
+
+  btnDownloadList?.addEventListener("click", () => {
+    downloadAssignmentList();
   });
 
   btnDashboardGo?.addEventListener("click", async () => {

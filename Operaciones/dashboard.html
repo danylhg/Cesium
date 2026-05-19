@@ -284,7 +284,7 @@
         <option value="polygon">Polígono Táctico</option>
         <option value="circle">Círculo de cobertura</option>
         <option value="polyline">Línea Táctica (Ruta)</option>
-        <option value="grid">🔲 Cuadrícula / Cuadrantes</option>
+        <option value="grid">Cuadrantes</option>
       </optgroup>
 
       <optgroup label="OTROS">
@@ -311,16 +311,16 @@
         <option value="2x2">2 x 2</option>
         <option value="3x3" selected>3 x 3</option>
         <option value="4x4">4 x 4</option>
-        <option value="5x5">5 x 5</option>
-        <option value="10x10">10 x 10</option>
       </select>
-      <button id="generateGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; background: #00ffa6; color: #001b1b;">Generar en Zona de Operación</button>
-      <button id="clearGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; display:none;">Limpiar Cuadrícula</button>
       
       <div id="gridNamesWrapper" style="display:none; margin-top: 10px;">
-        <label class="fieldLabel">Nombres de Cuadrantes</label>
-        <div id="gridNamesContainer" style="display:grid; grid-template-columns: 1fr 1fr; gap: 5px; max-height: 200px; overflow-y: auto; padding-right: 5px;">
+        <div id="gridNamesContainer" class="gridNamesContainer">
         </div>
+      </div>
+
+      <div class="gridActionButtons">
+        <button id="generateGridBtn" class="btnBeige gridGenerateBtn">Generar</button>
+        <button id="clearGridBtn" class="btnBeige gridClearBtn" style="display:none;">Limpiar cuadrantes</button>
       </div>
     </div>
 
@@ -453,13 +453,18 @@
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
-      <textarea id="chatInput" placeholder="Escribe un mensaje..."></textarea>
-      <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
+      <div class="chatInputBar">
+        <button id="chatImageBtn" class="chatIconBtn" type="button" title="Adjuntar imagen" aria-label="Adjuntar imagen">+</button>
+        <button id="chatEmojiBtn" class="chatIconBtn" type="button" title="Emoji" aria-label="Emoji">☺</button>
+        <button id="chatCameraBtn" class="chatIconBtn" type="button" title="Tomar foto" aria-label="Tomar foto">📷</button>
+        <textarea id="chatInput" placeholder="Escribe un mensaje"></textarea>
+        <button id="sendChatBtn" class="chatIconBtn sendChatBtn" type="button" title="Enviar" aria-label="Enviar">➤</button>
+        <button id="chatAudioBtn" class="chatIconBtn voiceBtn" type="button" title="Grabar audio" aria-label="Grabar audio">🎙</button>
+      </div>
+      <div id="chatAttachStatus" class="voiceStatus" style="display:none;"></div>
+      <input id="chatImageInput" type="file" accept="image/*" hidden>
+      <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
     </div>
-  </aside>
-
-  <aside id="emergencyAlertPanel" class="emergencyAlertPanel" aria-live="polite" aria-label="Alertas de emergencia">
-    <div id="emergencyAlertList" class="emergencyAlertList"></div>
   </aside>
 
   <aside id="cameraPanel" class="glassPanel cameraPanel">

@@ -30,8 +30,7 @@ const router = Router();
 // Además:
 //   - valida transiciones permitidas
 //   - si pasa a ACTIVA, abre/activa chat y genera mensaje automático
-//   - si pasa a CANCELADA, libera recursos/asignaciones
-//   - si pasa a CERRADA, conserva asignaciones para historial
+//   - si pasa a CANCELADA o CERRADA, libera recursos/asignaciones
 //   - si pasa a CERRADA, genera mensaje automático de cierre
 //   - si cierra/cancela, desactiva el chat
 //
@@ -169,13 +168,12 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
     // =========================================================
     // Si la operación se va a CERRADA o CANCELADA:
     //   - cierra chat
-    //   - si es CERRADA, conserva asignaciones y agrega mensaje de cierre
-    //   - si es CANCELADA, libera recursos/asignaciones
+    //   - si es CERRADA, agrega mensaje de cierre
+    //   - libera recursos/asignaciones para que puedan usarse en otra operaciÃ³n
     // =========================================================
     if (nuevoEstado === "CERRADA" || nuevoEstado === "CANCELADA") {
-      if (nuevoEstado === "CANCELADA") {
-        // Timestamp actual en formato ISO
-        const ahora = new Date().toISOString();
+      // Timestamp actual en formato ISO
+      const ahora = new Date().toISOString();
 
         // Libera a todo el personal asignado a la operación
         // y marca fecha_fin_asignacion
@@ -205,9 +203,71 @@ router.patch("/ops/:id/estado", requireAuth, async (req, res) => {
            WHERE id_operacion = $1 AND estado_asignacion != 'LIBERADO'`,
           [id_operacion, ahora]
         );
-      }
+
+        await client.query(
+          `UPDATE dispositivo_operacion
+           SET estado_asignacion = 'LIBERADO',
+               fecha_devolucion = GREATEST($1::timestamptz, fecha_asignacion)
+           WHERE id_operacion = $2
+             AND estado_asignacion != 'LIBERADO'`,
+          [ahora, id_operacion]
+        );
 
       // Busca el chat activo actual de la operación
+        await client.query(
+          `UPDATE vehiculo v
+           SET estado = 'DISPONIBLE'
+           WHERE v.estado = 'ASIGNADO'
+             AND v.id_vehiculo IN (
+               SELECT id_vehiculo FROM vehiculo_operacion WHERE id_operacion = $1
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM vehiculo_operacion vo
+               JOIN operacion o ON o.id_operacion = vo.id_operacion
+               WHERE vo.id_vehiculo = v.id_vehiculo
+                 AND vo.estado_asignacion != 'LIBERADO'
+                 AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+             )`,
+          [id_operacion]
+        );
+
+        await client.query(
+          `UPDATE equipo e
+           SET estado = 'DISPONIBLE'
+           WHERE e.estado = 'ASIGNADO'
+             AND e.id_equipo IN (
+               SELECT id_equipo FROM operacion_equipo WHERE id_operacion = $1
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM operacion_equipo oe
+               JOIN operacion o ON o.id_operacion = oe.id_operacion
+               WHERE oe.id_equipo = e.id_equipo
+                 AND oe.estado_asignacion != 'LIBERADO'
+                 AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+             )`,
+          [id_operacion]
+        );
+
+        await client.query(
+          `UPDATE dispositivo d
+           SET estado = 'DISPONIBLE'
+           WHERE d.estado = 'ASIGNADO'
+             AND d.id_dispositivo IN (
+               SELECT id_dispositivo FROM dispositivo_operacion WHERE id_operacion = $1
+             )
+             AND NOT EXISTS (
+               SELECT 1
+               FROM dispositivo_operacion dop
+               JOIN operacion o ON o.id_operacion = dop.id_operacion
+               WHERE dop.id_dispositivo = d.id_dispositivo
+                 AND dop.estado_asignacion != 'LIBERADO'
+                 AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+             )`,
+          [id_operacion]
+        );
+
       const { rows: cr } = await client.query(
         `SELECT id_chat FROM chat_operacion WHERE id_operacion = $1 AND activo = TRUE LIMIT 1`,
         [id_operacion]

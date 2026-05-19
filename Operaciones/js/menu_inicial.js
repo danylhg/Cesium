@@ -19,7 +19,6 @@ function apiFetch(path, options = {}) {
 // ── Elementos DOM ────────────────────────────────────────────
 const btnCreate        = document.getElementById("btnCreate");
 const btnSelect        = document.getElementById("btnSelect");
-const btnEmergency     = document.getElementById("btnEmergency");
 const btnPersonal      = document.getElementById("btnPersonal");
 const btnLogout        = document.getElementById("btnLogout");
 const userName         = document.getElementById("userName");
@@ -28,6 +27,7 @@ const submenuControl   = document.getElementById("submenuControl");
 const btnControlPersonal = document.getElementById("btnControlPersonal");
 const btnControlVehiculos = document.getElementById("btnControlVehiculos");
 const btnControlEquipos  = document.getElementById("btnControlEquipos");
+const btnControlDispositivos = document.getElementById("btnControlDispositivos");
 
 // ── Inicialización ───────────────────────────────────────────
 async function init() {
@@ -65,16 +65,6 @@ btnCreate.addEventListener("click", () => {
   localStorage.removeItem("active_operation_id");
   localStorage.removeItem("operacion_actual");
   localStorage.removeItem("asignacion_actual");
-  sessionStorage.setItem("asignacion_entry", "create");
-  window.location.href = "asignacion.html";
-});
-
-// ── Operación de emergencia ──────────────────────────────────
-btnEmergency.addEventListener("click", () => {
-  localStorage.removeItem("active_operation_id");
-  localStorage.removeItem("operacion_actual");
-  localStorage.removeItem("asignacion_actual");
-  localStorage.setItem("operation_mode", "emergency");
   sessionStorage.setItem("asignacion_entry", "create");
   window.location.href = "asignacion.html";
 });
@@ -258,6 +248,10 @@ btnControlVehiculos.addEventListener("click", () => {
 
 btnControlEquipos.addEventListener("click", () => {
   window.location.href = "control_equipos.html";
+});
+
+btnControlDispositivos?.addEventListener("click", () => {
+  window.location.href = "control_dispositivos.html";
 });
 
 // ── Arrancar ─────────────────────────────────────────────────

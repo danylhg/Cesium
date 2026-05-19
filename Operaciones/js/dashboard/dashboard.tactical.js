@@ -1118,7 +1118,7 @@ export function updateTacticalPreview(currentLat, currentLng) {
 
   const dashColor =
     dashboardState.toolMode === "perimeter"
-      ? Cesium.Color.RED
+      ? getCesiumColor(getCurrentColorName(), 1)
       : Cesium.Color.YELLOW;
 
   dashboardState.tacticalPreviewLine = viewer.entities.add({
@@ -1717,7 +1717,9 @@ export function handleTacticalPlacement(lat, lng) {
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
       point: {
         pixelSize: 8,
-        color: Cesium.Color.RED,
+        color: dashboardState.toolMode === "perimeter"
+          ? getCesiumColor(getCurrentColorName(), 1)
+          : Cesium.Color.RED,
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
@@ -2394,11 +2396,18 @@ function getGridNamesFromInputs() {
     .map(input => input.value || "");
 }
 
+function normalizeGridSize(size) {
+  const [rawRows, rawCols] = String(size || "3x3").split("x").map(Number);
+  const rows = Math.min(Math.max(rawRows || 3, 2), 4);
+  const cols = Math.min(Math.max(rawCols || 3, 2), 4);
+  return { rows, cols, value: `${rows}x${cols}` };
+}
+
 function saveGridState() {
   const key = getGridStorageKey();
   if (!key || !dom.gridSizeSelect || !dashboardState.gridEntities?.length) return;
   localStorage.setItem(key, JSON.stringify({
-    size: dom.gridSizeSelect.value || "3x3",
+    size: normalizeGridSize(dom.gridSizeSelect.value).value,
     names: getGridNamesFromInputs()
   }));
 }
@@ -2438,7 +2447,7 @@ export function restoreGridFromStorage() {
   if (!saved) return;
 
   if (dom.gridSizeSelect && saved.size) {
-    dom.gridSizeSelect.value = saved.size;
+    dom.gridSizeSelect.value = normalizeGridSize(saved.size).value;
   }
 
   generateGrid({ persist: false });
@@ -2475,8 +2484,10 @@ export function generateGrid({ persist = true } = {}) {
     if (p.lng > maxLng) maxLng = p.lng;
   });
 
-  const sizeStr = dom.gridSizeSelect ? dom.gridSizeSelect.value : "3x3";
-  const [rows, cols] = sizeStr.split("x").map(Number);
+  const { rows, cols, value: sizeStr } = normalizeGridSize(dom.gridSizeSelect ? dom.gridSizeSelect.value : "3x3");
+  if (dom.gridSizeSelect && dom.gridSizeSelect.value !== sizeStr) {
+    dom.gridSizeSelect.value = sizeStr;
+  }
 
   const latStep = (maxLat - minLat) / rows;
   const lngStep = (maxLng - minLng) / cols;
@@ -2492,13 +2503,6 @@ export function generateGrid({ persist = true } = {}) {
     Cesium.Color.fromCssColorString("#039BE5"), // Celeste
     Cesium.Color.fromCssColorString("#43A047"), // Verde bosque
     Cesium.Color.fromCssColorString("#FDD835")  // Amarillo
-  ];
-
-  const phonetic = [
-    "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL",
-    "INDIA", "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA",
-    "QUEBEC", "ROMEO", "SIERRA", "TANGO", "UNIFORM", "VICTOR", "WHISKEY", "X-RAY",
-    "YANKEE", "ZULU"
   ];
 
   let colorIdx = 0;
@@ -2557,7 +2561,7 @@ export function generateGrid({ persist = true } = {}) {
       const centerLng = lngLeft + (lngStep / 2);
       
       const color = colors[count % colors.length];
-      const defaultName = phonetic[count % phonetic.length] || `Q${count + 1}`;
+      const defaultName = `Cuadrante ${count + 1}`;
 
       // 3. Relleno del cuadrante (Muy tenue: 0.08)
       const polyEnt = viewer.entities.add({
@@ -2598,19 +2602,17 @@ export function generateGrid({ persist = true } = {}) {
 
       if (dom.gridNamesContainer) {
         const wrapper = document.createElement("div");
-        wrapper.style.display = "flex";
-        wrapper.style.flexDirection = "column";
+        wrapper.className = "gridNameRow";
 
         const lbl = document.createElement("label");
-        lbl.className = "fieldLabel";
-        lbl.style.fontSize = "10px";
-        lbl.textContent = `Cuadrante ${defaultName}`;
+        lbl.className = "gridNameLabel";
+        lbl.textContent = defaultName;
 
         const inp = document.createElement("input");
         inp.type = "text";
-        inp.className = "opsInput";
+        inp.className = "opsInput gridNameInput";
         inp.value = defaultName;
-        inp.style.padding = "4px";
+        inp.placeholder = `Nombre para ${defaultName}`;
         
         inp.addEventListener("input", (e) => {
           labelEnt.label.text = ` ${e.target.value || defaultName} `;
@@ -2629,7 +2631,7 @@ export function generateGrid({ persist = true } = {}) {
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "block";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
   
-  if (dom.tbHint) dom.tbHint.textContent = `Cuadrícula de ${rows}x${cols} generada.`;
+  if (dom.tbHint) dom.tbHint.textContent = `Cuadrantes ${rows}x${cols} generados.`;
   if (persist) saveGridState();
 }
 

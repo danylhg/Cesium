@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control de Dispositivos</title>
+  <script src="js/auth_check.js"></script>
+  <link rel="stylesheet" href="css/control_personal.css" />
+</head>
+<body>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo"></div>
+      <div class="brandText">
+        <div class="brandName">Centro de Operaciones</div>
+        <div class="brandSub">Control de dispositivos</div>
+      </div>
+    </div>
+
+    <div class="topActions">
+      <button id="btnBack" class="btnTop">Volver</button>
+      <button id="btnLogout" class="btnTop">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="panel">
+      <div class="panelHead">
+        <div>
+          <h1 class="title">Control de Dispositivos</h1>
+          <p class="subtitle">Administra tablets, teléfonos y otros dispositivos registrados</p>
+        </div>
+
+        <div class="headBtns">
+          <button id="btnAdd" class="btn primary"><span class="btnIcon">＋</span>Agregar</button>
+          <button id="btnEdit" class="btn soft" disabled><span class="btnIcon">✎</span>Modificar</button>
+          <button id="btnDelete" class="btn danger" disabled><span class="btnIcon">×</span>Eliminar</button>
+        </div>
+      </div>
+
+      <div class="filtersCard">
+        <div class="field">
+          <label>Buscar</label>
+          <div class="searchRow">
+            <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, teléfono, IMEI..." />
+            <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
+            <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+          </div>
+        </div>
+
+        <div class="grid3">
+          <div class="field">
+            <label>Filtro por Tipo</label>
+            <select id="filterTipo">
+              <option value="">Todos</option>
+              <option value="TELEFONO">Teléfono</option>
+              <option value="TABLET">Tablet</option>
+              <option value="LAPTOP">Laptop</option>
+              <option value="RADIO">Radio</option>
+              <option value="GPS">GPS</option>
+              <option value="OTRO">Otro</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Filtro por Estado</label>
+            <select id="filterEstado">
+              <option value="">Todos</option>
+              <option value="DISPONIBLE">DISPONIBLE</option>
+              <option value="ASIGNADO">ASIGNADO</option>
+              <option value="MANTENIMIENTO">MANTENIMIENTO</option>
+              <option value="BAJA">BAJA</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="hintRow">
+          <span id="resultHint" class="hint"></span>
+          <span class="hint">Tip: da clic en una fila para seleccionarla.</span>
+        </div>
+      </div>
+
+      <div class="tableCard">
+        <div class="tableWrap">
+          <table class="tbl">
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Marca</th>
+                <th>Modelo</th>
+                <th>Núm. teléfono</th>
+                <th>IMEI</th>
+                <th>Núm. serie</th>
+                <th>Estado</th>
+                <th>Responsable</th>
+                <th>Fecha registro</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <div id="modal" class="modal hidden" aria-hidden="true">
+      <div class="modalBackdrop" data-close="true"></div>
+
+      <div class="modalCard" role="dialog" aria-modal="true">
+        <div class="modalHead">
+          <div class="modalTitle" id="modalTitle">Agregar dispositivo</div>
+          <button class="iconBtn" id="btnCloseModal" title="Cerrar">×</button>
+        </div>
+
+        <form id="form" class="modalBody">
+          <div class="grid2">
+            <div class="field">
+              <label>Tipo</label>
+              <select id="fTipo" required>
+                <option value="" disabled selected>Selecciona...</option>
+                <option value="TELEFONO">Teléfono</option>
+                <option value="TABLET">Tablet</option>
+                <option value="LAPTOP">Laptop</option>
+                <option value="RADIO">Radio</option>
+                <option value="GPS">GPS</option>
+                <option value="OTRO">Otro</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>Marca</label>
+              <input id="fMarca" type="text" maxlength="80" required />
+            </div>
+
+            <div class="field">
+              <label>Modelo</label>
+              <input id="fModelo" type="text" maxlength="80" required />
+            </div>
+
+            <div class="field">
+              <label>Núm. teléfono</label>
+              <input id="fNumeroTelefono" type="tel" inputmode="numeric" maxlength="10" placeholder="10 dígitos" />
+            </div>
+
+            <div class="field">
+              <label>IMEI</label>
+              <input id="fImei" type="text" maxlength="40" />
+            </div>
+
+            <div class="field">
+              <label>Núm. serie</label>
+              <input id="fNumeroSerie" type="text" maxlength="80" />
+            </div>
+
+            <div class="field">
+              <label>Sistema operativo</label>
+              <select id="fSistemaOperativo">
+                <option value="" selected>Selecciona...</option>
+                <option value="Android">Android</option>
+                <option value="iOS">iOS</option>
+                <option value="Windows">Windows</option>
+                <option value="HarmonyOS">HarmonyOS</option>
+                <option value="Linux">Linux</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+
+            <div class="field full">
+              <label>Detalles</label>
+              <textarea id="fDetalles" placeholder="Accesorios, cargador, SIM, observaciones..."></textarea>
+            </div>
+          </div>
+
+          <div class="modalActions">
+            <button type="button" id="btnDeleteModal" class="btn danger"><span class="btnIcon">×</span>Eliminar</button>
+            <button type="button" id="btnCancel" class="btn soft">Cancelar</button>
+            <button type="submit" id="btnSave" class="btn primary"><span class="btnIcon">✓</span>Guardar</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script src="js/control_dispositivos.js"></script>
+</body>
+</html>

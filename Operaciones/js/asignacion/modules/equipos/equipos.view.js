@@ -258,8 +258,23 @@ export function renderEquipoAsignacion() {
     renderEquipoAsignacion();
   });
 
+  const chipDispositivos = document.createElement("button");
+  chipDispositivos.className = "chip";
+  chipDispositivos.textContent = "Dispositivos";
+  chipDispositivos.addEventListener("click", async () => {
+    state.categoria = "dispositivos";
+    state.dispositivoSelectedItems = [];
+    state.dispositivoSelectedResource = null;
+    state.dispositivoSelectedCet = state.cetSeleccionados[0] || null;
+    state.dispositivoSelectedGrupo = null;
+    saveAsignacionActual();
+    const { renderDispositivoAsignacion } = await import("../dispositivos/dispositivos.view.js");
+    renderDispositivoAsignacion();
+  });
+
   rightHeaderBox.appendChild(chipComunicacion);
   rightHeaderBox.appendChild(chipTactico);
+  rightHeaderBox.appendChild(chipDispositivos);
   panel.appendChild(rightHeaderBox);
 
   const listBox = document.createElement("div");

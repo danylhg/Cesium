@@ -293,8 +293,16 @@ function bindPersonnelDetailEvents() {
     };
   }
 
+  if (dom.personInfoPopup) {
+    dom.personInfoPopup.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+  }
+
   if (dom.btnClosePersonInfoPopup) {
-    dom.btnClosePersonInfoPopup.onclick = () => {
+    dom.btnClosePersonInfoPopup.onclick = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       dom.personInfoPopup?.classList.add('hidden');
     };
   }

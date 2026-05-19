@@ -78,6 +78,10 @@ export async function saveEquiposAsignacion(idOperacion, items) {
   return apiFetch(`/ops/${idOperacion}/equipos`, "POST", { items });
 }
 
+export async function saveDispositivosAsignacion(idOperacion, items) {
+  return apiFetch(`/ops/${idOperacion}/dispositivos`, "POST", { items });
+}
+
 export async function syncOperacionCompleta(idOperacion) {
   const { buildAsignacionActual } = await import("../asignacion/asignacion.service.js");
   const payload = buildAsignacionActual();
@@ -186,6 +190,7 @@ export async function syncOperacionCompleta(idOperacion) {
     // A.1 Limpiar recursos dependientes antes de reconstruir grupos.
     // Esto evita que /grupos choque con referencias previas todavía vivas.
     await saveEquiposAsignacion(idOperacion, []);
+    await saveDispositivosAsignacion(idOperacion, []);
     await saveVehiculosAsignacion(idOperacion, []);
 
     // B. Guardar Grupos y obtener IDs reales
@@ -233,6 +238,13 @@ export async function syncOperacionCompleta(idOperacion) {
     }));
 
     await saveEquiposAsignacion(idOperacion, equiposFinal);
+
+    const dispositivosFinal = (payload.asignacionDispositivos || []).map(d => ({
+      id_dispositivo: d.id_dispositivo,
+      id_personal: d.id_personal
+    }));
+
+    await saveDispositivosAsignacion(idOperacion, dispositivosFinal);
 
     console.log("Sincronización completa exitosa");
     return { ok: true };
