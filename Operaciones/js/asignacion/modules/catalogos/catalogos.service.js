@@ -1,5 +1,5 @@
 import { state } from "../../core/state.js";
-import { formatPuesto, normalizeEquipoCategoria, generateUUID } from "../../core/utils.js";
+import { normalizeEquipoCategoria, generateUUID } from "../../core/utils.js";
 import { DEFAULT_GROUP_INFO } from "../../core/constants.js";
 
 // 1. Configuramos la base de la API igual que en tu control_personal.js
@@ -41,14 +41,10 @@ async function apiFetch(path) {
 function mapPersonal(data) {
   return data
     .map(x => {
-      let nombreBase = `${x.nombre ?? ""} ${x.apellido ?? ""}`.trim();
-      if (x.puesto) {
-        const prefijo = formatPuesto(x.puesto.trim());
-        if (prefijo) nombreBase = `${prefijo} ${nombreBase}`.trim();
-      }
+      const apodo = (x.apodo ?? "").trim();
       return {
         id: x.id_personal ?? generateUUID(),
-        nombre: nombreBase,
+        nombre: apodo,
         rol: (x.rol ?? "").trim(),
         en_operacion: !!x.en_operacion,
         nombre_operacion: x.nombre_operacion ?? null
@@ -60,7 +56,7 @@ function mapPersonal(data) {
 function mapVehiculos(data) {
   return data.map(x => ({
     id: x.id_vehiculo ?? generateUUID(),
-    name: [x.tipo, x.alias].filter(Boolean).join(" ").trim() || x.codigo_interno || "Vehículo",
+    name: (x.alias ?? "").trim() || x.codigo_interno || "Vehículo",
     image: x.imagen_veh ?? "",
     serialNumber: x.codigo_interno ?? "",
     type: x.tipo ?? "",
@@ -123,6 +119,7 @@ export async function hydrateCatalogsFromControl(excludeOpId = null) {
   state.celulasList = cells.map(x => x.nombre);
 
   // Poblar mapa de búsqueda Nombre -> ID y mapa de ocupación
+  state.personalMap = {};
   state.personalEnOperacion = {};
   [...cuts, ...cets, ...cells].forEach(p => {
     state.personalMap[p.nombre] = p.id;
@@ -147,12 +144,7 @@ export async function hydrateCatalogsFromControl(excludeOpId = null) {
 
 // Construye el nombre formateado igual que mapPersonal (puesto + nombre + apellido)
 function buildNombre(row) {
-  let base = `${row.nombre ?? ""} ${row.apellido ?? ""}`.trim();
-  if (row.puesto) {
-    const prefijo = formatPuesto(row.puesto.trim());
-    if (prefijo) base = `${prefijo} ${base}`.trim();
-  }
-  return base;
+  return (row.apodo ?? "").trim();
 }
 
 /**

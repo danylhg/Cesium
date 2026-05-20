@@ -1,7 +1,8 @@
 // js/dashboard/dashboard.tracking.js
 
 import { dashboardState } from "./dashboard.state.js";
-import { processTrackingUpdate } from "./dashboard.tracking.clustering.js";
+import { getClusteredPersonKeys, processTrackingUpdate } from "./dashboard.tracking.clustering.js";
+import { renderMilSymbolImage } from "./dashboard.tactical.js";
 
 const API_BASE = () => localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const token = () => localStorage.getItem("token");
@@ -10,19 +11,19 @@ const opId = () => localStorage.getItem("active_operation_id");
 // ── Iconos / colores ─────────────────────────────────────────
 const COLOR_PERSONAL = Cesium.Color.fromCssColorString("#00BFFF");
 const COLOR_VEHICULO = Cesium.Color.fromCssColorString("#FFD700");
+const SIDC_PERSONAL = "SFGPUCI--------";
+const SIDC_VEHICULO = "SFGPUCD--------";
+const TRACKING_SYMBOL_SIZE = 42;
 
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
+const SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.22);
 
 function makePersonalLabel(item) {
-  const fullName = [item.nombre, item.apellido].filter(Boolean).join(" ").trim();
-  return fullName || item.apodo || item.nombre || item.apellido || `P-${item.id_personal}`;
+  return item.apodo || item.apodo_personal || `P-${item.id_personal}`;
 }
 
 function makeVehiculoLabel(item) {
-  const codigo = item.codigo_interno || "";
-  const alias = item.alias || "";
-  if (codigo && alias) return `${codigo} - ${alias}`;
-  return codigo || alias || `V-${item.id_vehiculo}`;
+  return item.alias || `V-${item.id_vehiculo}`;
 }
 
 function getCoords(item) {
@@ -30,6 +31,20 @@ function getCoords(item) {
   const lng = item?.longitud ?? item?.lng ?? item?.lon;
   if (lat == null || lng == null) return null;
   return { lat, lng };
+}
+
+function getTrackingSymbolImage(key) {
+  const sidc = key.startsWith("V:") ? SIDC_VEHICULO : SIDC_PERSONAL;
+  return renderMilSymbolImage(sidc, 200);
+}
+
+function applyTrackingClusterVisibility() {
+  const clusteredPeople = getClusteredPersonKeys();
+
+  dashboardState.trackingEntities.forEach((entity, key) => {
+    if (!entity) return;
+    entity.show = !key.startsWith("P:") || !clusteredPeople.has(key);
+  });
 }
 
 function upsertPersonalTracking(item) {
@@ -73,18 +88,46 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
       ent.point.color = color.withAlpha(0.18);
       ent.point.outlineColor = Cesium.Color.BLACK;
     }
+    if (!ent.billboard) {
+      const symbolImage = getTrackingSymbolImage(key);
+      if (symbolImage) {
+        ent.point = undefined;
+        ent.billboard = {
+          image: symbolImage,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          width: TRACKING_SYMBOL_SIZE,
+          height: TRACKING_SYMBOL_SIZE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: SYMBOL_SCALE_BY_DIST
+        };
+        if (ent.label) ent.label.pixelOffset = new Cesium.Cartesian2(0, -32);
+      }
+    }
     if (ent.properties) {
       ent.properties.trackingRole = meta.trackingRole || ent.properties.trackingRole;
       ent.properties.tacticalType = meta.tacticalType || ent.properties.tacticalType;
     }
+    applyTrackingClusterVisibility();
     return;
   }
+
+  const symbolImage = getTrackingSymbolImage(key);
 
   // Crear nueva entidad
   const ent = viewer.entities.add({
     name: label,
     position,
-    point: {
+    billboard: symbolImage ? {
+      image: symbolImage,
+      verticalOrigin: Cesium.VerticalOrigin.CENTER,
+      width: TRACKING_SYMBOL_SIZE,
+      height: TRACKING_SYMBOL_SIZE,
+      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      scaleByDistance: SYMBOL_SCALE_BY_DIST
+    } : undefined,
+    point: !symbolImage ? {
       pixelSize: 10,
       color: color.withAlpha(0.18),
       outlineColor: Cesium.Color.BLACK,
@@ -92,11 +135,11 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
       disableDepthTestDistance: Number.POSITIVE_INFINITY,
       scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-    },
+    } : undefined,
     label: {
       text: label,
       font: "11px sans-serif",
-      pixelOffset: new Cesium.Cartesian2(0, -18),
+      pixelOffset: new Cesium.Cartesian2(0, symbolImage ? -32 : -18),
       fillColor: Cesium.Color.WHITE,
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 2,
@@ -116,6 +159,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
   });
 
   dashboardState.trackingEntities.set(key, ent);
+  applyTrackingClusterVisibility();
 }
 
 // ── Carga desde datos de mapa ya obtenidos (sin fetch extra) ─

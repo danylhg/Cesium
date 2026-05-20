@@ -77,3 +77,11 @@ export function getVehicleOccupants(vehicleKey) {
   }
   return [];
 }
+
+export function getClusteredPersonKeys() {
+  const clustered = new Set();
+  dashboardState.trackingClusters.forEach((occupants) => {
+    occupants.forEach((personKey) => clustered.add(personKey));
+  });
+  return clustered;
+}

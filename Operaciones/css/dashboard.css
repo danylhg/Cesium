@@ -265,12 +265,25 @@ body {
 
 .chatPanel {
   width: 420px;
+  left: 390px;
   background: rgba(20, 33, 39, 0.88);
   border-color: rgba(0, 255, 170, 0.22);
 }
 
+.chatAudiencePanel {
+  width: 300px;
+  background: rgba(20, 33, 39, 0.90);
+  border-color: rgba(0, 255, 170, 0.22);
+}
+
+.chatAudiencePanel .panelTitle {
+  margin-bottom: 10px;
+}
+
 .chatPanel .opsInput,
-.chatPanel select {
+.chatPanel select,
+.chatAudiencePanel .opsInput,
+.chatAudiencePanel select {
   background: rgba(24, 43, 47, 0.70);
   border-color: rgba(0, 255, 170, 0.28);
 }
@@ -695,6 +708,217 @@ body {
   gap: 8px;
 }
 
+.chatChannelGroup {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.legacyChatSelect {
+  display: none !important;
+}
+
+.chatAudienceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chatAudienceEyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: #9fb3bf;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chatAudienceSummary {
+  color: #00ffa6;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.chatAudienceToggle {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 255, 170, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 255, 170, 0.08);
+  color: #00ffa6;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.chatAudienceBody {
+  display: grid;
+  gap: 10px;
+}
+
+.chatAudienceBody.collapsed {
+  display: none;
+}
+
+.chatAudienceCard {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chatAudiencePane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chatAudienceTitle {
+  display: block;
+  margin: 10px 6px 6px;
+  color: #9fb3bf;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chatAudienceChips {
+  display: grid;
+  gap: 2px;
+}
+
+.chatAudienceChip {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #eafff8;
+  cursor: pointer;
+  text-align: left;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.chatAudienceChip::before {
+  content: attr(data-chat-avatar);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(0, 255, 170, 0.16);
+  color: #00ffa6;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.chatAudienceChip span,
+.chatAudienceChip small {
+  grid-column: 2;
+}
+
+.chatAudienceChip span {
+  line-height: 1.15;
+}
+
+.chatAudienceChip small {
+  color: #9fb3bf;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.chatAudienceChip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chatAudienceChip.active {
+  background: rgba(0, 255, 170, 0.12);
+  color: #00ffa6;
+}
+
+.chatAudienceChip.active::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00ffa6;
+  transform: translateY(-50%);
+}
+
+.chatConversationHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -12px -2px 10px;
+  padding: 10px 6px 12px;
+  border-bottom: 1px solid rgba(0, 255, 170, 0.14);
+}
+
+.chatConversationAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 255, 170, 0.16);
+  color: #00ffa6;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.chatConversationTitle {
+  margin: 0;
+  color: #eafff8;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.chatConversationSubtitle {
+  margin-top: 2px;
+  color: #9fb3bf;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chatTargetBox {
+  min-height: 100%;
+  padding: 10px;
+  border-left: 3px solid #00ffa6;
+  border-radius: 8px;
+  background: rgba(0, 255, 170, 0.08);
+}
+
+.chatTargetBox.hidden {
+  display: none;
+}
+
+.chatTargetEmpty {
+  min-height: 100%;
+  padding: 12px 10px;
+  border: 1px dashed rgba(0, 255, 170, 0.24);
+  border-radius: 8px;
+  color: #9fb3bf;
+  background: rgba(5, 16, 24, 0.46);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chatTargetEmpty.hidden {
+  display: none;
+}
+
 #chatInput {
   min-height: 26px;
   max-height: 88px;
@@ -958,6 +1182,12 @@ body {
   .tacticalWide,
   .chatPanel {
     width: calc(100vw - 84px);
+    left: 74px;
+  }
+
+  .chatAudiencePanel {
+    width: calc(100vw - 84px);
+    left: 74px;
   }
 
   .btnGrid,
@@ -1437,13 +1667,20 @@ body {
 }
 
 .personInfoTitle {
-  margin: 0 24px 9px 0;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(0, 255, 170, 0.30);
+  margin: 0 24px 2px 0;
   color: #00ffa6;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: .4px;
+}
+
+.personInfoSubtitle {
+  margin: 0 24px 9px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(0, 255, 170, 0.30);
+  color: #dbeafe;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .personInfoGrid {

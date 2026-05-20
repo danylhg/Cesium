@@ -40,6 +40,7 @@ export function closeAllPanels() {
   dom.infoPanel?.classList.remove("open");
   dom.routePanel?.classList.remove("open");
   dom.tacticalPanel?.classList.remove("open");
+  dom.chatAudiencePanel?.classList.remove("open");
   dom.chatPanel?.classList.remove("open");
 
   dom.toggleInfoPanel?.classList.remove("active");
@@ -71,9 +72,15 @@ function labelConPrefijo(prefijo, nombre) {
 function normalizePersonal(personal) {
   return personal.map((p) => {
     const id = getPersonId(p);
-    if (!p?.rol_en_operacion) return { ...p, id };
+    if (!p?.rol_en_operacion) {
+      return {
+        ...p,
+        id,
+        nombre: (p.apodo || p.apodo_personal || "").trim()
+      };
+    }
 
-    const nombre = [p.nombre, p.apellido].filter(Boolean).join(" ").trim();
+    const nombre = (p.apodo || p.apodo_personal || "").trim();
     const grupoDirecto = p.grupo_nombre || "";
     const grupoPadre = p.grupo_padre_nombre || "";
     const padreEsRaiz = grupoPadre.trim().toLowerCase() === "mando operativo";
@@ -101,11 +108,18 @@ function getPersonId(person = {}) {
 }
 
 function getPersonName(person = {}) {
-  return [person.nombre, person.apellido].filter(Boolean).join(" ").trim() ||
-    person.apodo ||
+  return person.apodo ||
+    person.apodo_personal ||
     person.name ||
     person.nombre_completo ||
     "";
+}
+
+function getPersonFullName(person = {}) {
+  return [
+    person.nombre,
+    person.apellido
+  ].filter(Boolean).join(" ").trim();
 }
 
 // ...
@@ -125,7 +139,10 @@ function renderPersonalHtml(personalNorm) {
     (p) => ["CÃƒÂ©lula", "CELL", "Celulas", "CÃƒÂ©lulas"].includes(p.cargo || p.rol)
   );
 
-  const nameLink = (p) => `<span class="person-link" data-person-id="${escapeHtml(p.id)}" data-person-name="${escapeHtml(p.nombre || p.name || "")}" style="cursor:pointer; color:#00ffa6; text-decoration:underline;">${escapeHtml(p.nombre || p.name)}</span>`;
+  const nameLink = (p) => {
+    const nombre = p.nombre || p.apodo || p.apodo_personal || "Sin apodo";
+    return `<span class="person-link" data-person-id="${escapeHtml(p.id)}" data-person-name="${escapeHtml(nombre)}" style="cursor:pointer; color:#00ffa6; text-decoration:underline;">${escapeHtml(nombre)}</span>`;
+  };
 
   cuts.forEach((cut) => {
     html += `
@@ -201,18 +218,7 @@ function buildVehiculoTree(vehiculos) {
 }
 
 function getVehiculoPersonalNombre(row) {
-  const nombreCompleto = [
-    row.personal_nombre || row.asignado_a_nombre || "",
-    row.personal_apellido || row.asignado_a_apellido || ""
-  ].filter(Boolean).join(" ").trim();
-
-  if (nombreCompleto) {
-    return row.personal_puesto
-      ? `${row.personal_puesto} ${nombreCompleto}`.trim()
-      : nombreCompleto;
-  }
-
-  return row.asignado_a_apodo || "";
+  return row.asignado_a_apodo || row.personal_apodo || row.apodo_personal || "";
 }
 
 function renderVehiculosHierarchyHtml(vehiculos) {
@@ -222,9 +228,7 @@ function renderVehiculosHierarchyHtml(vehiculos) {
   let html = "";
 
   for (const [, veh] of byVehiculo) {
-    const nombre = veh.codigo_interno && veh.alias
-      ? `${veh.codigo_interno} - ${veh.alias}`
-      : (veh.codigo_interno || veh.alias || "Vehiculo");
+    const nombre = veh.alias || "Vehiculo";
 
     html += `<div class="miniCard"><p><strong>${escapeHtml(nombre)}</strong></p>`;
 
@@ -234,7 +238,7 @@ function renderVehiculosHierarchyHtml(vehiculos) {
 
     for (const row of veh.rows) {
       const personal = getVehiculoPersonalNombre(row);
-      const cetNombre = row.cet_nombre || row.cet_apodo || "Sin CET";
+      const cetNombre = row.cet_apodo || "Sin CET";
 
       // Campos nuevos del endpoint mapa (con fallback al endpoint vehiculos-asignados)
       const grupoDirecto = row.grupo_directo_nombre || row.grupo_nombre || "";
@@ -527,6 +531,7 @@ export function updateChatAvailability() {
 
   if (!active) {
     dom.chatPanel?.classList.remove("open");
+    dom.chatAudiencePanel?.classList.remove("open");
     dom.toggleChatPanel?.classList.remove("active");
     // We don't force close the camera panel here if it was open, 
     // but the button will be hidden by the previous lines.
@@ -534,8 +539,6 @@ export function updateChatAvailability() {
 
   if (dom.chatInput) dom.chatInput.disabled = !active;
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = !active;
-  if (dom.chatImageBtn) dom.chatImageBtn.disabled = !active;
-  if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
   if (dom.chatCameraBtn) dom.chatCameraBtn.disabled = !active;
   if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
   if (dom.chatTabCet) dom.chatTabCet.disabled = !active;
@@ -568,7 +571,7 @@ export function updateSelectionInfo(selectedEntity) {
     const ocupantesNombres = occupants.map(occId => {
       const id = occId.split(":")[1];
       const p = personas.find(x => String(x.id_personal) === String(id));
-      if (p) return [p.nombre, p.apellido].filter(Boolean).join(" ");
+      if (p) return getPersonName(p);
       return occId;
     });
 
@@ -731,6 +734,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
   }
 
   const nombre = getPersonName(person) || anchor.name || `Personal ${personId}`;
+  const nombreCompleto = getPersonFullName(person);
   const lat = firstValue(anchor.lat, person.latitud, person.lat);
   const lng = firstValue(anchor.lng, person.longitud, person.lng, person.lon);
   const curso = firstValue(anchor.curso, person.curso, person.heading, person.rumbo, "-");
@@ -744,6 +748,9 @@ export function showPersonnelDetail(personId, anchor = {}) {
 
   dom.personInfoPopupContent.innerHTML = `
     <h3 class="personInfoTitle">${escapeHtml(nombre)}</h3>
+    ${nombreCompleto && !sameText(nombreCompleto, nombre)
+      ? `<div class="personInfoSubtitle">${escapeHtml(nombreCompleto)}</div>`
+      : ""}
     <div class="personInfoGrid">
       <div class="personInfoLabel">Lat:</div><div class="personInfoValue">${escapeHtml(formatCoord(lat))}</div>
       <div class="personInfoLabel">Lng:</div><div class="personInfoValue">${escapeHtml(formatCoord(lng))}</div>

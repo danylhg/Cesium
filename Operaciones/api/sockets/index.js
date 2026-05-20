@@ -221,6 +221,15 @@ async function canReceiveChatMessage(sock, msg, idOperacion) {
       return false;
     }
 
+    case 'CELL_LIST': {
+      if (!id_personal || !destId) return false;
+      return destId
+        .split(',')
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .includes(String(id_personal));
+    }
+
     case 'FLOTILLA':
     case 'GRUPO': {
       if (!id_personal || !destId) return false;

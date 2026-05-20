@@ -44,6 +44,10 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
                 COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
         ))
       ))
+      OR (
+        m.destino_tipo = 'CELL_LIST'
+        AND ${actorParam}::text = ANY(string_to_array(COALESCE(m.destino_id, ''), ','))
+      )
       OR (m.destino_tipo IN ('FLOTILLA', 'GRUPO') AND EXISTS (
         SELECT 1
         FROM grupo_personal gper

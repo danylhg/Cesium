@@ -65,12 +65,16 @@
     let selectedTrackingPersonalId = null;
     let followedTrackingPersonalId = null;
     let followMyLocation = false;
+    const TRACKING_CLUSTER_DISTANCE_METERS = 30;
     const MIN_CAMERA_ZOOM_DISTANCE = 50;
     const FOLLOW_LOCATION_ZOOM = 250;
     const FOLLOW_TRACKING_ZOOM = 500;
     const TRACKING_PERSONAL_COLOR = Cesium.Color.fromCssColorString("#00BFFF");
     const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
+    const TRACKING_PERSONAL_SIDC = "SFGPUCI--------";
+    const TRACKING_VEHICLE_SIDC = "SFGPUCD--------";
+    const TRACKING_MIL_SYMBOL_SIZE = 50;
     const EMERGENCY_PULSE_COLORS = [
       Cesium.Color.fromCssColorString("#FF1D25"),
       Cesium.Color.fromCssColorString("#FFD400"),
@@ -561,14 +565,41 @@
       }
     };
 
+    function getTrackingMilSymbolImage(kind) {
+      try {
+        if (typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
+        const sidc = kind === "vehiculo" ? TRACKING_VEHICLE_SIDC : TRACKING_PERSONAL_SIDC;
+        const symbol = new ms.Symbol(sidc, {
+          size: 200,
+          outlineWidth: 4,
+          outlineColor: "white",
+          strokeWidth: 3,
+          fill: true,
+          colorMode: "Light"
+        });
+        return symbol.asCanvas ? symbol.asCanvas() : symbol.toDataURL();
+      } catch (e) {
+        console.warn("No se pudo crear simbolo militar de tracking: " + e.message);
+        return null;
+      }
+    }
+
     function applyPersonalTrackingStyle(entity, selected) {
-      if (!entity || !entity.point) return;
+      if (!entity) return;
 
       const markerColor = selected ? TRACKING_PERSONAL_SELECTED_COLOR : TRACKING_PERSONAL_COLOR;
-      entity.point.pixelSize = selected ? 16 : 12;
-      entity.point.color = markerColor.withAlpha(selected ? 0.9 : 0.35);
-      entity.point.outlineColor = TRACKING_ACTIVE_COLOR;
-      entity.point.outlineWidth = selected ? 6 : 4;
+
+      if (entity.billboard) {
+        entity.billboard.width = selected ? TRACKING_MIL_SYMBOL_SIZE + 8 : TRACKING_MIL_SYMBOL_SIZE;
+        entity.billboard.height = selected ? TRACKING_MIL_SYMBOL_SIZE + 8 : TRACKING_MIL_SYMBOL_SIZE;
+      }
+
+      if (entity.point) {
+        entity.point.pixelSize = selected ? 16 : 12;
+        entity.point.color = markerColor.withAlpha(selected ? 0.9 : 0.35);
+        entity.point.outlineColor = TRACKING_ACTIVE_COLOR;
+        entity.point.outlineWidth = selected ? 6 : 4;
+      }
 
       if (entity.label) {
         entity.label.showBackground = true;
@@ -644,6 +675,31 @@
         : entity.position;
     }
 
+    function applyTrackingClusterVisibility() {
+      if (!viewer) return;
+
+      const vehicles = [];
+      trackingVehiculoEntities.forEach(function (entity) {
+        const position = positionForEntity(entity);
+        if (position) vehicles.push(position);
+        if (entity) entity.show = true;
+      });
+
+      trackingPersonalEntities.forEach(function (entity) {
+        if (!entity) return;
+        const personPosition = positionForEntity(entity);
+        if (!personPosition || !vehicles.length) {
+          entity.show = true;
+          return;
+        }
+
+        const isInsideVehicle = vehicles.some(function (vehiclePosition) {
+          return Cesium.Cartesian3.distance(personPosition, vehiclePosition) <= TRACKING_CLUSTER_DISTANCE_METERS;
+        });
+        entity.show = !isInsideVehicle;
+      });
+    }
+
     window.pulseEmergencyPersonal = function (idPersonal) {
       try {
         if (!viewer) return;
@@ -703,18 +759,27 @@
       const options = meta || {};
       const current = store.get(key);
       if (current) viewer.entities.remove(current);
+      const milSymbolImage = getTrackingMilSymbolImage(options.kind);
 
       const entity = viewer.entities.add({
         name: label,
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
-        point: {
+        billboard: milSymbolImage ? {
+          image: milSymbolImage,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          width: TRACKING_MIL_SYMBOL_SIZE,
+          height: TRACKING_MIL_SYMBOL_SIZE,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.35)
+        } : undefined,
+        point: !milSymbolImage ? {
           pixelSize: options.kind === "personal" ? 12 : 10,
           color: color.withAlpha(0.18),
           outlineColor: options.kind === "personal" ? TRACKING_ACTIVE_COLOR : Cesium.Color.BLACK,
           outlineWidth: options.kind === "personal" ? 4 : 3,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
           scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-        },
+        } : undefined,
         label: label ? {
           text: label,
           font: "bold 12px sans-serif",
@@ -722,7 +787,7 @@
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, -22),
+          pixelOffset: new Cesium.Cartesian2(0, milSymbolImage ? 28 : -22),
           distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000),
           showBackground: options.kind === "personal",
           backgroundColor: color.withAlpha(0.68),
@@ -742,6 +807,7 @@
       if (options.kind === "personal") {
         applyPersonalTrackingStyle(entity, selectedTrackingPersonalId === String(key));
       }
+      applyTrackingClusterVisibility();
     }
 
     window.updateTrackingPersonal = function (idPersonal, lat, lon, label) {
