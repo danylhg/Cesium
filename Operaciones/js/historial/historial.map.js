@@ -14,9 +14,18 @@ const HISTORY_CAMERA_OPTIONS = {
   maximumMovementRatio: 0.08,
   zoomFactor: 2.2,
 };
+const CAMERA_INPUT_SETTLE_MS = 260;
+const CAMERA_DRIFT_EPSILON = 0.0002;
 
 // Entidades con control de tiempo: { entity, showAt, hideAt (ms epoch) }
 const mapRegistry = [];
+const cameraGuard = {
+  stableView: null,
+  inputActiveUntil: 0,
+  commitTimerId: null,
+  restoring: false,
+  postRenderBound: false,
+};
 
 // ── Init ──────────────────────────────────────────────────
 
@@ -52,6 +61,7 @@ export function initHistoryMap() {
     destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, DEFAULT_CAMERA_HEIGHT),
   });
   settleHistoryCamera(viewer);
+  captureStableCameraView(viewer);
   resizeHistoryMap();
 }
 
@@ -581,17 +591,33 @@ function installCameraInputSettler(viewer) {
   if (!canvas || canvas.dataset.historyCameraSettler === "true") return;
 
   canvas.dataset.historyCameraSettler = "true";
-  let settleTimer = null;
-  const scheduleSettle = () => {
-    window.clearTimeout(settleTimer);
-    settleTimer = window.setTimeout(() => settleHistoryCamera(viewer), 140);
+  const scheduleSettle = (isActiveInput = true) => {
+    if (isActiveInput) {
+      cameraGuard.inputActiveUntil = performance.now() + CAMERA_INPUT_SETTLE_MS;
+    }
+    window.clearTimeout(cameraGuard.commitTimerId);
+    cameraGuard.commitTimerId = window.setTimeout(() => {
+      settleHistoryCamera(viewer);
+      captureStableCameraView(viewer);
+    }, CAMERA_INPUT_SETTLE_MS);
+  };
+  const schedulePointerMoveSettle = (event) => {
+    if (event.buttons) scheduleSettle(true);
   };
 
   canvas.addEventListener("wheel", scheduleSettle, { passive: true });
+  canvas.addEventListener("pointerdown", scheduleSettle, { passive: true });
+  canvas.addEventListener("pointermove", schedulePointerMoveSettle, { passive: true });
   canvas.addEventListener("pointerup", scheduleSettle, { passive: true });
   canvas.addEventListener("pointercancel", scheduleSettle, { passive: true });
+  canvas.addEventListener("touchmove", scheduleSettle, { passive: true });
   canvas.addEventListener("touchend", scheduleSettle, { passive: true });
   canvas.addEventListener("touchcancel", scheduleSettle, { passive: true });
+
+  if (!cameraGuard.postRenderBound) {
+    cameraGuard.postRenderBound = true;
+    viewer.scene.postRender.addEventListener(() => guardHistoryCamera(viewer));
+  }
 }
 
 function settleHistoryCamera(viewer) {
@@ -601,6 +627,7 @@ function settleHistoryCamera(viewer) {
   const controller = viewer?.scene?.screenSpaceCameraController;
   if (!controller) return;
 
+  controller.enableInputs = true;
   [
     "_lastInertiaSpinMovement",
     "_lastInertiaTranslateMovement",
@@ -610,6 +637,8 @@ function settleHistoryCamera(viewer) {
     if (controller[key]) controller[key].inertiaEnabled = false;
     controller[key] = undefined;
   });
+
+  resetCameraAggregator(controller);
 }
 
 function centerHistoryMapOnOperationZone(zona) {
@@ -630,7 +659,72 @@ function centerHistoryMapOnOperationZone(zona) {
     },
   });
   settleHistoryCamera(viewer);
+  captureStableCameraView(viewer);
   viewer.scene?.requestRender?.();
+}
+
+function guardHistoryCamera(viewer) {
+  if (!viewer || cameraGuard.restoring || !cameraGuard.stableView) return;
+  if (performance.now() < cameraGuard.inputActiveUntil) return;
+  if (!hasCameraDrifted(viewer)) return;
+
+  cameraGuard.restoring = true;
+  viewer.camera.cancelFlight?.();
+  viewer.trackedEntity = undefined;
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.clone(cameraGuard.stableView.destination),
+    orientation: {
+      heading: cameraGuard.stableView.heading,
+      pitch: cameraGuard.stableView.pitch,
+      roll: cameraGuard.stableView.roll,
+    },
+  });
+  settleHistoryCamera(viewer);
+  captureStableCameraView(viewer);
+  viewer.scene?.requestRender?.();
+  cameraGuard.restoring = false;
+}
+
+function captureStableCameraView(viewer) {
+  const camera = viewer?.camera;
+  if (!camera || !window.Cesium) return;
+
+  cameraGuard.stableView = {
+    destination: Cesium.Cartesian3.clone(camera.positionWC),
+    heading: camera.heading,
+    pitch: camera.pitch,
+    roll: camera.roll,
+  };
+}
+
+function hasCameraDrifted(viewer) {
+  const camera = viewer?.camera;
+  const stable = cameraGuard.stableView;
+  if (!camera || !stable || !window.Cesium) return false;
+
+  const height = Math.max(1, Math.abs(camera.positionCartographic?.height || 1));
+  const positionEpsilon = Math.max(0.75, height * CAMERA_DRIFT_EPSILON);
+  const positionDelta = Cesium.Cartesian3.distance(camera.positionWC, stable.destination);
+  if (positionDelta > positionEpsilon) return true;
+
+  return Math.abs(camera.heading - stable.heading) > CAMERA_DRIFT_EPSILON ||
+    Math.abs(camera.pitch - stable.pitch) > CAMERA_DRIFT_EPSILON ||
+    Math.abs(camera.roll - stable.roll) > CAMERA_DRIFT_EPSILON;
+}
+
+function resetCameraAggregator(controller) {
+  const aggregator = controller?._aggregator;
+  if (!aggregator) return;
+
+  aggregator.reset?.();
+  aggregator._buttonsDown = 0;
+
+  Object.keys(aggregator._isDown || {}).forEach((key) => {
+    aggregator._isDown[key] = false;
+  });
+  Object.values(aggregator._lastMovement || {}).forEach((movement) => {
+    if (movement) movement.valid = false;
+  });
 }
 
 function getZoneCameraTarget(zona) {
