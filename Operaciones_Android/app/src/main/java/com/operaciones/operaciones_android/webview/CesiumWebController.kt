@@ -175,6 +175,15 @@ class CesiumWebController(
         }
     }
 
+    fun pulseEmergencyAtLocation(idPersonal: Int, latitude: Double, longitude: Double) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof pulseEmergencyAtLocation==='function') pulseEmergencyAtLocation($idPersonal, $latitude, $longitude); })();",
+                null
+            )
+        }
+    }
+
     fun enablePickStart() {
         webView.post {
             webView.evaluateJavascript(

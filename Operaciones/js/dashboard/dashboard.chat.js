@@ -3,6 +3,7 @@
 import { dom } from "./dashboard.dom.js";
 import { escapeHtml } from "./dashboard.storage.js";
 import { formatTime, openPanel } from "./dashboard.ui.js";
+import { pulseEmergencyAtPersonal } from "./dashboard.tracking.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
@@ -593,6 +594,7 @@ function appendMessage(msg) {
 
   if (shouldHideChatMessage(msg)) return;
   if (isEmergencyMessage(msg)) {
+    if (msg?.id_personal) pulseEmergencyAtPersonal(msg.id_personal, msg);
     renderEmergencyAlerts();
     return;
   }

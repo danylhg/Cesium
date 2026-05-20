@@ -644,6 +644,49 @@
         : entity.position;
     }
 
+    function drawEmergencyPulse(id, position) {
+      if (!viewer || !id || !position) return;
+
+      removeEmergencyPulse(id);
+
+      const startedAt = Date.now();
+      const durationMs = 4200;
+      const pulseEntities = EMERGENCY_PULSE_COLORS.map(function (color, index) {
+        const delayMs = index * 430;
+        const entity = viewer.entities.add({
+          name: "Emergencia personal " + id,
+          position: position,
+          ellipse: {
+            semiMajorAxis: new Cesium.CallbackProperty(function () {
+              const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
+              return 35 + progress * 360;
+            }, false),
+            semiMinorAxis: new Cesium.CallbackProperty(function () {
+              const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
+              return 35 + progress * 360;
+            }, false),
+            material: new Cesium.ColorMaterialProperty(
+              new Cesium.CallbackProperty(function () {
+                const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
+                const alpha = progress <= 0 ? 0 : Math.max(0, 0.68 * (1 - progress));
+                return color.withAlpha(alpha);
+              }, false)
+            ),
+            outline: true,
+            outlineColor: color.withAlpha(0.95),
+            outlineWidth: 4,
+            height: 0
+          }
+        });
+        return entity;
+      });
+
+      emergencyPulseEntities.set(id, pulseEntities);
+      window.setTimeout(function () {
+        removeEmergencyPulse(id);
+      }, durationMs + (EMERGENCY_PULSE_COLORS.length * 430) + 300);
+    }
+
     window.pulseEmergencyPersonal = function (idPersonal) {
       try {
         if (!viewer) return;
@@ -653,47 +696,27 @@
         const position = positionForEntity(tracked);
         if (!id || !position) return;
 
-        removeEmergencyPulse(id);
-
-        const startedAt = Date.now();
-        const durationMs = 4200;
-        const pulseEntities = EMERGENCY_PULSE_COLORS.map(function (color, index) {
-          const delayMs = index * 430;
-          const entity = viewer.entities.add({
-            name: "Emergencia personal " + id,
-            position: position,
-            ellipse: {
-              semiMajorAxis: new Cesium.CallbackProperty(function () {
-                const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
-                return 35 + progress * 360;
-              }, false),
-              semiMinorAxis: new Cesium.CallbackProperty(function () {
-                const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
-                return 35 + progress * 360;
-              }, false),
-              material: new Cesium.ColorMaterialProperty(
-                new Cesium.CallbackProperty(function () {
-                  const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
-                  const alpha = progress <= 0 ? 0 : Math.max(0, 0.68 * (1 - progress));
-                  return color.withAlpha(alpha);
-                }, false)
-              ),
-              outline: true,
-              outlineColor: color.withAlpha(0.95),
-              outlineWidth: 4,
-              height: 0
-            }
-          });
-          return entity;
-        });
-
-        emergencyPulseEntities.set(id, pulseEntities);
+        drawEmergencyPulse(id, position);
         setSelectedTrackingPersonal(id);
-        window.setTimeout(function () {
-          removeEmergencyPulse(id);
-        }, durationMs + (EMERGENCY_PULSE_COLORS.length * 430) + 300);
       } catch (e) {
         console.error("Error en pulseEmergencyPersonal: " + e.message);
+      }
+    };
+
+    window.pulseEmergencyAtLocation = function (idPersonal, lat, lon) {
+      try {
+        if (!viewer) return;
+
+        const nLat = Number(lat);
+        const nLon = Number(lon);
+        if (!Number.isFinite(nLat) || !Number.isFinite(nLon)) return;
+        if (Math.abs(nLat) > 90 || Math.abs(nLon) > 180) return;
+
+        const id = String(idPersonal || ("loc-" + Date.now()));
+        drawEmergencyPulse(id, Cesium.Cartesian3.fromDegrees(nLon, nLat));
+        if (trackingPersonalEntities.has(id)) setSelectedTrackingPersonal(id);
+      } catch (e) {
+        console.error("Error en pulseEmergencyAtLocation: " + e.message);
       }
     };
 
