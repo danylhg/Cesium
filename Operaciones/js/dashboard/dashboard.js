@@ -220,6 +220,17 @@ function loadCurrentOperationOnMap() {
   restoreTacticalData();
 }
 
+function recenterMapOnKnownZone() {
+  const storedOperation = getCurrentOperation();
+  const zona = dashboardState.currentOperationZone
+    || dashboardState.currentOperation?.zona_operacion
+    || storedOperation?.zona_operacion;
+
+  if (zona) {
+    centerMapOnOperationZone(zona);
+  }
+}
+
 // ── Socket.io connection ─────────────────────────────────────
 function loadSocketIOScript() {
   return new Promise((resolve, reject) => {
@@ -312,9 +323,7 @@ window.addEventListener("load", async () => {
       }
 
       // 2. Fallback: Zona de operación guardada en la BD
-      if (dashboardState.currentOperation?.zona_operacion) {
-        centerMapOnOperationZone(dashboardState.currentOperation.zona_operacion);
-      }
+      recenterMapOnKnownZone();
     };
   }
 
@@ -325,11 +334,14 @@ window.addEventListener("load", async () => {
   const bdData = await loadDashboardFromBD();
   if (bdData) {
     handleClosedOperation(bdData.operacion);
-    saveCurrentOperation({
+    const currentOperation = {
       ...bdData.operacion,
       id: bdData.operacion.id_operacion,
       zona_operacion: bdData.zona_operacion || null
-    });
+    };
+    dashboardState.currentOperation = currentOperation;
+    dashboardState.currentOperationZone = bdData.zona_operacion || dashboardState.currentOperationZone;
+    saveCurrentOperation(currentOperation);
     renderInfoPanel(bdData);
     setTacticalUI();
     if (bdData.zona_operacion) {
