@@ -16,6 +16,7 @@ export function buildAsignacionActual() {
   const personal = [];
   const vehiculos = [];
   const equipos = [];
+  const dispositivos = [];
 
   // Construir personal con asignaciones de vehículos
   if (state.cutSeleccionado) {
@@ -117,6 +118,29 @@ export function buildAsignacionActual() {
     }
   });
 
+  state.asignacionDispositivos.forEach(asig => {
+    const disp = state.dispositivosList.find(d => d.id === asig.id_dispositivo);
+    if (!disp) return;
+
+    let responsable = "";
+    for (const [nombre, id] of Object.entries(state.personalMap)) {
+      if (id === asig.id_personal) {
+        responsable = nombre;
+        break;
+      }
+    }
+
+    dispositivos.push({
+      tipo: disp.tipo,
+      marca: disp.marca,
+      modelo: disp.modelo,
+      numeroTelefono: disp.numeroTelefono || "",
+      imei: disp.imei || "",
+      numeroSerie: disp.numeroSerie || "",
+      responsable
+    });
+  });
+
   return {
     operacion: collectOperacionActual(),
     cut: state.cutSeleccionado || "",
@@ -125,9 +149,11 @@ export function buildAsignacionActual() {
     personal,
     vehiculos,
     equipos,
+    dispositivos,
     asignacionCelulas: state.asignacionCelulas,
     asignacionVehiculos: state.asignacionVehiculos,
     asignacionEquipos: state.asignacionEquipos,
+    asignacionDispositivos: state.asignacionDispositivos,
     updated_at: new Date().toISOString()
   };
 }

@@ -591,6 +591,7 @@ body {
 
 .btnBeige:disabled,
 .chatActionBtn:disabled,
+.chatIconBtn:disabled,
 .sendChatBtn:disabled,
 .quickMsgBtn:disabled,
 .chatTab:disabled {
@@ -770,15 +771,51 @@ body {
 .chatComposer {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 
 #chatInput {
-  min-height: 96px;
+  min-height: 26px;
+  max-height: 88px;
+  flex: 1;
   resize: none;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
-  padding: 16px;
+  padding: 9px 6px;
+  margin-bottom: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.chatInputBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  padding: 6px 8px;
+  border-radius: 24px;
+  border: 1px solid rgba(0, 255, 170, 0.18);
+  background: rgba(42, 55, 58, 0.92);
+}
+
+.chatIconBtn {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  font-weight: 900;
+  font-size: 18px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: #eafff8;
 }
 
 .voiceRow {
@@ -788,7 +825,7 @@ body {
 }
 
 .chatActionBtn,
-.sendChatBtn {
+.sendChatBtn:not(.chatIconBtn) {
   min-height: 58px;
   border: none;
   border-radius: 14px;
@@ -819,8 +856,9 @@ body {
 }
 
 .sendChatBtn {
-  background: linear-gradient(135deg, #00ffa6, #00c3ff);
-  color: #001b1b;
+  background: rgba(0, 255, 170, 0.14);
+  color: #00ffa6;
+  font-size: 16px;
 }
 
 .voiceAudio {
@@ -1413,12 +1451,15 @@ body {
   position: fixed;
   z-index: 1260;
   width: min(260px, calc(100vw - 28px));
-  padding: 14px 14px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(245, 248, 252, 0.96);
-  color: #26313f;
-  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.34);
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 255, 170, 0.42);
+  background: rgba(8, 17, 27, 0.98);
+  color: #f8fafc;
+  box-shadow:
+    0 20px 52px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 0 22px rgba(0, 255, 166, 0.12);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
@@ -1432,7 +1473,7 @@ body {
   height: 22px;
   border: none;
   background: transparent;
-  color: #475569;
+  color: #cfd8e3;
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
@@ -1441,8 +1482,8 @@ body {
 .personInfoTitle {
   margin: 0 24px 9px 0;
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.38);
-  color: #9a7b1f;
+  border-bottom: 1px solid rgba(0, 255, 170, 0.30);
+  color: #00ffa6;
   font-size: 15px;
   font-weight: 900;
   letter-spacing: .4px;
@@ -1457,19 +1498,19 @@ body {
 }
 
 .personInfoLabel {
-  color: #334155;
+  color: #dbeafe;
   font-weight: 900;
 }
 
 .personInfoValue {
-  color: #334155;
+  color: #f8fafc;
   font-weight: 600;
   word-break: break-word;
 }
 
 .personInfoStatus {
   margin-top: 10px;
-  color: #334155;
+  color: #e2e8f0;
   font-size: 13px;
 }
 
@@ -1484,7 +1525,7 @@ body {
 .personInfoStatus span {
   display: block;
   margin-top: 3px;
-  color: #64748b;
+  color: #cbd5e1;
   font-size: 11px;
   font-weight: 700;
 }
@@ -1492,8 +1533,8 @@ body {
 .personInfoBio {
   margin-top: 12px;
   padding-top: 10px;
-  border-top: 1px solid rgba(148, 163, 184, 0.34);
-  color: #334155;
+  border-top: 1px solid rgba(0, 255, 170, 0.26);
+  color: #e2e8f0;
   font-size: 13px;
 }
 
@@ -1504,15 +1545,15 @@ body {
 
 .personInfoUpdated {
   margin-top: 7px;
-  color: #64748b;
+  color: #cbd5e1;
   font-size: 11px;
 }
 
 .personInfoCamera {
   margin-top: 10px;
   overflow: hidden;
-  border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 255, 170, 0.30);
   background: #0f172a;
 }
 
@@ -1968,7 +2009,14 @@ body {
   color: #e2e8f0;
 }
 
-.chatAttachment,
+.chatAttachment {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  color: #bfdbfe;
+  text-decoration: none;
+}
+
 .chatAttachmentFile {
   display: inline-flex;
   margin-top: 8px;
@@ -1984,6 +2032,21 @@ body {
   border-radius: 6px;
   object-fit: cover;
   background: rgba(15, 23, 42, 0.85);
+}
+
+.chatAttachmentImage {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 255, 170, 0.20);
+  background: rgba(0, 0, 0, 0.20);
+}
+
+.chatAttachmentAudio {
+  width: 100%;
+  height: 38px;
 }
 
 .chatAttachmentFile {

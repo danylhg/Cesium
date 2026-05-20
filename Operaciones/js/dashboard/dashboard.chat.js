@@ -20,6 +20,11 @@ let _chatDirectory = {
   vehiculos: [],
   personalById: new Map()
 };
+let _mediaRecorder = null;
+let _audioChunks = [];
+let _isRecordingAudio = false;
+
+const ATTACHMENT_PREFIX = "CHAT_ATTACHMENT:";
 
 // ── JWT helper ──────────────────────────────────────────────
 function getMyInfo() {
@@ -400,6 +405,93 @@ function renderEmergencyAlerts() {
   dom.emergencyAlertList.scrollTop = dom.emergencyAlertList.scrollHeight;
 }
 
+function setAttachStatus(text = "") {
+  if (!dom.chatAttachStatus) return;
+  dom.chatAttachStatus.textContent = text;
+  dom.chatAttachStatus.style.display = text ? "block" : "none";
+}
+
+function attachmentToContent(payload) {
+  return `${ATTACHMENT_PREFIX}${JSON.stringify(payload)}`;
+}
+
+function parseAttachmentContent(content = "") {
+  if (!String(content).startsWith(ATTACHMENT_PREFIX)) return null;
+  try {
+    return JSON.parse(String(content).slice(ATTACHMENT_PREFIX.length));
+  } catch {
+    return null;
+  }
+}
+
+function renderMessageContent(msg) {
+  const content = msg.contenido || "";
+  const attachment = parseAttachmentContent(content);
+  if (!attachment) return `<div class="chatBubbleText">${escapeHtml(content)}</div>`;
+
+  const caption = attachment.caption
+    ? `<div class="chatBubbleText">${escapeHtml(attachment.caption)}</div>`
+    : "";
+
+  if (attachment.kind === "image") {
+    return `
+      <div class="chatAttachment">
+        <img class="chatAttachmentImage" src="${escapeHtml(attachment.dataUrl || "")}" alt="${escapeHtml(attachment.name || "Imagen del chat")}">
+        ${caption}
+      </div>
+    `;
+  }
+
+  if (attachment.kind === "audio") {
+    return `
+      <div class="chatAttachment">
+        <audio class="chatAttachmentAudio" controls src="${escapeHtml(attachment.dataUrl || "")}"></audio>
+        ${caption}
+      </div>
+    `;
+  }
+
+  return `<div class="chatBubbleText">${escapeHtml(content)}</div>`;
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function imageFileToDataUrl(file) {
+  const originalDataUrl = await fileToDataUrl(file);
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxSide = 1280;
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.78));
+    };
+    img.onerror = () => resolve(originalDataUrl);
+    img.src = originalDataUrl;
+  });
+}
+
+function insertEmoji() {
+  if (!dom.chatInput) return;
+  const emoji = "🙂";
+  const start = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
+  const end = dom.chatInput.selectionEnd ?? dom.chatInput.value.length;
+  dom.chatInput.value = `${dom.chatInput.value.slice(0, start)}${emoji}${dom.chatInput.value.slice(end)}`;
+  dom.chatInput.focus();
+  dom.chatInput.selectionStart = dom.chatInput.selectionEnd = start + emoji.length;
+}
+
 function formatDestino(msg) {
   const tipo = String(msg.destino_tipo || "").toUpperCase();
   const label = String(msg.destino_label || "").trim();
@@ -432,7 +524,6 @@ function buildBubble(msg) {
   const mine  = isMine(msg);
   const autor = escapeHtml(msg.autor_nombre || "Sistema");
   const hora  = escapeHtml(formatTime(msg.fecha_envio));
-  const texto = escapeHtml(msg.contenido || "");
   const tipo  = (msg.tipo_mensaje || "NORMAL").toUpperCase();
   const rol   = (msg.autor_rol   || "").toLowerCase();    // admin | cut | cet | cell
   const destinoText = formatDestino(msg);
@@ -451,7 +542,7 @@ function buildBubble(msg) {
   return `
     <div class="chatBubble${mine ? " mine" : ""}${typeExtra}${rolClass}" data-id="${msg.id_mensaje ?? ""}">
       ${header}
-      <div class="chatBubbleText">${texto}</div>
+      ${renderMessageContent(msg)}
       ${attachment}
     </div>
   `;
@@ -537,12 +628,12 @@ async function loadMessages() {
 }
 
 // ── Envía un mensaje (POST → socket lo devuelve) ────────────
-async function sendMessage() {
+async function sendChatContent(content, { clearText = false, restoreText = "" } = {}) {
   if (!_opId) return;
-  const text = dom.chatInput?.value.trim();
+  const text = String(content || "").trim();
   if (!text) return;
 
-  dom.chatInput.value = "";
+  if (clearText && dom.chatInput) dom.chatInput.value = "";
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
 
   try {
@@ -562,15 +653,94 @@ async function sendMessage() {
     });
     if (!res.ok) {
       console.error("[CHAT] Error al enviar:", res.status);
-      if (dom.chatInput) dom.chatInput.value = text;
+      if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
     }
     // El mensaje llega vía socket — no se agrega localmente aquí
   } catch (err) {
     console.error("[CHAT] Error enviando mensaje:", err);
-    if (dom.chatInput) dom.chatInput.value = text;
+    if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
   } finally {
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = false;
     dom.chatInput?.focus();
+  }
+}
+
+async function sendMessage() {
+  const text = dom.chatInput?.value.trim();
+  await sendChatContent(text, { clearText: true, restoreText: text });
+}
+
+async function sendAttachment(kind, dataUrl, name = "") {
+  const caption = dom.chatInput?.value.trim() || "";
+  if (dom.chatInput) dom.chatInput.value = "";
+  await sendChatContent(attachmentToContent({ kind, dataUrl, name, caption }), {
+    clearText: false,
+    restoreText: caption
+  });
+}
+
+async function sendImageFromInput(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  try {
+    setAttachStatus("Preparando imagen...");
+    const dataUrl = await imageFileToDataUrl(file);
+    await sendAttachment("image", dataUrl, file.name || "imagen.jpg");
+  } catch (err) {
+    console.error("[CHAT] Error enviando imagen:", err);
+    alert("No se pudo enviar la imagen.");
+  } finally {
+    if (input) input.value = "";
+    setAttachStatus("");
+  }
+}
+
+async function toggleAudioRecording() {
+  if (_isRecordingAudio && _mediaRecorder) {
+    _mediaRecorder.stop();
+    return;
+  }
+
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    alert("Este navegador no permite grabar audio desde aqui.");
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _audioChunks = [];
+    _mediaRecorder = new MediaRecorder(stream);
+    _mediaRecorder.ondataavailable = (event) => {
+      if (event.data?.size) _audioChunks.push(event.data);
+    };
+    _mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      _isRecordingAudio = false;
+      dom.chatAudioBtn?.classList.remove("recording");
+      if (dom.chatAudioBtn) {
+        dom.chatAudioBtn.textContent = "🎙";
+        dom.chatAudioBtn.title = "Grabar audio";
+        dom.chatAudioBtn.setAttribute("aria-label", "Grabar audio");
+      }
+      setAttachStatus("Enviando audio...");
+      const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || "audio/webm" });
+      const dataUrl = await fileToDataUrl(blob);
+      await sendAttachment("audio", dataUrl, "audio.webm");
+      setAttachStatus("");
+    };
+    _mediaRecorder.start();
+    _isRecordingAudio = true;
+    dom.chatAudioBtn?.classList.add("recording");
+    if (dom.chatAudioBtn) {
+      dom.chatAudioBtn.textContent = "■";
+      dom.chatAudioBtn.title = "Detener grabación";
+      dom.chatAudioBtn.setAttribute("aria-label", "Detener grabación");
+    }
+    setAttachStatus("Grabando audio...");
+  } catch (err) {
+    console.error("[CHAT] Error grabando audio:", err);
+    alert("No se pudo acceder al microfono.");
+    setAttachStatus("");
   }
 }
 
@@ -638,6 +808,30 @@ export function bindChatEvents() {
 
   if (dom.sendChatBtn) {
     dom.sendChatBtn.addEventListener("click", sendMessage);
+  }
+
+  if (dom.chatImageBtn) {
+    dom.chatImageBtn.addEventListener("click", () => dom.chatImageInput?.click());
+  }
+
+  if (dom.chatEmojiBtn) {
+    dom.chatEmojiBtn.addEventListener("click", insertEmoji);
+  }
+
+  if (dom.chatCameraBtn) {
+    dom.chatCameraBtn.addEventListener("click", () => dom.chatCameraInput?.click());
+  }
+
+  if (dom.chatAudioBtn) {
+    dom.chatAudioBtn.addEventListener("click", toggleAudioRecording);
+  }
+
+  if (dom.chatImageInput) {
+    dom.chatImageInput.addEventListener("change", () => sendImageFromInput(dom.chatImageInput));
+  }
+
+  if (dom.chatCameraInput) {
+    dom.chatCameraInput.addEventListener("change", () => sendImageFromInput(dom.chatCameraInput));
   }
 
   if (dom.chatInput) {

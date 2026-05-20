@@ -221,6 +221,8 @@ function buildOperationZoneEntity(zona) {
   dashboardState.operationZoneBorder = entity;
   dashboardState.currentOperationZone = zona;
 
+  renderIntegratedWindRose(zona, closedPoints);
+
   return entity;
 }
 
@@ -244,6 +246,75 @@ function getHullRadius(center, points) {
     if (d > maxDist) maxDist = d;
   });
   return maxDist;
+}
+
+export function renderIntegratedWindRose(zona, points) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !Array.isArray(points) || points.length < 3) return;
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  points.forEach((point) => {
+    const lat = Number(point.lat);
+    const lng = Number(point.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
+  });
+
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return;
+
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
+  const zoneProps = { tacticalType: "operation-zone-part", id_zona: zona.id_zona };
+  const lineMaterial = Cesium.Color.fromCssColorString("rgba(0,0,0,0.72)");
+
+  [
+    [[centerLng, minLat], [centerLng, maxLat]],
+    [[minLng, centerLat], [maxLng, centerLat]]
+  ].forEach((line) => {
+    viewer.entities.add({
+      name: "Rosa de viento zona",
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([
+          line[0][0], line[0][1],
+          line[1][0], line[1][1]
+        ]),
+        width: 3,
+        material: lineMaterial,
+        clampToGround: true
+      },
+      properties: zoneProps
+    });
+  });
+
+  [
+    { text: "N", lat: maxLat, lng: centerLng, offset: new Cesium.Cartesian2(0, -16) },
+    { text: "S", lat: minLat, lng: centerLng, offset: new Cesium.Cartesian2(0, 16) },
+    { text: "E", lat: centerLat, lng: maxLng, offset: new Cesium.Cartesian2(18, 0) },
+    { text: "W", lat: centerLat, lng: minLng, offset: new Cesium.Cartesian2(-18, 0) }
+  ].forEach((label) => {
+    viewer.entities.add({
+      name: "Rosa de viento zona",
+      position: Cesium.Cartesian3.fromDegrees(label.lng, label.lat),
+      label: {
+        text: label.text,
+        font: "bold 24px monospace",
+        fillColor: Cesium.Color.fromCssColorString("rgba(0,0,0,0.92)"),
+        outlineColor: Cesium.Color.WHITE.withAlpha(0.82),
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: label.offset,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      },
+      properties: zoneProps
+    });
+  });
 }
 
 /**

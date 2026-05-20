@@ -8,11 +8,11 @@ const DEFAULT_CAMERA_HEIGHT = 2500000;
 const HISTORY_CAMERA_OPTIONS = {
   minimumZoomDistance: 500,
   maximumZoomDistance: 5000000,
-  inertiaSpin: 0,
-  inertiaTranslate: 0,
-  inertiaZoom: 0,
-  maximumMovementRatio: 0.18,
-  zoomFactor: 8,
+  inertiaSpin: 1,
+  inertiaTranslate: 1,
+  inertiaZoom: 1,
+  maximumMovementRatio: 0.08,
+  zoomFactor: 2.2,
 };
 
 // Entidades con control de tiempo: { entity, showAt, hideAt (ms epoch) }
@@ -35,17 +35,23 @@ export function initHistoryMap() {
     selectionIndicator: false,
     fullscreenButton: false,
     imageryProvider: false,
+    requestRenderMode: true,
+    maximumRenderTimeChange: Infinity,
   });
 
   const viewer = replayState.viewer;
+  viewer.clock.shouldAnimate = false;
+  viewer.trackedEntity = undefined;
   viewer.imageryLayers.removeAll();
   addHybridLayer(viewer);
   configureGoogleLikeCamera(viewer, HISTORY_CAMERA_OPTIONS);
+  installCameraInputSettler(viewer);
   window.addEventListener("resize", resizeHistoryMap);
 
   viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, DEFAULT_CAMERA_HEIGHT),
   });
+  settleHistoryCamera(viewer);
   resizeHistoryMap();
 }
 
@@ -136,6 +142,7 @@ export function buildMapEntities(replay) {
 
   // Mostrar estado inicial
   updateMapToTime(replayState.startMs);
+  centerHistoryMapOnOperationZone(replay?.zona_operacion);
 }
 
 // ── Zona de operación (igual que dashboard) ──────────────
@@ -556,6 +563,7 @@ export function updateMapToTime(currentMs) {
   for (const { entity, showAt, hideAt } of mapRegistry) {
     entity.show = currentMs >= showAt && currentMs < hideAt;
   }
+  replayState.viewer?.scene?.requestRender?.();
 }
 
 export function resizeHistoryMap() {
@@ -563,8 +571,117 @@ export function resizeHistoryMap() {
   if (!viewer) return;
   window.setTimeout(() => {
     viewer.resize();
+    settleHistoryCamera(viewer);
     viewer.scene?.requestRender?.();
   }, 80);
+}
+
+function installCameraInputSettler(viewer) {
+  const canvas = viewer?.scene?.canvas;
+  if (!canvas || canvas.dataset.historyCameraSettler === "true") return;
+
+  canvas.dataset.historyCameraSettler = "true";
+  let settleTimer = null;
+  const scheduleSettle = () => {
+    window.clearTimeout(settleTimer);
+    settleTimer = window.setTimeout(() => settleHistoryCamera(viewer), 140);
+  };
+
+  canvas.addEventListener("wheel", scheduleSettle, { passive: true });
+  canvas.addEventListener("pointerup", scheduleSettle, { passive: true });
+  canvas.addEventListener("pointercancel", scheduleSettle, { passive: true });
+  canvas.addEventListener("touchend", scheduleSettle, { passive: true });
+  canvas.addEventListener("touchcancel", scheduleSettle, { passive: true });
+}
+
+function settleHistoryCamera(viewer) {
+  viewer?.camera?.cancelFlight?.();
+  if (viewer) viewer.trackedEntity = undefined;
+
+  const controller = viewer?.scene?.screenSpaceCameraController;
+  if (!controller) return;
+
+  [
+    "_lastInertiaSpinMovement",
+    "_lastInertiaTranslateMovement",
+    "_lastInertiaZoomMovement",
+    "_lastInertiaTiltMovement",
+  ].forEach((key) => {
+    if (controller[key]) controller[key].inertiaEnabled = false;
+    controller[key] = undefined;
+  });
+}
+
+function centerHistoryMapOnOperationZone(zona) {
+  const viewer = replayState.viewer;
+  if (!viewer || !zona || !window.Cesium) return;
+
+  const target = getZoneCameraTarget(zona);
+  if (!target) return;
+
+  viewer.camera.cancelFlight?.();
+  viewer.trackedEntity = undefined;
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(target.lng, target.lat, target.height),
+    orientation: {
+      heading: 0,
+      pitch: Cesium.Math.toRadians(-90),
+      roll: 0,
+    },
+  });
+  settleHistoryCamera(viewer);
+  viewer.scene?.requestRender?.();
+}
+
+function getZoneCameraTarget(zona) {
+  const lat = finiteNumber(zona.centroide_lat, zona.center_lat, zona.latitud, zona.lat);
+  const lng = finiteNumber(zona.centroide_lon, zona.centroide_lng, zona.center_lon, zona.center_lng, zona.longitud, zona.lng, zona.lon);
+  const height = finiteNumber(zona.zoom_inicial, zona.zoom);
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return { lat, lng, height: Number.isFinite(height) ? height : DEFAULT_CAMERA_HEIGHT };
+  }
+
+  const ring = getPolygonRing(parseGeoJsonObject(zona.geometria ?? zona.geometry));
+  if (!Array.isArray(ring) || ring.length < 3) return null;
+
+  const points = ring
+    .map(([pointLng, pointLat]) => ({ lng: Number(pointLng), lat: Number(pointLat) }))
+    .filter(point => Number.isFinite(point.lng) && Number.isFinite(point.lat));
+
+  if (!points.length) return null;
+
+  const bounds = points.reduce((acc, point) => ({
+    minLat: Math.min(acc.minLat, point.lat),
+    maxLat: Math.max(acc.maxLat, point.lat),
+    minLng: Math.min(acc.minLng, point.lng),
+    maxLng: Math.max(acc.maxLng, point.lng),
+  }), {
+    minLat: Infinity,
+    maxLat: -Infinity,
+    minLng: Infinity,
+    maxLng: -Infinity,
+  });
+
+  if (![bounds.minLat, bounds.maxLat, bounds.minLng, bounds.maxLng].every(Number.isFinite)) return null;
+
+  const span = Math.max(bounds.maxLat - bounds.minLat, bounds.maxLng - bounds.minLng);
+  const fittedHeight = Math.max(1000, Math.min(5000000, span * 140000));
+
+  return {
+    lat: (bounds.minLat + bounds.maxLat) / 2,
+    lng: (bounds.minLng + bounds.maxLng) / 2,
+    height: Number.isFinite(height) ? height : fittedHeight,
+  };
+}
+
+function finiteNumber(...values) {
+  for (const value of values) {
+    if (value == null || String(value).trim() === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return NaN;
 }
 
 // ── Helpers ───────────────────────────────────────────────
@@ -581,14 +698,14 @@ function addHybridLayer(viewer) {
   satellite.saturation = 1.15;
   satellite.gamma = 0.9;
 
-  const labels = viewer.imageryLayers.addImageryProvider(
+  const reference = viewer.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
-      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
       maximumLevel: 19,
-      credit: "© OpenStreetMap contributors",
+      credit: "Esri Reference",
     })
   );
-  labels.alpha = 0.28;
+  reference.alpha = 0.78;
 }
 
 function toCartesianArray(points) {

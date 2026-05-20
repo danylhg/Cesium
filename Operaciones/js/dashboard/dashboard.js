@@ -24,7 +24,7 @@ import {
   loadOperationZoneFromBackend,
   restoreGridFromBackend
 } from "./dashboard.tactical.js";
-import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
+import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js?v=20260520-osmfix";
 import { bindAreaEvents } from "./dashboard.area.js";
 import { restoreTacticalData } from "./dashboard.persistence.js";
 import {

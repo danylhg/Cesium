@@ -1,0 +1,184 @@
+1<?xml version="1.0" encoding="utf-8"?>
+2<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+3    package="com.operaciones.operaciones_android"
+4    android:versionCode="100001"
+5    android:versionName="1.0-wear" >
+6
+7    <uses-sdk
+7-->INJECTED
+8        android:minSdkVersion="30"
+8-->INJECTED
+9        android:targetSdkVersion="34" />
+9-->INJECTED
+10
+11    <uses-feature android:name="android.hardware.type.watch" />
+11-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:4:5-64
+11-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:4:19-61
+12
+13    <uses-permission android:name="android.permission.INTERNET" />
+13-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:6:5-67
+13-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:6:22-64
+14    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+14-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:7:5-79
+14-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:7:22-76
+15    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+15-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:8:5-79
+15-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:8:22-76
+16    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+16-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:9:5-81
+16-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:9:22-78
+17    <uses-permission
+17-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:10:5-98
+18        android:name="android.permission.BODY_SENSORS"
+18-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:10:22-68
+19        android:maxSdkVersion="35" />
+19-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:10:69-95
+20    <uses-permission
+20-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:11:5-109
+21        android:name="android.permission.BODY_SENSORS_BACKGROUND"
+21-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:11:22-79
+22        android:maxSdkVersion="35" />
+22-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:11:80-106
+23    <uses-permission android:name="android.permission.health.READ_HEART_RATE" />
+23-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:12:5-81
+23-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:12:22-78
+24    <uses-permission android:name="android.permission.health.READ_OXYGEN_SATURATION" />
+24-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:13:5-88
+24-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:13:22-85
+25    <uses-permission android:name="android.permission.health.READ_BODY_TEMPERATURE" />
+25-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:14:5-87
+25-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:14:22-84
+26    <uses-permission android:name="android.permission.health.READ_RESPIRATORY_RATE" />
+26-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:15:5-87
+26-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:15:22-84
+27    <uses-permission android:name="android.permission.health.READ_BLOOD_PRESSURE" />
+27-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:16:5-85
+27-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:16:22-82
+28    <uses-permission android:name="android.permission.health.READ_HEALTH_DATA_IN_BACKGROUND" />
+28-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:17:5-96
+28-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:17:22-93
+29    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+29-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:18:5-71
+29-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:18:22-68
+30    <uses-permission android:name="android.permission.VIBRATE" />
+30-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:19:5-66
+30-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:19:22-63
+31    <uses-permission android:name="android.permission.WAKE_LOCK" />
+31-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:20:5-68
+31-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:20:22-65
+32    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+32-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:21:5-77
+32-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:21:22-74
+33    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+33-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:22:5-86
+33-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:22:22-83
+34    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+34-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:23:5-77
+34-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:23:22-74
+35
+36    <queries>
+36-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:19:5-21:15
+37        <package android:name="com.google.android.wearable.healthservices" />
+37-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:20:9-78
+37-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:20:18-75
+38    </queries>
+39
+40    <permission
+40-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:22:5-24:47
+41        android:name="com.operaciones.operaciones_android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+41-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:23:9-81
+42        android:protectionLevel="signature" />
+42-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:24:9-44
+43
+44    <uses-permission android:name="com.operaciones.operaciones_android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
+44-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:26:5-97
+44-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:26:22-94
+45
+46    <application
+46-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:25:5-52:19
+47        android:allowBackup="false"
+47-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:26:9-36
+48        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
+48-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:28:18-86
+49        android:debuggable="true"
+50        android:extractNativeLibs="false"
+50-->INJECTED
+51        android:icon="@mipmap/ic_launcher"
+51-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:27:9-43
+52        android:label="@string/app_name"
+52-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:28:9-41
+53        android:roundIcon="@mipmap/ic_launcher_round"
+53-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:29:9-54
+54        android:supportsRtl="true"
+54-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:30:9-35
+55        android:theme="@style/Theme.SedamWear"
+55-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:31:9-47
+56        android:usesCleartextTraffic="true" >
+56-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:32:9-44
+57        <meta-data
+57-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:34:9-36:37
+58            android:name="com.google.android.wearable.standalone"
+58-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:35:13-66
+59            android:value="false" />
+59-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:36:13-34
+60
+61        <activity
+61-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:38:9-45:20
+62            android:name="com.operaciones.operaciones_android.wear.ui.WearMainActivity"
+62-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:39:13-48
+63            android:exported="true" >
+63-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:40:13-36
+64            <intent-filter>
+64-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:41:13-44:29
+65                <action android:name="android.intent.action.MAIN" />
+65-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:42:17-69
+65-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:42:25-66
+66
+67                <category android:name="android.intent.category.LAUNCHER" />
+67-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:43:17-77
+67-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:43:27-74
+68            </intent-filter>
+69        </activity>
+70
+71        <service
+71-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:47:9-50:56
+72            android:name="com.operaciones.operaciones_android.wear.emergency.WearEmergencyService"
+72-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:48:13-59
+73            android:exported="false"
+73-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:49:13-37
+74            android:foregroundServiceType="location" />
+74-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:50:13-53
+75        <service
+75-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:24:9-31:19
+76            android:name="androidx.health.services.client.VersionApiService"
+76-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:25:13-77
+77            android:exported="true"
+77-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:26:13-36
+78            android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" >
+78-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:27:13-108
+79            <intent-filter>
+79-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:28:13-30:29
+80                <action android:name="hs.versionclient.BIND" />
+80-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:29:17-64
+80-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:29:25-61
+81            </intent-filter>
+82        </service>
+83
+84        <activity
+84-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:9-173
+85            android:name="com.google.android.gms.common.api.GoogleApiActivity"
+85-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:19-85
+86            android:exported="false"
+86-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:146-170
+87            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+87-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:86-145
+88
+89        <meta-data
+89-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\3dcb3910dc131723199f8d60f51b9652\workspace\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:21:9-23:69
+90            android:name="com.google.android.gms.version"
+90-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\3dcb3910dc131723199f8d60f51b9652\workspace\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:22:13-58
+91            android:value="@integer/google_play_services_version" />
+91-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\3dcb3910dc131723199f8d60f51b9652\workspace\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:23:13-66
+92    </application>
+93
+94</manifest>

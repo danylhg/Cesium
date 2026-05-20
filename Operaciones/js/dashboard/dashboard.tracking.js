@@ -221,6 +221,11 @@ export function initTrackingSocket(socket) {
     upsertPersonalTracking(data);
   });
 
+  socket.on("signos_vitales_personal", (data) => {
+    if (!data?.id_personal) return;
+    refreshPersonnelInfoPopup(data.id_personal, data);
+  });
+
   socket.on("tracking_vehiculo", (data) => {
     upsertVehiculoTracking(data);
   });

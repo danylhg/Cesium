@@ -13,6 +13,7 @@ export const vehiculosLeftEl = document.getElementById("vehiculosLeft");
 
 export const dashboardWrap = document.getElementById("dashboardWrap");
 export const btnDashboardGo = document.getElementById("btnDashboardGo");
+export const btnDownloadList = document.getElementById("btnDownloadList");
 
 export const opNombreEl = document.getElementById("opNombre");
 export const opDescEl = document.getElementById("opDesc");

@@ -25,3 +25,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Operaciones_Android"
 include(":app")
+include(":wear")

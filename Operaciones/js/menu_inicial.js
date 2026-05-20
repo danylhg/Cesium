@@ -29,6 +29,7 @@ const submenuControl = document.getElementById("submenuControl");
 const btnControlPersonal = document.getElementById("btnControlPersonal");
 const btnControlVehiculos = document.getElementById("btnControlVehiculos");
 const btnControlEquipos = document.getElementById("btnControlEquipos");
+const btnControlDispositivos = document.getElementById("btnControlDispositivos");
 const searchOpName = document.getElementById("searchOpName");
 const searchOpDate = document.getElementById("searchOpDate");
 const searchOpState = document.getElementById("searchOpState");
@@ -240,6 +241,10 @@ btnControlVehiculos.addEventListener("click", () => {
 
 btnControlEquipos.addEventListener("click", () => {
   window.location.href = "control_equipos.html";
+});
+
+btnControlDispositivos?.addEventListener("click", () => {
+  window.location.href = "control_dispositivos.html";
 });
 
 init();

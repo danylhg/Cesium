@@ -199,7 +199,7 @@
 
     <div class="groupTitle">Vista del mapa</div>
     <select id="layerSelect">
-      <option value="osm">Normal (OSM)</option>
+      <option value="osm">Normal</option>
       <option value="satellite">Satélite</option>
       <option value="hybrid" selected>Híbrida</option>
     </select>
@@ -455,8 +455,17 @@
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
-      <textarea id="chatInput" placeholder="Escribe un mensaje..."></textarea>
-      <button id="sendChatBtn" class="sendChatBtn">Enviar mensaje</button>
+      <div class="chatInputBar">
+        <button id="chatImageBtn" class="chatIconBtn" type="button" title="Adjuntar imagen" aria-label="Adjuntar imagen">+</button>
+        <button id="chatEmojiBtn" class="chatIconBtn" type="button" title="Emoji" aria-label="Emoji">☺</button>
+        <button id="chatCameraBtn" class="chatIconBtn" type="button" title="Tomar foto" aria-label="Tomar foto">📷</button>
+        <textarea id="chatInput" placeholder="Escribe un mensaje"></textarea>
+        <button id="sendChatBtn" class="chatIconBtn sendChatBtn" type="button" title="Enviar" aria-label="Enviar">➤</button>
+        <button id="chatAudioBtn" class="chatIconBtn voiceBtn" type="button" title="Grabar audio" aria-label="Grabar audio">🎙</button>
+      </div>
+      <div id="chatAttachStatus" class="voiceStatus" style="display:none;"></div>
+      <input id="chatImageInput" type="file" accept="image/*" hidden>
+      <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
     </div>
   </aside>
 

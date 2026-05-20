@@ -29,12 +29,19 @@ const logAlert = (message) => {
 };
 
 const providers = {
-  osm: () => new Cesium.OpenStreetMapImageryProvider({
-    url: "https://a.tile.openstreetmap.org/"
+  osm: () => new Cesium.UrlTemplateImageryProvider({
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 19,
+    credit: "Esri World Street Map"
   }),
   satellite: () => new Cesium.UrlTemplateImageryProvider({
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     credit: "Esri World Imagery"
+  }),
+  reference: () => new Cesium.UrlTemplateImageryProvider({
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 19,
+    credit: "Esri Reference"
   })
 };
 
@@ -112,10 +119,8 @@ export function setBaseLayer(key) {
     satelliteLayer.saturation = 1.15;
     satelliteLayer.gamma = 0.9;
 
-    const osmOverlay = viewer.imageryLayers.addImageryProvider(providers.osm());
-    osmOverlay.alpha = 0.28;
-    osmOverlay.brightness = 0.95;
-    osmOverlay.contrast = 1.2;
+    const referenceOverlay = viewer.imageryLayers.addImageryProvider(providers.reference());
+    referenceOverlay.alpha = 0.78;
     return;
   }
 

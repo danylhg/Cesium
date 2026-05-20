@@ -1131,6 +1131,7 @@
     const structureEntities = new Map();
     const areaEntities = new Map();
     const operationGridEntities = [];
+    const operationZoneRoseEntities = [];
     let operationZoneEntity = null;
     let operationZoneForGrid = null;
     let pendingOperationGrid = null;
@@ -1377,6 +1378,63 @@
       }
     };
 
+    function clearOperationZoneRose() {
+      operationZoneRoseEntities.forEach(function (entity) {
+        if (entity) viewer.entities.remove(entity);
+      });
+      operationZoneRoseEntities.length = 0;
+    }
+
+    function renderOperationZoneRose(zoneObj) {
+      if (!viewer || !zoneObj || !Array.isArray(zoneObj.points)) return;
+      const bounds = operationGridBounds(zoneObj.points);
+      if (!bounds) return;
+
+      const centerLat = (bounds.minLat + bounds.maxLat) / 2;
+      const centerLon = (bounds.minLon + bounds.maxLon) / 2;
+      const lineMaterial = Cesium.Color.fromCssColorString('rgba(0,0,0,0.72)');
+
+      [
+        [[centerLon, bounds.minLat], [centerLon, bounds.maxLat]],
+        [[bounds.minLon, centerLat], [bounds.maxLon, centerLat]]
+      ].forEach(function (line) {
+        operationZoneRoseEntities.push(viewer.entities.add({
+          polyline: {
+            positions: Cesium.Cartesian3.fromDegreesArray([
+              line[0][0], line[0][1],
+              line[1][0], line[1][1]
+            ]),
+            width: 3,
+            material: lineMaterial,
+            clampToGround: true
+          }
+        }));
+      });
+
+      [
+        { text: 'N', lat: bounds.maxLat, lon: centerLon, offset: new Cesium.Cartesian2(0, -16) },
+        { text: 'S', lat: bounds.minLat, lon: centerLon, offset: new Cesium.Cartesian2(0, 16) },
+        { text: 'E', lat: centerLat, lon: bounds.maxLon, offset: new Cesium.Cartesian2(18, 0) },
+        { text: 'W', lat: centerLat, lon: bounds.minLon, offset: new Cesium.Cartesian2(-18, 0) }
+      ].forEach(function (label) {
+        operationZoneRoseEntities.push(viewer.entities.add({
+          position: Cesium.Cartesian3.fromDegrees(label.lon, label.lat),
+          label: {
+            text: label.text,
+            font: 'bold 24px monospace',
+            fillColor: Cesium.Color.fromCssColorString('rgba(0,0,0,0.92)'),
+            outlineColor: Cesium.Color.WHITE.withAlpha(0.82),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            pixelOffset: label.offset,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            scaleByDistance: SCALE_BY_DIST
+          }
+        }));
+      });
+    }
+
     window.loadOperationZone = function (zoneObj) {
       try {
         if (!viewer || !zoneObj || !Array.isArray(zoneObj.points) || zoneObj.points.length < 3) return;
@@ -1386,6 +1444,7 @@
           viewer.entities.remove(operationZoneEntity);
           operationZoneEntity = null;
         }
+        clearOperationZoneRose();
         const hexColor = (zoneObj.color && String(zoneObj.color).startsWith('#')) ? zoneObj.color : '#3b82f6';
         const outline = Cesium.Color.fromCssColorString(hexColor);
         const closedPoints = [...zoneObj.points, zoneObj.points[0]];
@@ -1406,6 +1465,7 @@
             clampToGround: true
           }
         });
+        renderOperationZoneRose(zoneObj);
         if (pendingOperationGrid) {
           const grid = pendingOperationGrid;
           pendingOperationGrid = null;

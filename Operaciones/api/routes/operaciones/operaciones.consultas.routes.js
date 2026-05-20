@@ -222,7 +222,24 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         -- Última posición conocida del personal
         t.latitud,
         t.longitud,
-        t.ultima_actualizacion
+        t.ultima_actualizacion,
+        COALESCE(t.frecuencia_cardiaca_bpm, sv.frecuencia_cardiaca_bpm) AS frecuencia_cardiaca_bpm,
+        COALESCE(t.frecuencia_cardiaca, sv.frecuencia_cardiaca) AS frecuencia_cardiaca,
+        COALESCE(t.fc, sv.fc) AS fc,
+        COALESCE(t.heart_rate, sv.heart_rate) AS heart_rate,
+        COALESCE(t.oxigenacion_spo2, sv.oxigenacion_spo2) AS oxigenacion_spo2,
+        COALESCE(t.spo2, sv.spo2) AS spo2,
+        COALESCE(t.temperatura_c, sv.temperatura_c) AS temperatura_c,
+        COALESCE(t.frecuencia_respiratoria_rpm, sv.frecuencia_respiratoria_rpm) AS frecuencia_respiratoria_rpm,
+        COALESCE(t.presion_sistolica_mmhg, sv.presion_sistolica_mmhg) AS presion_sistolica_mmhg,
+        COALESCE(t.presion_diastolica_mmhg, sv.presion_diastolica_mmhg) AS presion_diastolica_mmhg,
+        COALESCE(t.pasos, sv.pasos) AS pasos,
+        COALESCE(t.presion_barometrica_hpa, sv.presion_barometrica_hpa) AS presion_barometrica_hpa,
+        COALESCE(t.barometro, sv.barometro) AS barometro,
+        COALESCE(t.baro, sv.baro) AS baro,
+        COALESCE(t.bateria_pct, sv.bateria_pct) AS bateria_pct,
+        COALESCE(t.bateria, sv.bateria) AS bateria,
+        COALESCE(t.signos_actualizacion, sv.signos_actualizacion) AS signos_actualizacion
       FROM asignacion_operacion_personal a
 
       -- Datos base del personal asignado
@@ -270,6 +287,10 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
       LEFT JOIN v_ultima_posicion_personal t
         ON t.id_personal = a.id_personal
        AND t.id_operacion = a.id_operacion
+
+      LEFT JOIN v_ultimos_signos_vitales_personal sv
+        ON sv.id_personal = a.id_personal
+       AND sv.id_operacion = a.id_operacion
 
       -- Solo personal de esta operación y no liberado
       WHERE a.id_operacion = $1

@@ -27,3 +27,4 @@
 \ir 21_patch_operacion_evento.sql
 \ir 22_patch_estado_operacion_creacion.sql
 \ir 23_streaming.sql
+\ir 24_signos_vitales.sql

@@ -124,6 +124,10 @@ function restoreSavedState() {
     state.asignacionEquipos = savedAsig.asignacionEquipos;
   }
 
+  if (Array.isArray(savedAsig?.asignacionDispositivos)) {
+    state.asignacionDispositivos = savedAsig.asignacionDispositivos;
+  }
+
   return storedOp;
 }
 

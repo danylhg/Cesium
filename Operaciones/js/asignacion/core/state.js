@@ -3,6 +3,7 @@ export const initialState = {
   asignacionCelulas: {},
   asignacionVehiculos: [], // Estructura plana: [{ id_vehiculo, tipo_destino, id_personal, id_grupo_operacion }]
   asignacionEquipos: [], // Estructura plana: [{ id_equipo, tipo_destino, id_personal, id_grupo_operacion, categoria }]
+  asignacionDispositivos: [], // Estructura plana: [{ id_dispositivo, id_personal }]
 
   // Estado de navegación y UI temporal
   categoria: null,
@@ -21,6 +22,13 @@ export const initialState = {
   equipoSelectedResource: null,
   equipoSelectedCet: null,
   equipoSelectedGrupo: null,
+  dispositivoSelectedItems: [],
+  dispositivoSelectedResource: null,
+  dispositivoSelectedCet: null,
+  dispositivoSelectedGrupo: null,
+  dispositivosLiberadosLocalmente: [],
+  dispositivosLeftScrollTop: 0,
+  dispositivosRightScrollTop: 0,
   equiposLiberadosLocalmente: [],
   vehiculosLiberadosLocalmente: [],
   vehiculosGridScrollTop: 0,
@@ -34,6 +42,7 @@ export const initialState = {
   vehiclesList: [],
   tacticalEquipmentList: [],
   communicationEquipmentList: [],
+  dispositivosList: [],
 
   // Mapeos para resolución de IDs (Nombre -> ID)
   personalMap: {}, // { "Nombre Apellido": id_personal }

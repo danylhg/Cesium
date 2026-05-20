@@ -49,6 +49,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.google.android.gms:play-services-wearable:20.0.1")
     implementation("io.github.webrtc-sdk:android:144.7559.01")
     implementation("com.github.pedroSG94.RootEncoder:library:2.7.2")
     testImplementation(libs.junit)

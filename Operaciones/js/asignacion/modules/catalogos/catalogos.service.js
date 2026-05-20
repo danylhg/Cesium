@@ -82,18 +82,35 @@ function mapEquipos(data) {
   })).filter(x => x.nombre.trim() !== "");
 }
 
+function mapDispositivos(data) {
+  return data.map(x => ({
+    id: x.id_dispositivo ?? generateUUID(),
+    tipo: x.tipo ?? "",
+    marca: x.marca ?? "",
+    modelo: x.modelo ?? "",
+    numeroTelefono: x.numero_telefono ?? "",
+    imei: x.imei ?? "",
+    numeroSerie: x.numero_serie ?? "",
+    sistemaOperativo: x.sistema_operativo ?? "",
+    estado: x.estado ?? "DISPONIBLE",
+    responsable: x.responsable ?? "",
+    detalles: x.detalles ?? ""
+  })).filter(x => `${x.marca} ${x.modelo}`.trim() !== "");
+}
+
 // --- Función Principal ---
 
 export async function hydrateCatalogsFromControl(excludeOpId = null) {
   // excludeOpId: en modo edición, excluye esta operación del chequeo de ocupación
   const opParam = excludeOpId ? `&exclude_op=${excludeOpId}` : "";
 
-  const [rawCuts, rawCets, rawCells, rawVehiculos, rawEquipos] = await Promise.all([
+  const [rawCuts, rawCets, rawCells, rawVehiculos, rawEquipos, rawDispositivos] = await Promise.all([
     apiFetch(`/catalog/personal?rol=CUT${opParam}`),
     apiFetch(`/catalog/personal?rol=CET${opParam}`),
     apiFetch(`/catalog/personal?rol=CELL${opParam}`),
     apiFetch('/catalog/vehiculos'),
-    apiFetch('/catalog/equipos')
+    apiFetch('/catalog/equipos'),
+    apiFetch('/catalog/dispositivos')
   ]);
 
   // Personal
@@ -124,6 +141,8 @@ export async function hydrateCatalogsFromControl(excludeOpId = null) {
     state.tacticalEquipmentList = equipos.filter(x => x.tipo === "tactico");
     state.communicationEquipmentList = equipos.filter(x => x.tipo === "comunicacion");
   }
+
+  state.dispositivosList = mapDispositivos(rawDispositivos);
 }
 
 // Construye el nombre formateado igual que mapPersonal (puesto + nombre + apellido)
@@ -146,16 +165,21 @@ export async function hydrateAsignacionFromBD(idOperacion) {
   state.vehiculosGridScrollTop = 0;
   state.equiposLeftScrollTop = 0;
   state.equiposRightScrollTop = 0;
+  state.dispositivosLiberadosLocalmente = [];
+  state.dispositivosLeftScrollTop = 0;
+  state.dispositivosRightScrollTop = 0;
 
-  const [personalRows, vehiculosRows, equiposRows] = await Promise.all([
+  const [personalRows, vehiculosRows, equiposRows, dispositivosRows] = await Promise.all([
     apiFetch(`/ops/${idOperacion}/personal`),
     apiFetch(`/ops/${idOperacion}/vehiculos-asignados`),
-    apiFetch(`/ops/${idOperacion}/equipos-asignados`)
+    apiFetch(`/ops/${idOperacion}/equipos-asignados`),
+    apiFetch(`/ops/${idOperacion}/dispositivos-asignados`)
   ]);
 
   console.log("[HYDRATE] personal rows →", personalRows);
   console.log("[HYDRATE] vehiculos rows →", vehiculosRows);
   console.log("[HYDRATE] equipos rows →", equiposRows);
+  console.log("[HYDRATE] dispositivos rows →", dispositivosRows);
 
   // ── 1. PERSONAL ───────────────────────────────────────────────────────────
   // Deduplicar por id_personal (LEFT JOINs pueden duplicar)
@@ -279,6 +303,14 @@ export async function hydrateAsignacionFromBD(idOperacion) {
       };
     });
 
+  state.asignacionDispositivos = dispositivosRows
+    .filter(r => r.id_dispositivo && r.id_personal)
+    .map(r => ({
+      id_dispositivo: r.id_dispositivo,
+      id_personal: r.id_personal
+    }));
+
   console.log("[HYDRATE] asignacionEquipos →", JSON.stringify(state.asignacionEquipos, null, 2));
+  console.log("[HYDRATE] asignacionDispositivos →", JSON.stringify(state.asignacionDispositivos, null, 2));
   console.log("[HYDRATE] ✓ hidratación completa para operación", idOperacion);
 }

@@ -1,0 +1,16 @@
+R_DEF: Internal format may change without notice
+local
+color sedam_bg
+color sedam_danger
+color sedam_muted
+color sedam_panel
+color sedam_panel_alt
+color sedam_primary
+color sedam_text
+drawable ic_launcher_background
+drawable ic_watch_notification
+mipmap ic_launcher
+mipmap ic_launcher_foreground
+mipmap ic_launcher_round
+string app_name
+style Theme.SedamWear
