@@ -7,20 +7,70 @@
 
     <!-- ── Header ───────────────────────────────────────────── -->
     <LinearLayout
+        android:id="@+id/channelSelector"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
+        android:layout_height="64dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingHorizontal="14dp"
-        android:background="#0d1f3c">
+        android:paddingHorizontal="12dp"
+        android:layout_margin="8dp"
+        android:background="@drawable/bg_chat_header">
 
         <TextView
-            android:layout_width="wrap_content"
+            android:id="@+id/chatAvatar"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/bg_chat_avatar"
+            android:gravity="center"
+            android:text="T"
+            android:textColor="#ffffff"
+            android:textSize="16sp"
+            android:textStyle="bold"/>
+
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="MENSAJES"
-            android:textColor="#94a3b8"
-            android:textSize="10sp"
-            android:letterSpacing="0.12"/>
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/chatTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Todos"
+                android:textColor="#e2e8f0"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+
+            <TextView
+                android:id="@+id/chatSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Operacion completa"
+                android:textColor="#7dd3fc"
+                android:textSize="11sp"
+                android:maxLines="1"
+                android:ellipsize="end"/>
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/destBtn"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:minWidth="76dp"
+            android:background="@drawable/bg_dest_btn"
+            android:text="Cambiar"
+            android:textColor="#cbd5e1"
+            android:textSize="12sp"
+            android:gravity="center"
+            android:paddingHorizontal="12dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"/>
 
     </LinearLayout>
 
@@ -51,41 +101,6 @@
     </HorizontalScrollView>
 
     <!-- ── Destino ────────────────────────────────────────────── -->
-    <LinearLayout
-        android:id="@+id/channelSelector"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="10dp"
-        android:paddingBottom="4dp"
-        android:visibility="gone">
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Para:"
-            android:textColor="#64748b"
-            android:textSize="11sp"
-            android:layout_marginEnd="6dp"/>
-
-        <TextView
-            android:id="@+id/destBtn"
-            android:layout_width="0dp"
-            android:layout_height="30dp"
-            android:layout_weight="1"
-            android:background="@drawable/bg_dest_btn"
-            android:textColor="#cbd5e1"
-            android:textSize="12sp"
-            android:gravity="center_vertical"
-            android:paddingHorizontal="10dp"
-            android:ellipsize="end"
-            android:maxLines="1"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"/>
-    </LinearLayout>
-
     <!-- ── Composición ───────────────────────────────────────── -->
     <LinearLayout
         android:layout_width="match_parent"
@@ -118,18 +133,6 @@
             android:background="@drawable/bg_dest_btn"
             android:src="@android:drawable/ic_btn_speak_now"
             android:contentDescription="Mensaje de voz"
-            android:tint="#cbd5e1"
-            android:scaleType="centerInside"
-            android:padding="10dp"/>
-
-        <ImageButton
-            android:id="@+id/galleryBtn"
-            android:layout_width="40dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_dest_btn"
-            android:src="@android:drawable/ic_menu_gallery"
-            android:contentDescription="Enviar imagen o video de galeria"
             android:tint="#cbd5e1"
             android:scaleType="centerInside"
             android:padding="10dp"/>

@@ -33,6 +33,8 @@ internal class ChatPanelRenderer(
     private data class ChannelDef(
         val type: String,
         val label: String,
+        val subtitle: String,
+        val avatar: String,
         val targets: List<TargetEntry>,
         val destinatarioRol: String,
         val destinoTipo: String?,
@@ -54,10 +56,12 @@ internal class ChatPanelRenderer(
         val msgInput = view.findViewById<EditText>(R.id.msgInput)
         val sendBtn = view.findViewById<ImageButton>(R.id.sendBtn)
         val voiceBtn = view.findViewById<ImageButton>(R.id.voiceBtn)
-        val galleryBtn = view.findViewById<ImageButton>(R.id.galleryBtn)
         val cameraBtn = view.findViewById<ImageButton>(R.id.cameraBtn)
         val alertBtn = view.findViewById<View>(R.id.btnAlert)
         val channelSelector = view.findViewById<View>(R.id.channelSelector)
+        val chatAvatar = view.findViewById<TextView>(R.id.chatAvatar)
+        val chatTitle = view.findViewById<TextView>(R.id.chatTitle)
+        val chatSubtitle = view.findViewById<TextView>(R.id.chatSubtitle)
         val destBtn = view.findViewById<TextView>(R.id.destBtn)
 
         val chatAdapter = ChatAdapter(messages)
@@ -88,10 +92,20 @@ internal class ChatPanelRenderer(
             )
         }
 
-        fun destinationLabel(): String {
-            if (selectedChannel.targets.isEmpty()) return "${selectedChannel.label}  v"
-            val target = selectedChannel.targets.getOrNull(selectedTargetIdx)
-            return "${target?.label ?: selectedChannel.label}  v"
+        fun selectedTargetLabel(): String {
+            if (selectedChannel.targets.isEmpty()) return selectedChannel.fixedLabel ?: selectedChannel.label
+            return selectedChannel.targets.getOrNull(selectedTargetIdx)?.label ?: selectedChannel.label
+        }
+
+        fun updateConversationHeader() {
+            chatAvatar.text = selectedChannel.avatar
+            chatTitle.text = selectedTargetLabel()
+            chatSubtitle.text = if (selectedChannel.targets.isEmpty()) {
+                selectedChannel.subtitle
+            } else {
+                selectedChannel.label
+            }
+            destBtn.text = "Cambiar"
         }
 
         fun send(text: String, isAlert: Boolean) {
@@ -115,21 +129,21 @@ internal class ChatPanelRenderer(
             ) { channel, targetIdx ->
                 selectedChannel = channel
                 selectedTargetIdx = targetIdx
-                destBtn.text = destinationLabel()
+                updateConversationHeader()
                 onFilterChanged(currentSelection())
             }
         }
 
         if (channelDefs.size <= 1) {
-            channelSelector.visibility = View.GONE
+            destBtn.visibility = View.GONE
         } else {
             channelSelector.visibility = View.VISIBLE
-            destBtn.text = destinationLabel()
             destBtn.setOnClickListener { openChannelPicker() }
         }
+        updateConversationHeader()
 
         bindSendButtons(msgInput, sendBtn, alertBtn, ::send)
-        bindAttachmentButtons(voiceBtn, galleryBtn, cameraBtn) { source ->
+        bindAttachmentButtons(voiceBtn, cameraBtn) { source ->
             val (tipo, id, label) = payloadFor(selectedChannel, selectedTargetIdx)
             host.requestChatAttachment(
                 source = source,
@@ -157,24 +171,24 @@ internal class ChatPanelRenderer(
 
         val rawDefs = when (currentUser.rol.name.uppercase()) {
             "CET" -> listOf(
-                ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null),
-                ChannelDef("CUTS", "Todos los CUT", emptyList(), "CUT", "CUTS", "ALL", "Todos los CUT"),
-                ChannelDef("CUT_SPECIFIC", "CUT especifico", cuts, "CUT", "CUT"),
-                ChannelDef("CETS", "Todos los CETs", emptyList(), "CET", "CETS", "ALL", "Todos los CETs"),
-                ChannelDef("CET_SPECIFIC", "CET especifico", cets, "CET", "CET"),
-                ChannelDef("CELL_SPECIFIC", "CELL especifico", cells, "CELL", "CELL"),
-                ChannelDef("FLOTILLA", "Flotilla", flotillas, "CELL,CET", "FLOTILLA"),
-                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO")
+                ChannelDef("GLOBAL", "Todos", "Operacion completa", "T", emptyList(), "GLOBAL", null),
+                ChannelDef("CUTS", "Todos los CUT", "Mandos CUT", "C", emptyList(), "CUT", "CUTS", "ALL", "Todos los CUT"),
+                ChannelDef("CUT_SPECIFIC", "CUT", "Un mando operativo", "C", cuts, "CUT", "CUT"),
+                ChannelDef("CETS", "Todos los CET", "Mandos CET", "C", emptyList(), "CET", "CETS", "ALL", "Todos los CET"),
+                ChannelDef("CET_SPECIFIC", "CET", "Un coordinador", "C", cets, "CET", "CET"),
+                ChannelDef("CELL_SPECIFIC", "Personal especifico", "Una persona", "P", cells, "CELL", "CELL"),
+                ChannelDef("FLOTILLA", "Flotilla", "CET e integrantes", "F", flotillas, "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO", "Grupo", "Integrantes del grupo", "G", grupos, "CELL,CET", "GRUPO")
             )
             "CELL" -> listOf(
-                ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null),
-                ChannelDef("CETS", "Todos los CETs", emptyList(), "CET", "CETS", "ALL", "Todos los CETs"),
-                ChannelDef("CET_SPECIFIC", "CET especifico", cets, "CET", "CET"),
-                ChannelDef("CELL_SPECIFIC", "CELL especifico", cells, "CELL", "CELL"),
-                ChannelDef("FLOTILLA", "Flotilla", flotillas, "CELL,CET", "FLOTILLA"),
-                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO")
+                ChannelDef("GLOBAL", "Todos", "Operacion completa", "T", emptyList(), "GLOBAL", null),
+                ChannelDef("CETS", "Todos los CET", "Mandos CET", "C", emptyList(), "CET", "CETS", "ALL", "Todos los CET"),
+                ChannelDef("CET_SPECIFIC", "CET", "Un coordinador", "C", cets, "CET", "CET"),
+                ChannelDef("CELL_SPECIFIC", "Personal especifico", "Una persona", "P", cells, "CELL", "CELL"),
+                ChannelDef("FLOTILLA", "Flotilla", "CET e integrantes", "F", flotillas, "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO", "Grupo", "Integrantes del grupo", "G", grupos, "CELL,CET", "GRUPO")
             )
-            else -> listOf(ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null))
+            else -> listOf(ChannelDef("GLOBAL", "Todos", "Operacion completa", "T", emptyList(), "GLOBAL", null))
         }
 
         return rawDefs.filter { it.fixedId != null || it.type == "GLOBAL" || it.targets.isNotEmpty() }
@@ -192,16 +206,14 @@ internal class ChatPanelRenderer(
         val channelList = sheetView.findViewById<LinearLayout>(R.id.sheetChannelList)
         val sheetSpinner = sheetView.findViewById<Spinner>(R.id.sheetTargetSpinner)
         val applyBtn = sheetView.findViewById<Button>(R.id.sheetApplyBtn)
-        val rows = mutableListOf<TextView>()
+        val rows = mutableListOf<LinearLayout>()
 
         var tempChannel = selectedChannel
         var tempTargetIdx = selectedTargetIdx
 
         fun refreshRows() = rows.forEachIndexed { index, row ->
             val selected = channelDefs[index].type == tempChannel.type
-            row.setBackgroundColor(if (selected) Color.parseColor("#1e3a5f") else Color.TRANSPARENT)
-            row.setTextColor(if (selected) Color.WHITE else Color.parseColor("#cbd5e1"))
-            row.setTypeface(null, if (selected) Typeface.BOLD else Typeface.NORMAL)
+            setChannelRowSelected(row, selected)
         }
 
         fun refreshSheetSpinner() {
@@ -225,7 +237,7 @@ internal class ChatPanelRenderer(
         }
 
         channelDefs.forEach { channel ->
-            val row = channelRow(anchorView, channel.label)
+            val row = channelRow(anchorView, channel)
             row.setOnClickListener {
                 tempChannel = channel
                 tempTargetIdx = 0
@@ -269,19 +281,79 @@ internal class ChatPanelRenderer(
                 }
         }
 
-    private fun channelRow(anchorView: View, label: String): TextView {
+    private fun channelRow(anchorView: View, channel: ChannelDef): LinearLayout {
         val density = anchorView.context.resources.displayMetrics.density
-        return TextView(anchorView.context).apply {
-            text = label
-            textSize = 14f
-            setTextColor(Color.parseColor("#cbd5e1"))
-            setPadding((16 * density).toInt(), (14 * density).toInt(), (16 * density).toInt(), (14 * density).toInt())
+        val row = LinearLayout(anchorView.context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding((14 * density).toInt(), (10 * density).toInt(), (14 * density).toInt(), (10 * density).toInt())
             isClickable = true
             isFocusable = true
+            background = anchorView.context.getDrawable(R.drawable.bg_chat_row)
             foreground = anchorView.context.obtainStyledAttributes(
                 intArrayOf(android.R.attr.selectableItemBackground)
             ).getDrawable(0)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins((12 * density).toInt(), (4 * density).toInt(), (12 * density).toInt(), (4 * density).toInt())
+            }
         }
+
+        val avatar = TextView(anchorView.context).apply {
+            text = channel.avatar
+            textSize = 15f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = android.view.Gravity.CENTER
+            setTextColor(Color.WHITE)
+            background = anchorView.context.getDrawable(R.drawable.bg_chat_avatar)
+            layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
+        }
+
+        val textBox = LinearLayout(anchorView.context).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = (10 * density).toInt()
+            }
+        }
+
+        val title = TextView(anchorView.context).apply {
+            text = channel.label
+            textSize = 14f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#e2e8f0"))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+
+        val subtitleText = if (channel.targets.isEmpty()) {
+            channel.subtitle
+        } else {
+            "${channel.subtitle} - ${channel.targets.size} opciones"
+        }
+        val subtitle = TextView(anchorView.context).apply {
+            text = subtitleText
+            textSize = 11f
+            setTextColor(Color.parseColor("#94a3b8"))
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+
+        textBox.addView(title)
+        textBox.addView(subtitle)
+        row.addView(avatar)
+        row.addView(textBox)
+        return row
+    }
+
+    private fun setChannelRowSelected(row: LinearLayout, selected: Boolean) {
+        row.setBackgroundResource(if (selected) R.drawable.bg_chat_row_selected else R.drawable.bg_chat_row)
+        val textBox = row.getChildAt(1) as? LinearLayout ?: return
+        val title = textBox.getChildAt(0) as? TextView
+        val subtitle = textBox.getChildAt(1) as? TextView
+        title?.setTextColor(if (selected) Color.WHITE else Color.parseColor("#e2e8f0"))
+        subtitle?.setTextColor(if (selected) Color.parseColor("#7dd3fc") else Color.parseColor("#94a3b8"))
     }
 
     private fun bindSendButtons(
@@ -307,12 +379,10 @@ internal class ChatPanelRenderer(
 
     private fun bindAttachmentButtons(
         voiceBtn: ImageButton,
-        galleryBtn: ImageButton,
         cameraBtn: ImageButton,
         request: (String) -> Unit
     ) {
         voiceBtn.setOnClickListener { request("voice") }
-        galleryBtn.setOnClickListener { request("gallery") }
         cameraBtn.setOnClickListener { request("camera") }
     }
 
