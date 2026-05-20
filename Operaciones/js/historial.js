@@ -1,6 +1,6 @@
 import { downloadRecording, loadCesiumToken, loadReplay, loadStreamRecordings } from "./historial/historial.api.js";
 import { dom, readHistoryDom } from "./historial/historial.dom.js";
-import { initHistoryMap, buildMapEntities, resizeHistoryMap } from "./historial/historial.map.js?v=20260520-windrose";
+import { initHistoryMap, buildMapEntities, resizeHistoryMap } from "./historial/historial.map.js?v=20260520-nozoom";
 import { initTimeline, setReplayData } from "./historial/historial.timeline.js";
 import { renderError, renderEventLog, renderOperationInfo, renderTopbar, renderChatMessages, updateChatToTime, updateEventLogToTime } from "./historial/historial.ui.js";
 import { replayState } from "./historial/historial.state.js";

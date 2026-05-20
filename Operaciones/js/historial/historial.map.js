@@ -1,31 +1,12 @@
 import { dom } from "./historial.dom.js";
 import { replayState } from "./historial.state.js";
-import { configureGoogleLikeCamera } from "../map.camera.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
 const DEFAULT_CAMERA_HEIGHT = 2500000;
-const HISTORY_CAMERA_OPTIONS = {
-  minimumZoomDistance: 500,
-  maximumZoomDistance: 5000000,
-  inertiaSpin: 1,
-  inertiaTranslate: 1,
-  inertiaZoom: 1,
-  maximumMovementRatio: 0.08,
-  zoomFactor: 2.2,
-};
-const CAMERA_INPUT_SETTLE_MS = 260;
-const CAMERA_DRIFT_EPSILON = 0.0002;
 
 // Entidades con control de tiempo: { entity, showAt, hideAt (ms epoch) }
 const mapRegistry = [];
-const cameraGuard = {
-  stableView: null,
-  inputActiveUntil: 0,
-  commitTimerId: null,
-  restoring: false,
-  postRenderBound: false,
-};
 
 // ── Init ──────────────────────────────────────────────────
 
@@ -53,15 +34,13 @@ export function initHistoryMap() {
   viewer.trackedEntity = undefined;
   viewer.imageryLayers.removeAll();
   addHybridLayer(viewer);
-  configureGoogleLikeCamera(viewer, HISTORY_CAMERA_OPTIONS);
-  installCameraInputSettler(viewer);
+  lockHistoryCamera(viewer);
   window.addEventListener("resize", resizeHistoryMap);
 
   viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, DEFAULT_CAMERA_HEIGHT),
   });
-  settleHistoryCamera(viewer);
-  captureStableCameraView(viewer);
+  lockHistoryCamera(viewer);
   resizeHistoryMap();
 }
 
@@ -565,64 +544,33 @@ export function resizeHistoryMap() {
   if (!viewer) return;
   window.setTimeout(() => {
     viewer.resize();
-    settleHistoryCamera(viewer);
     viewer.scene?.requestRender?.();
   }, 80);
 }
 
-function installCameraInputSettler(viewer) {
-  const canvas = viewer?.scene?.canvas;
-  if (!canvas || canvas.dataset.historyCameraSettler === "true") return;
-
-  canvas.dataset.historyCameraSettler = "true";
-  const scheduleSettle = (isActiveInput = true) => {
-    if (isActiveInput) {
-      cameraGuard.inputActiveUntil = performance.now() + CAMERA_INPUT_SETTLE_MS;
-    }
-    window.clearTimeout(cameraGuard.commitTimerId);
-    cameraGuard.commitTimerId = window.setTimeout(() => {
-      settleHistoryCamera(viewer);
-      captureStableCameraView(viewer);
-    }, CAMERA_INPUT_SETTLE_MS);
-  };
-  const schedulePointerMoveSettle = (event) => {
-    if (event.buttons) scheduleSettle(true);
-  };
-
-  canvas.addEventListener("wheel", scheduleSettle, { passive: true });
-  canvas.addEventListener("pointerdown", scheduleSettle, { passive: true });
-  canvas.addEventListener("pointermove", schedulePointerMoveSettle, { passive: true });
-  canvas.addEventListener("pointerup", scheduleSettle, { passive: true });
-  canvas.addEventListener("pointercancel", scheduleSettle, { passive: true });
-  canvas.addEventListener("touchmove", scheduleSettle, { passive: true });
-  canvas.addEventListener("touchend", scheduleSettle, { passive: true });
-  canvas.addEventListener("touchcancel", scheduleSettle, { passive: true });
-
-  if (!cameraGuard.postRenderBound) {
-    cameraGuard.postRenderBound = true;
-    viewer.scene.postRender.addEventListener(() => guardHistoryCamera(viewer));
-  }
-}
-
-function settleHistoryCamera(viewer) {
+function lockHistoryCamera(viewer) {
   viewer?.camera?.cancelFlight?.();
   if (viewer) viewer.trackedEntity = undefined;
 
   const controller = viewer?.scene?.screenSpaceCameraController;
   if (!controller) return;
 
-  controller.enableInputs = true;
-  [
-    "_lastInertiaSpinMovement",
-    "_lastInertiaTranslateMovement",
-    "_lastInertiaZoomMovement",
-    "_lastInertiaTiltMovement",
-  ].forEach((key) => {
-    if (controller[key]) controller[key].inertiaEnabled = false;
-    controller[key] = undefined;
-  });
-
-  resetCameraAggregator(controller);
+  controller.enableInputs = false;
+  controller.enableRotate = false;
+  controller.enableTranslate = false;
+  controller.enableZoom = false;
+  controller.enableTilt = false;
+  controller.enableLook = false;
+  controller.enableCollisionDetection = false;
+  controller.inertiaSpin = 1;
+  controller.inertiaTranslate = 1;
+  controller.inertiaZoom = 1;
+  controller.rotateEventTypes = [];
+  controller.translateEventTypes = [];
+  controller.zoomEventTypes = [];
+  controller.tiltEventTypes = [];
+  controller.lookEventTypes = [];
+  controller._aggregator?.reset?.();
 }
 
 function centerHistoryMapOnOperationZone(zona) {
@@ -642,73 +590,8 @@ function centerHistoryMapOnOperationZone(zona) {
       roll: 0,
     },
   });
-  settleHistoryCamera(viewer);
-  captureStableCameraView(viewer);
+  lockHistoryCamera(viewer);
   viewer.scene?.requestRender?.();
-}
-
-function guardHistoryCamera(viewer) {
-  if (!viewer || cameraGuard.restoring || !cameraGuard.stableView) return;
-  if (performance.now() < cameraGuard.inputActiveUntil) return;
-  if (!hasCameraDrifted(viewer)) return;
-
-  cameraGuard.restoring = true;
-  viewer.camera.cancelFlight?.();
-  viewer.trackedEntity = undefined;
-  viewer.camera.setView({
-    destination: Cesium.Cartesian3.clone(cameraGuard.stableView.destination),
-    orientation: {
-      heading: cameraGuard.stableView.heading,
-      pitch: cameraGuard.stableView.pitch,
-      roll: cameraGuard.stableView.roll,
-    },
-  });
-  settleHistoryCamera(viewer);
-  captureStableCameraView(viewer);
-  viewer.scene?.requestRender?.();
-  cameraGuard.restoring = false;
-}
-
-function captureStableCameraView(viewer) {
-  const camera = viewer?.camera;
-  if (!camera || !window.Cesium) return;
-
-  cameraGuard.stableView = {
-    destination: Cesium.Cartesian3.clone(camera.positionWC),
-    heading: camera.heading,
-    pitch: camera.pitch,
-    roll: camera.roll,
-  };
-}
-
-function hasCameraDrifted(viewer) {
-  const camera = viewer?.camera;
-  const stable = cameraGuard.stableView;
-  if (!camera || !stable || !window.Cesium) return false;
-
-  const height = Math.max(1, Math.abs(camera.positionCartographic?.height || 1));
-  const positionEpsilon = Math.max(0.75, height * CAMERA_DRIFT_EPSILON);
-  const positionDelta = Cesium.Cartesian3.distance(camera.positionWC, stable.destination);
-  if (positionDelta > positionEpsilon) return true;
-
-  return Math.abs(camera.heading - stable.heading) > CAMERA_DRIFT_EPSILON ||
-    Math.abs(camera.pitch - stable.pitch) > CAMERA_DRIFT_EPSILON ||
-    Math.abs(camera.roll - stable.roll) > CAMERA_DRIFT_EPSILON;
-}
-
-function resetCameraAggregator(controller) {
-  const aggregator = controller?._aggregator;
-  if (!aggregator) return;
-
-  aggregator.reset?.();
-  aggregator._buttonsDown = 0;
-
-  Object.keys(aggregator._isDown || {}).forEach((key) => {
-    aggregator._isDown[key] = false;
-  });
-  Object.values(aggregator._lastMovement || {}).forEach((movement) => {
-    if (movement) movement.valid = false;
-  });
 }
 
 function getZoneCameraTarget(zona) {

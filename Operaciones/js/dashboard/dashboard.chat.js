@@ -594,7 +594,13 @@ function appendMessage(msg) {
 
   if (shouldHideChatMessage(msg)) return;
   if (isEmergencyMessage(msg)) {
-    if (msg?.id_personal) pulseEmergencyAtPersonal(msg.id_personal, msg);
+    if (msg?.id_personal) {
+      try {
+        pulseEmergencyAtPersonal(msg.id_personal, msg);
+      } catch (err) {
+        console.warn("[CHAT] No se pudo mostrar pulso de emergencia:", err);
+      }
+    }
     renderEmergencyAlerts();
     return;
   }
