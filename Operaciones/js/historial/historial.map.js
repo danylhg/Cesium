@@ -207,22 +207,6 @@ function renderWindRose(zona, viewer, points) {
 
   const boxCenterLat = (minLat + maxLat) / 2;
   const boxCenterLng = (minLng + maxLng) / 2;
-  const lineColor = Cesium.Color.fromCssColorString("rgba(0,0,0,0.75)");
-
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([minLng, boxCenterLat, maxLng, boxCenterLat]),
-      width: 3, material: lineColor, clampToGround: true,
-    },
-  });
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([boxCenterLng, minLat, boxCenterLng, maxLat]),
-      width: 3, material: lineColor, clampToGround: true,
-    },
-  });
 
   const cardinals = [
     { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },

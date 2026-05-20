@@ -272,26 +272,6 @@ export function renderIntegratedWindRose(zona, points) {
   const centerLat = (minLat + maxLat) / 2;
   const centerLng = (minLng + maxLng) / 2;
   const zoneProps = { tacticalType: "operation-zone-part", id_zona: zona.id_zona };
-  const lineMaterial = Cesium.Color.fromCssColorString("rgba(0,0,0,0.72)");
-
-  [
-    [[centerLng, minLat], [centerLng, maxLat]],
-    [[minLng, centerLat], [maxLng, centerLat]]
-  ].forEach((line) => {
-    viewer.entities.add({
-      name: "Rosa de viento zona",
-      polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArray([
-          line[0][0], line[0][1],
-          line[1][0], line[1][1]
-        ]),
-        width: 3,
-        material: lineMaterial,
-        clampToGround: true
-      },
-      properties: zoneProps
-    });
-  });
 
   [
     { text: "N", lat: maxLat, lng: centerLng, offset: new Cesium.Cartesian2(0, -16) },

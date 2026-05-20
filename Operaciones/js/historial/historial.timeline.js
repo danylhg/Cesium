@@ -1,7 +1,7 @@
 import { dom } from "./historial.dom.js";
 import { replayState } from "./historial.state.js";
 import { renderPlaybackState, renderTimelineTime, updateChatToTime, updateEventLogToTime } from "./historial.ui.js";
-import { updateMapToTime } from "./historial.map.js?v=20260520-guard";
+import { updateMapToTime } from "./historial.map.js?v=20260520-windrose";
 
 const TICK_MS = 250;
 
