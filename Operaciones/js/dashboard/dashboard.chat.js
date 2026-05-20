@@ -2,8 +2,8 @@
 
 import { dom } from "./dashboard.dom.js";
 import { escapeHtml } from "./dashboard.storage.js";
-import { formatTime, openPanel } from "./dashboard.ui.js";
-import { pulseEmergencyAtPersonal } from "./dashboard.tracking.js";
+import { formatTime } from "./dashboard.ui.js";
+import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
@@ -13,9 +13,9 @@ let _activeTab = "global";
 let _channelType = "global";
 let _channelTarget = "";
 let _allMsgs   = [];             // todos los mensajes en memoria
-let _dismissedEmergencyMsgs = new Set();
 let _chatDirectory = {
   cets: [],
+  cells: [],
   flotillas: [],
   grupos: [],
   vehiculos: [],
@@ -141,15 +141,21 @@ function isVisibleInTab(msg) {
     return (destinoTipo === "CET" && destinoId === String(_channelTarget))
       || (destinoTipo === "CUT" && String(msg.id_personal || "") === String(_channelTarget));
   }
+  if (_channelType === "cell_specific") {
+    return destinoTipo === "CELL" && destinoId === String(_channelTarget);
+  }
   if (_channelType === "flotilla") {
     return flotillaMessageMatchesTarget(msg)
-      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget));
+      || destinoTipo === "CETS"
+      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget))
+      || (destinoTipo === "CET" && personBelongsToFlotilla(destinoId, _channelTarget));
   }
   if (_channelType === "grupo") {
     return destinoTipo === "GRUPO" && destinoId === String(_channelTarget);
   }
   if (_channelType === "vehiculo") {
-    return destinoTipo === "VEHICULO" && destinoId === String(_channelTarget);
+    return (destinoTipo === "VEHICULO" && destinoId === String(_channelTarget))
+      || (destinoTipo === "CELL_LIST" && sameValue(msg.destino_label, getTargetLabel()));
   }
   if (_activeTab === "global") return destinatario === "GLOBAL";
   return destinatario === "CET" || destinatario === "CUT";
@@ -160,8 +166,9 @@ function normalizeRole(person) {
 }
 
 function fullName(person) {
-  return [person?.nombre, person?.apellido].filter(Boolean).join(" ").trim() ||
-    person?.apodo ||
+  return person?.apodo ||
+    person?.apodo_personal ||
+    [person?.nombre, person?.apellido].filter(Boolean).join(" ").trim() ||
     `Personal ${person?.id_personal || ""}`.trim();
 }
 
@@ -233,6 +240,10 @@ function buildChatDirectory(mapaData = {}) {
     .filter((p) => normalizeRole(p) === "CET")
     .map((p) => ({ id: String(p.id_personal), label: fullName(p) }));
 
+  const cells = personal
+    .filter((p) => normalizeRole(p) === "CELL")
+    .map((p) => ({ id: String(p.id_personal), label: fullName(p) }));
+
   const flotillas = uniqueById(
     personal
       .map(getFlotillaForPerson)
@@ -252,15 +263,15 @@ function buildChatDirectory(mapaData = {}) {
   const vehiculos = uniqueById(
     vehiculosRaw.map((v) => {
       const id = v.id_vehiculo ?? v.id ?? v.codigo_interno ?? v.alias;
-      const name = [v.codigo_interno, v.alias].filter(Boolean).join(" - ") ||
-        v.alias ||
+      const name = v.alias ||
+        v.codigo_interno ||
         v.tipo ||
         `Vehiculo ${id}`;
       return id == null ? null : { id: String(id), label: name };
     }).filter(Boolean)
   );
 
-  _chatDirectory = { cets, flotillas, grupos, vehiculos, personalById };
+  _chatDirectory = { cets, cells, flotillas, grupos, vehiculos, personalById };
 }
 
 async function loadChatDirectory() {
@@ -283,14 +294,88 @@ async function loadChatDirectory() {
 
 function getTargetsForType(type = _channelType) {
   if (type === "cet_specific") return _chatDirectory.cets;
+  if (type === "cell_specific") return _chatDirectory.cells;
   if (type === "flotilla") return _chatDirectory.flotillas;
   if (type === "grupo") return _chatDirectory.grupos;
   if (type === "vehiculo") return _chatDirectory.vehiculos;
   return [];
 }
 
+function channelLabel(type = _channelType) {
+  const labels = {
+    global: "Todos",
+    cets: "Todos los CET",
+    cet_specific: "CET",
+    cell_specific: "CELL",
+    flotilla: "Flotilla",
+    grupo: "Grupo",
+    vehiculo: "Ocupantes de vehículo"
+  };
+  return labels[type] || "Todos";
+}
+
+function channelSubtitle(type = _channelType) {
+  const labels = {
+    global: "Operación completa",
+    cets: "Mandos CET",
+    cet_specific: "Personal específico",
+    cell_specific: "Personal específico",
+    flotilla: "CET e integrantes",
+    grupo: "Integrantes del grupo",
+    vehiculo: "Ocupantes detectados"
+  };
+  return labels[type] || "Operación completa";
+}
+
+function channelAvatar(type = _channelType) {
+  const labels = {
+    global: "T",
+    cets: "C",
+    cet_specific: "C",
+    cell_specific: "P",
+    flotilla: "F",
+    grupo: "G",
+    vehiculo: "V"
+  };
+  return labels[type] || "T";
+}
+
+function syncAudienceUi() {
+  document.querySelectorAll("[data-chat-channel]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.chatChannel === _channelType);
+  });
+
+  const targets = getTargetsForType();
+  const needsTarget = targets.length > 0;
+  if (dom.chatTargetBox) dom.chatTargetBox.classList.toggle("hidden", !needsTarget);
+  if (dom.chatTargetEmpty) dom.chatTargetEmpty.classList.toggle("hidden", needsTarget);
+
+  if (dom.chatTargetPicker) {
+    dom.chatTargetPicker.innerHTML = "";
+    targets.forEach((target) => {
+      const opt = document.createElement("option");
+      opt.value = target.id;
+      opt.textContent = target.label;
+      dom.chatTargetPicker.appendChild(opt);
+    });
+    if (_channelTarget) dom.chatTargetPicker.value = _channelTarget;
+  }
+
+  const targetLabel = getTargetLabel();
+  const title = targetLabel || channelLabel();
+  if (dom.chatAudienceSummary) dom.chatAudienceSummary.textContent = title;
+  if (dom.chatConversationTitle) dom.chatConversationTitle.textContent = title;
+  if (dom.chatConversationSubtitle) {
+    dom.chatConversationSubtitle.textContent = targetLabel ? channelLabel() : channelSubtitle();
+  }
+  if (dom.chatConversationAvatar) dom.chatConversationAvatar.textContent = channelAvatar();
+}
+
 function updateTargetSelect(preferredValue = "") {
-  if (!dom.chatChannelTarget) return;
+  if (!dom.chatChannelTarget) {
+    syncAudienceUi();
+    return;
+  }
 
   const targets = getTargetsForType();
   dom.chatChannelTarget.innerHTML = "";
@@ -298,6 +383,7 @@ function updateTargetSelect(preferredValue = "") {
   if (!targets.length) {
     dom.chatChannelTarget.style.display = "none";
     _channelTarget = "";
+    syncAudienceUi();
     return;
   }
 
@@ -314,6 +400,7 @@ function updateTargetSelect(preferredValue = "") {
     : targets[0].id;
   dom.chatChannelTarget.value = value;
   _channelTarget = value;
+  syncAudienceUi();
 }
 
 function setChannel(type, target = "") {
@@ -321,12 +408,14 @@ function setChannel(type, target = "") {
   _activeTab = _channelType === "global" ? "global" : "cet";
   if (dom.chatChannelType) dom.chatChannelType.value = _channelType;
   updateTargetSelect(target);
+  syncAudienceUi();
   renderMessages();
 }
 
 function getDestinatarioRol() {
   if (_channelType === "global") return "GLOBAL";
   if (_channelType === "cets" || _channelType === "cet_specific") return "CET";
+  if (_channelType === "cell_specific") return "CELL";
   if (_channelType === "flotilla" || _channelType === "grupo" || _channelType === "vehiculo") return "CELL,CET";
   return "GLOBAL";
 }
@@ -340,6 +429,7 @@ function getTargetLabel() {
 function getDestinoTipo() {
   if (_channelType === "cets") return "CETS";
   if (_channelType === "cet_specific") return "CET";
+  if (_channelType === "cell_specific") return "CELL";
   if (_channelType === "flotilla") return "FLOTILLA";
   if (_channelType === "grupo") return "GRUPO";
   if (_channelType === "vehiculo") return "VEHICULO";
@@ -351,6 +441,24 @@ function getDestinoPayload() {
   if (!destinoTipo) return {};
 
   const label = destinoTipo === "CETS" ? "Todos los CETs" : getTargetLabel();
+
+  if (destinoTipo === "VEHICULO") {
+    const occupantIds = getVehicleOccupants(`V:${_channelTarget}`)
+      .map((key) => String(key).replace(/^P:/, "").trim())
+      .filter(Boolean);
+
+    if (!occupantIds.length) {
+      alert("No hay personal detectado arriba de ese vehiculo.");
+      return null;
+    }
+
+    return {
+      destino_tipo: "CELL_LIST",
+      destino_id: occupantIds.join(","),
+      destino_label: label
+    };
+  }
+
   const id = destinoTipo === "CETS" ? "ALL" : _channelTarget;
 
   return {
@@ -360,56 +468,16 @@ function getDestinoPayload() {
   };
 }
 
-// ── Build a single chat bubble ──────────────────────────────
-function isEmergencyMessage(msg) {
-  const tipo = String(msg?.tipo_mensaje || "").toUpperCase();
-  const contenido = String(msg?.contenido || "").trim().toUpperCase();
-  return tipo === "URGENTE" || contenido.startsWith("EMERGENCIA:");
-}
-
-function emergencyMessageKey(msg) {
-  return String(msg?.id_mensaje ?? msg?.fecha_envio ?? msg?.contenido ?? "");
-}
-
-function buildEmergencyAlert(msg) {
-  const autor = escapeHtml(msg.autor_nombre || "Sistema");
-  const hora = escapeHtml(formatTime(msg.fecha_envio));
-  const texto = escapeHtml(msg.contenido || "");
-  const key = escapeHtml(emergencyMessageKey(msg));
-
-  return `
-    <div class="emergencyAlertItem" data-id="${escapeHtml(msg.id_mensaje ?? "")}">
-      <button class="emergencyAlertClose" type="button" data-alert-close="${key}" aria-label="Cerrar alerta">x</button>
-      <div class="emergencyAlertItemHeader">
-        <span class="emergencyAlertLabel">
-          <span class="emergencyAlertDot"></span>
-          <span>Alerta</span>
-        </span>
-      </div>
-      <div class="emergencyAlertMeta">
-        <span>${autor}</span>
-        <span>${hora}</span>
-      </div>
-      <div class="emergencyAlertText">${texto}</div>
-    </div>
-  `;
-}
-
-function renderEmergencyAlerts() {
-  if (!dom.emergencyAlertPanel || !dom.emergencyAlertList) return;
-
-  const alerts = _allMsgs.filter((msg) =>
-    isEmergencyMessage(msg) && !_dismissedEmergencyMsgs.has(emergencyMessageKey(msg))
-  );
-  dom.emergencyAlertPanel.classList.toggle("open", alerts.length > 0);
-  dom.emergencyAlertList.innerHTML = alerts.map(buildEmergencyAlert).join("");
-  dom.emergencyAlertList.scrollTop = dom.emergencyAlertList.scrollHeight;
-}
-
 function setAttachStatus(text = "") {
   if (!dom.chatAttachStatus) return;
   dom.chatAttachStatus.textContent = text;
   dom.chatAttachStatus.style.display = text ? "block" : "none";
+}
+
+function openChatPanels() {
+  dom.chatAudiencePanel?.classList.add("open");
+  dom.chatPanel?.classList.add("open");
+  dom.toggleChatPanel?.classList.add("active");
 }
 
 function attachmentToContent(payload) {
@@ -483,16 +551,6 @@ async function imageFileToDataUrl(file) {
   });
 }
 
-function insertEmoji() {
-  if (!dom.chatInput) return;
-  const emoji = "🙂";
-  const start = dom.chatInput.selectionStart ?? dom.chatInput.value.length;
-  const end = dom.chatInput.selectionEnd ?? dom.chatInput.value.length;
-  dom.chatInput.value = `${dom.chatInput.value.slice(0, start)}${emoji}${dom.chatInput.value.slice(end)}`;
-  dom.chatInput.focus();
-  dom.chatInput.selectionStart = dom.chatInput.selectionEnd = start + emoji.length;
-}
-
 function formatDestino(msg) {
   const tipo = String(msg.destino_tipo || "").toUpperCase();
   const label = String(msg.destino_label || "").trim();
@@ -506,6 +564,7 @@ function formatDestino(msg) {
   if (tipo === "FLOTILLA") return `para flotilla: ${label}`;
   if (tipo === "GRUPO") return `para grupo: ${label}`;
   if (tipo === "VEHICULO") return `para vehiculo: ${label}`;
+  if (tipo === "CELL_LIST") return `para ocupantes de vehiculo: ${label}`;
   return `para ${label}`;
 }
 
@@ -577,11 +636,10 @@ function buildAttachmentMarkup(msg) {
 function renderMessages() {
   if (!dom.chatMessages) return;
   dom.chatMessages.innerHTML = "";
-  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && !isEmergencyMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
+  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
     dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
   });
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
-  renderEmergencyAlerts();
 }
 
 // ── Agrega un mensaje (guard de duplicados) ─────────────────
@@ -593,17 +651,6 @@ function appendMessage(msg) {
   _allMsgs.push(msg);
 
   if (shouldHideChatMessage(msg)) return;
-  if (isEmergencyMessage(msg)) {
-    if (msg?.id_personal) {
-      try {
-        pulseEmergencyAtPersonal(msg.id_personal, msg);
-      } catch (err) {
-        console.warn("[CHAT] No se pudo mostrar pulso de emergencia:", err);
-      }
-    }
-    renderEmergencyAlerts();
-    return;
-  }
   if (!isVisibleInTab(msg)) return;
 
   const atBottom =
@@ -619,6 +666,12 @@ function appendMessage(msg) {
 async function loadMessages() {
   if (!_opId) return;
   try {
+    const destinoPayload = getDestinoPayload();
+    if (destinoPayload === null) {
+      if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+      return;
+    }
+
     const token = localStorage.getItem("token");
     const res   = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
       headers: { "Authorization": `Bearer ${token}` }
@@ -656,7 +709,7 @@ async function sendChatContent(content, { clearText = false, restoreText = "" } 
         contenido: text,
         tipo_mensaje: "NORMAL",
         destinatario_rol: getDestinatarioRol(),
-        ...getDestinoPayload()
+        ...destinoPayload
       })
     });
     if (!res.ok) {
@@ -767,27 +820,44 @@ export function initChat(opId, socket) {
 
 // ── Público: enlaza eventos de UI ───────────────────────────
 export function bindChatEvents() {
-  if (dom.emergencyAlertList) {
-    dom.emergencyAlertList.addEventListener("click", (event) => {
-      const closeBtn = event.target.closest("[data-alert-close]");
-      if (!closeBtn) return;
-      _dismissedEmergencyMsgs.add(String(closeBtn.dataset.alertClose || ""));
-      closeBtn.closest(".emergencyAlertItem")?.remove();
-      if (!dom.emergencyAlertList.querySelector(".emergencyAlertItem")) {
-        dom.emergencyAlertPanel?.classList.remove("open");
-      }
-    });
-  }
-
   if (dom.chatChannelType) {
     dom.chatChannelType.addEventListener("change", () => {
       setChannel(dom.chatChannelType.value || "global");
     });
   }
 
+  document.querySelectorAll("[data-chat-channel]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setChannel(btn.dataset.chatChannel || "global");
+    });
+  });
+
+  if (dom.chatAudienceToggle) {
+    dom.chatAudienceToggle.addEventListener("click", () => {
+      dom.chatAudienceBody?.classList.toggle("collapsed");
+      const collapsed = dom.chatAudienceBody?.classList.contains("collapsed");
+      dom.chatAudienceToggle.textContent = collapsed ? "⌄" : "⌃";
+      dom.chatAudienceToggle.setAttribute(
+        "aria-label",
+        collapsed ? "Expandir destinatarios" : "Minimizar destinatarios"
+      );
+    });
+  }
+
   if (dom.chatChannelTarget) {
     dom.chatChannelTarget.addEventListener("change", () => {
       _channelTarget = dom.chatChannelTarget.value || "";
+      if (dom.chatTargetPicker) dom.chatTargetPicker.value = _channelTarget;
+      syncAudienceUi();
+      renderMessages();
+    });
+  }
+
+  if (dom.chatTargetPicker) {
+    dom.chatTargetPicker.addEventListener("change", () => {
+      _channelTarget = dom.chatTargetPicker.value || "";
+      if (dom.chatChannelTarget) dom.chatChannelTarget.value = _channelTarget;
+      syncAudienceUi();
       renderMessages();
     });
   }
@@ -810,20 +880,25 @@ export function bindChatEvents() {
       setChannel("vehiculo", id);
     }
 
-    openPanel(dom.chatPanel, dom.toggleChatPanel);
+    openChatPanels();
+    dom.chatInput?.focus();
+  });
+
+  document.addEventListener("openVehicleChat", (event) => {
+    const detail = event.detail || {};
+    const vehicleName = detail.vehicleName || detail.entityName || "";
+    const vehicle = _chatDirectory.vehiculos.find((v) =>
+      sameValue(v.id, detail.id_vehiculo) ||
+      sameValue(v.label, vehicleName)
+    );
+
+    if (vehicle) setChannel("vehiculo", vehicle.id);
+    openChatPanels();
     dom.chatInput?.focus();
   });
 
   if (dom.sendChatBtn) {
     dom.sendChatBtn.addEventListener("click", sendMessage);
-  }
-
-  if (dom.chatImageBtn) {
-    dom.chatImageBtn.addEventListener("click", () => dom.chatImageInput?.click());
-  }
-
-  if (dom.chatEmojiBtn) {
-    dom.chatEmojiBtn.addEventListener("click", insertEmoji);
   }
 
   if (dom.chatCameraBtn) {
@@ -832,10 +907,6 @@ export function bindChatEvents() {
 
   if (dom.chatAudioBtn) {
     dom.chatAudioBtn.addEventListener("click", toggleAudioRecording);
-  }
-
-  if (dom.chatImageInput) {
-    dom.chatImageInput.addEventListener("change", () => sendImageFromInput(dom.chatImageInput));
   }
 
   if (dom.chatCameraInput) {

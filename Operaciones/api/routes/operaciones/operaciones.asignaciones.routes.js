@@ -806,5 +806,154 @@ router.post("/ops/:id/vehiculos", requireAuth, async (req, res) => {
 });
 
 
+// =========================================================
+// POST /ops/:id/dispositivos
+// Que hace:
+//   Reemplaza las asignaciones de dispositivos de una operacion.
+// Body esperado:
+//   { items: [{ id_dispositivo, id_personal }] }
+// Validaciones:
+//   - operacion existe y es modificable
+//   - el custodio debe pertenecer a la operacion
+//   - un dispositivo no puede estar activo en otra operacion abierta
+// =========================================================
+router.post("/ops/:id/dispositivos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  const { asignado_por, items } = req.body ?? {};
+  const who = Number(asignado_por || req.user.sub);
+
+  if (!Array.isArray(items)) {
+    return res.status(400).json({ ok: false, mensaje: "items invalido" });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const opStat = await client.query(
+      `SELECT estado FROM operacion WHERE id_operacion = $1`,
+      [id_operacion]
+    );
+
+    if (opStat.rows.length === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, mensaje: "Operacion no encontrada" });
+    }
+
+    if (opStat.rows[0].estado === "CANCELADA" || opStat.rows[0].estado === "CERRADA") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: `Operacion ${opStat.rows[0].estado}. No se puede modificar.`
+      });
+    }
+
+    const vistos = new Set();
+    const dispositivosUnicos = [];
+
+    for (const it of items) {
+      const id_dispositivo = Number(it.id_dispositivo);
+      const id_personal = Number(it.id_personal);
+
+      if (!isInt(id_dispositivo) || !isInt(id_personal)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: "Cada dispositivo necesita id_dispositivo e id_personal validos"
+        });
+      }
+
+      if (vistos.has(id_dispositivo)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: `El dispositivo ${id_dispositivo} esta repetido en la asignacion`
+        });
+      }
+
+      vistos.add(id_dispositivo);
+      dispositivosUnicos.push(id_dispositivo);
+    }
+
+    for (const id_dispositivo of dispositivosUnicos) {
+      const enOtraOp = await client.query(
+        `SELECT o.nombre
+         FROM operacion_dispositivo od
+         JOIN operacion o ON o.id_operacion = od.id_operacion
+         WHERE od.id_dispositivo = $1
+           AND od.id_operacion != $2
+           AND od.estado_asignacion = 'ASIGNADO'
+           AND od.fecha_devolucion IS NULL
+           AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+         LIMIT 1`,
+        [id_dispositivo, id_operacion]
+      );
+
+      if (enOtraOp.rowCount > 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: `El dispositivo ${id_dispositivo} ya esta activo en la operacion "${enOtraOp.rows[0].nombre}"`
+        });
+      }
+    }
+
+    await client.query(
+      `DELETE FROM operacion_dispositivo WHERE id_operacion = $1`,
+      [id_operacion]
+    );
+
+    for (const it of items) {
+      const id_dispositivo = Number(it.id_dispositivo);
+      const id_personal = Number(it.id_personal);
+
+      const personaAsignada = await client.query(
+        `SELECT 1
+         FROM asignacion_operacion_personal
+         WHERE id_operacion = $1
+           AND id_personal = $2
+           AND estado_asignacion NOT IN ('LIBERADO')`,
+        [id_operacion, id_personal]
+      );
+
+      if (personaAsignada.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: `El personal ${id_personal} no esta asignado a esta operacion`
+        });
+      }
+
+      await client.query(
+        `INSERT INTO operacion_dispositivo
+           (id_operacion, id_dispositivo, id_personal, estado_asignacion, asignado_por)
+         VALUES ($1, $2, $3, 'ASIGNADO', $4)
+         ON CONFLICT (id_operacion, id_dispositivo) DO UPDATE SET
+           id_personal = EXCLUDED.id_personal,
+           estado_asignacion = 'ASIGNADO',
+           fecha_devolucion = NULL,
+           asignado_por = EXCLUDED.asignado_por,
+           fecha_asignacion = NOW()`,
+        [id_operacion, id_dispositivo, id_personal, who]
+      );
+    }
+
+    await client.query("COMMIT");
+    return res.json({ ok: true });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[POST /dispositivos] PG error:", err.code, err.message, err.detail, err.hint);
+    return sendDbError(res, err, "Error guardando dispositivos");
+  } finally {
+    client.release();
+  }
+});
+
+
 // Exporta el router para montarlo en operaciones.routes.js o donde corresponda
 export default router;

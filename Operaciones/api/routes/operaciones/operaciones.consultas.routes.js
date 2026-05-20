@@ -654,6 +654,59 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
 });
 
 
+// =========================================================
+// GET /ops/:id/dispositivos-asignados
+// Que hace:
+//   Devuelve los dispositivos asignados a una operacion y su custodio.
+// Uso:
+//   hidratar el flujo de asignacion y mostrar responsables.
+// =========================================================
+router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         od.id_operacion,
+         od.id_dispositivo,
+         d.tipo,
+         d.marca,
+         d.modelo,
+         d.numero_telefono,
+         d.imei,
+         d.numero_serie,
+         d.sistema_operativo,
+         d.estado AS dispositivo_estado,
+         od.id_personal,
+         p.apodo AS personal_apodo,
+         p.nombre AS personal_nombre,
+         p.apellido AS personal_apellido,
+         p.puesto AS personal_puesto,
+         od.estado_asignacion,
+         od.fecha_asignacion,
+         od.fecha_devolucion,
+         od.estado_operacion_creacion
+       FROM operacion_dispositivo od
+       JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
+       JOIN personal p ON p.id_personal = od.id_personal
+       WHERE od.id_operacion = $1
+         AND od.estado_asignacion = 'ASIGNADO'
+         AND od.fecha_devolucion IS NULL
+       ORDER BY d.tipo, d.marca, d.modelo, d.numero_serie NULLS LAST`,
+      [id_operacion]
+    );
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo dispositivos");
+  }
+});
+
+
 // Exporta el router para montarlo en el módulo principal
 export default router;
 

@@ -20,6 +20,10 @@ import {
   createPersonal,
   updatePersonal,
   deletePersonal,
+  listDispositivos,
+  createDispositivo,
+  updateDispositivo,
+  deleteDispositivo,
 } from "../controllers/catalog.controller.js";
 
 // Crea instancia de router
@@ -74,6 +78,17 @@ router.put("/catalog/personal/:id", requireAuth, updatePersonal);
 //   La lógica real está delegada al controller deletePersonal.
 // =========================================================
 router.delete("/catalog/personal/:id", requireAuth, deletePersonal);
+
+
+// ===============================
+// DISPOSITIVOS
+// ===============================
+
+// Catálogo de teléfonos, tablets, smart watch, LoRa y otros dispositivos.
+router.get("/catalog/dispositivos", requireAuth, listDispositivos);
+router.post("/catalog/dispositivos", requireAuth, createDispositivo);
+router.put("/catalog/dispositivos/:id", requireAuth, updateDispositivo);
+router.delete("/catalog/dispositivos/:id", requireAuth, deleteDispositivo);
 
 
 // ===============================

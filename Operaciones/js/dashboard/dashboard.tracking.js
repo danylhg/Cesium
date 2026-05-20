@@ -15,9 +15,6 @@ const opId = () => localStorage.getItem("active_operation_id");
 // ── Iconos / colores ─────────────────────────────────────────
 const COLOR_PERSONAL = Cesium.Color.fromCssColorString("#00BFFF");
 const COLOR_VEHICULO = Cesium.Color.fromCssColorString("#FFD700");
-const EMERGENCY_PULSE_COLORS = ["#ff2d55", "#ffcc00", "#00e5ff"]
-  .map(color => Cesium.Color.fromCssColorString(color));
-const emergencyPulseEntities = new Map();
 
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
 
@@ -46,123 +43,6 @@ function getCoords(item) {
   const lng = item?.longitud ?? item?.lng ?? item?.lon;
   if (lat == null || lng == null) return null;
   return normalizeCoords(lat, lng);
-}
-
-function parseEmergencyCoords(content = "") {
-  const match = String(content).match(/UBICACI(?:ON|.N):\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
-  if (!match) return null;
-  return normalizeCoords(match[1], match[2]);
-}
-
-function coordsFromEntity(entity) {
-  if (!entity?.position) return null;
-  const viewer = dashboardState.viewer;
-  const position = entity.position.getValue
-    ? entity.position.getValue(viewer?.clock?.currentTime || Cesium.JulianDate.now())
-    : entity.position;
-  if (!position) return null;
-
-  const cartographic = Cesium.Cartographic.fromCartesian(position);
-  if (!cartographic) return null;
-  return normalizeCoords(
-    Cesium.Math.toDegrees(cartographic.latitude),
-    Cesium.Math.toDegrees(cartographic.longitude)
-  );
-}
-
-function resolveEmergencyPulseCoords(idPersonal, sourceData = {}) {
-  const id = String(idPersonal || "").trim();
-  const key = id ? `P:${id}` : "";
-  const sourceCoords = getCoords(sourceData) || parseEmergencyCoords(sourceData?.contenido);
-  if (sourceCoords) return sourceCoords;
-
-  const history = key ? dashboardState.trackingHistory?.get(key) : null;
-  const historyCoords = history ? normalizeCoords(history.lat, history.lng) : null;
-  if (historyCoords) return historyCoords;
-
-  const entity = key ? dashboardState.trackingEntities?.get(key) : null;
-  return coordsFromEntity(entity);
-}
-
-function removeEmergencyPulse(key) {
-  const group = emergencyPulseEntities.get(key);
-  if (!group) return;
-  if (group.timeoutId) window.clearTimeout(group.timeoutId);
-  group.entities.forEach(entity => {
-    if (entity) dashboardState.viewer?.entities.remove(entity);
-  });
-  emergencyPulseEntities.delete(key);
-}
-
-export function pulseEmergencyAtPersonal(idPersonal, sourceData = {}) {
-  const viewer = dashboardState.viewer;
-  const id = String(idPersonal || "").trim();
-  if (!viewer || !id) return false;
-
-  const coords = resolveEmergencyPulseCoords(id, sourceData);
-  if (!coords) return false;
-
-  const key = `P:${id}`;
-  removeEmergencyPulse(key);
-
-  const position = Cesium.Cartesian3.fromDegrees(coords.lng, coords.lat);
-  const startedAt = Date.now();
-  const durationMs = 4200;
-  const delayStepMs = 430;
-  const entities = [];
-
-  EMERGENCY_PULSE_COLORS.forEach((color, index) => {
-    const delayMs = index * delayStepMs;
-    entities.push(viewer.entities.add({
-      name: `Alerta urgente personal ${id}`,
-      position,
-      ellipse: {
-        semiMajorAxis: new Cesium.CallbackProperty(() => {
-          const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
-          return 28 + progress * 420;
-        }, false),
-        semiMinorAxis: new Cesium.CallbackProperty(() => {
-          const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
-          return 28 + progress * 420;
-        }, false),
-        material: new Cesium.ColorMaterialProperty(
-          new Cesium.CallbackProperty(() => {
-            const progress = Math.max(0, Math.min(1, (Date.now() - startedAt - delayMs) / durationMs));
-            const alpha = progress <= 0 ? 0 : Math.max(0, 0.58 * (1 - progress));
-            return color.withAlpha(alpha);
-          }, false)
-        ),
-        outline: true,
-        outlineColor: color.withAlpha(0.95),
-        outlineWidth: 4,
-        height: 0,
-        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
-      }
-    }));
-  });
-
-  entities.push(viewer.entities.add({
-    name: `Destello alerta personal ${id}`,
-    position,
-    point: {
-      pixelSize: new Cesium.CallbackProperty(() => {
-        const progress = ((Date.now() - startedAt) % 900) / 900;
-        return 16 + Math.sin(progress * Math.PI) * 14;
-      }, false),
-      color: new Cesium.CallbackProperty(() => {
-        const progress = Math.min(1, (Date.now() - startedAt) / durationMs);
-        return Cesium.Color.WHITE.withAlpha(Math.max(0, 0.95 * (1 - progress)));
-      }, false),
-      outlineColor: Cesium.Color.RED.withAlpha(0.95),
-      outlineWidth: 4,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY
-    }
-  }));
-
-  const timeoutId = window.setTimeout(() => removeEmergencyPulse(key), durationMs + (EMERGENCY_PULSE_COLORS.length * delayStepMs) + 350);
-  emergencyPulseEntities.set(key, { entities, timeoutId });
-  return true;
 }
 
 function upsertPersonalTracking(item) {

@@ -435,52 +435,87 @@
 
   </aside>
 
-  <aside id="chatPanel" class="glassPanel chatPanel">
-    <h2 class="panelTitle">Chat</h2>
+  <aside id="chatAudiencePanel" class="glassPanel chatAudiencePanel">
+    <h2 class="panelTitle">Chats</h2>
+    <div class="chatChannelGroup">
+      <div class="chatAudienceHeader">
+        <div>
+          <span class="chatAudienceEyebrow">Chat activo</span>
+          <div id="chatAudienceSummary" class="chatAudienceSummary">Todos</div>
+        </div>
+        <button id="chatAudienceToggle" class="chatAudienceToggle" type="button" aria-label="Minimizar lista">⌃</button>
+      </div>
 
-    <div class="chatChannelGroup" style="padding: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
-      <select id="chatChannelType" class="opsInput" style="margin-bottom: 5px;">
+      <div id="chatAudienceBody" class="chatAudienceBody">
+        <div class="chatAudiencePane">
+          <div class="chatAudienceCard">
+            <div class="chatAudienceTitle">Grupales</div>
+            <div class="chatAudienceChips">
+              <button class="chatAudienceChip" type="button" data-chat-channel="global" data-chat-avatar="T"><span>Todos</span><small>Operación completa</small></button>
+              <button class="chatAudienceChip" type="button" data-chat-channel="vehiculo" data-chat-avatar="V"><span>Vehículo</span><small>Ocupantes detectados</small></button>
+              <button class="chatAudienceChip" type="button" data-chat-channel="flotilla" data-chat-avatar="F"><span>Flotilla</span><small>CET e integrantes</small></button>
+              <button class="chatAudienceChip" type="button" data-chat-channel="grupo" data-chat-avatar="G"><span>Grupo</span><small>Integrantes del grupo</small></button>
+              <button class="chatAudienceChip" type="button" data-chat-channel="cets" data-chat-avatar="C"><span>Todos los CET</span><small>Mandos CET</small></button>
+            </div>
+          </div>
+
+          <div class="chatAudienceCard">
+            <div class="chatAudienceTitle">Personal específico</div>
+            <div class="chatAudienceChips">
+              <button class="chatAudienceChip" type="button" data-chat-channel="cet_specific" data-chat-avatar="C"><span>CET</span><small>Un mando</small></button>
+              <button class="chatAudienceChip" type="button" data-chat-channel="cell_specific" data-chat-avatar="P"><span>CELL</span><small>Una persona</small></button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <select id="chatChannelType" class="opsInput legacyChatSelect" aria-hidden="true" tabindex="-1">
         <option value="global">Global (Todos)</option>
         <option value="cets">Todos los CETs</option>
         <option value="cet_specific">CET Específico</option>
+        <option value="cell_specific">CELL Específico</option>
         <option value="flotilla">Flotilla (+ CET)</option>
         <option value="grupo">Grupo (+ CET)</option>
         <option value="vehiculo">Vehículo</option>
       </select>
-      <select id="chatChannelTarget" class="opsInput" style="display: none;">
+      <select id="chatChannelTarget" class="opsInput legacyChatSelect" aria-hidden="true" tabindex="-1">
         <!-- Filled dynamically -->
       </select>
     </div>
+  </aside>
+
+  <aside id="chatPanel" class="glassPanel chatPanel">
+    <div class="chatConversationHeader">
+      <div class="chatConversationAvatar" id="chatConversationAvatar">T</div>
+      <div>
+        <h2 id="chatConversationTitle" class="chatConversationTitle">Todos</h2>
+        <div id="chatConversationSubtitle" class="chatConversationSubtitle">Operación completa</div>
+      </div>
+    </div>
+
+    <div id="chatTargetBox" class="chatTargetBox hidden">
+      <label class="chatAudienceTitle" for="chatTargetPicker">Seleccionar chat</label>
+      <select id="chatTargetPicker" class="opsInput"></select>
+    </div>
+    <div id="chatTargetEmpty" class="chatTargetEmpty">El mensaje se enviará a este chat.</div>
 
     <div id="chatMessages" class="chatMessages"></div>
 
     <div class="chatComposer">
       <div class="chatInputBar">
-        <button id="chatImageBtn" class="chatIconBtn" type="button" title="Adjuntar imagen" aria-label="Adjuntar imagen">+</button>
-        <button id="chatEmojiBtn" class="chatIconBtn" type="button" title="Emoji" aria-label="Emoji">☺</button>
         <button id="chatCameraBtn" class="chatIconBtn" type="button" title="Tomar foto" aria-label="Tomar foto">📷</button>
         <textarea id="chatInput" placeholder="Escribe un mensaje"></textarea>
         <button id="sendChatBtn" class="chatIconBtn sendChatBtn" type="button" title="Enviar" aria-label="Enviar">➤</button>
         <button id="chatAudioBtn" class="chatIconBtn voiceBtn" type="button" title="Grabar audio" aria-label="Grabar audio">🎙</button>
       </div>
       <div id="chatAttachStatus" class="voiceStatus" style="display:none;"></div>
-      <input id="chatImageInput" type="file" accept="image/*" hidden>
       <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
     </div>
   </aside>
 
-  <aside id="emergencyAlertPanel" class="emergencyAlertPanel" aria-live="polite" aria-label="Alertas de emergencia">
-    <div id="emergencyAlertList" class="emergencyAlertList"></div>
-  </aside>
-
   <aside id="cameraPanel" class="glassPanel cameraPanel">
     <div class="panelHeader"
-      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: space-between; gap: 8px; padding: 5px;">
-      <div class="obsControls">
-        <input id="obsStreamKey" type="text" value="obs-01" aria-label="Clave OBS" />
-        <button id="registerObsStreamBtn" type="button" title="Registrar OBS en esta operacion">Ver OBS</button>
-        <span id="obsStreamStatus" aria-live="polite"></span>
-      </div>
+      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: flex-end; gap: 8px; padding: 5px;">
       <div class="cameraControls">
         <button id="cameraBackToGrid" class="layoutBtn cameraBackBtn" title="Regresar a camaras"
           style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 7px;">Camaras</button>
@@ -493,6 +528,15 @@
 
     <div id="cameraFeeds" class="cameraFeeds grid-layout">
       <!-- Camera feeds will be inserted here -->
+    </div>
+
+    <div class="cameraBottomControls">
+      <button id="cameraDronesBtn" class="cameraSourceBtn" type="button" title="Mostrar drones">Drones</button>
+      <div class="obsControls cameraObsControls">
+        <input id="obsStreamKey" type="text" value="obs-01" aria-label="Clave OBS" />
+        <button id="registerObsStreamBtn" class="cameraSourceBtn" type="button" title="Registrar OBS en esta operacion">OBS</button>
+        <span id="obsStreamStatus" aria-live="polite"></span>
+      </div>
     </div>
   </aside>
 

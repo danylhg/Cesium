@@ -19,7 +19,6 @@ function apiFetch(path, options = {}) {
 // DOM
 const btnCreate = document.getElementById("btnCreate");
 const btnSelect = document.getElementById("btnSelect");
-const btnEmergency = document.getElementById("btnEmergency");
 const btnPersonal = document.getElementById("btnPersonal");
 const btnLogout = document.getElementById("btnLogout");
 const userName = document.getElementById("userName");
@@ -66,15 +65,6 @@ btnCreate.addEventListener("click", () => {
   localStorage.removeItem("active_operation_id");
   localStorage.removeItem("operacion_actual");
   localStorage.removeItem("asignacion_actual");
-  sessionStorage.setItem("asignacion_entry", "create");
-  window.location.href = "asignacion.html";
-});
-
-btnEmergency.addEventListener("click", () => {
-  localStorage.removeItem("active_operation_id");
-  localStorage.removeItem("operacion_actual");
-  localStorage.removeItem("asignacion_actual");
-  localStorage.setItem("operation_mode", "emergency");
   sessionStorage.setItem("asignacion_entry", "create");
   window.location.href = "asignacion.html";
 });

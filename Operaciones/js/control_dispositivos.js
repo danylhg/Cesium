@@ -57,7 +57,7 @@
     return data;
   }
 
-  const TIPOS = ["TELEFONO", "TABLET", "LAPTOP", "RADIO", "GPS", "OTRO"];
+  const TIPOS = ["TELEFONO", "TABLET", "SMARTWATCH", "LORA", "LAPTOP", "RADIO", "GPS", "OTRO"];
   const ESTADOS = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
 
   function normalize(value) {

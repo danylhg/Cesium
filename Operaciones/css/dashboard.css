@@ -281,142 +281,27 @@ body {
 
 .chatPanel {
   width: 420px;
+  left: 390px;
+  background: rgba(20, 33, 39, 0.88);
+  border-color: rgba(0, 255, 170, 0.22);
 }
 
-.emergencyAlertPanel {
-  position: fixed;
-  top: 108px;
-  right: 14px;
-  z-index: 1220;
-  width: min(320px, calc(100vw - 28px));
-  max-height: calc(100vh - 132px);
-  display: none;
-  pointer-events: auto;
-  color: #fff5f5;
+.chatAudiencePanel {
+  width: 300px;
+  background: rgba(20, 33, 39, 0.90);
+  border-color: rgba(0, 255, 170, 0.22);
 }
 
-.emergencyAlertPanel.open {
-  display: block;
+.chatAudiencePanel .panelTitle {
+  margin-bottom: 10px;
 }
 
-.emergencyAlertList {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
-  max-height: calc(100vh - 132px);
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 4px 4px 8px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(254, 202, 202, 0.62) rgba(127, 29, 29, 0.28);
-}
-
-.emergencyAlertList::-webkit-scrollbar {
-  width: 7px;
-}
-
-.emergencyAlertList::-webkit-scrollbar-track {
-  background: rgba(127, 29, 29, 0.28);
-  border-radius: 999px;
-}
-
-.emergencyAlertList::-webkit-scrollbar-thumb {
-  background: rgba(254, 202, 202, 0.62);
-  border-radius: 999px;
-}
-
-.emergencyAlertItem {
-  flex: 0 0 auto;
-  pointer-events: auto;
-  position: relative;
-  overflow: hidden;
-  border-radius: 12px;
-  background: rgba(127, 29, 29, 0.92);
-  border: 1px solid rgba(255, 180, 180, 0.38);
-  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.34), 0 0 14px rgba(239, 68, 68, 0.16);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  animation: emergencyAlertIn .24s ease-out;
-}
-
-.emergencyAlertItemHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 7px 38px 7px 10px;
-  background: linear-gradient(135deg, rgba(220, 38, 38, 0.98), rgba(127, 29, 29, 0.98));
-  color: #fff7f7;
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: .7px;
-  text-transform: uppercase;
-}
-
-.emergencyAlertLabel {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-
-.emergencyAlertDot {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: #fecaca;
-  box-shadow: 0 0 14px rgba(254, 202, 202, 0.95);
-}
-
-.emergencyAlertMeta {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 36px 0 10px;
-  color: #fecaca;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.emergencyAlertText {
-  color: #fffafa;
-  font-size: 12px;
-  line-height: 1.32;
-  white-space: pre-wrap;
-  word-break: break-word;
-  padding: 6px 36px 10px 10px;
-}
-
-.emergencyAlertClose {
-  position: absolute;
-  top: 5px;
-  right: 7px;
-  width: 24px;
-  height: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.24);
-  color: #ffe4e6;
-  cursor: pointer;
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 900;
-}
-
-.emergencyAlertClose:hover {
-  background: rgba(255, 255, 255, 0.12);
-}
-
-@keyframes emergencyAlertIn {
-  from {
-    opacity: 0;
-    transform: translateX(18px);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0);
-  }
+.chatPanel .opsInput,
+.chatPanel select,
+.chatAudiencePanel .opsInput,
+.chatAudiencePanel select {
+  background: rgba(24, 43, 47, 0.70);
+  border-color: rgba(0, 255, 170, 0.28);
 }
 
 .glassPanel::-webkit-scrollbar {
@@ -699,6 +584,218 @@ body {
   background: rgba(0, 255, 170, 0.22);
 }
 
+.chatChannelGroup {
+  padding: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.legacyChatSelect {
+  display: none !important;
+}
+
+.chatAudienceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chatAudienceEyebrow {
+  display: block;
+  margin-bottom: 2px;
+  color: #9fb3bf;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chatAudienceSummary {
+  color: #00ffa6;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.chatAudienceToggle {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(0, 255, 170, 0.25);
+  border-radius: 8px;
+  background: rgba(0, 255, 170, 0.08);
+  color: #00ffa6;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.chatAudienceBody {
+  display: grid;
+  gap: 10px;
+}
+
+.chatAudienceBody.collapsed {
+  display: none;
+}
+
+.chatAudienceCard {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.chatAudiencePane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.chatAudienceTitle {
+  display: block;
+  margin: 10px 6px 6px;
+  color: #9fb3bf;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.chatAudienceChips {
+  display: grid;
+  gap: 2px;
+}
+
+.chatAudienceChip {
+  position: relative;
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: center;
+  min-height: 56px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #eafff8;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chatAudienceChip::before {
+  content: attr(data-chat-avatar);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: rgba(0, 255, 170, 0.16);
+  color: #00ffa6;
+  font-size: 13px;
+  font-weight: 900;
+  grid-row: 1 / span 2;
+}
+
+.chatAudienceChip span,
+.chatAudienceChip small {
+  grid-column: 2;
+}
+
+.chatAudienceChip span {
+  line-height: 1.15;
+  font-weight: 900;
+}
+
+.chatAudienceChip small {
+  color: #9fb3bf;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.chatAudienceChip:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.chatAudienceChip.active {
+  background: rgba(0, 255, 170, 0.12);
+  color: #00ffa6;
+}
+
+.chatAudienceChip.active::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #00ffa6;
+}
+
+.chatConversationHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -12px -2px 10px;
+  padding: 10px 6px 12px;
+  border-bottom: 1px solid rgba(0, 255, 170, 0.14);
+}
+
+.chatConversationAvatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 255, 170, 0.16);
+  color: #00ffa6;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.chatConversationTitle {
+  margin: 0;
+  color: #eafff8;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.chatConversationSubtitle {
+  margin-top: 2px;
+  color: #9fb3bf;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.chatTargetBox {
+  min-height: 100%;
+  padding: 10px;
+  border-left: 3px solid #00ffa6;
+  border-radius: 8px;
+  background: rgba(0, 255, 170, 0.08);
+  margin-bottom: 10px;
+}
+
+.chatTargetBox.hidden {
+  display: none;
+}
+
+.chatTargetEmpty {
+  min-height: 100%;
+  padding: 12px 10px;
+  border: 1px dashed rgba(0, 255, 170, 0.24);
+  border-radius: 8px;
+  color: #9fb3bf;
+  background: rgba(5, 16, 24, 0.46);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 10px;
+}
+
+.chatTargetEmpty.hidden {
+  display: none;
+}
+
 .chatMessages {
   display: flex;
   flex-direction: column;
@@ -708,27 +805,27 @@ body {
   overflow: auto;
   padding: 10px;
   border-radius: 14px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(0, 255, 170, 0.12);
+  background: rgba(24, 43, 47, 0.52);
+  border: 1px solid rgba(0, 255, 170, 0.20);
   margin-bottom: 14px;
 }
 
 .chatBubble {
   padding: 12px;
   border-radius: 14px;
-  background: rgba(0, 255, 170, 0.10);
-  border: 1px solid rgba(0, 255, 170, 0.14);
+  background: rgba(28, 55, 58, 0.76);
+  border: 1px solid rgba(0, 255, 170, 0.18);
 }
 
 /* ── Colores por rol del autor ─────────────────────── */
 .chatBubble.rol-admin {
-  background: rgba(0, 60, 20, 0.75);
+  background: rgba(20, 79, 50, 0.75);
   border-color: rgba(0, 180, 70, 0.45);
 }
 .chatBubble.rol-admin .chatBubbleHeader { color: #4ade80; }
 
 .chatBubble.rol-cut {
-  background: rgba(0, 100, 40, 0.50);
+  background: rgba(16, 96, 57, 0.58);
   border-color: rgba(0, 220, 100, 0.30);
 }
 .chatBubble.rol-cut .chatBubbleHeader { color: #86efac; }
@@ -740,8 +837,8 @@ body {
 .chatBubble.rol-cet .chatBubbleHeader { color: #9fd9cb; }
 
 .chatBubble.rol-cell {
-  background: transparent;
-  border-color: rgba(0, 255, 170, 0.07);
+  background: rgba(35, 49, 55, 0.58);
+  border-color: rgba(0, 255, 170, 0.12);
 }
 .chatBubble.rol-cell .chatBubbleHeader { color: #6b9e92; }
 
@@ -850,8 +947,8 @@ body {
 .voiceStatus {
   font-size: 13px;
   color: #a9d7c8;
-  background: rgba(255, 255, 255, 0.04);
-  padding: 10px 12px;
+  background: rgba(37, 65, 70, 0.65);
+  padding: 8px 10px;
   border-radius: 12px;
 }
 
@@ -1038,21 +1135,10 @@ body {
   }
 
   .tacticalWide,
-  .chatPanel {
+  .chatPanel,
+  .chatAudiencePanel {
     width: calc(100vw - 84px);
-  }
-
-  .emergencyAlertPanel {
-    top: auto;
-    right: 12px;
-    bottom: 12px;
-    width: min(320px, calc(100vw - 24px));
-    max-height: 45vh;
-  }
-
-  .emergencyAlertList {
-    max-height: 45vh;
-    overflow-y: auto;
+    left: 74px;
   }
 
   .btnGrid,
@@ -1233,10 +1319,15 @@ body {
   resize: both;
   display: none;
   flex-direction: column;
+  cursor: grab;
 }
 
 .cameraPanel.open {
   display: flex !important;
+}
+
+.cameraPanel.is-dragging {
+  cursor: grabbing;
 }
 
 .cameraFeeds {
@@ -1273,6 +1364,7 @@ body {
   border: none;
   width: 100%;
   height: 100%;
+  cursor: default;
 }
 
 .cameraFeed video,
@@ -1806,41 +1898,6 @@ body {
   color: #001b1b;
 }
 
-.cameraFeedOverlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 255, 166, 0.05);
-  opacity: 0;
-  transition: opacity 0.2s;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cameraFeed:hover .cameraFeedOverlay {
-  opacity: 1;
-}
-
-.cameraFeedAction {
-  background: rgba(0, 0, 0, 0.6);
-  border: none;
-  color: #00ffa6;
-  min-width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.cameraFeedAction:hover {
-  background: #00ffa6;
-  color: #001b1b;
-  transform: scale(1.1);
-}
-
 .cameraPlayback {
   position: absolute;
   left: 12px;
@@ -2007,6 +2064,352 @@ body {
 .cameraPlaybackStatus[data-status="sin-senal"] {
   background: rgba(148, 163, 184, 0.18);
   color: #e2e8f0;
+}
+
+/* Visual de camaras tomado de origin/frontend, conservando controles existentes */
+.cameraPanel {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 800px;
+  max-width: 90vw;
+  max-height: 80vh;
+  z-index: 1300;
+  padding: 0;
+  border-radius: 16px;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  overflow: auto;
+  resize: both;
+  display: none;
+  flex-direction: column;
+}
+
+.cameraPanel.open {
+  display: flex !important;
+}
+
+.cameraFeeds {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.cameraFeeds.grid-layout {
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-auto-rows: 1fr;
+}
+
+.cameraFeeds.speaker-layout {
+  grid-template-columns: 1fr;
+}
+
+.cameraFeeds.speaker-layout .cameraFeed {
+  display: block;
+}
+
+.cameraFeed {
+  position: relative;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  border: none;
+  width: 100%;
+  height: 100%;
+}
+
+.cameraFeed video,
+.cameraFeed img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cameraFeedName,
+.cameraFeedLabel {
+  position: absolute;
+  bottom: 40px !important;
+  left: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(10, 15, 25, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: 1px solid rgba(0, 255, 170, 0.3);
+  padding: 4px 10px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 2;
+}
+
+.cameraPlayback.camScrubberWrap,
+.camScrubberWrap {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, 0) 0%, rgba(6, 8, 12, 0.58) 38%, rgba(0, 0, 0, 0.92) 100%),
+    linear-gradient(90deg, rgba(255, 0, 0, 0.18), rgba(255, 0, 0, 0.04) 48%, rgba(255, 0, 0, 0.18));
+  padding: 14px 10px 6px;
+  z-index: 5;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  opacity: 1;
+}
+
+.cameraPlayback.camScrubberWrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-areas:
+    "back range forward live"
+    "time time time time";
+  gap: 4px;
+  align-items: center;
+}
+
+.camProgressTrack {
+  grid-area: range;
+  position: relative;
+  width: 100%;
+  height: 4px;
+  min-width: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0.26), rgba(255,255,255,0.12));
+  border-radius: 2px;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 12px rgba(0,0,0,0.45);
+  transition: height 0.15s ease, box-shadow 0.15s ease;
+}
+
+.camScrubberWrap:hover .camProgressTrack,
+.cameraPlayback:hover .camProgressTrack {
+  height: 6px;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.07), 0 0 16px rgba(255,0,0,0.25);
+}
+
+.camProgressFill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #ff1f1f 0%, #ff0000 64%, #ff6b6b 100%);
+  border-radius: 2px;
+  transition: width 0.05s linear;
+  pointer-events: none;
+  box-shadow: 0 0 10px rgba(255,0,0,0.65);
+}
+
+.camScrubHandle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background: radial-gradient(circle at 35% 35%, #ffb3b3 0%, #ff1f1f 38%, #b80000 100%);
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  transition: transform 0.15s ease, left 0.05s linear;
+  box-shadow: 0 0 0 3px rgba(255,0,0,0.14), 0 0 14px rgba(255,0,0,0.72);
+  pointer-events: none;
+}
+
+.camScrubberWrap:hover .camScrubHandle,
+.cameraPlayback:hover .camScrubHandle {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.camTimeRow {
+  grid-area: time;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-width: 0;
+  margin-top: 4px;
+}
+
+.camElapsed,
+.cameraPlaybackTime {
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.7);
+  font-family: 'Courier New', monospace;
+  letter-spacing: 0.5px;
+}
+
+.camLiveBadge,
+.cameraPlaybackStatus {
+  min-width: 0;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  color: #ff0000;
+  cursor: pointer;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(255,0,0,0.15);
+  letter-spacing: 0.5px;
+  transition: all 0.2s ease;
+}
+
+.camLiveBadge.camLive,
+.cameraPlaybackStatus.camLive {
+  color: #ff0000;
+  background: rgba(255,0,0,0.15);
+}
+
+.camLiveBadge.camBehind,
+.cameraPlaybackStatus.camBehind {
+  color: rgba(255,255,255,0.6);
+  background: rgba(255,255,255,0.08);
+}
+
+.camLiveBadge:hover,
+.cameraPlaybackStatus:hover {
+  background: rgba(255,0,0,0.3);
+  color: #ff4444;
+}
+
+.cameraPlaybackBtn,
+.cameraLiveBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 20px;
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 4px;
+  background: rgba(0,0,0,0.42);
+  color: rgba(255,255,255,0.78);
+  font-size: 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.cameraPlaybackBtn:hover,
+.cameraLiveBtn:hover,
+.cameraLiveBtn.active {
+  background: rgba(255,0,0,0.3);
+  border-color: rgba(255,0,0,0.45);
+  color: #fff;
+}
+
+.cameraBottomControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -2px 8px 0;
+  padding: 7px 8px;
+  border-radius: 0 0 10px 10px;
+  background: linear-gradient(180deg, rgba(5, 8, 12, 0.82), rgba(0, 0, 0, 0.70));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-top: 0;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.32);
+}
+
+.cameraSourceBtn,
+.cameraBottomControls .obsControls button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 78px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.56);
+  color: #eafff8;
+  padding: 0 12px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+}
+
+.cameraSourceBtn:hover,
+.cameraSourceBtn.active,
+.cameraBottomControls .obsControls button:hover {
+  background: rgba(255, 0, 0, 0.26);
+  border-color: rgba(255, 0, 0, 0.45);
+  color: #fff;
+}
+
+.cameraBottomControls .obsControls {
+  position: static;
+  inset: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  opacity: 1;
+  pointer-events: auto;
+  margin-left: auto;
+}
+
+.cameraBottomControls .obsControls input {
+  width: 92px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.48);
+  color: #eafff8;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.cameraBottomControls .obsControls span {
+  min-width: 92px;
+  color: #bfdbfe;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.cameraPanel .panelHeader {
+  justify-content: flex-end !important;
+}
+
+.obsControls {
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.panelHeader:hover .obsControls,
+.obsControls:focus-within {
+  opacity: 0.42;
+  pointer-events: auto;
+}
+
+.cameraBackBtn {
+  display: none;
+}
+
+.cameraPanel.is-focused .cameraBackBtn {
+  display: inline-flex;
+}
+
+.cameraBottomControls .obsControls,
+.cameraBottomControls .obsControls:focus-within {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .chatAttachment {

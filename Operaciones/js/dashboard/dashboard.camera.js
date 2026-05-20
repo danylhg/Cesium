@@ -18,6 +18,7 @@ let streamSocket = null;
 let cameraEventsBound = false;
 let cameraSocketBound = false;
 let cameraDragBound = false;
+let cameraSourceFilter = "all";
 let iceServers = null;
 const peerConnections = new Map();
 const joinedStreams = new Set();
@@ -1646,9 +1647,10 @@ function renderFeeds() {
   if (!dom.cameraFeeds) return;
   destroyHlsPlayersIn(dom.cameraFeeds);
   dom.cameraFeeds.innerHTML = "";
-  getRenderableCameraData().forEach((camera) => {
+  getRenderableCameraDataForCurrentFilter().forEach((camera) => {
     dom.cameraFeeds.appendChild(createFeedElement(camera));
   });
+  syncCameraSourceButtons();
   ensureFocusedCameraInSpeakerLayout();
   attachPlayableUrlFeeds(dom.cameraFeeds);
   attachKnownMediaStreams();
@@ -1742,6 +1744,55 @@ function getRenderableCameraData() {
   return cameraData;
 }
 
+function isDroneCamera(camera = {}) {
+  const sourceText = normalizeCameraNameForKey([
+    camera.sourceType,
+    camera.kind,
+    camera.name,
+    camera.label,
+    camera.externalDeviceId
+  ].filter(Boolean).join(" "));
+  return sourceText.includes("drone") || sourceText.includes("dron") || sourceText.includes("uav");
+}
+
+function getRenderableCameraDataForCurrentFilter() {
+  const cameras = getRenderableCameraData();
+  if (cameraSourceFilter === "drones") {
+    const drones = cameras.filter(isDroneCamera);
+    if (!drones.length) {
+      cameraSourceFilter = "all";
+      setObsStatus("Sin drones activos", "error");
+      return cameras;
+    }
+    return drones;
+  }
+  return cameras;
+}
+
+function syncCameraSourceButtons() {
+  dom.cameraDronesBtn?.classList.toggle("active", cameraSourceFilter === "drones");
+}
+
+function toggleDroneCameraFilter() {
+  if (cameraSourceFilter === "drones") {
+    cameraSourceFilter = "all";
+    setObsStatus("");
+    renderFeeds();
+    return;
+  }
+
+  const hasDrones = getRenderableCameraData().some(isDroneCamera);
+  if (!hasDrones) {
+    setObsStatus("Sin drones activos", "error");
+    syncCameraSourceButtons();
+    return;
+  }
+
+  cameraSourceFilter = "drones";
+  setObsStatus("Mostrando drones", "ok");
+  renderFeeds();
+}
+
 function createFeedElement(camera) {
   const feed = document.createElement("div");
   const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
@@ -1768,15 +1819,8 @@ function createFeedElement(camera) {
     ${urlHint}
     ${playback}
     <div class="cameraFeedName">${escapeHtml(camera.name)}</div>
-    <div class="cameraFeedOverlay">
-      <button class="cameraFeedAction" type="button" title="Maximizar">+</button>
-    </div>
   `;
 
-  feed.querySelector(".cameraFeedAction")?.addEventListener("click", (event) => {
-    event.stopPropagation();
-    toggleFocus(feed);
-  });
   feed.querySelector(".cameraReturnBtn")?.addEventListener("click", (event) => {
     event.stopPropagation();
     returnToCameraGrid();
@@ -2217,7 +2261,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   let lastTapSide = "";
 
   feed.addEventListener("pointerup", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraReturnBtn, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraPlayback, .cameraReturnBtn, .cameraAudioBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const now = Date.now();
     const isDoubleTap = side !== "center" && lastTapSide === side && now - lastTapAt <= DOUBLE_TAP_MS;
@@ -2232,7 +2276,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   });
 
   feed.addEventListener("dblclick", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraFeedAction, .cameraReturnBtn, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraPlayback, .cameraReturnBtn, .cameraAudioBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const playbackKey = feed.dataset.playbackKey;
     if (side !== "center" && playbackKey) {
@@ -3208,6 +3252,10 @@ function bindCameraEvents() {
     };
   }
 
+  if (dom.cameraDronesBtn) {
+    dom.cameraDronesBtn.addEventListener("click", toggleDroneCameraFilter);
+  }
+
   if (dom.registerObsStreamBtn) {
     dom.registerObsStreamBtn.addEventListener("click", registerObsStreamFromPanel);
   }
@@ -3227,31 +3275,40 @@ function bindCameraEvents() {
 
 function makePanelDraggable() {
   const panel = dom.cameraPanel;
-  const header = panel?.querySelector(".panelHeader");
-  if (!panel || !header || cameraDragBound) return;
+  if (!panel || cameraDragBound) return;
   cameraDragBound = true;
 
   let previousX = 0;
   let previousY = 0;
 
-  header.onmousedown = (event) => {
-    if (event.target.closest(".cameraControls") || event.target.closest(".obsControls") || event.target.closest(".layoutBtn")) return;
+  panel.addEventListener("mousedown", startDragging);
+
+  function startDragging(event) {
+    if (event.button !== 0) return;
+    if (event.target.closest("button, input, select, textarea, a")) return;
+    if (event.target.closest(".cameraPlayback, .camScrubberWrap, .cameraReturnBtn, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraControls, .obsControls, .cameraBottomControls, .layoutBtn")) return;
+
+    const rect = panel.getBoundingClientRect();
+    const inResizeCorner = event.clientX > rect.right - 26 && event.clientY > rect.bottom - 26;
+    if (inResizeCorner) return;
+
     event.preventDefault();
 
     previousX = event.clientX;
     previousY = event.clientY;
 
-    const rect = panel.getBoundingClientRect();
     panel.style.top = `${rect.top}px`;
     panel.style.left = `${rect.left}px`;
     panel.style.right = "auto";
     panel.style.margin = "0";
+    panel.style.transform = "none";
     panel.style.zIndex = "3100";
     panel.classList.add("is-dragging");
 
-    document.onmouseup = stopDragging;
-    document.onmousemove = dragPanel;
-  };
+    document.addEventListener("mouseup", stopDragging);
+    document.addEventListener("mousemove", dragPanel);
+  }
 
   function dragPanel(event) {
     event.preventDefault();
@@ -3266,8 +3323,8 @@ function makePanelDraggable() {
   }
 
   function stopDragging() {
-    document.onmouseup = null;
-    document.onmousemove = null;
+    document.removeEventListener("mouseup", stopDragging);
+    document.removeEventListener("mousemove", dragPanel);
     panel.style.zIndex = "3000";
     panel.classList.remove("is-dragging");
   }

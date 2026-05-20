@@ -38,7 +38,17 @@ function bindPanelEvents() {
         alert("El chat táctico solo está disponible cuando la operación está activa automáticamente por fecha y hora.");
         return;
       }
-      togglePanel(dom.chatPanel, dom.toggleChatPanel);
+      const isOpen = dom.chatPanel?.classList.contains("open") || dom.chatAudiencePanel?.classList.contains("open");
+      if (isOpen) {
+        dom.chatPanel?.classList.remove("open");
+        dom.chatAudiencePanel?.classList.remove("open");
+        dom.toggleChatPanel?.classList.remove("active");
+        return;
+      }
+      closeAllPanels();
+      dom.chatAudiencePanel?.classList.add("open");
+      dom.chatPanel?.classList.add("open");
+      dom.toggleChatPanel?.classList.add("active");
     });
   }
 

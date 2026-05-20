@@ -8,6 +8,18 @@ import {
   generateUniqueApodo,
 } from "../utils/usernames.js";
 
+const TIPOS_DISPOSITIVO = ["TELEFONO", "TABLET", "SMARTWATCH", "LORA", "LAPTOP", "RADIO", "GPS", "OTRO"];
+const ESTADOS_DISPOSITIVO = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
+
+function cleanText(value) {
+  return (value ?? "").toString().trim();
+}
+
+function cleanOptionalText(value) {
+  const cleaned = cleanText(value);
+  return cleaned || null;
+}
+
 // Lista personal filtrado por rol y marca si ya esta ocupado en otra operacion.
 export async function listPersonal(req, res) {
   try {
@@ -339,5 +351,247 @@ export async function deletePersonal(req, res) {
       });
     }
     return sendDbError(res, err, "Error eliminando personal");
+  }
+}
+
+// Devuelve todos los dispositivos, marcando responsable si estan asignados
+// en una operacion activa o planificada.
+export async function listDispositivos(req, res) {
+  try {
+    const { rows } = await pool.query(`
+      SELECT
+        d.id_dispositivo,
+        d.tipo,
+        d.marca,
+        d.modelo,
+        d.numero_telefono,
+        d.imei,
+        d.numero_serie,
+        d.sistema_operativo,
+        CASE
+          WHEN od.id_operacion IS NOT NULL THEN 'ASIGNADO'
+          ELSE d.estado::text
+        END AS estado,
+        COALESCE(
+          NULLIF(TRIM(CONCAT_WS(' ', p.puesto, p.nombre, p.apellido)), ''),
+          p.apodo,
+          ''
+        ) AS responsable,
+        od.id_operacion AS id_operacion_responsable,
+        o.nombre AS operacion_responsable,
+        d.detalles,
+        d.fecha_creacion AS fecha_registro
+      FROM dispositivo d
+      LEFT JOIN LATERAL (
+        SELECT od2.*
+        FROM operacion_dispositivo od2
+        JOIN operacion o2 ON o2.id_operacion = od2.id_operacion
+        WHERE od2.id_dispositivo = d.id_dispositivo
+          AND od2.estado_asignacion = 'ASIGNADO'
+          AND od2.fecha_devolucion IS NULL
+          AND o2.estado IN ('ACTIVA', 'PLANIFICADA')
+        ORDER BY
+          CASE o2.estado WHEN 'ACTIVA' THEN 1 WHEN 'PLANIFICADA' THEN 2 ELSE 3 END,
+          od2.fecha_asignacion DESC
+        LIMIT 1
+      ) od ON TRUE
+      LEFT JOIN personal p ON p.id_personal = od.id_personal
+      LEFT JOIN operacion o ON o.id_operacion = od.id_operacion
+      ORDER BY d.tipo, d.marca, d.modelo, d.numero_serie NULLS LAST
+    `);
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo dispositivos");
+  }
+}
+
+export async function createDispositivo(req, res) {
+  try {
+    const tipo = cleanText(req.body?.tipo).toUpperCase();
+    const marca = cleanText(req.body?.marca);
+    const modelo = cleanText(req.body?.modelo);
+    const numero_telefono = cleanOptionalText(req.body?.numero_telefono);
+    const imei = cleanOptionalText(req.body?.imei);
+    const numero_serie = cleanOptionalText(req.body?.numero_serie);
+    const sistema_operativo = cleanOptionalText(req.body?.sistema_operativo);
+    const estado = cleanText(req.body?.estado || "DISPONIBLE").toUpperCase();
+    const detalles = cleanOptionalText(req.body?.detalles);
+
+    if (!tipo || !marca || !modelo) {
+      return res.status(400).json({ ok: false, mensaje: "Faltan tipo, marca o modelo" });
+    }
+
+    if (!TIPOS_DISPOSITIVO.includes(tipo)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: `tipo invalido (${TIPOS_DISPOSITIVO.join("|")})`,
+      });
+    }
+
+    if (!ESTADOS_DISPOSITIVO.includes(estado)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: `estado invalido (${ESTADOS_DISPOSITIVO.join("|")})`,
+      });
+    }
+
+    if (numero_telefono && !/^\d{7,15}$/.test(numero_telefono)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "numero_telefono invalido: usa solo digitos (7 a 15).",
+      });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO dispositivo
+         (tipo, marca, modelo, numero_telefono, imei, numero_serie,
+          sistema_operativo, estado, detalles)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono, imei,
+                 numero_serie, sistema_operativo, estado, detalles,
+                 fecha_creacion AS fecha_registro`,
+      [
+        tipo,
+        marca,
+        modelo,
+        numero_telefono,
+        imei,
+        numero_serie,
+        sistema_operativo,
+        estado,
+        detalles,
+      ]
+    );
+
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Ya existe un dispositivo con ese telefono, IMEI o numero de serie",
+        error: err.detail || err.message,
+      });
+    }
+
+    return sendDbError(res, err, "Error creando dispositivo");
+  }
+}
+
+export async function updateDispositivo(req, res) {
+  const id_dispositivo = Number(req.params.id);
+
+  if (!isInt(id_dispositivo)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    const tipo = req.body?.tipo != null ? cleanText(req.body.tipo).toUpperCase() : null;
+    const marca = req.body?.marca != null ? cleanText(req.body.marca) : null;
+    const modelo = req.body?.modelo != null ? cleanText(req.body.modelo) : null;
+    const numero_telefono = req.body?.numero_telefono != null ? cleanOptionalText(req.body.numero_telefono) : undefined;
+    const imei = req.body?.imei != null ? cleanOptionalText(req.body.imei) : undefined;
+    const numero_serie = req.body?.numero_serie != null ? cleanOptionalText(req.body.numero_serie) : undefined;
+    const sistema_operativo = req.body?.sistema_operativo != null ? cleanOptionalText(req.body.sistema_operativo) : undefined;
+    const estado = req.body?.estado != null ? cleanText(req.body.estado).toUpperCase() : null;
+    const detalles = req.body?.detalles != null ? cleanOptionalText(req.body.detalles) : undefined;
+
+    if (tipo !== null && (!tipo || !TIPOS_DISPOSITIVO.includes(tipo))) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: `tipo invalido (${TIPOS_DISPOSITIVO.join("|")})`,
+      });
+    }
+
+    if (marca !== null && !marca) {
+      return res.status(400).json({ ok: false, mensaje: "marca invalida" });
+    }
+
+    if (modelo !== null && !modelo) {
+      return res.status(400).json({ ok: false, mensaje: "modelo invalido" });
+    }
+
+    if (estado !== null && !ESTADOS_DISPOSITIVO.includes(estado)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: `estado invalido (${ESTADOS_DISPOSITIVO.join("|")})`,
+      });
+    }
+
+    if (numero_telefono && !/^\d{7,15}$/.test(numero_telefono)) {
+      return res.status(400).json({
+        ok: false,
+        mensaje: "numero_telefono invalido: usa solo digitos (7 a 15).",
+      });
+    }
+
+    const sets = [];
+    const vals = [];
+    let i = 1;
+
+    if (tipo !== null) { sets.push(`tipo = $${i++}`); vals.push(tipo); }
+    if (marca !== null) { sets.push(`marca = $${i++}`); vals.push(marca); }
+    if (modelo !== null) { sets.push(`modelo = $${i++}`); vals.push(modelo); }
+    if (numero_telefono !== undefined) { sets.push(`numero_telefono = $${i++}`); vals.push(numero_telefono); }
+    if (imei !== undefined) { sets.push(`imei = $${i++}`); vals.push(imei); }
+    if (numero_serie !== undefined) { sets.push(`numero_serie = $${i++}`); vals.push(numero_serie); }
+    if (sistema_operativo !== undefined) { sets.push(`sistema_operativo = $${i++}`); vals.push(sistema_operativo); }
+    if (estado !== null) { sets.push(`estado = $${i++}`); vals.push(estado); }
+    if (detalles !== undefined) { sets.push(`detalles = $${i++}`); vals.push(detalles); }
+
+    if (sets.length === 0) {
+      return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
+    }
+
+    vals.push(id_dispositivo);
+
+    const { rows } = await pool.query(
+      `UPDATE dispositivo
+       SET ${sets.join(", ")}
+       WHERE id_dispositivo = $${i}
+       RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono, imei,
+                 numero_serie, sistema_operativo, estado, detalles,
+                 fecha_creacion AS fecha_registro`,
+      vals
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Dispositivo no existe" });
+    }
+
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Ya existe un dispositivo con ese telefono, IMEI o numero de serie",
+        error: err.detail || err.message,
+      });
+    }
+
+    return sendDbError(res, err, "Error editando dispositivo");
+  }
+}
+
+export async function deleteDispositivo(req, res) {
+  const id_dispositivo = Number(req.params.id);
+
+  if (!isInt(id_dispositivo)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    await pool.query(`DELETE FROM dispositivo WHERE id_dispositivo = $1`, [id_dispositivo]);
+    return res.json({ ok: true, deleted: true, id_dispositivo });
+  } catch (err) {
+    if (err.code === "23503") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "No se puede borrar porque el dispositivo esta referenciado en operaciones.",
+        error: err.detail || err.message,
+      });
+    }
+
+    return sendDbError(res, err, "Error eliminando dispositivo");
   }
 }

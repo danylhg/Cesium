@@ -9,10 +9,6 @@
   --blue2: #1d4ed8;
   --blueSoft: rgba(37, 99, 235, .12);
 
-  --danger: #dc2626;
-  --danger2: #b91c1c;
-  --dangerSoft: rgba(220, 38, 38, .10);
-
   --shadow: 0 20px 60px rgba(2, 6, 23, .12);
   --shadow2: 0 10px 30px rgba(2, 6, 23, .10);
   --radius: 22px;
@@ -239,17 +235,6 @@ body{
   background: rgba(37,99,235,.16);
   transform: translateY(-2px);
   box-shadow: 0 20px 35px rgba(2,6,23,.10);
-}
-
-.btn.danger{
-  background: linear-gradient(135deg, var(--danger), #ef4444);
-  color: #fff;
-  border-color: rgba(220,38,38,.35);
-}
-
-.btn.danger:hover{
-  transform: translateY(-2px);
-  box-shadow: 0 20px 35px rgba(220,38,38,.20);
 }
 
 /* ===== List ===== */

@@ -44,6 +44,7 @@ export function closeAllPanels() {
   dom.infoPanel?.classList.remove("open");
   dom.routePanel?.classList.remove("open");
   dom.tacticalPanel?.classList.remove("open");
+  dom.chatAudiencePanel?.classList.remove("open");
   dom.chatPanel?.classList.remove("open");
 
   dom.toggleInfoPanel?.classList.remove("active");
@@ -678,6 +679,7 @@ export function updateChatAvailability() {
   }
 
   if (!active) {
+    dom.chatAudiencePanel?.classList.remove("open");
     dom.chatPanel?.classList.remove("open");
     dom.toggleChatPanel?.classList.remove("active");
     dom.cameraPanel?.classList.remove("open");
@@ -686,6 +688,17 @@ export function updateChatAvailability() {
 
   if (dom.chatInput) dom.chatInput.disabled = !active;
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = !active;
+  if (dom.chatImageBtn) dom.chatImageBtn.disabled = !active;
+  if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
+  if (dom.chatCameraBtn) dom.chatCameraBtn.disabled = !active;
+  if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
+  if (dom.chatTargetPicker) dom.chatTargetPicker.disabled = !active;
+  document.querySelectorAll("[data-chat-channel]").forEach((btn) => {
+    btn.disabled = !active;
+  });
+  if (dom.cameraDronesBtn) dom.cameraDronesBtn.disabled = !active;
+  if (dom.registerObsStreamBtn) dom.registerObsStreamBtn.disabled = !active;
+  if (dom.obsStreamKey) dom.obsStreamKey.disabled = !active;
   if (dom.chatTabCet) dom.chatTabCet.disabled = !active;
   if (dom.chatTabCells) dom.chatTabCells.disabled = !active;
 }
@@ -930,6 +943,7 @@ function placePersonInfoPopup(anchor = {}) {
   if (Number.isFinite(x) && Number.isFinite(y)) {
     const leftPanelEdge = Math.max(
       dom.infoPanel?.getBoundingClientRect?.().right || 0,
+      dom.chatAudiencePanel?.getBoundingClientRect?.().right || 0,
       dom.chatPanel?.getBoundingClientRect?.().right || 0,
       dom.routePanel?.getBoundingClientRect?.().right || 0,
       dom.tacticalPanel?.getBoundingClientRect?.().right || 0,
