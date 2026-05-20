@@ -220,6 +220,7 @@ function buildOperationZoneEntity(zona) {
 
   dashboardState.operationZoneBorder = entity;
   dashboardState.currentOperationZone = zona;
+  renderIntegratedWindRose(zona, closedPoints);
 
   return entity;
 }
@@ -244,6 +245,53 @@ function getHullRadius(center, points) {
     if (d > maxDist) maxDist = d;
   });
   return maxDist;
+}
+
+export function renderIntegratedWindRose(zona, points) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !Array.isArray(points) || points.length === 0) return;
+
+  const center = calculateCentroid(points);
+  if (!center) return;
+  const idZona = zona.id_zona;
+  const zoneProps = { tacticalType: "operation-zone-part", id_zona: idZona };
+
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+  points.forEach(p => {
+    if (p.lat < minLat) minLat = p.lat;
+    if (p.lat > maxLat) maxLat = p.lat;
+    if (p.lng < minLng) minLng = p.lng;
+    if (p.lng > maxLng) maxLng = p.lng;
+  });
+
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return;
+
+  const boxCenterLat = (minLat + maxLat) / 2;
+  const boxCenterLng = (minLng + maxLng) / 2;
+  const labels = [
+    { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },
+    { text: "S", lat: minLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, 15) },
+    { text: "E", lat: boxCenterLat, lng: maxLng, offset: new Cesium.Cartesian2(15, 0) },
+    { text: "O", lat: boxCenterLat, lng: minLng, offset: new Cesium.Cartesian2(-15, 0) }
+  ];
+
+  labels.forEach(label => {
+    viewer.entities.add({
+      name: "Rosa de viento",
+      position: Cesium.Cartesian3.fromDegrees(label.lng, label.lat),
+      label: {
+        text: label.text,
+        font: "bold 24px monospace",
+        fillColor: Cesium.Color.fromCssColorString("rgba(0,0,0,0.90)"),
+        pixelOffset: label.offset,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
+      },
+      properties: zoneProps
+    });
+  });
 }
 
 /**

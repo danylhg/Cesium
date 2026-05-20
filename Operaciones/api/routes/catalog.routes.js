@@ -25,6 +25,84 @@ import {
 // Crea instancia de router
 const router = Router();
 
+async function ensureDispositivosTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dispositivo (
+      id_dispositivo SERIAL PRIMARY KEY,
+      tipo TEXT NOT NULL,
+      marca TEXT NOT NULL,
+      modelo TEXT NOT NULL,
+      numero_telefono TEXT,
+      imei TEXT,
+      numero_serie TEXT,
+      sistema_operativo TEXT,
+      estado TEXT NOT NULL DEFAULT 'DISPONIBLE',
+      responsable TEXT,
+      detalles TEXT,
+      fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_imei
+    ON dispositivo (imei)
+    WHERE imei IS NOT NULL AND imei <> ''
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_numero_serie
+    ON dispositivo (numero_serie)
+    WHERE numero_serie IS NOT NULL AND numero_serie <> ''
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS dispositivo_operacion (
+      id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
+      id_dispositivo INT NOT NULL REFERENCES dispositivo(id_dispositivo) ON DELETE RESTRICT,
+      id_personal INT NOT NULL REFERENCES personal(id_personal) ON DELETE RESTRICT,
+      estado_asignacion TEXT NOT NULL DEFAULT 'ASIGNADO',
+      asignado_por INT REFERENCES usuario(id_usuario) ON DELETE SET NULL,
+      fecha_asignacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      fecha_devolucion TIMESTAMPTZ,
+      PRIMARY KEY (id_operacion, id_dispositivo)
+    )
+  `);
+}
+
+function normalizeDevicePayload(body = {}) {
+  return {
+    tipo: (body.tipo || "").toString().trim().toUpperCase(),
+    marca: (body.marca || "").toString().trim(),
+    modelo: (body.modelo || "").toString().trim(),
+    numero_telefono: (body.numero_telefono || "").toString().trim() || null,
+    imei: (body.imei || "").toString().trim() || null,
+    numero_serie: (body.numero_serie || "").toString().trim() || null,
+    sistema_operativo: (body.sistema_operativo || "").toString().trim() || null,
+    estado: (body.estado || "DISPONIBLE").toString().trim().toUpperCase(),
+    responsable: (body.responsable || "").toString().trim() || null,
+    detalles: (body.detalles || "").toString().trim() || null,
+  };
+}
+
+function validateDevicePayload(data) {
+  const tiposValidos = ["TELEFONO", "TABLET", "LAPTOP", "RADIO", "GPS", "OTRO"];
+  const estadosValidos = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
+
+  if (!data.tipo || !data.marca || !data.modelo || !data.estado) {
+    return "Faltan campos obligatorios: tipo, marca, modelo y estado";
+  }
+
+  if (!tiposValidos.includes(data.tipo)) {
+    return `tipo invÃ¡lido (${tiposValidos.join("|")})`;
+  }
+
+  if (!estadosValidos.includes(data.estado)) {
+    return `estado invÃ¡lido (${estadosValidos.join("|")})`;
+  }
+
+  return "";
+}
+
 
 // ===============================
 // PERSONAL
@@ -869,6 +947,325 @@ router.delete("/catalog/vehiculos/:id", requireAuth, async (req, res) => {
     }
 
     return sendDbError(res, err, "Error eliminando vehículo");
+  }
+});
+
+
+// ===============================
+// DISPOSITIVOS CRUD
+// ===============================
+
+router.get("/catalog/dispositivos", requireAuth, async (req, res) => {
+  try {
+    await ensureDispositivosTable();
+
+    const { rows } = await pool.query(`
+      SELECT
+        d.id_dispositivo,
+        d.tipo,
+        d.marca,
+        d.modelo,
+        d.numero_telefono,
+        d.imei,
+        d.numero_serie,
+        d.sistema_operativo,
+        CASE WHEN do_act.id_personal IS NOT NULL THEN 'ASIGNADO' ELSE d.estado END AS estado,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', p.puesto, p.nombre, p.apellido)), ''), d.responsable) AS responsable,
+        d.detalles,
+        d.fecha_creacion AS fecha_registro
+      FROM dispositivo d
+      LEFT JOIN LATERAL (
+        SELECT dop.id_personal
+        FROM dispositivo_operacion dop
+        JOIN operacion o ON o.id_operacion = dop.id_operacion
+        WHERE dop.id_dispositivo = d.id_dispositivo
+          AND dop.fecha_devolucion IS NULL
+          AND dop.estado_asignacion = 'ASIGNADO'
+          AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+        ORDER BY dop.fecha_asignacion DESC
+        LIMIT 1
+      ) do_act ON TRUE
+      LEFT JOIN personal p ON p.id_personal = do_act.id_personal
+      ORDER BY d.marca ASC, d.modelo ASC, d.id_dispositivo ASC
+    `);
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo dispositivos");
+  }
+});
+
+router.post("/catalog/dispositivos", requireAuth, async (req, res) => {
+  try {
+    await ensureDispositivosTable();
+
+    const data = normalizeDevicePayload(req.body);
+    const validationMsg = validateDevicePayload(data);
+    if (validationMsg) {
+      return res.status(400).json({ ok: false, mensaje: validationMsg });
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO dispositivo
+        (tipo, marca, modelo, numero_telefono, imei, numero_serie, sistema_operativo, estado, responsable, detalles)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING
+        id_dispositivo,
+        tipo,
+        marca,
+        modelo,
+        numero_telefono,
+        imei,
+        numero_serie,
+        sistema_operativo,
+        estado,
+        responsable,
+        detalles,
+        fecha_creacion AS fecha_registro`,
+      [
+        data.tipo,
+        data.marca,
+        data.modelo,
+        data.numero_telefono,
+        data.imei,
+        data.numero_serie,
+        data.sistema_operativo,
+        data.estado,
+        data.responsable,
+        data.detalles,
+      ]
+    );
+
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Ya existe un dispositivo con ese IMEI o nÃºmero de serie",
+        error: err.detail || err.message,
+      });
+    }
+
+    return sendDbError(res, err, "Error creando dispositivo");
+  }
+});
+
+router.put("/catalog/dispositivos/:id", requireAuth, async (req, res) => {
+  const id_dispositivo = Number(req.params.id);
+  if (!isInt(id_dispositivo)) return res.status(400).json({ ok: false, mensaje: "id invÃ¡lido" });
+
+  try {
+    await ensureDispositivosTable();
+
+    const data = normalizeDevicePayload(req.body);
+    const validationMsg = validateDevicePayload(data);
+    if (validationMsg) {
+      return res.status(400).json({ ok: false, mensaje: validationMsg });
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE dispositivo
+       SET
+        tipo=$1,
+        marca=$2,
+        modelo=$3,
+        numero_telefono=$4,
+        imei=$5,
+        numero_serie=$6,
+        sistema_operativo=$7,
+        estado=$8,
+        responsable=$9,
+        detalles=$10
+       WHERE id_dispositivo=$11
+       RETURNING
+        id_dispositivo,
+        tipo,
+        marca,
+        modelo,
+        numero_telefono,
+        imei,
+        numero_serie,
+        sistema_operativo,
+        estado,
+        responsable,
+        detalles,
+        fecha_creacion AS fecha_registro`,
+      [
+        data.tipo,
+        data.marca,
+        data.modelo,
+        data.numero_telefono,
+        data.imei,
+        data.numero_serie,
+        data.sistema_operativo,
+        data.estado,
+        data.responsable,
+        data.detalles,
+        id_dispositivo,
+      ]
+    );
+
+    if (!rows[0]) return res.status(404).json({ ok: false, mensaje: "Dispositivo no existe" });
+
+    return res.json({ ok: true, item: rows[0] });
+  } catch (err) {
+    if (err.code === "23505") {
+      return res.status(409).json({
+        ok: false,
+        mensaje: "Ya existe un dispositivo con ese IMEI o nÃºmero de serie",
+        error: err.detail || err.message,
+      });
+    }
+
+    return sendDbError(res, err, "Error editando dispositivo");
+  }
+});
+
+router.delete("/catalog/dispositivos/:id", requireAuth, async (req, res) => {
+  const id_dispositivo = Number(req.params.id);
+  if (!isInt(id_dispositivo)) return res.status(400).json({ ok: false, mensaje: "id invÃ¡lido" });
+
+  try {
+    await ensureDispositivosTable();
+    await pool.query(`DELETE FROM dispositivo WHERE id_dispositivo = $1`, [id_dispositivo]);
+    return res.json({ ok: true, deleted: true, id_dispositivo });
+  } catch (err) {
+    return sendDbError(res, err, "Error eliminando dispositivo");
+  }
+});
+
+router.post("/ops/:id/dispositivos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invÃ¡lido" });
+
+  const { items } = req.body ?? {};
+  if (!Array.isArray(items)) return res.status(400).json({ ok: false, mensaje: "items invÃ¡lido" });
+
+  const client = await pool.connect();
+  try {
+    await ensureDispositivosTable();
+    await client.query("BEGIN");
+
+    const opStat = await client.query(`SELECT estado FROM operacion WHERE id_operacion=$1`, [id_operacion]);
+    if (opStat.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ ok: false, mensaje: "OperaciÃ³n no encontrada" });
+    }
+
+    if (opStat.rows[0].estado === "CANCELADA" || opStat.rows[0].estado === "CERRADA") {
+      await client.query("ROLLBACK");
+      return res.status(400).json({
+        ok: false,
+        mensaje: `OperaciÃ³n ${opStat.rows[0].estado}. No se puede modificar.`
+      });
+    }
+
+    await client.query(`DELETE FROM dispositivo_operacion WHERE id_operacion = $1`, [id_operacion]);
+
+    for (const it of items) {
+      const id_dispositivo = Number(it.id_dispositivo);
+      const id_personal = Number(it.id_personal);
+
+      if (!isInt(id_dispositivo) || !isInt(id_personal)) continue;
+
+      const personalEnOp = await client.query(
+        `SELECT 1
+         FROM asignacion_operacion_personal
+         WHERE id_operacion = $1
+           AND id_personal = $2
+           AND estado_asignacion NOT IN ('LIBERADO')
+         LIMIT 1`,
+        [id_operacion, id_personal]
+      );
+
+      if (personalEnOp.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: `El personal ${id_personal} no estÃ¡ asignado a esta operaciÃ³n`
+        });
+      }
+
+      const enOtraOp = await client.query(
+        `SELECT o.nombre
+         FROM dispositivo_operacion dop
+         JOIN operacion o ON o.id_operacion = dop.id_operacion
+         WHERE dop.id_dispositivo = $1
+           AND dop.fecha_devolucion IS NULL
+           AND dop.id_operacion != $2
+           AND o.estado NOT IN ('CERRADA', 'CANCELADA')
+         LIMIT 1`,
+        [id_dispositivo, id_operacion]
+      );
+
+      if (enOtraOp.rowCount > 0) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          ok: false,
+          mensaje: `El dispositivo ${id_dispositivo} ya estÃ¡ activo en la operaciÃ³n "${enOtraOp.rows[0].nombre}"`
+        });
+      }
+
+      await client.query(
+        `INSERT INTO dispositivo_operacion
+          (id_operacion, id_dispositivo, id_personal, estado_asignacion, asignado_por)
+         VALUES ($1,$2,$3,'ASIGNADO',$4)
+         ON CONFLICT (id_operacion, id_dispositivo)
+         DO UPDATE SET
+          id_personal = EXCLUDED.id_personal,
+          estado_asignacion = 'ASIGNADO',
+          fecha_devolucion = NULL,
+          asignado_por = EXCLUDED.asignado_por,
+          fecha_asignacion = NOW()`,
+        [id_operacion, id_dispositivo, id_personal, null]
+      );
+    }
+
+    await client.query("COMMIT");
+    return res.json({ ok: true });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    return sendDbError(res, err, "Error guardando dispositivos");
+  } finally {
+    client.release();
+  }
+});
+
+router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invÃ¡lido" });
+
+  try {
+    await ensureDispositivosTable();
+
+    const { rows } = await pool.query(
+      `SELECT
+        dop.id_dispositivo,
+        dop.id_personal,
+        d.tipo,
+        d.marca,
+        d.modelo,
+        d.numero_telefono,
+        d.imei,
+        d.numero_serie,
+        d.sistema_operativo,
+        d.detalles,
+        p.nombre,
+        p.apellido,
+        p.puesto
+       FROM dispositivo_operacion dop
+       JOIN dispositivo d ON d.id_dispositivo = dop.id_dispositivo
+       JOIN personal p ON p.id_personal = dop.id_personal
+       WHERE dop.id_operacion = $1
+         AND dop.fecha_devolucion IS NULL
+         AND dop.estado_asignacion = 'ASIGNADO'
+       ORDER BY d.marca ASC, d.modelo ASC`,
+      [id_operacion]
+    );
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo dispositivos");
   }
 });
 

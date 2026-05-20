@@ -54,6 +54,17 @@ function limpiarAsignacionesDependientesDePersonal(nombrePersonal) {
       state.equiposLiberadosLocalmente.push(idEquipo);
     }
   });
+
+  const dispositivosLiberados = state.asignacionDispositivos
+    .filter(a => a.id_personal === idPersonal)
+    .map(a => a.id_dispositivo);
+
+  state.asignacionDispositivos = state.asignacionDispositivos.filter(a => a.id_personal !== idPersonal);
+  dispositivosLiberados.forEach(idDispositivo => {
+    if (!state.dispositivosLiberadosLocalmente.includes(idDispositivo)) {
+      state.dispositivosLiberadosLocalmente.push(idDispositivo);
+    }
+  });
 }
 
 export function renderCUT() {
@@ -321,7 +332,7 @@ export function pintarChipsGrupos(cet, container) {
     const sinGrupoBtn = document.createElement("button");
     sinGrupoBtn.className = "chip" + (info.active === null ? " active" : "");
     sinGrupoBtn.textContent = "Sin grupo";
-
+    
     sinGrupoBtn.addEventListener("click", () => {
       info.active = null; // Modo Mando Directo
       saveAsignacionActual();

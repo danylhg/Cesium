@@ -764,6 +764,13 @@ function formatBattery(value) {
   return text.endsWith("%") ? text : `${text}%`;
 }
 
+function formatOxygen(value) {
+  const oxygen = firstValue(value);
+  if (oxygen == null) return "-";
+  const text = String(oxygen).trim();
+  return text.endsWith("%") ? text : `${text}%`;
+}
+
 function parseTimestamp(value) {
   if (value == null || value === "") return null;
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -861,6 +868,7 @@ function getAvailablePersonal() {
   const op = getCurrentOperation();
   const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
   return [
+    ..._lastPersonalData,
     ...(Array.isArray(asignacion.personal) ? asignacion.personal : []),
     ...(Array.isArray(op.personal) ? op.personal : [])
   ];
@@ -874,11 +882,38 @@ function findPerson(personId, fallbackName = "") {
   return people.find((person) => sameText(getPersonName(person), fallbackName));
 }
 
+function getAssignedDevice(person = {}, personId, personName) {
+  const op = getCurrentOperation();
+  const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
+  const devices = [
+    ...(Array.isArray(asignacion.dispositivos) ? asignacion.dispositivos : []),
+    ...(Array.isArray(op.dispositivos) ? op.dispositivos : []),
+    ...(Array.isArray(person.dispositivos) ? person.dispositivos : []),
+    ...(Array.isArray(person.devices) ? person.devices : [])
+  ];
+  const assignments = [
+    ...(Array.isArray(asignacion.asignacionDispositivos) ? asignacion.asignacionDispositivos : []),
+    ...(Array.isArray(op.asignacionDispositivos) ? op.asignacionDispositivos : [])
+  ];
+  const id = String(personId || getPersonId(person) || "").trim();
+  const name = personName || getPersonName(person);
+  const directAssignment = assignments.find((assignment) => String(assignment.id_personal || "").trim() === id);
+
+  if (directAssignment) {
+    const assignedId = String(directAssignment.id_dispositivo || "").trim();
+    const byId = devices.find((device) => String(device.id_dispositivo || device.id || "").trim() === assignedId);
+    if (byId) return byId;
+  }
+
+  return devices.find((device) => sameText(device.responsable || device.asignado_a_personal || device.personal_nombre, name));
+}
+
 function getPersonCameraImage(personId) {
   const images = [
     "img/cameras/cam1.png",
     "img/cameras/cam2.png",
-    "img/cameras/cam3.png"
+    "img/cameras/cam3.png",
+    "https://images.unsplash.com/photo-1508614589041-895b88991e3e?q=80&w=1000&auto=format&fit=crop"
   ];
   const text = String(personId || "");
   let hash = 0;
@@ -938,9 +973,55 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const curso = firstValue(live.curso, live.heading, live.rumbo, person.curso, person.heading, person.rumbo, "-");
   const connectionStatus = getConnectionStatus(id, person, live);
   const sidc = firstValue(person.sidc, person.codigo_sidc, "-");
-  const fc = firstValue(live.frecuencia_cardiaca, live.fc, live.heart_rate, person.frecuencia_cardiaca, person.fc, person.heart_rate, "-");
+  const assignedDevice = getAssignedDevice(person, personId, nombre) || {};
+  const fc = firstValue(
+    live.frecuencia_cardiaca,
+    live.fc,
+    live.heart_rate,
+    person.pulso,
+    person.frecuencia_cardiaca,
+    person.fc,
+    person.heart_rate,
+    assignedDevice.pulso,
+    assignedDevice.frecuencia_cardiaca,
+    assignedDevice.heart_rate,
+    "-"
+  );
+  const oxigenacion = formatOxygen(firstValue(
+    live.oxigenacion,
+    live.oxigeno,
+    live.saturacion_oxigeno,
+    live.spo2,
+    live.spO2,
+    person.oxigenacion,
+    person.oxigeno,
+    person.saturacion_oxigeno,
+    person.spo2,
+    person.spO2,
+    person.blood_oxygen,
+    assignedDevice.oxigenacion,
+    assignedDevice.oxigeno,
+    assignedDevice.saturacion_oxigeno,
+    assignedDevice.spo2,
+    assignedDevice.spO2,
+    assignedDevice.blood_oxygen
+  ));
   const baro = firstValue(live.barometro, live.baro, live.presion, live.pressure, person.barometro, person.baro, person.presion, person.pressure, "-");
-  const bateria = formatBattery(firstValue(live.bateria, live.battery, live.battery_level, person.bateria, person.battery, person.battery_level));
+  const bateria = formatBattery(firstValue(
+    live.bateria,
+    live.battery,
+    live.battery_level,
+    assignedDevice.bateria,
+    assignedDevice.battery,
+    assignedDevice.battery_level,
+    assignedDevice.nivel_bateria,
+    person.dispositivo_bateria,
+    person.device_battery,
+    person.bateria_dispositivo,
+    person.bateria,
+    person.battery,
+    person.battery_level
+  ));
   const actualizado = firstValue(live.timestamp, person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
   const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
 
@@ -962,6 +1043,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
       <div class="personInfoGrid">
         <div class="personInfoLabel">FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}</div>
         <div class="personInfoLabel">Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
+        <div class="personInfoLabel">Oxigenacion:</div><div class="personInfoValue">${escapeHtml(oxigenacion)}</div>
         <div class="personInfoLabel">Bateria:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
       </div>
       <div class="personInfoUpdated">${escapeHtml(actualizado ? `Actualizado ${formatTime(actualizado)}` : "Sin datos recientes")}</div>

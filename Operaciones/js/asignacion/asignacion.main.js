@@ -7,6 +7,7 @@ import {
   opInicioEl,
   opHoraInicioEl,
   opPrioridadEl
+
 } from "./core/dom.js";
 
 import { state } from "./core/state.js";
@@ -20,7 +21,7 @@ import { validateDateTime } from "./core/utils.js";
 import { showDashboardButton } from "./core/ui.js";
 
 import {
-  schedulePersistOperacionActualEnBackend,
+  saveOperacionActual,
   loadOperacionActualIntoForm,
   cargarOperacionRemota
 } from "./modules/operacion/operacion.service.js";
@@ -31,8 +32,6 @@ import { bindNavigation } from "./modules/navigation/asignacion.navigation.js";
 import { renderHome } from "./views/home.view.js";
 
 function bindFormEvents() {
-  const saveOperacionChange = () => schedulePersistOperacionActualEnBackend();
-
   if (btnHoy && opInicioEl) {
     btnHoy.addEventListener("click", () => {
       const d = new Date();
@@ -40,29 +39,34 @@ function bindFormEvents() {
       const mm = String(d.getMonth() + 1).padStart(2, "0");
       const dd = String(d.getDate()).padStart(2, "0");
       opInicioEl.value = `${yyyy}-${mm}-${dd}`;
-      saveOperacionChange();
+      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
     });
   }
 
   if (opHoraInicioEl) {
     opHoraInicioEl.addEventListener("input", function (e) {
-      let v = e.target.value.replace(/\D/g, "");
-      if (v.length > 2) {
+      let v = e.target.value.replace(/[^\d:]/g, "");
+      const firstColon = v.indexOf(":");
+      if (firstColon !== -1) {
+        v = v.slice(0, firstColon + 1) + v.slice(firstColon + 1).replace(/:/g, "");
+      }
+      if (!v.includes(":") && v.length > 2) {
         v = v.substring(0, 2) + ":" + v.substring(2, 4);
       }
+      v = v.substring(0, 5);
       e.target.value = v;
-      saveOperacionChange();
+      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
     });
 
     opHoraInicioEl.addEventListener("blur", function (e) {
       let v = e.target.value;
-      if (/^\d{2}:\d{2}$/.test(v)) {
+      if (/^\d{1,2}(:\d{0,2})?$/.test(v)) {
         let [h, m] = v.split(":");
         h = Math.min(23, parseInt(h) || 0);
         m = Math.min(59, parseInt(m) || 0);
         e.target.value = String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0");
         validateDateTime(opInicioEl, opHoraInicioEl);
-        saveOperacionChange();
+        saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
       }
     });
   }
@@ -74,7 +78,7 @@ function bindFormEvents() {
     const eventType = field.tagName === "SELECT" ? "change" : "input";
     field.addEventListener(eventType, () => {
       if (field === opInicioEl) validateDateTime(opInicioEl, opHoraInicioEl);
-      
+
       // Limpiar error visual si el usuario escribe
       if (field.value.trim()) {
         field.style.borderColor = "";
@@ -84,7 +88,7 @@ function bindFormEvents() {
         }
       }
 
-      saveOperacionChange();
+      saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
       if (field === opNombreEl && lblOperacion) {
         lblOperacion.textContent = opNombreEl.value || "—";
       }
@@ -124,13 +128,17 @@ function restoreSavedState() {
     state.asignacionEquipos = savedAsig.asignacionEquipos;
   }
 
+  if (Array.isArray(savedAsig?.asignacionDispositivos)) {
+    state.asignacionDispositivos = savedAsig.asignacionDispositivos;
+  }
+
   return storedOp;
 }
 
 async function init() {
   // ── Validación de entrada ────────────────────────────────────
   // Entradas válidas:
-  //   "create"  → viene del botón "Crear operación" o "Emergencia" del menú inicial
+  //   "create"  → viene del botón "Crear operación" del menú inicial
   //   "edit"    → viene del botón "Editar" del dashboard
   // Cualquier otra entrada es inválida y se redirige.
   const entry = sessionStorage.getItem("asignacion_entry");

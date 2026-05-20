@@ -355,10 +355,11 @@ export function renderVehiculos() {
   const vehiclesWrap = document.createElement("div");
   vehiclesWrap.className = "listBox";
   vehiclesWrap.style.gap = "12px";
+  vehiclesWrap.style.minHeight = "0";
 
   const vehicleGrid = document.createElement("div");
   vehicleGrid.className = "vehicleGrid";
-  vehicleGrid.style.maxHeight = "300px";
+  vehicleGrid.style.maxHeight = "420px";
   vehicleGrid.style.overflowY = "auto";
   vehicleGrid.addEventListener("scroll", () => {
     state.vehiculosGridScrollTop = vehicleGrid.scrollTop;
