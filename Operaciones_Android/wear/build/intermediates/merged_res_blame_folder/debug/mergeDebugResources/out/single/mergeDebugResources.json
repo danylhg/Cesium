@@ -1,9 +1,5 @@
 [
     {
-        "merged": "C:\\Users\\PC\\.gradle\\daemon\\9.3.1\\com.operaciones.operaciones_android.wear-debug-11:\\drawable_ic_watch_notification.xml.flat",
-        "source": "C:\\Users\\PC\\.gradle\\daemon\\9.3.1\\com.operaciones.operaciones_android.wear-main-13:\\drawable\\ic_watch_notification.xml"
-    },
-    {
         "merged": "com.operaciones.operaciones_android.wear-debug-11:/mipmap-hdpi_ic_launcher.webp.flat",
         "source": "com.operaciones.operaciones_android.wear-main-13:/mipmap-hdpi/ic_launcher.webp"
     },
@@ -74,5 +70,9 @@
     {
         "merged": "com.operaciones.operaciones_android.wear-debug-11:/mipmap-xxhdpi_ic_launcher.webp.flat",
         "source": "com.operaciones.operaciones_android.wear-main-13:/mipmap-xxhdpi/ic_launcher.webp"
+    },
+    {
+        "merged": "com.operaciones.operaciones_android.wear-debug-11:/drawable_ic_watch_notification.xml.flat",
+        "source": "com.operaciones.operaciones_android.wear-main-13:/drawable/ic_watch_notification.xml"
     }
 ]
