@@ -29,3 +29,4 @@
 \ir 23_streaming.sql
 \ir 24_signos_vitales.sql
 \ir 25_dispositivos.sql
+\ir 26_patch_cierre_devoluciones.sql

@@ -839,6 +839,10 @@ DECLARE
   v_op_grupo   INT;
   v_grupo_padre INT;
 BEGIN
+  IF NEW.estado_asignacion = 'LIBERADO' THEN
+    RETURN NEW;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
     FROM asignacion_operacion_personal
@@ -904,6 +908,10 @@ DECLARE
   v_op_grupo    INT;
   v_grupo_padre INT;
 BEGIN
+  IF NEW.fecha_devolucion IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
     FROM asignacion_operacion_personal

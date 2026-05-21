@@ -89,19 +89,10 @@ async function getOperacionActualizada(client, idOperacion) {
 }
 
 async function liberarRecursosOperacion(client, idOperacion, ahora, { incluirPersonal = false } = {}) {
-  if (incluirPersonal) {
-    await client.query(
-      `UPDATE asignacion_operacion_personal
-       SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
-       WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
-      [ahora, idOperacion]
-    );
-  }
-
   await client.query(
-    `UPDATE vehiculo_operacion
-     SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
-     WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
+    `UPDATE uso_equipo_operacion
+     SET fecha_devolucion = COALESCE(fecha_devolucion, $1)
+     WHERE id_operacion = $2 AND fecha_devolucion IS NULL`,
     [ahora, idOperacion]
   );
 
@@ -113,11 +104,20 @@ async function liberarRecursosOperacion(client, idOperacion, ahora, { incluirPer
   );
 
   await client.query(
-    `UPDATE uso_equipo_operacion
-     SET fecha_devolucion = COALESCE(fecha_devolucion, $1)
-     WHERE id_operacion = $2 AND fecha_devolucion IS NULL`,
+    `UPDATE vehiculo_operacion
+     SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+     WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
     [ahora, idOperacion]
   );
+
+  if (incluirPersonal) {
+    await client.query(
+      `UPDATE asignacion_operacion_personal
+       SET estado_asignacion = 'LIBERADO', fecha_fin_asignacion = $1
+       WHERE id_operacion = $2 AND estado_asignacion != 'LIBERADO'`,
+      [ahora, idOperacion]
+    );
+  }
 }
 
 export async function cambiarEstadoOperacion({
