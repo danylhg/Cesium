@@ -2,8 +2,8 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingHorizontal="8dp"
-    android:paddingVertical="2dp">
+    android:paddingHorizontal="10dp"
+    android:paddingVertical="3dp">
 
     <LinearLayout
         android:id="@+id/bubble"
@@ -13,23 +13,54 @@
         android:orientation="vertical"
         android:background="@drawable/bg_bubble_recv"
         android:paddingHorizontal="12dp"
-        android:paddingVertical="8dp">
+        android:paddingVertical="7dp">
 
         <TextView
             android:id="@+id/msgMeta"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#4a6580"
+            android:textColor="#8aa0b8"
             android:textSize="10sp"
-            android:layout_marginBottom="3dp"/>
+            android:layout_marginBottom="4dp"/>
 
         <TextView
             android:id="@+id/msgText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textColor="#e2e8f0"
-            android:textSize="13sp"
-            android:lineSpacingExtra="1dp"/>
+            android:textSize="14sp"
+            android:lineSpacingExtra="2dp"/>
+
+        <ImageView
+            android:id="@+id/msgImageAttachment"
+            android:layout_width="220dp"
+            android:layout_height="150dp"
+            android:layout_marginTop="6dp"
+            android:adjustViewBounds="true"
+            android:background="#0f172a"
+            android:contentDescription="Imagen adjunta"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+
+        <VideoView
+            android:id="@+id/msgVideoAttachment"
+            android:layout_width="220dp"
+            android:layout_height="150dp"
+            android:layout_marginTop="6dp"
+            android:background="#0f172a"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/msgAudioAttachment"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:background="@drawable/bg_dest_btn"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="7dp"
+            android:textColor="#bfdbfe"
+            android:textSize="12sp"
+            android:visibility="gone"/>
 
         <TextView
             android:id="@+id/msgAttachment"

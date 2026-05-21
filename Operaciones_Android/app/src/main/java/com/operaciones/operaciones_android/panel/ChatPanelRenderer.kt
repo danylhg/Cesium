@@ -105,7 +105,7 @@ internal class ChatPanelRenderer(
             } else {
                 selectedChannel.label
             }
-            destBtn.text = "Cambiar"
+            destBtn.text = "Chats"
         }
 
         fun send(text: String, isAlert: Boolean) {
@@ -286,7 +286,7 @@ internal class ChatPanelRenderer(
         val row = LinearLayout(anchorView.context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding((14 * density).toInt(), (10 * density).toInt(), (14 * density).toInt(), (10 * density).toInt())
+            setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
             isClickable = true
             isFocusable = true
             background = anchorView.context.getDrawable(R.drawable.bg_chat_row)
@@ -297,7 +297,7 @@ internal class ChatPanelRenderer(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins((12 * density).toInt(), (4 * density).toInt(), (12 * density).toInt(), (4 * density).toInt())
+                setMargins((12 * density).toInt(), (5 * density).toInt(), (12 * density).toInt(), (5 * density).toInt())
             }
         }
 

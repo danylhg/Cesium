@@ -5,6 +5,7 @@ import com.operaciones.operaciones_android.model.AreaPolygonItem
 import com.operaciones.operaciones_android.model.CoverageCircleItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.OperationMapData
+import com.operaciones.operaciones_android.model.OperationGridItem
 import com.operaciones.operaciones_android.model.OperationZoneItem
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.PoiItem
@@ -35,7 +36,10 @@ class OperationMapParser {
             pois = parsePois(json.optJSONArray("pois") ?: capas),
             coverageCircles = parsedAreas.coverageCircles,
             areaPolygons = parsedAreas.areaPolygons,
-            structures = parseStructures(capas)
+            structures = parseStructures(capas),
+            operationGrid = parseOperationGrid(
+                json.optJSONObject("grid") ?: json.optJSONObject("cuadricula_operacion")
+            )
         )
     }
 
@@ -60,6 +64,9 @@ class OperationMapParser {
 
         return result
     }
+
+    fun parseGridObject(grid: JSONObject?): OperationGridItem? =
+        parseOperationGrid(grid)
 
     private fun parsePersonalPositions(posPersonal: JSONArray?): Map<Int, Pair<Double, Double>> {
         val posMap = mutableMapOf<Int, Pair<Double, Double>>()
@@ -355,6 +362,30 @@ class OperationMapParser {
             zoomInicial = if (zoomInicial > 0) zoomInicial else 1000,
             color = zona.optString("color", "#3b82f6").ifBlank { "#3b82f6" },
             points = points
+        )
+    }
+
+    private fun parseOperationGrid(grid: JSONObject?): OperationGridItem? {
+        if (grid == null) return null
+
+        val size = grid.optString("size", "").trim().lowercase()
+        val sizeMatch = Regex("""^(\d+)x(\d+)$""").matchEntire(size)
+        val rows = positiveInt(grid, "rows") ?: sizeMatch?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val cols = positiveInt(grid, "cols") ?: sizeMatch?.groupValues?.getOrNull(2)?.toIntOrNull()
+        if (size.isBlank() || rows == null || cols == null || rows <= 0 || cols <= 0) return null
+
+        val rawNames = grid.optJSONArray("names") ?: grid.optJSONArray("nombres") ?: JSONArray()
+        val total = rows * cols
+        val names = List(total) { index ->
+            rawNames.optString(index, "").trim()
+        }
+
+        return OperationGridItem(
+            idCuadricula = grid.optInt("id_cuadricula", -1),
+            size = size,
+            rows = rows,
+            cols = cols,
+            names = names
         )
     }
 

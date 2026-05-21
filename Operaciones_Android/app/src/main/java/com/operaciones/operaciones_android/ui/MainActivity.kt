@@ -758,6 +758,14 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun onSocketGridUpdated(grid: JSONObject) {
+        mapDataController.onOperationGridUpdated(grid)
+    }
+
+    override fun onSocketGridDeleted() {
+        mapDataController.onOperationGridDeleted()
+    }
+
     override fun onSocketConnected() {
         setServerConnectionBanner(false)
         syncMapStateFromBackend()
@@ -1146,9 +1154,18 @@ class MainActivity : AppCompatActivity(),
             if (::emergencyVisualAlertController.isInitialized) {
                 emergencyVisualAlertController.flashScreen()
             }
-            message.idPersonal?.let { idPersonal ->
-                if (::cesiumWebController.isInitialized) {
-                    cesiumWebController.pulseEmergencyPersonal(idPersonal)
+            if (::cesiumWebController.isInitialized) {
+                val emergencyLocation = emergencyLocationFromText(message.text)
+                if (emergencyLocation != null) {
+                    cesiumWebController.pulseEmergencyAtLocation(
+                        message.idPersonal ?: -1,
+                        emergencyLocation.first,
+                        emergencyLocation.second
+                    )
+                } else {
+                    message.idPersonal?.let { idPersonal ->
+                        cesiumWebController.pulseEmergencyPersonal(idPersonal)
+                    }
                 }
             }
         }
@@ -1157,6 +1174,18 @@ class MainActivity : AppCompatActivity(),
     override fun onChatVisibleMessagesRead(messages: List<ChatMessage>) {
         if (!isChatPanelActive() || !::chatNotificationController.isInitialized) return
         chatNotificationController.cancelMessages(messages)
+    }
+
+    private fun emergencyLocationFromText(text: String): Pair<Double, Double>? {
+        val match = Regex(
+            """UBICACI(?:ON|.N):\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)""",
+            RegexOption.IGNORE_CASE
+        ).find(text) ?: return null
+
+        val lat = match.groupValues.getOrNull(1)?.toDoubleOrNull() ?: return null
+        val lon = match.groupValues.getOrNull(2)?.toDoubleOrNull() ?: return null
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+        return lat to lon
     }
 
     private fun jsString(value: String): String =

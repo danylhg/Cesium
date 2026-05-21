@@ -175,6 +175,15 @@ class CesiumWebController(
         }
     }
 
+    fun pulseEmergencyAtLocation(idPersonal: Int, latitude: Double, longitude: Double) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof pulseEmergencyAtLocation==='function') pulseEmergencyAtLocation($idPersonal, $latitude, $longitude); })();",
+                null
+            )
+        }
+    }
+
     fun enablePickStart() {
         webView.post {
             webView.evaluateJavascript(
@@ -374,6 +383,40 @@ class CesiumWebController(
                         return 'OK';
                     }
                     return 'ERROR:loadOperationZone no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun loadOperationGrid(gridJson: String) {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof loadOperationGrid === 'function') {
+                        loadOperationGrid($gridJson);
+                        return 'OK';
+                    }
+                    return 'ERROR:loadOperationGrid no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun clearOperationGrid() {
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof clearOperationGrid === 'function') {
+                        clearOperationGrid();
+                        return 'OK';
+                    }
+                    return 'ERROR:clearOperationGrid no existe';
                 })();
                 """.trimIndent(),
                 null

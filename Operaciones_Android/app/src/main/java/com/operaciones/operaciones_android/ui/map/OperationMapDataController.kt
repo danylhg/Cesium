@@ -4,12 +4,14 @@ import android.webkit.WebView
 import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.AreaPolygonItem
 import com.operaciones.operaciones_android.model.CoverageCircleItem
+import com.operaciones.operaciones_android.model.OperationGridItem
 import com.operaciones.operaciones_android.model.OperationMapData
 import com.operaciones.operaciones_android.model.OperationZoneItem
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.PoiItem
 import com.operaciones.operaciones_android.model.StructureItem
 import com.operaciones.operaciones_android.model.VehiculoItem
+import com.operaciones.operaciones_android.network.OperationMapParser
 import com.operaciones.operaciones_android.network.OperationMapRepository
 import com.operaciones.operaciones_android.webview.CesiumWebController
 import org.json.JSONArray
@@ -78,6 +80,7 @@ class OperationMapDataController(
     private var pendingRemoteRoutesJson: String? = null
     private var pendingTacticalRoutesJson: String? = null
     private var pendingOperationZoneJson: String? = null
+    private var pendingOperationGridJson: String? = null
     private var pendingCoverageCirclesJson: String? = null
     private var pendingAreaPolygonsJson: String? = null
     private var pendingStructuresJson: String? = null
@@ -220,10 +223,27 @@ class OperationMapDataController(
         }
     }
 
+    fun onOperationGridUpdated(grid: JSONObject) {
+        val parsed = OperationMapParser().parseGridObject(grid) ?: return
+        loadOrPendingOperationGrid(operationGridJson(parsed).toString())
+    }
+
+    fun onOperationGridDeleted() {
+        pendingOperationGridJson = null
+        if (host.isMapDataCesiumReady()) {
+            cesiumWebController.clearOperationGrid()
+        }
+    }
+
     fun applyOperationView() {
         pendingOperationZoneJson?.let { json ->
             pendingOperationZoneJson = null
             cesiumWebController.loadOperationZone(json)
+        }
+
+        pendingOperationGridJson?.let { json ->
+            pendingOperationGridJson = null
+            cesiumWebController.loadOperationGrid(json)
         }
 
         pendingRemoteRoutesJson?.let { json ->
@@ -264,6 +284,7 @@ class OperationMapDataController(
 
     private fun applyMapData(data: OperationMapData) {
         applyOperationZone(data.operationZone)
+        applyOperationGrid(data.operationGrid)
 
         data.rutasNavegacion?.let { routesJson ->
             host.onMapDataNavigationRoutesLoaded(routesJson)
@@ -294,6 +315,18 @@ class OperationMapDataController(
         host.onMapDataOperationZoneChanged(zone.centerLat, zone.centerLon, zone.zoomInicial)
         cesiumWebController.setOperationView(zone.centerLat, zone.centerLon, zone.zoomInicial)
         loadOrPendingOperationZone(operationZoneJson(zone).toString())
+    }
+
+    private fun applyOperationGrid(grid: OperationGridItem?) {
+        if (grid == null) {
+            pendingOperationGridJson = null
+            if (host.isMapDataCesiumReady()) {
+                cesiumWebController.clearOperationGrid()
+            }
+            return
+        }
+
+        loadOrPendingOperationGrid(operationGridJson(grid).toString())
     }
 
     private fun syncMapObjectLayers(data: OperationMapData) {
@@ -330,6 +363,14 @@ class OperationMapDataController(
             cesiumWebController.loadOperationZone(zoneJson)
         } else {
             pendingOperationZoneJson = zoneJson
+        }
+    }
+
+    private fun loadOrPendingOperationGrid(gridJson: String) {
+        if (host.isMapDataCesiumReady()) {
+            cesiumWebController.loadOperationGrid(gridJson)
+        } else {
+            pendingOperationGridJson = gridJson
         }
     }
 
@@ -474,6 +515,14 @@ class OperationMapDataController(
             .put("zoom_inicial", zone.zoomInicial)
             .put("color", zone.color)
             .put("points", pointsJson(zone.points))
+
+    private fun operationGridJson(grid: OperationGridItem): JSONObject =
+        JSONObject()
+            .put("id_cuadricula", grid.idCuadricula)
+            .put("size", grid.size)
+            .put("rows", grid.rows)
+            .put("cols", grid.cols)
+            .put("names", JSONArray().apply { grid.names.forEach { put(it) } })
 
     private fun poiJson(poi: PoiItem): JSONObject =
         JSONObject()

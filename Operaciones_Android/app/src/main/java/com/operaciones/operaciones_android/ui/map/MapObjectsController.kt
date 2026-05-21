@@ -202,25 +202,22 @@ class MapObjectsController(
         val currentUser = host.getMapCurrentUser()
         val tipoCreador = if (currentUser.tabla == "personal") "PERSONAL" else "USUARIO"
         val idKey = if (currentUser.tabla == "personal") "id_personal" else "id_usuario"
-        val body = """
-            {
-              "nombre": "${nombre.replace("\"", "\\\"")}",
-              "tipo_poi": "$tipoPoi",
-              "latitud": $lat,
-              "longitud": $lon,
-              "color": "$color",
-              "icono_src": ${iconoSrc?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"},
-              "sidc": ${iconoSrc?.takeIf { it.startsWith("S") }?.let { "\"${it.replace("\"", "\\\"")}\"" } ?: "null"},
-              "tipo_creador": "$tipoCreador",
-              "$idKey": ${currentUser.id}
-            }
-        """.trimIndent()
+        val body = JSONObject()
+            .put("nombre", nombre)
+            .put("tipo_poi", tipoPoi)
+            .put("latitud", lat)
+            .put("longitud", lon)
+            .put("color", color)
+            .put("icono_src", iconoSrc ?: JSONObject.NULL)
+            .put("sidc", iconoSrc?.takeIf { it.startsWith("S") } ?: JSONObject.NULL)
+            .put("tipo_creador", tipoCreador)
+            .put(idKey, currentUser.id)
 
         val request = Request.Builder()
             .url("${ApiConfig.BASE_URL}/ops/$operationId/pois")
             .addHeader("Authorization", "Bearer $token")
             .addHeader("Content-Type", "application/json")
-            .post(body.toRequestBody(JSON_MEDIA_TYPE))
+            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
         httpClient.newCall(request).enqueue(object : Callback {
@@ -557,8 +554,18 @@ class MapObjectsController(
         val poiNombre = poi.optString("nombre", nombre)
         val poiTipo = poi.optString("tipo_poi", tipoPoi)
         val poiColor = poi.optString("color", color).ifBlank { color }
-        val poiIconoSrc = resolvePoiIconUrl(poi.optString("icono_src", iconoSrc))
-        val poiSidc = poi.optString("sidc", null).takeUnless { it.isNullOrBlank() || it.equals("null", ignoreCase = true) }
+        val poiIconoRaw = if (poi.has("icono_src") && !poi.isNull("icono_src")) {
+            poi.optString("icono_src")
+        } else {
+            iconoSrc.orEmpty()
+        }
+        val poiIconoSrc = resolvePoiIconUrl(poiIconoRaw)
+        val poiSidc = if (poi.has("sidc") && !poi.isNull("sidc")) {
+            poi.optString("sidc")
+                .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
+        } else {
+            null
+        }
 
         activity.runOnUiThread {
             if (idPoi > 0) {

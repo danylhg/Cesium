@@ -288,6 +288,9 @@ class LoginActivity : AppCompatActivity() {
     private fun showApiAddressDialog() {
         hideKeyboard()
 
+        val defaultRtmpBase = ApiConfig.defaultRtmpPublishBaseUrl(ApiConfig.BASE_URL)
+        val defaultHlsBase = ApiConfig.defaultHlsPlaybackBaseUrl(ApiConfig.BASE_URL)
+
         val inputAddress = EditText(this).apply {
             setText(ApiConfig.BASE_URL)
             hint = "192.168.1.20:3001"
@@ -296,21 +299,34 @@ class LoginActivity : AppCompatActivity() {
             setSelectAllOnFocus(true)
         }
 
+        val inputRtmpAddress = EditText(this).apply {
+            setText(ApiConfig.RTMP_PUBLISH_BASE_URL.takeUnless { it == defaultRtmpBase }.orEmpty())
+            hint = defaultRtmpBase
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            isSingleLine = true
+            setSelectAllOnFocus(true)
+        }
+
+        val inputHlsAddress = EditText(this).apply {
+            setText(ApiConfig.HLS_PLAYBACK_BASE_URL.takeUnless { it == defaultHlsBase }.orEmpty())
+            hint = defaultHlsBase
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            isSingleLine = true
+            setSelectAllOnFocus(true)
+        }
+
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(8), dp(20), 0)
-            addView(
-                inputAddress,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT
-                )
-            )
+
+            addLabeledInput("API", inputAddress)
+            addLabeledInput("RTMP opcional", inputRtmpAddress)
+            addLabeledInput("HLS opcional", inputHlsAddress)
         }
 
         val dialog = AlertDialog.Builder(this)
-            .setTitle("Direccion del servidor")
-            .setMessage("Ingresa la IP o URL de la API. Si escribes solo la IP, se usara el puerto 3001.")
+            .setTitle("Direcciones del servidor")
+            .setMessage("Ingresa la IP o URL de la API. Android transmite por WebRTC; RTMP/HLS solo se usan si configuras un flujo externo.")
             .setView(content)
             .setNegativeButton("Cancelar", null)
             .setPositiveButton("Guardar", null)
@@ -318,17 +334,27 @@ class LoginActivity : AppCompatActivity() {
 
         dialog.setOnShowListener {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val normalizedUrl = try {
-                    ApiConfig.saveBaseUrl(this, inputAddress.text.toString())
+                val urls = try {
+                    ApiConfig.saveServerUrls(
+                        this,
+                        inputAddress.text.toString(),
+                        inputRtmpAddress.text.toString(),
+                        inputHlsAddress.text.toString()
+                    )
                 } catch (e: IllegalArgumentException) {
-                    inputAddress.error = e.message
+                    val message = e.message
+                    when {
+                        message?.contains("RTMP", ignoreCase = true) == true -> inputRtmpAddress.error = message
+                        message?.contains("HLS", ignoreCase = true) == true -> inputHlsAddress.error = message
+                        else -> inputAddress.error = message
+                    }
                     return@setOnClickListener
                 }
 
                 currentCall?.cancel()
                 setLoading(false)
                 tvError.visibility = View.GONE
-                Toast.makeText(this, "Direccion guardada: $normalizedUrl", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Servidor guardado: ${urls.apiBaseUrl}", Toast.LENGTH_SHORT).show()
                 dialog.dismiss()
             }
         }
@@ -336,6 +362,29 @@ class LoginActivity : AppCompatActivity() {
         dialog.show()
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE)
         inputAddress.requestFocus()
+    }
+
+    private fun LinearLayout.addLabeledInput(label: String, input: EditText) {
+        addView(
+            TextView(context).apply {
+                text = label
+                textSize = 12f
+                alpha = 0.75f
+            },
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = dp(8)
+            }
+        )
+        addView(
+            input,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
     }
 
     private fun setLoading(loading: Boolean) {
