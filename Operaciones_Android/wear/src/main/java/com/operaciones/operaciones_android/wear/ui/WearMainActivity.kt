@@ -152,10 +152,7 @@ class WearMainActivity : Activity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
-        startLocationUpdates()
-        startMotionSensors()
-        startHeartRateIfPossible()
-        startEmergencyMonitorIfPossible()
+        if (WearSession.isLoggedIn(this)) startWearRuntime()
     }
 
     override fun onPause() {
@@ -179,10 +176,7 @@ class WearMainActivity : Activity(), SensorEventListener {
             if (hasPermission(Manifest.permission.RECORD_AUDIO)) startVoiceRecording()
             return
         }
-        startLocationUpdates()
-        startMotionSensors()
-        startHeartRateIfPossible()
-        startEmergencyMonitorIfPossible()
+        if (WearSession.isLoggedIn(this)) startWearRuntime()
         if (activePanel == Panel.VITALES) renderActivePanel()
     }
 
@@ -208,7 +202,6 @@ class WearMainActivity : Activity(), SensorEventListener {
         content.addView(passwordInput)
 
         content.addView(proButton("ENTRAR", 136, C_GREEN, C_GREEN_DARK) { attemptLogin() })
-        content.addView(proButton("SALIR", 136, C_RED, C_RED_DARK) { exitApplication() })
         statusText = mutedText("listo", 7f)
         content.addView(statusText)
         setCenteredContent(content)
@@ -254,6 +247,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                 }
             }
         ))
+        container.addView(proButton("SALIR", 176, C_RED, C_RED_DARK) { logout() })
     }
 
     private fun renderVitalsPanel(container: LinearLayout) {
@@ -352,6 +346,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                             toast("Sesion iniciada")
                             activePanel = Panel.OPERACION
                             renderHome()
+                            startWearRuntime()
                         }
                     },
                     onError = { error ->
@@ -360,6 +355,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                             toast(error)
                             activePanel = Panel.OPERACION
                             renderHome()
+                            startWearRuntime()
                         }
                     }
                 )
@@ -780,11 +776,21 @@ class WearMainActivity : Activity(), SensorEventListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
-    private fun exitApplication() {
-        setStatus("cerrando")
+    private fun logout() {
+        setStatus("cerrando sesion")
         stopWearRuntime()
         stopService(Intent(this, WearEmergencyService::class.java))
-        finishAndRemoveTask()
+        WearSession.clear(this)
+        activePanel = Panel.OPERACION
+        resourceSummary = null
+        renderLogin()
+    }
+
+    private fun startWearRuntime() {
+        startLocationUpdates()
+        startMotionSensors()
+        startHeartRateIfPossible()
+        startEmergencyMonitorIfPossible()
     }
 
     private fun stopWearRuntime() {
@@ -935,7 +941,6 @@ class WearMainActivity : Activity(), SensorEventListener {
                 gravity = Gravity.CENTER
             })
             addView(mutedText(WearSession.operation(context)?.status?.name ?: "SIN OPERACION", 8f))
-            addView(proButton("SALIR", 68, C_RED, C_RED_DARK) { exitApplication() })
         }
 
     private fun bottomNav(): LinearLayout =
