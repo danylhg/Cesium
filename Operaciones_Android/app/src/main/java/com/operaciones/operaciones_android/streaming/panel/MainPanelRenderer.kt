@@ -1,6 +1,7 @@
 package com.operaciones.operaciones_android.ui.panel
 
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.EditText
 import android.widget.FrameLayout
 import androidx.recyclerview.widget.RecyclerView
@@ -23,7 +24,8 @@ data class ChatChannelSelection(
 data class ChatPanelRefs(
     val recyclerView: RecyclerView,
     val adapter: ChatAdapter,
-    val input: EditText
+    val input: EditText,
+    val emptyState: View
 )
 
 class MainPanelRenderer(
@@ -81,9 +83,10 @@ class MainPanelRenderer(
         messages: MutableList<ChatMessage>,
         currentUser: User,
         personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>,
         onFilterChanged: (ChatChannelSelection) -> Unit = {}
     ): ChatPanelRefs =
-        chatRenderer.inflate(panelContent, messages, currentUser, personalList, onFilterChanged)
+        chatRenderer.inflate(panelContent, messages, currentUser, personalList, vehiculosList, onFilterChanged)
 
     fun inflatePersonalPanel(
         panelContent: FrameLayout,

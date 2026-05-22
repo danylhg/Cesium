@@ -4,6 +4,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
@@ -20,6 +21,7 @@ import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.model.VehiculoItem
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
 
 internal class ChatPanelRenderer(
@@ -42,34 +44,43 @@ internal class ChatPanelRenderer(
         val fixedLabel: String? = null
     )
 
+    private data class ChatListEntry(
+        val channel: ChannelDef,
+        val targetIdx: Int
+    )
+
     fun inflate(
         panelContent: FrameLayout,
         messages: MutableList<ChatMessage>,
         currentUser: User,
         personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>,
         onFilterChanged: (ChatChannelSelection) -> Unit = {}
     ): ChatPanelRefs {
         val view = host.getLayoutInflater().inflate(R.layout.panel_chat, panelContent, false)
         panelContent.addView(view)
 
         val chatRecycler = view.findViewById<RecyclerView>(R.id.chatRecycler)
+        val chatEmptyState = view.findViewById<View>(R.id.chatEmptyState)
         val msgInput = view.findViewById<EditText>(R.id.msgInput)
         val sendBtn = view.findViewById<ImageButton>(R.id.sendBtn)
         val voiceBtn = view.findViewById<ImageButton>(R.id.voiceBtn)
         val cameraBtn = view.findViewById<ImageButton>(R.id.cameraBtn)
         val alertBtn = view.findViewById<View>(R.id.btnAlert)
-        val channelSelector = view.findViewById<View>(R.id.channelSelector)
+        val chatListScreen = view.findViewById<View>(R.id.chatListScreen)
+        val chatListContainer = view.findViewById<LinearLayout>(R.id.chatListContainer)
+        val chatConversationScreen = view.findViewById<View>(R.id.chatConversationScreen)
+        val chatBackBtn = view.findViewById<View>(R.id.chatBackBtn)
         val chatAvatar = view.findViewById<TextView>(R.id.chatAvatar)
         val chatTitle = view.findViewById<TextView>(R.id.chatTitle)
         val chatSubtitle = view.findViewById<TextView>(R.id.chatSubtitle)
-        val destBtn = view.findViewById<TextView>(R.id.destBtn)
 
         val chatAdapter = ChatAdapter(messages)
         chatRecycler.layoutManager = LinearLayoutManager(view.context).apply { stackFromEnd = true }
         chatRecycler.adapter = chatAdapter
         if (messages.isNotEmpty()) chatRecycler.scrollToPosition(messages.size - 1)
 
-        val channelDefs = buildChannelDefs(currentUser, personalList)
+        val channelDefs = buildChannelDefs(currentUser, personalList, vehiculosList)
         var selectedChannel = channelDefs.first()
         var selectedTargetIdx = 0
 
@@ -105,7 +116,6 @@ internal class ChatPanelRenderer(
             } else {
                 selectedChannel.label
             }
-            destBtn.text = "Chats"
         }
 
         fun send(text: String, isAlert: Boolean) {
@@ -120,27 +130,25 @@ internal class ChatPanelRenderer(
             )
         }
 
-        fun openChannelPicker() {
-            openChannelPicker(
-                anchorView = view,
-                channelDefs = channelDefs,
-                selectedChannel = selectedChannel,
-                selectedTargetIdx = selectedTargetIdx
-            ) { channel, targetIdx ->
-                selectedChannel = channel
-                selectedTargetIdx = targetIdx
-                updateConversationHeader()
-                onFilterChanged(currentSelection())
-            }
+        fun showChatList() {
+            chatConversationScreen.visibility = View.GONE
+            chatListScreen.visibility = View.VISIBLE
         }
 
-        if (channelDefs.size <= 1) {
-            destBtn.visibility = View.GONE
-        } else {
-            channelSelector.visibility = View.VISIBLE
-            destBtn.setOnClickListener { openChannelPicker() }
+        fun openConversation(entry: ChatListEntry) {
+            selectedChannel = entry.channel
+            selectedTargetIdx = entry.targetIdx
+            updateConversationHeader()
+            onFilterChanged(currentSelection())
+            chatListScreen.visibility = View.GONE
+            chatConversationScreen.visibility = View.VISIBLE
+            if (messages.isNotEmpty()) chatRecycler.scrollToPosition(messages.size - 1)
         }
+
+        populateChatList(chatListContainer, channelDefs, ::openConversation)
+        chatBackBtn.setOnClickListener { showChatList() }
         updateConversationHeader()
+        showChatList()
 
         bindSendButtons(msgInput, sendBtn, alertBtn, ::send)
         bindAttachmentButtons(voiceBtn, cameraBtn) { source ->
@@ -156,37 +164,42 @@ internal class ChatPanelRenderer(
         bindQuickReplies(view, ::send, msgInput)
         onFilterChanged(currentSelection())
 
-        return ChatPanelRefs(recyclerView = chatRecycler, adapter = chatAdapter, input = msgInput)
+        return ChatPanelRefs(
+            recyclerView = chatRecycler,
+            adapter = chatAdapter,
+            input = msgInput,
+            emptyState = chatEmptyState
+        )
     }
 
     private fun buildChannelDefs(
         currentUser: User,
-        personalList: List<PersonalItem>
+        personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>
     ): List<ChannelDef> {
         val cuts = roleTargets(personalList, "CUT")
-        val cets = roleTargets(personalList, "CET")
-        val cells = roleTargets(personalList, "CELL")
-        val flotillas = flotillaTargets(personalList)
-        val grupos = groupTargets(personalList)
+        val myVehicles = currentVehicleTargets(currentUser, vehiculosList)
+        val myCellFlotilla = currentCellFlotillaTargets(currentUser, personalList)
+        val myCellGroups = currentCellGroupTargets(currentUser, personalList)
+        val myCellCets = currentCellCetTargets(currentUser, personalList)
+        val myCetFlotilla = currentCetFlotillaTargets(currentUser, personalList)
+        val myCetGroups = currentCetGroupTargets(currentUser, personalList)
 
         val rawDefs = when (currentUser.rol.name.uppercase()) {
             "CET" -> listOf(
                 ChannelDef("GLOBAL", "Todos", "Operacion completa", "T", emptyList(), "GLOBAL", null),
-                ChannelDef("CUTS", "Todos los CUT", "Mandos CUT", "C", emptyList(), "CUT", "CUTS", "ALL", "Todos los CUT"),
-                ChannelDef("CUT_SPECIFIC", "CUT", "Un mando operativo", "C", cuts, "CUT", "CUT"),
+                ChannelDef("VEHICULO", "Mi vehiculo", "Ocupantes detectados", "V", myVehicles, "CELL,CET", "CELL_LIST"),
+                ChannelDef("FLOTILLA", "Mi flotilla", "CET y celulas", "F", myCetFlotilla, "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO", "Grupos", "Grupos de mi flotilla", "G", myCetGroups, "CELL,CET", "GRUPO"),
                 ChannelDef("CETS", "Todos los CET", "Mandos CET", "C", emptyList(), "CET", "CETS", "ALL", "Todos los CET"),
-                ChannelDef("CET_SPECIFIC", "CET", "Un coordinador", "C", cets, "CET", "CET"),
-                ChannelDef("CELL_SPECIFIC", "Personal especifico", "Una persona", "P", cells, "CELL", "CELL"),
-                ChannelDef("FLOTILLA", "Flotilla", "CET e integrantes", "F", flotillas, "CELL,CET", "FLOTILLA"),
-                ChannelDef("GRUPO", "Grupo", "Integrantes del grupo", "G", grupos, "CELL,CET", "GRUPO")
+                ChannelDef("MY_CUT", "CUT / Admin", "Mando directo", "C", cuts, "CUT", "CUT")
             )
             "CELL" -> listOf(
                 ChannelDef("GLOBAL", "Todos", "Operacion completa", "T", emptyList(), "GLOBAL", null),
-                ChannelDef("CETS", "Todos los CET", "Mandos CET", "C", emptyList(), "CET", "CETS", "ALL", "Todos los CET"),
-                ChannelDef("CET_SPECIFIC", "CET", "Un coordinador", "C", cets, "CET", "CET"),
-                ChannelDef("CELL_SPECIFIC", "Personal especifico", "Una persona", "P", cells, "CELL", "CELL"),
-                ChannelDef("FLOTILLA", "Flotilla", "CET e integrantes", "F", flotillas, "CELL,CET", "FLOTILLA"),
-                ChannelDef("GRUPO", "Grupo", "Integrantes del grupo", "G", grupos, "CELL,CET", "GRUPO")
+                ChannelDef("VEHICULO", "Mi vehiculo", "Ocupantes detectados", "V", myVehicles, "CELL,CET", "CELL_LIST"),
+                ChannelDef("FLOTILLA", "Celulas y CET", "Mi flotilla", "F", myCellFlotilla, "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO", "Mi grupo", "Integrantes del grupo", "G", myCellGroups, "CELL,CET", "GRUPO"),
+                ChannelDef("MY_CET", "Mi CET", "Chat directo", "C", myCellCets, "CET", "CET")
             )
             else -> listOf(ChannelDef("GLOBAL", "Todos", "Operacion completa", "T", emptyList(), "GLOBAL", null))
         }
@@ -236,7 +249,13 @@ internal class ChatPanelRenderer(
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
+        var lastGroup = ""
         channelDefs.forEach { channel ->
+            val group = channelGroup(channel)
+            if (group != lastGroup) {
+                channelList.addView(channelGroupTitle(anchorView, group))
+                lastGroup = group
+            }
             val row = channelRow(anchorView, channel)
             row.setOnClickListener {
                 tempChannel = channel
@@ -260,10 +279,73 @@ internal class ChatPanelRenderer(
         sheet.show()
     }
 
+    private fun channelGroup(channel: ChannelDef): String = when (channel.type) {
+        "CUT_SPECIFIC", "CET_SPECIFIC", "CELL_SPECIFIC", "MY_CET", "MY_CUT" -> "Personal especifico"
+        else -> "Grupales"
+    }
+
+    private fun populateChatList(
+        container: LinearLayout,
+        channelDefs: List<ChannelDef>,
+        onOpen: (ChatListEntry) -> Unit
+    ) {
+        container.removeAllViews()
+        var lastGroup = ""
+
+        chatListEntries(channelDefs).forEach { entry ->
+            val group = channelGroup(entry.channel)
+            if (group != lastGroup) {
+                container.addView(channelGroupTitle(container, group))
+                lastGroup = group
+            }
+
+            container.addView(chatEntryRow(container, entry).apply {
+                setOnClickListener { onOpen(entry) }
+            })
+        }
+    }
+
+    private fun chatListEntries(channelDefs: List<ChannelDef>): List<ChatListEntry> =
+        channelDefs.flatMap { channel ->
+            if (channel.targets.isEmpty()) {
+                listOf(ChatListEntry(channel, 0))
+            } else {
+                channel.targets.indices.map { targetIdx -> ChatListEntry(channel, targetIdx) }
+            }
+        }
+
+    private fun chatEntryTitle(entry: ChatListEntry): String =
+        entry.channel.targets.getOrNull(entry.targetIdx)?.label
+            ?: entry.channel.fixedLabel
+            ?: entry.channel.label
+
+    private fun chatEntrySubtitle(entry: ChatListEntry): String =
+        if (entry.channel.targets.isEmpty()) {
+            entry.channel.subtitle
+        } else {
+            "${entry.channel.label} - ${entry.channel.subtitle}"
+        }
+
+    private fun channelGroupTitle(anchorView: View, text: String): TextView {
+        val density = anchorView.context.resources.displayMetrics.density
+        return TextView(anchorView.context).apply {
+            this.text = text.uppercase()
+            textSize = 11f
+            typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.parseColor("#9FB3BF"))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply {
+                setMargins((18 * density).toInt(), (10 * density).toInt(), (18 * density).toInt(), (2 * density).toInt())
+            }
+        }
+    }
+
     private fun makeSpinnerAdapter(anchorView: View, items: List<String>) =
         object : ArrayAdapter<String>(anchorView.context, android.R.layout.simple_spinner_item, items) {
-            private val txClr = Color.parseColor("#e2e8f0")
-            private val bgClr = Color.parseColor("#1e293b")
+            private val txClr = Color.parseColor("#EEFFF9")
+            private val bgClr = Color.parseColor("#18302E")
 
             override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
                 (super.getView(position, convertView, parent) as TextView).apply {
@@ -286,7 +368,7 @@ internal class ChatPanelRenderer(
         val row = LinearLayout(anchorView.context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
-            setPadding((14 * density).toInt(), (12 * density).toInt(), (14 * density).toInt(), (12 * density).toInt())
+            setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
             isClickable = true
             isFocusable = true
             background = anchorView.context.getDrawable(R.drawable.bg_chat_row)
@@ -297,7 +379,7 @@ internal class ChatPanelRenderer(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply {
-                setMargins((12 * density).toInt(), (5 * density).toInt(), (12 * density).toInt(), (5 * density).toInt())
+                setMargins((12 * density).toInt(), (2 * density).toInt(), (12 * density).toInt(), (2 * density).toInt())
             }
         }
 
@@ -306,7 +388,7 @@ internal class ChatPanelRenderer(
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
             gravity = android.view.Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(Color.parseColor("#00F0A8"))
             background = anchorView.context.getDrawable(R.drawable.bg_chat_avatar)
             layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
         }
@@ -322,7 +404,7 @@ internal class ChatPanelRenderer(
             text = channel.label
             textSize = 14f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#e2e8f0"))
+            setTextColor(Color.parseColor("#EEFFF9"))
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
@@ -335,7 +417,7 @@ internal class ChatPanelRenderer(
         val subtitle = TextView(anchorView.context).apply {
             text = subtitleText
             textSize = 11f
-            setTextColor(Color.parseColor("#94a3b8"))
+            setTextColor(Color.parseColor("#9FB3BF"))
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
@@ -347,13 +429,21 @@ internal class ChatPanelRenderer(
         return row
     }
 
+    private fun chatEntryRow(anchorView: View, entry: ChatListEntry): LinearLayout {
+        val row = channelRow(anchorView, entry.channel)
+        val textBox = row.getChildAt(1) as? LinearLayout ?: return row
+        (textBox.getChildAt(0) as? TextView)?.text = chatEntryTitle(entry)
+        (textBox.getChildAt(1) as? TextView)?.text = chatEntrySubtitle(entry)
+        return row
+    }
+
     private fun setChannelRowSelected(row: LinearLayout, selected: Boolean) {
         row.setBackgroundResource(if (selected) R.drawable.bg_chat_row_selected else R.drawable.bg_chat_row)
         val textBox = row.getChildAt(1) as? LinearLayout ?: return
         val title = textBox.getChildAt(0) as? TextView
         val subtitle = textBox.getChildAt(1) as? TextView
-        title?.setTextColor(if (selected) Color.WHITE else Color.parseColor("#e2e8f0"))
-        subtitle?.setTextColor(if (selected) Color.parseColor("#7dd3fc") else Color.parseColor("#94a3b8"))
+        title?.setTextColor(if (selected) Color.parseColor("#00F0A8") else Color.parseColor("#EEFFF9"))
+        subtitle?.setTextColor(if (selected) Color.parseColor("#D6FFF2") else Color.parseColor("#9FB3BF"))
     }
 
     private fun bindSendButtons(
@@ -368,6 +458,16 @@ internal class ChatPanelRenderer(
                 send(text, false)
                 input.text.clear()
             }
+        }
+
+        input.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId != EditorInfo.IME_ACTION_SEND) return@setOnEditorActionListener false
+            val text = input.text.toString().trim()
+            if (text.isNotEmpty()) {
+                send(text, false)
+                input.text.clear()
+            }
+            true
         }
 
         alertBtn.setOnClickListener {
@@ -418,29 +518,133 @@ internal class ChatPanelRenderer(
             .map { TargetEntry(it.idPersonal.toString(), personName(it)) }
             .sortedBy { it.label }
 
-    private fun flotillaTargets(personalList: List<PersonalItem>): List<TargetEntry> =
-        personalList
-            .mapNotNull { flotillaTarget(it) }
+    private fun currentCellFlotillaTargets(
+        currentUser: User,
+        personalList: List<PersonalItem>
+    ): List<TargetEntry> =
+        currentCell(currentUser, personalList)
+            ?.let(::flotillaTarget)
+            ?.let(::listOf)
+            .orEmpty()
+
+    private fun currentCellGroupTargets(
+        currentUser: User,
+        personalList: List<PersonalItem>
+    ): List<TargetEntry> =
+        currentCell(currentUser, personalList)
+            ?.let(::groupTarget)
+            ?.let(::listOf)
+            .orEmpty()
+
+    private fun currentCetFlotillaTargets(
+        currentUser: User,
+        personalList: List<PersonalItem>
+    ): List<TargetEntry> =
+        currentCet(currentUser, personalList)
+            ?.let(::flotillaTarget)
+            ?.let(::listOf)
+            .orEmpty()
+
+    private fun currentCetGroupTargets(
+        currentUser: User,
+        personalList: List<PersonalItem>
+    ): List<TargetEntry> =
+        cellsForCet(currentUser, personalList)
+            .mapNotNull(::groupTarget)
             .distinctBy { it.id.ifBlank { it.label.trim().lowercase() } }
             .sortedBy { it.label }
 
-    private fun groupTargets(personalList: List<PersonalItem>): List<TargetEntry> =
-        personalList
-            .mapNotNull { person ->
-                val padre = person.grupoPadreNombre.trim()
-                val grupo = person.grupoNombre.trim()
-                if (
-                    grupo.isNotBlank() &&
-                    padre.isNotBlank() &&
-                    !padre.equals("Mando Operativo", ignoreCase = true)
-                ) {
-                    TargetEntry(person.idGrupoOperacion?.toString() ?: grupo, "$grupo ($padre)")
-                } else {
-                    null
-                }
+    private fun currentCellCetTargets(
+        currentUser: User,
+        personalList: List<PersonalItem>
+    ): List<TargetEntry> {
+        val cell = currentCell(currentUser, personalList) ?: return emptyList()
+        val assignedCet = normalizeName(cell.cetNombre)
+        if (assignedCet.isBlank()) return emptyList()
+
+        return personalList
+            .filter { person ->
+                person.rol.equals("CET", ignoreCase = true) &&
+                    assignedCet in cetNames(person)
             }
-            .distinctBy { it.id.ifBlank { it.label.trim().lowercase() } }
+            .map { TargetEntry(it.idPersonal.toString(), personName(it)) }
+            .distinctBy { it.id }
             .sortedBy { it.label }
+    }
+
+    private fun currentCell(currentUser: User, personalList: List<PersonalItem>): PersonalItem? =
+        personalList.firstOrNull {
+            it.idPersonal == currentUser.id && it.rol.equals("CELL", ignoreCase = true)
+        }
+
+    private fun currentCet(currentUser: User, personalList: List<PersonalItem>): PersonalItem? =
+        personalList.firstOrNull {
+            it.idPersonal == currentUser.id && it.rol.equals("CET", ignoreCase = true)
+        }
+
+    private fun cellsForCet(currentUser: User, personalList: List<PersonalItem>): List<PersonalItem> {
+        val cet = currentCet(currentUser, personalList) ?: return emptyList()
+        val aliases = cetNames(cet)
+        if (aliases.isEmpty()) return emptyList()
+
+        return personalList.filter { person ->
+            person.rol.equals("CELL", ignoreCase = true) &&
+                normalizeName(person.cetNombre) in aliases
+        }
+    }
+
+    private fun cetNames(person: PersonalItem): Set<String> =
+        setOf(
+            normalizeName(personName(person)),
+            normalizeName("${person.nombre} ${person.apellido}")
+        ).filterTo(linkedSetOf()) { it.isNotBlank() }
+
+    private fun groupTarget(person: PersonalItem): TargetEntry? {
+        val padre = person.grupoPadreNombre.trim()
+        val grupo = person.grupoNombre.trim()
+        if (
+            grupo.isBlank() ||
+            padre.isBlank() ||
+            padre.equals("Mando Operativo", ignoreCase = true)
+        ) {
+            return null
+        }
+
+        return TargetEntry(person.idGrupoOperacion?.toString() ?: grupo, "$grupo ($padre)")
+    }
+
+    private fun vehicleTargets(vehiculosList: List<VehiculoItem>): List<TargetEntry> =
+        vehiculosList
+            .filter { it.idVehiculo > 0 && it.idPersonalAsignado != null }
+            .groupBy { it.idVehiculo }
+            .mapNotNull { (_, assignments) ->
+                val first = assignments.firstOrNull() ?: return@mapNotNull null
+                val occupantIds = assignments
+                    .mapNotNull { it.idPersonalAsignado }
+                    .filter { it > 0 }
+                    .distinct()
+                if (occupantIds.isEmpty()) return@mapNotNull null
+
+                val label = first.alias.ifBlank { first.codigoInterno }
+                    .ifBlank { first.nombre }
+                    .ifBlank { "Vehiculo ${first.idVehiculo}" }
+                TargetEntry(occupantIds.joinToString(","), label)
+            }
+            .sortedBy { it.label }
+
+    private fun currentVehicleTargets(
+        currentUser: User,
+        vehiculosList: List<VehiculoItem>
+    ): List<TargetEntry> {
+        val myVehicleIds = vehiculosList
+            .filter { it.idPersonalAsignado == currentUser.id }
+            .map { it.idVehiculo }
+            .filter { it > 0 }
+            .toSet()
+
+        if (myVehicleIds.isEmpty()) return emptyList()
+        return vehicleTargets(vehiculosList.filter { it.idVehiculo in myVehicleIds })
+    }
 
     private fun flotillaTarget(person: PersonalItem): TargetEntry? {
         val padre = person.grupoPadreNombre.trim()
@@ -465,4 +669,6 @@ internal class ChatPanelRenderer(
 
     private fun personName(person: PersonalItem): String =
         person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
+
+    private fun normalizeName(value: String): String = value.trim().lowercase()
 }
