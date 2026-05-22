@@ -12,6 +12,7 @@ import { sendDbError } from "../../utils/dbErrors.js";
 
 // Helper para validar enteros
 import { isInt } from "../../utils/validators.js";
+import { ensureExtendedTrackingSchema } from "../../utils/trackingSchema.js";
 
 // Crea el router que se exportará al final
 const router = Router();
@@ -504,6 +505,8 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureExtendedTrackingSchema();
+
     const { rows } = await pool.query(
       `WITH personal_ctx AS (
          SELECT DISTINCT ON (p.id_personal)
@@ -576,7 +579,14 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
          per_ctx.grupo_nombre AS personal_grupo_nombre,
          per_ctx.grupo_padre_nombre AS personal_flotilla_nombre,
          veh_ctx.flotillas_vinculadas,
-         veh_ctx.grupos_vinculados
+         veh_ctx.grupos_vinculados,
+         te.latitud,
+         te.longitud,
+         te.altitud,
+         te.velocidad_kmh,
+         te.rumbo_grados,
+         te.precision_m,
+         te.ultima_actualizacion
        FROM operacion_equipo oe
        JOIN equipo e ON e.id_equipo = oe.id_equipo
        LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
@@ -634,6 +644,9 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
            AND vo2.id_vehiculo = ueo.id_vehiculo_contexto
            AND vo2.estado_asignacion NOT IN ('LIBERADO')
        ) veh_ctx ON TRUE
+       LEFT JOIN v_ultima_posicion_equipo te
+         ON te.id_operacion = oe.id_operacion
+        AND te.id_equipo = oe.id_equipo
        WHERE oe.id_operacion = $1
          AND oe.estado_asignacion != 'LIBERADO'
        ORDER BY
@@ -669,6 +682,8 @@ router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureExtendedTrackingSchema();
+
     const { rows } = await pool.query(
       `SELECT
          od.id_operacion,
@@ -689,10 +704,21 @@ router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
          od.estado_asignacion,
          od.fecha_asignacion,
          od.fecha_devolucion,
-         od.estado_operacion_creacion
+         od.estado_operacion_creacion,
+         td.latitud,
+         td.longitud,
+         td.altitud,
+         td.velocidad_kmh,
+         td.rumbo_grados,
+         td.precision_m,
+         td.bateria_pct,
+         td.ultima_actualizacion
        FROM operacion_dispositivo od
        JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
        JOIN personal p ON p.id_personal = od.id_personal
+       LEFT JOIN v_ultima_posicion_dispositivo td
+         ON td.id_operacion = od.id_operacion
+        AND td.id_dispositivo = od.id_dispositivo
        WHERE od.id_operacion = $1
          AND od.estado_asignacion = 'ASIGNADO'
          AND od.fecha_devolucion IS NULL

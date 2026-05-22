@@ -31,6 +31,7 @@ import { sendDbError } from "../utils/dbErrors.js";
 import { isInt } from "../utils/validators.js";
 import { getActorFromRequest, logOperacionEvento } from "../utils/timeline.js";
 import { ensureGridSchema, fetchOperationGrid, normalizeGridPayload } from "../utils/grid.js";
+import { ensureExtendedTrackingSchema } from "../utils/trackingSchema.js";
 
 // Crea la instancia del router
 const router = Router();
@@ -979,6 +980,8 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureExtendedTrackingSchema();
+
     // Ejecuta todas las consultas en paralelo
     const [
       operacionRes,
@@ -988,6 +991,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       personalRes,
       vehiculosRes,
       equiposRes,
+      dispositivosRes,
       rutasNavegacionRes,
       grid
     ] = await Promise.all([
@@ -1323,7 +1327,14 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             per_ctx.grupo_nombre AS personal_grupo_nombre,
             per_ctx.grupo_padre_nombre AS personal_flotilla_nombre,
             veh_ctx.flotillas_vinculadas,
-            veh_ctx.grupos_vinculados
+            veh_ctx.grupos_vinculados,
+            te.latitud,
+            te.longitud,
+            te.altitud,
+            te.velocidad_kmh,
+            te.rumbo_grados,
+            te.precision_m,
+            te.ultima_actualizacion
           FROM operacion_equipo oe
           JOIN equipo e ON e.id_equipo = oe.id_equipo
           LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
@@ -1353,6 +1364,9 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
               AND vo2.id_vehiculo = ueo.id_vehiculo_contexto
               AND vo2.estado_asignacion NOT IN ('LIBERADO')
           ) veh_ctx ON TRUE
+          LEFT JOIN v_ultima_posicion_equipo te
+            ON te.id_operacion = oe.id_operacion
+           AND te.id_equipo = oe.id_equipo
 
           -- Solo equipo no liberado
           WHERE oe.id_operacion = $1 AND oe.estado_asignacion != 'LIBERADO'
@@ -1364,6 +1378,51 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
             END,
             e.nombre,
             e.numero_serie`,
+        [id_operacion]
+      ),
+
+      // -------------------------------------------------
+      // 6b) Dispositivos asignados con ultima posicion
+      // -------------------------------------------------
+      pool.query(
+        `SELECT
+           od.id_operacion,
+           od.id_dispositivo,
+           d.tipo,
+           d.marca,
+           d.modelo,
+           d.numero_telefono,
+           d.imei,
+           d.numero_serie,
+           d.sistema_operativo,
+           d.estado AS dispositivo_estado,
+           od.id_personal,
+           p.apodo AS personal_apodo,
+           p.nombre AS personal_nombre,
+           p.apellido AS personal_apellido,
+           p.puesto AS personal_puesto,
+           od.estado_asignacion,
+           od.fecha_asignacion,
+           od.fecha_devolucion,
+           od.estado_operacion_creacion,
+           td.latitud,
+           td.longitud,
+           td.altitud,
+           td.velocidad_kmh,
+           td.rumbo_grados,
+           td.precision_m,
+           td.bateria_pct,
+           td.ultima_actualizacion
+         FROM operacion_dispositivo od
+         JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
+         JOIN personal p ON p.id_personal = od.id_personal
+         LEFT JOIN v_ultima_posicion_dispositivo td
+           ON td.id_operacion = od.id_operacion
+          AND td.id_dispositivo = od.id_dispositivo
+         WHERE od.id_operacion = $1
+           AND od.estado_asignacion = 'ASIGNADO'
+           AND od.fecha_devolucion IS NULL
+         ORDER BY d.tipo, d.marca, d.modelo, d.numero_serie NULLS LAST`,
         [id_operacion]
       ),
 
@@ -1443,6 +1502,7 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
       personal: personalRes.rows,
       vehiculos: vehiculosRes.rows,
       equipos: equiposRes.rows,
+      dispositivos: dispositivosRes.rows,
       rutas_navegacion: rutasNavegacionRes.rows,
       cuadricula_operacion: grid,
       grid

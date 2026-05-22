@@ -285,6 +285,8 @@ function streamToCamera(stream) {
     streamId: Number(stream.id_stream),
     operationId: Number(stream.id_operacion),
     personnelId: stream.id_personal != null ? Number(stream.id_personal) : null,
+    equipoId: stream.id_equipo != null ? Number(stream.id_equipo) : null,
+    dispositivoId: stream.id_dispositivo != null ? Number(stream.id_dispositivo) : null,
     userId: stream.id_usuario != null ? Number(stream.id_usuario) : null,
     name: stream.label || `Stream ${stream.id_stream}`,
     protocol,
@@ -347,6 +349,12 @@ function getCameraNameKey(data = {}) {
 function getCameraPlaybackKey(camera = {}) {
   const personnelId = camera.personnelId ?? camera.id_personal;
   if (personnelId != null && personnelId !== "") return `person:${personnelId}`;
+
+  const equipoId = camera.equipoId ?? camera.id_equipo;
+  if (equipoId != null && equipoId !== "") return `equipo:${equipoId}`;
+
+  const dispositivoId = camera.dispositivoId ?? camera.id_dispositivo;
+  if (dispositivoId != null && dispositivoId !== "") return `dispositivo:${dispositivoId}`;
 
   const userId = camera.userId ?? camera.id_usuario;
   if (userId != null && userId !== "") return `user:${userId}`;
@@ -475,6 +483,8 @@ function getPlaybackGroup(playbackKey, create = true) {
       operationId: activeOperationId || null,
       operationKey: getOperationStorageKey(),
       personnelId: null,
+      equipoId: null,
+      dispositivoId: null,
       userId: null,
       externalDeviceId: "",
       sourceType: "ANDROID",
@@ -494,6 +504,16 @@ function sameCameraIdentity(group, data = {}) {
 
   const personnelId = data.personnelId ?? data.id_personal;
   if (personnelId != null && group.personnelId != null && String(personnelId) === String(group.personnelId)) {
+    return true;
+  }
+
+  const equipoId = data.equipoId ?? data.id_equipo;
+  if (equipoId != null && group.equipoId != null && String(equipoId) === String(group.equipoId)) {
+    return true;
+  }
+
+  const dispositivoId = data.dispositivoId ?? data.id_dispositivo;
+  if (dispositivoId != null && group.dispositivoId != null && String(dispositivoId) === String(group.dispositivoId)) {
     return true;
   }
 
@@ -532,6 +552,8 @@ function mergePlaybackGroups(sourceKey, targetKey) {
   target.operationId = target.operationId || source.operationId;
   target.operationKey = target.operationKey || source.operationKey;
   target.personnelId = target.personnelId ?? source.personnelId;
+  target.equipoId = target.equipoId ?? source.equipoId;
+  target.dispositivoId = target.dispositivoId ?? source.dispositivoId;
   target.userId = target.userId ?? source.userId;
   target.externalDeviceId = target.externalDeviceId || source.externalDeviceId;
   target.sourceType = target.sourceType || source.sourceType;
@@ -570,6 +592,8 @@ function rememberGroupMetadata(playbackKey, data = {}) {
   group.operationId = Number(data.operationId ?? data.id_operacion ?? group.operationId ?? activeOperationId) || null;
   group.operationKey = data.operationKey || group.operationKey || getOperationStorageKey();
   group.personnelId = data.personnelId ?? data.id_personal ?? group.personnelId ?? null;
+  group.equipoId = data.equipoId ?? data.id_equipo ?? group.equipoId ?? null;
+  group.dispositivoId = data.dispositivoId ?? data.id_dispositivo ?? group.dispositivoId ?? null;
   group.userId = data.userId ?? data.id_usuario ?? group.userId ?? null;
   group.externalDeviceId = data.externalDeviceId ?? data.external_device_id ?? group.externalDeviceId ?? "";
   group.sourceType = data.sourceType || data.source_type || group.sourceType || "ANDROID";
@@ -610,6 +634,8 @@ function rememberCameraMetadata(camera = {}) {
     streamId,
     operationId: Number(camera.operationId ?? camera.id_operacion ?? previous.operationId ?? activeOperationId) || null,
     personnelId: camera.personnelId ?? camera.id_personal ?? previous.personnelId ?? null,
+    equipoId: camera.equipoId ?? camera.id_equipo ?? previous.equipoId ?? null,
+    dispositivoId: camera.dispositivoId ?? camera.id_dispositivo ?? previous.dispositivoId ?? null,
     userId: camera.userId ?? camera.id_usuario ?? previous.userId ?? null,
     externalDeviceId: camera.externalDeviceId ?? camera.external_device_id ?? previous.externalDeviceId ?? "",
     name: camera.name || camera.label || previous.name || `Stream ${streamId}`,
@@ -628,6 +654,8 @@ function rememberCameraMetadata(camera = {}) {
     archive.cameraName = next.name;
     archive.operationId = next.operationId;
     archive.personnelId = next.personnelId;
+    archive.equipoId = next.equipoId;
+    archive.dispositivoId = next.dispositivoId;
     archive.userId = next.userId;
     archive.externalDeviceId = next.externalDeviceId;
     archive.sourceType = next.sourceType;
@@ -643,12 +671,16 @@ function rememberArchiveItemMetadata(archive, item = {}) {
   archive.operationId = Number(item.operationId ?? archive.operationId ?? activeOperationId) || null;
   archive.operationKey = item.operationKey || archive.operationKey || getOperationStorageKey();
   archive.personnelId = item.personnelId ?? archive.personnelId ?? null;
+  archive.equipoId = item.equipoId ?? archive.equipoId ?? null;
+  archive.dispositivoId = item.dispositivoId ?? archive.dispositivoId ?? null;
   archive.userId = item.userId ?? archive.userId ?? null;
   archive.externalDeviceId = item.externalDeviceId ?? archive.externalDeviceId ?? "";
   archive.sourceType = item.sourceType || archive.sourceType || "ANDROID";
   const metadataPlaybackKey = getCameraPlaybackKey({
     streamId,
     personnelId: archive.personnelId,
+    equipoId: archive.equipoId,
+    dispositivoId: archive.dispositivoId,
     userId: archive.userId,
     externalDeviceId: archive.externalDeviceId,
     cameraName: archive.cameraName
@@ -664,6 +696,8 @@ function rememberArchiveItemMetadata(archive, item = {}) {
     streamId,
     operationId: archive.operationId,
     personnelId: archive.personnelId,
+    equipoId: archive.equipoId,
+    dispositivoId: archive.dispositivoId,
     userId: archive.userId,
     externalDeviceId: archive.externalDeviceId,
     name: archive.cameraName,
@@ -964,11 +998,15 @@ function backendRecordingToArchiveItem(recording, blob, timelineItem) {
     streamId,
     operationId: Number(recording.id_operacion || activeOperationId) || null,
     personnelId: recording.id_personal != null ? Number(recording.id_personal) : null,
+    equipoId: recording.id_equipo != null ? Number(recording.id_equipo) : null,
+    dispositivoId: recording.id_dispositivo != null ? Number(recording.id_dispositivo) : null,
     userId: recording.id_usuario != null ? Number(recording.id_usuario) : null,
     externalDeviceId: recording.external_device_id || "",
     playbackKey: getCameraPlaybackKey({
       streamId,
       id_personal: recording.id_personal,
+      id_equipo: recording.id_equipo,
+      id_dispositivo: recording.id_dispositivo,
       id_usuario: recording.id_usuario,
       external_device_id: recording.external_device_id,
       name: cameraName
@@ -1672,6 +1710,8 @@ function buildLocalArchiveCameraForGroup(group) {
     playbackKey: group.playbackKey,
     operationId: group.operationId || activeOperationId,
     personnelId: group.personnelId ?? null,
+    equipoId: group.equipoId ?? null,
+    dispositivoId: group.dispositivoId ?? null,
     userId: group.userId ?? null,
     externalDeviceId: group.externalDeviceId || "",
     name: `${group.cameraName || "Cámara"} (grabación local)`,

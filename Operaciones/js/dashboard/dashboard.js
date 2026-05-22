@@ -192,6 +192,7 @@ async function loadDashboardFromBD() {
       personal: data.personal || [],
       vehiculos: data.vehiculos || [],
       equipos: data.equipos || [],
+      dispositivos: data.dispositivos || [],
       grid: data.grid || data.cuadricula_operacion || null,
       cuadricula_operacion: data.cuadricula_operacion || data.grid || null,
       _mapaData: data   // para tracking
@@ -366,7 +367,8 @@ window.addEventListener("load", async () => {
       zona_operacion: bdData.zona_operacion || null,
       personal: bdData.personal || [],
       vehiculos: bdData.vehiculos || [],
-      equipos: bdData.equipos || []
+      equipos: bdData.equipos || [],
+      dispositivos: bdData.dispositivos || []
     });
     dashboardState.currentOperation = getCurrentOperation();
     renderInfoPanel(bdData);
@@ -428,7 +430,8 @@ window.addEventListener("load", async () => {
         zona_operacion: fresh.zona_operacion || null,
         personal: fresh.personal || [],
         vehiculos: fresh.vehiculos || [],
-        equipos: fresh.equipos || []
+        equipos: fresh.equipos || [],
+        dispositivos: fresh.dispositivos || []
       });
       dashboardState.currentOperation = getCurrentOperation();
       renderInfoPanel(fresh);

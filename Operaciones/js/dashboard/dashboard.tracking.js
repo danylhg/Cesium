@@ -15,6 +15,8 @@ const opId = () => localStorage.getItem("active_operation_id");
 // ── Iconos / colores ─────────────────────────────────────────
 const COLOR_PERSONAL = Cesium.Color.fromCssColorString("#00BFFF");
 const COLOR_VEHICULO = Cesium.Color.fromCssColorString("#FFD700");
+const COLOR_EQUIPO = Cesium.Color.fromCssColorString("#B4FF39");
+const COLOR_DISPOSITIVO = Cesium.Color.fromCssColorString("#FF8A3D");
 
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
 
@@ -28,6 +30,21 @@ function makeVehiculoLabel(item) {
   const alias = item.alias || "";
   if (codigo && alias) return `${codigo} - ${alias}`;
   return codigo || alias || `V-${item.id_vehiculo}`;
+}
+
+function makeEquipoLabel(item) {
+  const serie = item.numero_serie || "";
+  const nombre = item.nombre || item.tipo_equipo || "";
+  if (serie && nombre) return `${serie} - ${nombre}`;
+  return nombre || serie || `E-${item.id_equipo}`;
+}
+
+function makeDispositivoLabel(item) {
+  const modelo = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
+  const tipo = item.tipo || "Dispositivo";
+  const serie = item.numero_serie || item.imei || item.numero_telefono || "";
+  if (modelo && serie) return `${tipo} ${modelo} - ${serie}`;
+  return modelo || serie || `${tipo}-${item.id_dispositivo}`;
 }
 
 function normalizeCoords(lat, lng) {
@@ -65,6 +82,28 @@ function upsertVehiculoTracking(item) {
 
   upsertTrackingEntity(`V:${item.id_vehiculo}`, coords.lat, coords.lng, makeVehiculoLabel(item), COLOR_VEHICULO, {
     tacticalType: "vehiculo"
+  });
+}
+
+function upsertEquipoTracking(item) {
+  const coords = getCoords(item);
+  if (!coords || item?.id_equipo == null) return;
+
+  upsertTrackingEntity(`E:${item.id_equipo}`, coords.lat, coords.lng, makeEquipoLabel(item), COLOR_EQUIPO, {
+    tacticalType: "equipo",
+    trackingRole: item.categoria || item.tipo_equipo || "",
+    liveData: item
+  });
+}
+
+function upsertDispositivoTracking(item) {
+  const coords = getCoords(item);
+  if (!coords || item?.id_dispositivo == null) return;
+
+  upsertTrackingEntity(`D:${item.id_dispositivo}`, coords.lat, coords.lng, makeDispositivoLabel(item), COLOR_DISPOSITIVO, {
+    tacticalType: "dispositivo",
+    trackingRole: item.tipo || "",
+    liveData: item
   });
 }
 
@@ -143,6 +182,12 @@ export function loadTrackingFromMapaData(mapaData) {
   (mapaData.vehiculos || []).forEach(v => {
     upsertVehiculoTracking(v);
   });
+  (mapaData.equipos || []).forEach(e => {
+    upsertEquipoTracking(e);
+  });
+  (mapaData.dispositivos || []).forEach(d => {
+    upsertDispositivoTracking(d);
+  });
 }
 
 // ── Carga inicial desde /ops/:id/mapa (fallback) ─────────────
@@ -181,6 +226,14 @@ export async function loadTrackingFromBackend() {
       });
     });
 
+    (data.equipos || []).forEach(e => {
+      upsertEquipoTracking(e);
+    });
+
+    (data.dispositivos || []).forEach(d => {
+      upsertDispositivoTracking(d);
+    });
+
   } catch (err) {
     console.error("[TRACKING] Error cargando posiciones iniciales:", err);
   }
@@ -205,17 +258,24 @@ async function fetchTrackingList(path) {
 }
 
 export async function refreshTrackingPositions() {
-  const [personal, vehiculos] = await Promise.all([
+  const [personal, vehiculos, equipos, dispositivos] = await Promise.all([
     fetchTrackingList("/tracking/personal"),
-    fetchTrackingList("/tracking/vehiculos")
+    fetchTrackingList("/tracking/vehiculos"),
+    fetchTrackingList("/tracking/equipos"),
+    fetchTrackingList("/tracking/dispositivos")
   ]);
 
-  if (personal.length || vehiculos.length) {
-    console.log(`[TRACKING] refresh personal=${personal.length} vehiculos=${vehiculos.length}`);
+  if (personal.length || vehiculos.length || equipos.length || dispositivos.length) {
+    console.log(
+      `[TRACKING] refresh personal=${personal.length} vehiculos=${vehiculos.length} ` +
+      `equipos=${equipos.length} dispositivos=${dispositivos.length}`
+    );
   }
 
   personal.forEach(upsertPersonalTracking);
   vehiculos.forEach(upsertVehiculoTracking);
+  equipos.forEach(upsertEquipoTracking);
+  dispositivos.forEach(upsertDispositivoTracking);
 }
 
 export function startTrackingPolling(intervalMs = 5000) {
@@ -236,5 +296,13 @@ export function initTrackingSocket(socket) {
 
   socket.on("tracking_vehiculo", (data) => {
     upsertVehiculoTracking(data);
+  });
+
+  socket.on("tracking_equipo", (data) => {
+    upsertEquipoTracking(data);
+  });
+
+  socket.on("tracking_dispositivo", (data) => {
+    upsertDispositivoTracking(data);
   });
 }

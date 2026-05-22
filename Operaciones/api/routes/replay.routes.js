@@ -5,6 +5,7 @@ import { sendDbError } from "../utils/dbErrors.js";
 import { isInt } from "../utils/validators.js";
 import { ensureTimelineSchema } from "../utils/timeline.js";
 import { fetchOperationGrid } from "../utils/grid.js";
+import { ensureExtendedTrackingSchema } from "../utils/trackingSchema.js";
 
 const router = Router();
 
@@ -78,6 +79,8 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, mensaje: "Operacion no existe" });
     }
 
+    await ensureExtendedTrackingSchema();
+
     const [
       zona,
       eventos,
@@ -86,6 +89,8 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
       novedadesOperacionales,
       trackingPersonal,
       trackingVehiculos,
+      trackingEquipos,
+      trackingDispositivos,
       capas,
       personalAsignado,
       vehiculosAsignados,
@@ -150,6 +155,22 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
            LEFT JOIN vehiculo v ON v.id_vehiculo = tv.id_vehiculo
           WHERE tv.id_operacion = $1
           ORDER BY tv.timestamp ASC, tv.id_tracking ASC`,
+        [id_operacion]
+      ),
+      pool.query(
+        `SELECT te.*, e.numero_serie, e.nombre, e.categoria
+           FROM tracking_equipo te
+           LEFT JOIN equipo e ON e.id_equipo = te.id_equipo
+          WHERE te.id_operacion = $1
+          ORDER BY te.timestamp ASC, te.id_tracking ASC`,
+        [id_operacion]
+      ),
+      pool.query(
+        `SELECT td.*, d.tipo, d.marca, d.modelo, d.numero_serie, d.imei
+           FROM tracking_dispositivo td
+           LEFT JOIN dispositivo d ON d.id_dispositivo = td.id_dispositivo
+          WHERE td.id_operacion = $1
+          ORDER BY td.timestamp ASC, td.id_tracking ASC`,
         [id_operacion]
       ),
       Promise.all([
@@ -452,6 +473,20 @@ router.get("/ops/:id/replay", requireAuth, async (req, res) => {
       ...rowsToEvents(trackingVehiculos.rows, row => ({
         tipo_evento: "tracking_vehiculo",
         entidad_tipo: "tracking_vehiculo",
+        entidad_id: String(row.id_tracking),
+        occurred_at: row.timestamp,
+        payload: row
+      })),
+      ...rowsToEvents(trackingEquipos.rows, row => ({
+        tipo_evento: "tracking_equipo",
+        entidad_tipo: "tracking_equipo",
+        entidad_id: String(row.id_tracking),
+        occurred_at: row.timestamp,
+        payload: row
+      })),
+      ...rowsToEvents(trackingDispositivos.rows, row => ({
+        tipo_evento: "tracking_dispositivo",
+        entidad_tipo: "tracking_dispositivo",
         entidad_id: String(row.id_tracking),
         occurred_at: row.timestamp,
         payload: row

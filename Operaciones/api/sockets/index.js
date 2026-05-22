@@ -1,5 +1,6 @@
 import { Server } from "socket.io";
 import { pool } from "../db.js";
+import { ensureExtendedTrackingSchema } from "../utils/trackingSchema.js";
 
 function streamRoomName(idStream) {
   return `media_stream_${idStream}`;
@@ -16,6 +17,8 @@ function publicSocketStream(row) {
     id_operacion: row.id_operacion,
     id_usuario: row.id_usuario,
     id_personal: row.id_personal,
+    id_equipo: row.id_equipo,
+    id_dispositivo: row.id_dispositivo,
     kind: row.kind,
     status: row.status,
     label: row.label,
@@ -35,6 +38,23 @@ function publicSocketStream(row) {
     ended_at: row.ended_at,
     signaling_room: streamRoomName(row.id_stream),
   };
+}
+
+function optionalNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function validCoords(latitud, longitud) {
+  const lat = Number(latitud);
+  const lon = Number(longitud);
+  return Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180;
 }
 
 async function getActiveStream(idOperacion, idStream) {
@@ -178,6 +198,122 @@ export function initSocket(server) {
         ...savedTracking,
         alias: data.alias,
         nombre: data.nombre,
+      });
+    });
+
+    socket.on("tracking_equipo", async (data) => {
+      const opId = socket.operationId;
+      if (!opId) {
+        console.warn("[SOCKET] tracking_equipo ignorado: socket sin operacion", data);
+        return;
+      }
+
+      const { id_equipo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m } = data ?? {};
+      if (!id_equipo || !validCoords(latitud, longitud)) {
+        console.warn("[SOCKET] tracking_equipo ignorado: payload incompleto", data);
+        return;
+      }
+
+      let savedTracking = null;
+      try {
+        await ensureExtendedTrackingSchema();
+        const { rows } = await pool.query(
+          `INSERT INTO tracking_equipo (
+             id_operacion, id_equipo, latitud, longitud, altitud,
+             velocidad_kmh, rumbo_grados, precision_m
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING id_tracking, id_operacion, id_equipo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp, estado_operacion_creacion`,
+          [
+            opId,
+            Number(id_equipo),
+            Number(latitud),
+            Number(longitud),
+            optionalNumber(altitud),
+            optionalNumber(velocidad_kmh),
+            optionalNumber(rumbo_grados),
+            optionalNumber(precision_m)
+          ]
+        );
+        savedTracking = rows[0];
+      } catch (err) {
+        console.error("[SOCKET] Error guardando tracking_equipo:", err.message);
+        socket.emit("tracking_equipo_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_equipo",
+        });
+        return;
+      }
+
+      socket.to(`op_${opId}`).emit("tracking_equipo", {
+        ...data,
+        ...savedTracking,
+        nombre: data.nombre,
+        categoria: data.categoria,
+        tipo_equipo: data.tipo_equipo,
+      });
+    });
+
+    socket.on("tracking_dispositivo", async (data) => {
+      const opId = socket.operationId;
+      if (!opId) {
+        console.warn("[SOCKET] tracking_dispositivo ignorado: socket sin operacion", data);
+        return;
+      }
+
+      const {
+        id_dispositivo,
+        latitud,
+        longitud,
+        altitud,
+        velocidad_kmh,
+        rumbo_grados,
+        precision_m,
+        bateria_pct
+      } = data ?? {};
+      if (!id_dispositivo || !validCoords(latitud, longitud)) {
+        console.warn("[SOCKET] tracking_dispositivo ignorado: payload incompleto", data);
+        return;
+      }
+
+      let savedTracking = null;
+      try {
+        await ensureExtendedTrackingSchema();
+        const { rows } = await pool.query(
+          `INSERT INTO tracking_dispositivo (
+             id_operacion, id_dispositivo, latitud, longitud, altitud,
+             velocidad_kmh, rumbo_grados, precision_m, bateria_pct
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING id_tracking, id_operacion, id_dispositivo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, bateria_pct, timestamp, estado_operacion_creacion`,
+          [
+            opId,
+            Number(id_dispositivo),
+            Number(latitud),
+            Number(longitud),
+            optionalNumber(altitud),
+            optionalNumber(velocidad_kmh),
+            optionalNumber(rumbo_grados),
+            optionalNumber(precision_m),
+            optionalNumber(bateria_pct)
+          ]
+        );
+        savedTracking = rows[0];
+      } catch (err) {
+        console.error("[SOCKET] Error guardando tracking_dispositivo:", err.message);
+        socket.emit("tracking_dispositivo_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_dispositivo",
+        });
+        return;
+      }
+
+      socket.to(`op_${opId}`).emit("tracking_dispositivo", {
+        ...data,
+        ...savedTracking,
+        tipo: data.tipo,
+        marca: data.marca,
+        modelo: data.modelo,
       });
     });
 
