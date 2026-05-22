@@ -2,8 +2,8 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:paddingHorizontal="10dp"
-    android:paddingVertical="3dp">
+    android:paddingHorizontal="4dp"
+    android:paddingVertical="2dp">
 
     <LinearLayout
         android:id="@+id/bubble"
@@ -12,22 +12,23 @@
         android:layout_gravity="start"
         android:orientation="vertical"
         android:background="@drawable/bg_bubble_recv"
-        android:paddingHorizontal="12dp"
+        android:paddingHorizontal="10dp"
         android:paddingVertical="7dp">
 
         <TextView
             android:id="@+id/msgMeta"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#8aa0b8"
+            android:textColor="#9FB3BF"
             android:textSize="10sp"
-            android:layout_marginBottom="4dp"/>
+            android:textStyle="bold"
+            android:layout_marginBottom="2dp"/>
 
         <TextView
             android:id="@+id/msgText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#e2e8f0"
+            android:textColor="#EEFFF9"
             android:textSize="14sp"
             android:lineSpacingExtra="2dp"/>
 
@@ -58,7 +59,7 @@
             android:background="@drawable/bg_dest_btn"
             android:paddingHorizontal="10dp"
             android:paddingVertical="7dp"
-            android:textColor="#bfdbfe"
+            android:textColor="#D6FFF2"
             android:textSize="12sp"
             android:visibility="gone"/>
 
@@ -70,7 +71,7 @@
             android:background="@drawable/bg_dest_btn"
             android:paddingHorizontal="10dp"
             android:paddingVertical="7dp"
-            android:textColor="#bfdbfe"
+            android:textColor="#D6FFF2"
             android:textSize="12sp"
             android:visibility="gone"/>
 

@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import android.view.View
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.MessageType
@@ -41,10 +42,12 @@ class OperationChatController(
     )
     private var chatAdapter: ChatAdapter? = null
     private var chatRecycler: RecyclerView? = null
+    private var chatEmptyState: View? = null
 
     fun bindPanel(refs: ChatPanelRefs) {
         chatRecycler = refs.recyclerView
         chatAdapter = refs.adapter
+        chatEmptyState = refs.emptyState
         refreshVisibleMessages()
     }
 
@@ -72,6 +75,7 @@ class OperationChatController(
 
             chatAdapter?.notifyItemInserted(visibleMessages.size - 1)
             chatRecycler?.scrollToPosition(visibleMessages.size - 1)
+            syncEmptyState()
         }
     }
 
@@ -195,6 +199,7 @@ class OperationChatController(
                 chatRecycler?.scrollToPosition(visibleMessages.size - 1)
             }
         }
+        syncEmptyState()
     }
 
     private fun parseChatMessage(item: JSONObject): ChatMessage {
@@ -262,15 +267,32 @@ class OperationChatController(
                 destinoTipo == "CUTS"
             "CET_SPECIFIC" -> (destinoTipo == "CET" && sameChatValue(destinoId, selection.destinoId)) ||
                 (destinoTipo == "CUT" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
+            "MY_CET" -> (destinoTipo == "CET" && sameChatValue(destinoId, selection.destinoId)) ||
+                (
+                    destinoTipo == "CELL" &&
+                        sameChatValue(destinoId, host.getChatCurrentUser().id.toString()) &&
+                        sameChatValue(msg.idPersonal?.toString(), selection.destinoId)
+                )
             "CUTS" -> destinoTipo == "CUTS" || (destinatario == "CUT" && destinoTipo.isBlank())
-            "CUT_SPECIFIC" -> (destinoTipo == "CUT" && sameChatValue(destinoId, selection.destinoId)) ||
+            "CUT_SPECIFIC", "MY_CUT" -> (destinoTipo == "CUT" && sameChatValue(destinoId, selection.destinoId)) ||
                 (destinoTipo == "CET" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
             "CELL_SPECIFIC" -> destinoTipo == "CELL" && sameChatValue(destinoId, selection.destinoId)
             "FLOTILLA" -> isFlotillaMessageForSelection(msg, selection)
             "GRUPO" -> destinoTipo == "GRUPO" && matchesGroupSelection(msg, selection)
-            "VEHICULO" -> destinoTipo == "VEHICULO" && sameChatValue(destinoId, selection.destinoId)
+            "VEHICULO" -> destinoTipo == "CELL_LIST" &&
+                sameCellList(destinoId, selection.destinoId)
             else -> destinatario == "GLOBAL" && destinoTipo.isBlank()
         }
+    }
+
+    private fun syncEmptyState() {
+        chatEmptyState?.visibility = if (visibleMessages.isEmpty()) View.VISIBLE else View.GONE
+    }
+
+    private fun sameCellList(a: String?, b: String?): Boolean {
+        val left = a.orEmpty().split(",").map(::normalizeChatValue).filter { it.isNotBlank() }.toSet()
+        val right = b.orEmpty().split(",").map(::normalizeChatValue).filter { it.isNotBlank() }.toSet()
+        return left.isNotEmpty() && left == right
     }
 
     private fun isFlotillaMessageForSelection(

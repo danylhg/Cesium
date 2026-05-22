@@ -34,6 +34,7 @@ import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
 import com.operaciones.operaciones_android.location.LocationHelper
 import com.operaciones.operaciones_android.model.ChatMessage
+import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.MessageType
 import com.operaciones.operaciones_android.model.Operation
@@ -86,7 +87,6 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnNavChat: LinearLayout
     private lateinit var btnNavPersonal: LinearLayout
     private lateinit var btnNavVehiculos: LinearLayout
-    private lateinit var btnNavEquipos: LinearLayout
     private lateinit var btnMyLocation: ImageButton
     private lateinit var btnStreamMedia: ImageButton
     private lateinit var btnDeleteSelectedObject: ImageButton
@@ -117,6 +117,7 @@ class MainActivity : AppCompatActivity(),
     private val personalList = mutableListOf<PersonalItem>()
     private val vehiculosList = mutableListOf<VehiculoItem>()
     private val equiposList = mutableListOf<EquipoItem>()
+    private val dispositivosList = mutableListOf<DispositivoItem>()
 
     private var opLat = 0.0
     private var opLon = 0.0
@@ -245,7 +246,6 @@ class MainActivity : AppCompatActivity(),
         btnNavChat = findViewById(R.id.btnNavChat)
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
         btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
-        btnNavEquipos = findViewById(R.id.btnNavEquipos)
         btnMyLocation = findViewById(R.id.btnMyLocation)
         btnStreamMedia = findViewById(R.id.btnStreamMedia)
         btnDeleteSelectedObject = findViewById(R.id.btnDeleteSelectedObject)
@@ -315,8 +315,7 @@ class MainActivity : AppCompatActivity(),
             btnNavOperation = btnNavOperation,
             btnNavChat = btnNavChat,
             btnNavPersonal = btnNavPersonal,
-            btnNavVehiculos = btnNavVehiculos,
-            btnNavEquipos = btnNavEquipos,
+            btnNavRecursos = btnNavVehiculos,
             host = this
         )
 
@@ -338,6 +337,7 @@ class MainActivity : AppCompatActivity(),
             fetchPersonalPanelData()
             fetchVehiculosPanelData()
             fetchEquiposPanelData()
+            fetchDispositivosPanelData()
             startEmergencyService()
             requestMediaStreamForOperation()
         }
@@ -794,6 +794,18 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
+    override fun selectVehicleOnMap(idVehiculo: Int, lat: Double, lon: Double, label: String) {
+        followedPersonalId = null
+        cesiumWebController.evaluate(
+            "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($idVehiculo, $lat, $lon, '${jsString(label)}')"
+        )
+        cesiumWebController.centerOnLocation(lat, lon, zoom = 500, follow = false)
+    }
+
+    override fun showResourceLocationUnavailable() {
+        Toast.makeText(this, "Este recurso no tiene ubicacion disponible.", Toast.LENGTH_SHORT).show()
+    }
+
     override fun refreshPersonalPanelIfActive() {
         if (panelNavigationController.activePanel == Panel.PERSONAL && personalList.isNotEmpty()) {
             panelNavigationController.showPanel(Panel.PERSONAL)
@@ -862,8 +874,10 @@ class MainActivity : AppCompatActivity(),
 
         if (panelNavigationController.activePanel == Panel.PERSONAL) {
             inflatePersonalPanel()
+        } else if (panelNavigationController.activePanel == Panel.RECURSOS) {
+            inflateRecursosPanel()
         } else if (panelNavigationController.activePanel == Panel.CHAT) {
-            chatController.refreshVisibleMessages()
+            panelNavigationController.showPanel(Panel.CHAT)
         }
     }
 
@@ -871,8 +885,10 @@ class MainActivity : AppCompatActivity(),
         vehiculosList.clear()
         vehiculosList.addAll(items)
 
-        if (panelNavigationController.activePanel == Panel.VEHICULOS) {
-            inflateVehiculoPanel()
+        if (panelNavigationController.activePanel == Panel.RECURSOS) {
+            inflateRecursosPanel()
+        } else if (panelNavigationController.activePanel == Panel.CHAT) {
+            panelNavigationController.showPanel(Panel.CHAT)
         }
     }
 
@@ -880,8 +896,17 @@ class MainActivity : AppCompatActivity(),
         equiposList.clear()
         equiposList.addAll(items)
 
-        if (panelNavigationController.activePanel == Panel.EQUIPOS) {
-            inflateEquipoPanel()
+        if (panelNavigationController.activePanel == Panel.RECURSOS) {
+            inflateRecursosPanel()
+        }
+    }
+
+    override fun onPanelDispositivosLoaded(items: List<DispositivoItem>) {
+        dispositivosList.clear()
+        dispositivosList.addAll(items)
+
+        if (panelNavigationController.activePanel == Panel.RECURSOS) {
+            inflateRecursosPanel()
         }
     }
 
@@ -899,6 +924,10 @@ class MainActivity : AppCompatActivity(),
 
     private fun fetchEquiposPanelData() {
         panelDataController.fetchEquipos()
+    }
+
+    private fun fetchDispositivosPanelData() {
+        panelDataController.fetchDispositivos()
     }
 
     private fun setupWebView() {
@@ -1312,6 +1341,7 @@ class MainActivity : AppCompatActivity(),
             messages = chatController.visibleMessages,
             currentUser = currentUser,
             personalList = personalList,
+            vehiculosList = vehiculosList,
             onFilterChanged = { selection ->
                 chatController.setActiveSelection(selection)
                 markVisibleChatMessagesRead()
@@ -1322,6 +1352,12 @@ class MainActivity : AppCompatActivity(),
         chatController.refreshVisibleMessages()
         markVisibleChatMessagesRead()
         loadChatHistoryIfNeeded()
+        if (currentOperation.id > 0 && personalList.isEmpty()) {
+            fetchPersonalPanelData()
+        }
+        if (currentOperation.id > 0 && vehiculosList.isEmpty()) {
+            fetchVehiculosPanelData()
+        }
     }
 
     override fun inflatePersonalPanel() {
@@ -1336,25 +1372,24 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun inflateVehiculoPanel() {
-        panelRenderer.inflateVehiculoPanel(
+    override fun inflateRecursosPanel() {
+        panelRenderer.inflateRecursosPanel(
             panelContent = panelContent,
-            vehiculosList = vehiculosList
+            vehiculosList = vehiculosList,
+            equiposList = equiposList,
+            dispositivosList = dispositivosList,
+            personalList = personalList,
+            currentUser = currentUser
         )
 
         if (currentOperation.id > 0 && vehiculosList.isEmpty()) {
             fetchVehiculosPanelData()
         }
-    }
-
-    override fun inflateEquipoPanel() {
-        panelRenderer.inflateEquipoPanel(
-            panelContent = panelContent,
-            equiposList = equiposList
-        )
-
         if (currentOperation.id > 0 && equiposList.isEmpty()) {
             fetchEquiposPanelData()
+        }
+        if (currentOperation.id > 0 && dispositivosList.isEmpty()) {
+            fetchDispositivosPanelData()
         }
     }
 

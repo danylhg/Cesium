@@ -6,6 +6,9 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import kotlin.math.abs
 
 class CesiumWebController(
     private val webView: WebView,
@@ -16,6 +19,8 @@ class CesiumWebController(
 ) {
     private var isPageReady: Boolean = false
     private var pendingMyPosition: Pair<Double, Double>? = null
+    private var touchDownX: Float? = null
+    private var touchDownY: Float? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     fun setup() {
@@ -56,6 +61,40 @@ class CesiumWebController(
                     updateMyPosition(lat, lon)
                 }
             }
+        }
+
+        val tapSlop = ViewConfiguration.get(webView.context).scaledTouchSlop
+        webView.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchDownX = event.x
+                    touchDownY = event.y
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    touchDownX = null
+                    touchDownY = null
+                }
+                MotionEvent.ACTION_UP -> {
+                    val downX = touchDownX
+                    val downY = touchDownY
+                    touchDownX = null
+                    touchDownY = null
+                    if (
+                        downX != null &&
+                        downY != null &&
+                        abs(event.x - downX) <= tapSlop &&
+                        abs(event.y - downY) <= tapSlop &&
+                        webView.width > 0 &&
+                        webView.height > 0
+                    ) {
+                        tapMapAtRatio(
+                            xRatio = event.x / webView.width,
+                            yRatio = event.y / webView.height
+                        )
+                    }
+                }
+            }
+            false
         }
 
         webView.addJavascriptInterface(jsBridge, "Android")
@@ -118,6 +157,42 @@ class CesiumWebController(
                         return 'OK';
                     }
                     return 'ERROR:centerOnLocation no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun setBaseLayer(key: String) {
+        val safeKey = key.replace("'", "\\'")
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof setBaseLayer === 'function') {
+                        setBaseLayer('$safeKey');
+                        return 'OK';
+                    }
+                    return 'ERROR:setBaseLayer no existe';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    private fun tapMapAtRatio(xRatio: Float, yRatio: Float) {
+        if (!isPageReady) return
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function() {
+                    if (typeof tapMapAtViewportRatio === 'function') {
+                        tapMapAtViewportRatio($xRatio, $yRatio);
+                        return 'OK';
+                    }
+                    return 'ERROR:tapMapAtViewportRatio no existe';
                 })();
                 """.trimIndent(),
                 null

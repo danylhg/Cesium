@@ -1,187 +1,253 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@drawable/bg_chat_screen">
+    android:background="@drawable/bg_chat_screen"
+    android:paddingHorizontal="8dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="6dp">
 
-    <!-- ── Header ───────────────────────────────────────────── -->
     <LinearLayout
-        android:id="@+id/channelSelector"
+        android:id="@+id/chatListScreen"
         android:layout_width="match_parent"
-        android:layout_height="62dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="14dp"
-        android:background="@drawable/bg_chat_header">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
         <TextView
-            android:id="@+id/chatAvatar"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_chat_avatar"
-            android:gravity="center"
-            android:text="T"
-            android:textColor="#ffffff"
-            android:textSize="15sp"
-            android:textStyle="bold"/>
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="8dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="2dp"
+            android:text="Chats"
+            android:textColor="#00F0A8"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="8dp"
+            android:paddingBottom="6dp"
+            android:text="Selecciona una conversacion"
+            android:textColor="#9FB3BF"
+            android:textSize="12sp" />
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:clipToPadding="false"
+            android:fillViewport="true"
+            android:overScrollMode="ifContentScrolls"
+            android:paddingBottom="4dp">
+
+            <LinearLayout
+                android:id="@+id/chatListContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/chatConversationScreen"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:visibility="gone">
 
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:orientation="vertical">
+            android:id="@+id/channelSelector"
+            android:layout_width="match_parent"
+            android:layout_height="54dp"
+            android:background="@drawable/bg_chat_header"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="2dp">
 
             <TextView
-                android:id="@+id/chatTitle"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Todos"
-                android:textColor="#e2e8f0"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:maxLines="1"
-                android:ellipsize="end"/>
+                android:id="@+id/chatBackBtn"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:clickable="true"
+                android:contentDescription="Volver a chats"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="&#x2039;"
+                android:textColor="#EEFFF9"
+                android:textSize="30sp"
+                android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/chatSubtitle"
-                android:layout_width="match_parent"
+                android:id="@+id/chatAvatar"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/bg_chat_avatar"
+                android:gravity="center"
+                android:text="T"
+                android:textColor="#00F0A8"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="Operacion completa"
-                android:textColor="#94a3b8"
-                android:textSize="11sp"
-                android:maxLines="1"
-                android:ellipsize="end"/>
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/chatTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Todos"
+                    android:textColor="#EEFFF9"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/chatSubtitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="Operacion completa"
+                    android:textColor="#9FB3BF"
+                    android:textSize="11sp" />
+            </LinearLayout>
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/destBtn"
-            android:layout_width="wrap_content"
-            android:layout_height="34dp"
-            android:minWidth="68dp"
-            android:background="@drawable/bg_chat_icon_button"
-            android:text="Chats"
-            android:textColor="#7dd3fc"
-            android:textSize="12sp"
-            android:gravity="center"
-            android:paddingHorizontal="12dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"/>
-
-    </LinearLayout>
-
-    <!-- ── Lista de mensajes ─────────────────────────────────── -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/chatRecycler"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:paddingHorizontal="4dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="8dp"
-        android:clipToPadding="false"/>
-
-    <!-- ── Respuestas rápidas ─────────────────────────────────── -->
-    <HorizontalScrollView
-        android:id="@+id/quickRepliesScroll"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scrollbars="none"
-        android:overScrollMode="never"
-        android:paddingHorizontal="10dp"
-        android:paddingTop="2dp"
-        android:paddingBottom="6dp">
-        <LinearLayout
-            android:id="@+id/quickRepliesContainer"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"/>
-    </HorizontalScrollView>
-
-    <!-- ── Destino ────────────────────────────────────────────── -->
-    <!-- ── Composición ───────────────────────────────────────── -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingHorizontal="8dp"
-        android:paddingTop="4dp"
-        android:paddingBottom="6dp"
-        android:background="@drawable/bg_chat_composer">
-
-        <EditText
-            android:id="@+id/msgInput"
-            android:layout_width="0dp"
-            android:layout_height="42dp"
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="2dp"
             android:layout_weight="1"
-            android:hint="Mensaje"
-            android:textColor="#e2e8f0"
-            android:textColorHint="#64748b"
-            android:background="@drawable/bg_chat_input"
-            android:paddingHorizontal="16dp"
-            android:inputType="text"
-            android:textSize="14sp"
-            android:imeOptions="actionSend"/>
+            android:background="@drawable/bg_chat_messages">
 
-        <ImageButton
-            android:id="@+id/voiceBtn"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_chat_icon_button"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:contentDescription="Mensaje de voz"
-            android:tint="#cbd5e1"
-            android:scaleType="centerInside"
-            android:padding="10dp"/>
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/chatRecycler"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingHorizontal="0dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp" />
 
-        <ImageButton
-            android:id="@+id/cameraBtn"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_chat_icon_button"
-            android:src="@android:drawable/ic_menu_camera"
-            android:contentDescription="Tomar foto o video"
-            android:tint="#cbd5e1"
-            android:scaleType="centerInside"
-            android:padding="10dp"/>
+            <TextView
+                android:id="@+id/chatEmptyState"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:padding="18dp"
+                android:text="Sin mensajes en este chat"
+                android:textColor="#82999B"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                android:visibility="gone" />
+        </FrameLayout>
 
-        <ImageButton
-            android:id="@+id/sendBtn"
-            android:layout_width="42dp"
-            android:layout_height="42dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_chat_send_button"
-            android:src="@android:drawable/ic_menu_send"
-            android:contentDescription="Enviar"
-            android:tint="#ffffff"
-            android:scaleType="centerInside"
-            android:padding="10dp"/>
+        <HorizontalScrollView
+            android:id="@+id/quickRepliesScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:overScrollMode="never"
+            android:scrollbars="none"
+            android:visibility="gone">
 
+            <LinearLayout
+                android:id="@+id/quickRepliesContainer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal" />
+        </HorizontalScrollView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_chat_composer"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="5dp"
+            android:paddingVertical="4dp">
+
+            <ImageButton
+                android:id="@+id/cameraBtn"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:background="@drawable/bg_chat_icon_button"
+                android:contentDescription="Tomar foto o video"
+                android:padding="9dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_menu_camera"
+                android:tint="#E8FFF8" />
+
+            <EditText
+                android:id="@+id/msgInput"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_chat_input"
+                android:gravity="center_vertical"
+                android:hint="Escribe un mensaje"
+                android:imeOptions="actionSend"
+                android:inputType="textMultiLine|textCapSentences"
+                android:maxHeight="96dp"
+                android:maxLines="4"
+                android:minHeight="38dp"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="7dp"
+                android:textColor="#EEFFF9"
+                android:textColorHint="#7D9198"
+                android:textSize="14sp" />
+
+            <ImageButton
+                android:id="@+id/sendBtn"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/bg_chat_send_button"
+                android:contentDescription="Enviar"
+                android:padding="8dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_menu_send"
+                android:tint="#00F0A8" />
+
+            <TextView
+                android:id="@+id/btnAlert"
+                android:layout_width="30dp"
+                android:layout_height="30dp"
+                android:layout_marginStart="2dp"
+                android:background="@drawable/bg_chat_alert"
+                android:clickable="true"
+                android:contentDescription="Enviar mensaje urgente"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="!"
+                android:textColor="#FFB4B4"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <ImageButton
+                android:id="@+id/voiceBtn"
+                android:layout_width="34dp"
+                android:layout_height="34dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/bg_chat_icon_button"
+                android:contentDescription="Mensaje de voz"
+                android:padding="9dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_btn_speak_now"
+                android:tint="#E8FFF8" />
+        </LinearLayout>
     </LinearLayout>
-
-    <!-- ── Alerta (discreta, solo texto) ─────────────────────── -->
-    <TextView
-        android:id="@+id/btnAlert"
-        android:layout_width="wrap_content"
-        android:layout_height="32dp"
-        android:layout_gravity="end"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="8dp"
-        android:background="@drawable/bg_chat_alert"
-        android:text="Urgente"
-        android:textColor="#fca5a5"
-        android:textSize="12sp"
-        android:gravity="center"
-        android:paddingHorizontal="14dp"
-        android:clickable="true"
-        android:focusable="true"
-        android:foreground="?attr/selectableItemBackground"/>
-
-</LinearLayout>
+</FrameLayout>

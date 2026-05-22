@@ -160,6 +160,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
                 "FLOTILLA" -> "para flotilla: $label"
                 "GRUPO" -> "para grupo: $label"
                 "VEHICULO" -> "para vehiculo: $label"
+                "CELL_LIST" -> "para vehiculo: $label"
                 else -> "para $label"
             }
         }

@@ -71,6 +71,21 @@
     const TRACKING_PERSONAL_COLOR = Cesium.Color.fromCssColorString("#00BFFF");
     const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
+    const TRACKING_SYMBOL_SIZE = 42;
+    const TRACKING_PERSONAL_SIDC = "SFGPUCI--------";
+    const TRACKING_VEHICULO_SIDC = "SFGPUCD--------";
+    const TRACKING_SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.22);
+    const ROUTE_COLORS = [
+      Cesium.Color.MAGENTA,
+      Cesium.Color.ORANGE,
+      Cesium.Color.LIMEGREEN,
+      Cesium.Color.PINK,
+      Cesium.Color.DEEPSKYBLUE,
+      Cesium.Color.HOTPINK,
+      Cesium.Color.GOLD,
+      Cesium.Color.VIOLET,
+      Cesium.Color.SPRINGGREEN
+    ];
     const EMERGENCY_PULSE_COLORS = [
       Cesium.Color.fromCssColorString("#FF1D25"),
       Cesium.Color.fromCssColorString("#FFD400"),
@@ -241,6 +256,56 @@
         duration: duration === undefined ? 0.55 : duration
       });
     }
+
+    const baseLayerProviders = {
+      osm: function () {
+        return new Cesium.OpenStreetMapImageryProvider({
+          url: "https://a.tile.openstreetmap.org/"
+        });
+      },
+      satellite: function () {
+        return new Cesium.UrlTemplateImageryProvider({
+          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+          credit: "Esri World Imagery"
+        });
+      }
+    };
+
+    function tuneSatelliteLayer(layer) {
+      layer.brightness = 0.78;
+      layer.contrast = 1.35;
+      layer.saturation = 1.15;
+      layer.gamma = 0.9;
+    }
+
+    window.setBaseLayer = function (key) {
+      try {
+        if (!viewer) return;
+        viewer.imageryLayers.removeAll();
+
+        if (key === "hybrid") {
+          const satelliteLayer = viewer.imageryLayers.addImageryProvider(baseLayerProviders.satellite());
+          tuneSatelliteLayer(satelliteLayer);
+
+          const osmOverlay = viewer.imageryLayers.addImageryProvider(baseLayerProviders.osm());
+          osmOverlay.alpha = 0.28;
+          osmOverlay.brightness = 0.95;
+          osmOverlay.contrast = 1.2;
+          viewer.scene.requestRender();
+          return;
+        }
+
+        const provider = baseLayerProviders[key] || baseLayerProviders.satellite;
+        const layer = viewer.imageryLayers.addImageryProvider(provider());
+        if (key === "satellite" || !baseLayerProviders[key]) {
+          tuneSatelliteLayer(layer);
+        }
+        viewer.scene.requestRender();
+      } catch (e) {
+        console.error("Error cambiando capa base: " + e.message);
+        notifyAndroid("No se pudo cambiar el tipo de mapa.");
+      }
+    };
 
     function notifyMapTap(lat, lon) {
       try {
@@ -429,16 +494,35 @@
         }
       });
 
-      // Handler de clicks
-      const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-      handler.setInputAction((movement) => {
-        try {
-          if (!viewer) return;
+      let lastHandledTap = null;
 
-          const cartesian = viewer.camera.pickEllipsoid(
-            movement.position,
-            viewer.scene.globe.ellipsoid
-          );
+      function getMapCartesian(screenPosition) {
+        let cartesian = null;
+        if (viewer.scene.pickPositionSupported) {
+          cartesian = viewer.scene.pickPosition(screenPosition);
+        }
+        return cartesian || viewer.camera.pickEllipsoid(
+          screenPosition,
+          viewer.scene.globe.ellipsoid
+        );
+      }
+
+      function handleMapTap(screenPosition) {
+        try {
+          if (!viewer || !screenPosition) return;
+
+          const now = Date.now();
+          if (
+            lastHandledTap &&
+            now - lastHandledTap.at < 320 &&
+            Math.abs(lastHandledTap.x - screenPosition.x) < 12 &&
+            Math.abs(lastHandledTap.y - screenPosition.y) < 12
+          ) {
+            return;
+          }
+          lastHandledTap = { at: now, x: screenPosition.x, y: screenPosition.y };
+
+          const cartesian = getMapCartesian(screenPosition);
 
           if (!cartesian) return;
 
@@ -465,7 +549,7 @@
           }
 
           if (!_drawMode) {
-            const selectedObject = getSelectableObjectAt(movement.position);
+            const selectedObject = getSelectableObjectAt(screenPosition);
             if (selectedObject) {
               if (selectedObject.kind === "personal") {
                 setSelectedTrackingPersonal(selectedObject.id);
@@ -486,7 +570,53 @@
           console.error("Error en click del mapa: " + e.message);
           notifyAndroid("Error en el click del mapa: " + e.message);
         }
+      }
+
+      window.tapMapAtViewportRatio = function (xRatio, yRatio) {
+        const canvas = viewer && viewer.scene && viewer.scene.canvas;
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        handleMapTap(new Cesium.Cartesian2(
+          rect.width * Number(xRatio),
+          rect.height * Number(yRatio)
+        ));
+      };
+
+      // Cesium normalmente traduce el tap a LEFT_CLICK. El respaldo touch
+      // mantiene la colocacion activa dentro del WebView Android.
+      const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      handler.setInputAction((movement) => {
+        handleMapTap(movement.position);
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+      let touchStart = null;
+      viewer.scene.canvas.addEventListener("touchstart", function (event) {
+        if (!event.touches || event.touches.length !== 1) {
+          touchStart = null;
+          return;
+        }
+        const touch = event.touches[0];
+        touchStart = { x: touch.clientX, y: touch.clientY };
+      }, { passive: true });
+      viewer.scene.canvas.addEventListener("touchend", function (event) {
+        if (!touchStart || !event.changedTouches || event.changedTouches.length !== 1) {
+          touchStart = null;
+          return;
+        }
+        const touch = event.changedTouches[0];
+        const dx = touch.clientX - touchStart.x;
+        const dy = touch.clientY - touchStart.y;
+        touchStart = null;
+        if (Math.sqrt(dx * dx + dy * dy) > 12) return;
+
+        const rect = viewer.scene.canvas.getBoundingClientRect();
+        handleMapTap(new Cesium.Cartesian2(
+          touch.clientX - rect.left,
+          touch.clientY - rect.top
+        ));
+      }, { passive: true });
+
+      setBaseLayer("hybrid");
 
       if (window.Android && typeof Android.sendTrafficAlert === 'function') {
         Android.sendTrafficAlert("Mapa listo");
@@ -540,10 +670,20 @@
       try {
         if (!viewer) return;
         if (userMarker) viewer.entities.remove(userMarker);
+        const userSymbolCanvas = getMilSymbolCanvas(TRACKING_PERSONAL_SIDC);
 
         userMarker = viewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(lon, lat),
-          point: {
+          billboard: userSymbolCanvas ? {
+            image: userSymbolCanvas,
+            verticalOrigin: Cesium.VerticalOrigin.CENTER,
+            width: TRACKING_SYMBOL_SIZE,
+            height: TRACKING_SYMBOL_SIZE,
+            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+            disableDepthTestDistance: Number.POSITIVE_INFINITY,
+            scaleByDistance: TRACKING_SYMBOL_SCALE_BY_DIST
+          } : undefined,
+          point: userSymbolCanvas ? undefined : {
             pixelSize: 10,
             color: Cesium.Color.LIME.withAlpha(0.15),
             outlineColor: Cesium.Color.BLACK,
@@ -720,17 +860,32 @@
       }
     };
 
+    function getTrackingSymbolCanvas(kind) {
+      if (kind !== "vehiculo") return null;
+      return getMilSymbolCanvas(TRACKING_VEHICULO_SIDC);
+    }
+
     function upsertTrackingEntity(store, key, lat, lon, label, color, meta) {
       if (!viewer || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
       const options = meta || {};
       const current = store.get(key);
       if (current) viewer.entities.remove(current);
+      const symbolCanvas = getTrackingSymbolCanvas(options.kind);
 
       const entity = viewer.entities.add({
         name: label,
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
-        point: {
+        billboard: symbolCanvas ? {
+          image: symbolCanvas,
+          verticalOrigin: Cesium.VerticalOrigin.CENTER,
+          width: TRACKING_SYMBOL_SIZE,
+          height: TRACKING_SYMBOL_SIZE,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: TRACKING_SYMBOL_SCALE_BY_DIST
+        } : undefined,
+        point: symbolCanvas ? undefined : {
           pixelSize: options.kind === "personal" ? 12 : 10,
           color: color.withAlpha(0.18),
           outlineColor: options.kind === "personal" ? TRACKING_ACTIVE_COLOR : Cesium.Color.BLACK,
@@ -745,7 +900,7 @@
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, -22),
+          pixelOffset: new Cesium.Cartesian2(0, symbolCanvas ? -32 : -22),
           distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000),
           showBackground: options.kind === "personal",
           backgroundColor: color.withAlpha(0.68),
@@ -1103,7 +1258,6 @@
 
       const geojson = typeof rutaObj.geojson === 'string' ? JSON.parse(rutaObj.geojson) : rutaObj.geojson;
       const id = rutaObj.id_ruta;
-      const rol = (rutaObj.rol_creador || "").toUpperCase();
       if (!id) return;
 
       if (remoteRoutes.has(id)) {
@@ -1111,11 +1265,7 @@
         remoteRoutes.delete(id);
       }
 
-      // Color logic: ADMIN/CUT = rojo, CET = naranja, CELL = azul, resto = violeta
-      let colorCesium = Cesium.Color.PURPLE;
-      if (rol === "ADMIN" || rol === "CUT") colorCesium = Cesium.Color.RED;
-      else if (rol === "CET") colorCesium = Cesium.Color.ORANGE;
-      else if (rol === "CELL") colorCesium = Cesium.Color.DODGERBLUE;
+      const routeColor = routeColorFromPayload(rutaObj);
 
       let coords = [];
       if (geojson.coordinates && geojson.coordinates.length > 0) {
@@ -1130,7 +1280,7 @@
             width: 5,
             material: new Cesium.PolylineGlowMaterialProperty({
               glowPower: 0.1,
-              color: colorCesium
+              color: routeColor
             }),
             clampToGround: true
           }
@@ -1146,6 +1296,25 @@
         remoteRoutes.delete(id_ruta);
       }
     };
+
+    function getStableRouteColor(id) {
+      if (!id || id === "global") return Cesium.Color.CYAN;
+
+      let hash = 0;
+      const value = String(id);
+      for (let i = 0; i < value.length; i++) {
+        hash = value.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      return ROUTE_COLORS[Math.abs(hash) % ROUTE_COLORS.length];
+    }
+
+    function routeColorFromPayload(rutaObj) {
+      const color = rutaObj && rutaObj.color ? String(rutaObj.color) : "";
+      if (color && color.toUpperCase() !== "#1E90FF") {
+        return Cesium.Color.fromCssColorString(color);
+      }
+      return getStableRouteColor(rutaObj && rutaObj.id_vehiculo);
+    }
 
     // =========================
     // Puntos de Interés (POI)

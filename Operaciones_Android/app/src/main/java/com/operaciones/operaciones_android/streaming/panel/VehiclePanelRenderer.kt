@@ -7,6 +7,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.model.VehiculoItem
+import kotlin.collections.iterator
 
 internal class VehiclePanelRenderer(
     private val host: MainPanelRenderer.Host

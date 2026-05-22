@@ -10,7 +10,7 @@
     android:foreground="?attr/selectableItemBackground"
     android:paddingHorizontal="12dp"
     android:paddingVertical="6dp"
-    android:textColor="#7dd3fc"
+    android:textColor="#00F0A8"
     android:textSize="11sp"
     android:gravity="center"
     android:maxLines="1"

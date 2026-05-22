@@ -6,6 +6,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.model.ChatMessage
+import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.Operation
 import com.operaciones.operaciones_android.model.PersonalItem
@@ -36,6 +37,7 @@ class MainPanelRenderer(
     private val personalRenderer = PersonalPanelRenderer(host)
     private val vehicleRenderer = VehiclePanelRenderer(host)
     private val equipmentRenderer = EquipmentPanelRenderer(host)
+    private val resourcesRenderer = ResourcesPanelRenderer(host)
 
     interface Host {
         fun getLayoutInflater(): LayoutInflater
@@ -60,6 +62,8 @@ class MainPanelRenderer(
         fun isSimulationActive(): Boolean
         fun toggleSimulation()
         fun selectPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String)
+        fun selectVehicleOnMap(idVehiculo: Int, lat: Double, lon: Double, label: String)
+        fun showResourceLocationUnavailable()
         fun refreshPersonalPanelIfActive()
     }
 
@@ -108,5 +112,16 @@ class MainPanelRenderer(
         equiposList: List<EquipoItem>
     ) {
         equipmentRenderer.inflate(panelContent, equiposList)
+    }
+
+    fun inflateRecursosPanel(
+        panelContent: FrameLayout,
+        vehiculosList: List<VehiculoItem>,
+        equiposList: List<EquipoItem>,
+        dispositivosList: List<DispositivoItem>,
+        personalList: List<PersonalItem>,
+        currentUser: User
+    ) {
+        resourcesRenderer.inflate(panelContent, vehiculosList, equiposList, dispositivosList, personalList, currentUser)
     }
 }

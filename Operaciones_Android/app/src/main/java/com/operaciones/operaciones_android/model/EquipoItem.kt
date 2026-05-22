@@ -20,6 +20,8 @@ data class EquipoItem(
     
     // 🔥 Nuevos campos de jerarquía flexible
     val tipoDestino: String = "",
+    val idPersonalAsignado: Int? = null,
+    val idVehiculoAsignado: Int? = null,
     val personalAsignado: String = "",
     val vehiculoAsignado: String = "",
     val grupoAsignado: String = "",

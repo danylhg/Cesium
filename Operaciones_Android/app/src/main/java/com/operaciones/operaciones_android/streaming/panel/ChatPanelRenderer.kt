@@ -2,6 +2,8 @@ package com.operaciones.operaciones_android.ui.panel
 
 import android.graphics.Color
 import android.graphics.Typeface
+import android.text.TextUtils
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -367,7 +369,7 @@ internal class ChatPanelRenderer(
         val density = anchorView.context.resources.displayMetrics.density
         val row = LinearLayout(anchorView.context).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
             setPadding((12 * density).toInt(), (10 * density).toInt(), (12 * density).toInt(), (10 * density).toInt())
             isClickable = true
             isFocusable = true
@@ -387,7 +389,7 @@ internal class ChatPanelRenderer(
             text = channel.avatar
             textSize = 15f
             typeface = Typeface.DEFAULT_BOLD
-            gravity = android.view.Gravity.CENTER
+            gravity = Gravity.CENTER
             setTextColor(Color.parseColor("#00F0A8"))
             background = anchorView.context.getDrawable(R.drawable.bg_chat_avatar)
             layoutParams = LinearLayout.LayoutParams((40 * density).toInt(), (40 * density).toInt())
@@ -406,7 +408,7 @@ internal class ChatPanelRenderer(
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.parseColor("#EEFFF9"))
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            ellipsize = TextUtils.TruncateAt.END
         }
 
         val subtitleText = if (channel.targets.isEmpty()) {
@@ -419,7 +421,7 @@ internal class ChatPanelRenderer(
             textSize = 11f
             setTextColor(Color.parseColor("#9FB3BF"))
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
+            ellipsize = TextUtils.TruncateAt.END
         }
 
         textBox.addView(title)

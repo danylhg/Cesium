@@ -11,7 +11,7 @@ android {
         applicationId = "com.operaciones.operaciones_android"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
+        versionCode = 100002
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

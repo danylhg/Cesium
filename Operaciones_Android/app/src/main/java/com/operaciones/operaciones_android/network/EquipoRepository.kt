@@ -23,6 +23,11 @@ class EquipoRepository(
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
+    private fun positiveInt(json: JSONObject, key: String): Int? {
+        if (!json.has(key) || json.isNull(key)) return null
+        return json.optInt(key, 0).takeIf { it > 0 }
+    }
+
     fun fetchEquipos(
         operationId: Int,
         token: String,
@@ -112,6 +117,8 @@ class EquipoRepository(
                                 detalle = detalle,
                                 asignadoA = asignadoA,
                                 tipoDestino = tipoDestino,
+                                idPersonalAsignado = positiveInt(e, "ueo_id_personal"),
+                                idVehiculoAsignado = positiveInt(e, "id_vehiculo_contexto"),
                                 personalAsignado = personalNombre,
                                 vehiculoAsignado = vehiculoNombre,
                                 grupoAsignado = grupoNombre,

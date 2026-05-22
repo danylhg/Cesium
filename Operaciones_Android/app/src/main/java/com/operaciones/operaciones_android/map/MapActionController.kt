@@ -1,5 +1,6 @@
 package com.operaciones.operaciones_android.map
 
+import android.content.Context
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -15,6 +16,7 @@ import java.util.Date
 import java.util.Locale
 
 class MapActionController(
+    private val context: Context,
     private val host: Host,
     private val cesiumWebController: CesiumWebController
 ) {
@@ -91,7 +93,7 @@ class MapActionController(
             }
         )
 
-        AlertDialog.Builder(host as android.content.Context)
+        AlertDialog.Builder(context)
             .setTitle("Ruta en $coord")
             .setItems(actions.map { it.first }.toTypedArray()) { _, which ->
                 actions[which].second.invoke()
@@ -101,7 +103,6 @@ class MapActionController(
     }
 
     fun showPoiCreationDialog(lat: Double, lon: Double, author: String, defaultTipoPoi: String = "PDI") {
-        val context = host as android.content.Context
         val dp8 = (8 * context.resources.displayMetrics.density).toInt()
         val dp4 = (4 * context.resources.displayMetrics.density).toInt()
         val defaultTipoIndex = TIPOS_POI
