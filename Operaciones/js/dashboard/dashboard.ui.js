@@ -691,6 +691,7 @@ export function updateChatAvailability() {
   if (dom.chatImageBtn) dom.chatImageBtn.disabled = !active;
   if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
   if (dom.chatCameraBtn) dom.chatCameraBtn.disabled = !active;
+  if (dom.chatVideoBtn) dom.chatVideoBtn.disabled = !active;
   if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
   if (dom.chatTargetPicker) dom.chatTargetPicker.disabled = !active;
   document.querySelectorAll("[data-chat-channel]").forEach((btn) => {

@@ -13,6 +13,8 @@ set FRONT_RUNTIME=%PROYECTO%\Operaciones\runtime
 set FFMPEG_STREAM_ROOT=%FRONT_RUNTIME%\ffmpeg-streams
 set SETUP_CLEANUP_MARKER=%FRONT_RUNTIME%\setup_cleanup.json
 set FFMPEG_DIR=%PROYECTO%\tools\ffmpeg
+set DRONE_STREAM_KEY=dron-01
+set DRONE_RTMP_PORT=1936
 
 if not exist "%ENV_FILE%" (
     echo ERROR: No se encontro el archivo .env en %ENV_FILE%.
@@ -31,6 +33,22 @@ if not defined PGDATABASE set PGDATABASE=ops_db
 
 for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notlike '169.254*' } | Sort-Object InterfaceMetric | Select-Object -First 1 -ExpandProperty IPAddress)"`) do set LAN_IP=%%I
 if not defined LAN_IP set LAN_IP=localhost
+
+echo.
+echo Si vas a verlo por VS Code Tunnel desde otra red, pega aqui la URL publica del puerto 3000.
+echo Ejemplo: https://TU-TUNEL-3000
+echo Si solo usaras red local, deja vacio y presiona Enter.
+set /p TUNNEL_FRONTEND_URL="URL tunel 3000 (opcional): "
+
+if defined TUNNEL_FRONTEND_URL goto use_tunnel_hls
+set HLS_PUBLIC_BASE_URL=http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams
+goto hls_base_ready
+
+:use_tunnel_hls
+if "%TUNNEL_FRONTEND_URL:~-1%"=="/" set "TUNNEL_FRONTEND_URL=%TUNNEL_FRONTEND_URL:~0,-1%"
+set HLS_PUBLIC_BASE_URL=%TUNNEL_FRONTEND_URL%/Operaciones/runtime/ffmpeg-streams
+
+:hls_base_ready
 
 :: ============================================================
 ::  PASO 1: Limpiar grabaciones locales antes del reset
@@ -156,7 +174,10 @@ timeout /t 2 /nobreak >nul
 start "API Server" cmd /k "cd /d %PROYECTO%\operaciones\api && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
 
 :: Ventana 3 - OBS RTMP a HLS (OBS publica a rtmp://LAN_IP:1935/live con key obs-01)
-start "OBS RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_obs_rtmp_hls.ps1" -StreamKey "obs-01" -Port 1935 -PublicBaseUrl "http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams"
+start "OBS RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_obs_rtmp_hls.ps1" -StreamKey "obs-01" -Port 1935 -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%"
+
+:: Ventana 4 - Dron RTMP a HLS (el dron/controlador publica a rtmp://LAN_IP:1936/live/dron-01)
+start "Drone RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_ffmpeg_drone_hls.ps1" -Listen -InputUrl "rtmp://0.0.0.0:%DRONE_RTMP_PORT%/live/%DRONE_STREAM_KEY%" -StreamKey "%DRONE_STREAM_KEY%" -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%" -PreserveExistingHls -RecordMp4Segments -RecordingOutputRoot "%PROYECTO%\Operaciones\runtime\ffmpeg-recordings" -RecordingSegmentSeconds 10 -VideoHeight 240 -VideoFps 15 -VideoBitrate "450k" -VideoMaxrate "550k" -VideoBufsize "900k" -AudioBitrate "64k"
 
 echo.
 echo ============================================================
@@ -166,9 +187,10 @@ echo  - Frontend:  http://%LAN_IP%:3000/Operaciones/login
 echo  - API:       http://localhost:3001
 echo  - Android:   WebRTC 240p
 echo  - OBS RTMP:  Server rtmp://%LAN_IP%:1935/live  Key obs-01
-echo  - Drones:    RTMP/RTSP con FFmpeg a HLS 240p
-echo  - HLS OBS:   http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams/obs-01/index.m3u8  ^(240p^)
-echo  - HLS FFmpeg: http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams/STREAM/index.m3u8  ^(240p^)
+echo  - Dron RTMP: Server rtmp://%LAN_IP%:%DRONE_RTMP_PORT%/live  Key %DRONE_STREAM_KEY%
+echo  - TUNEL RTMP: VS Code Tunnel sirve para ver HLS/HTTP, no para publicar RTMP directo.
+echo  - HLS OBS:   %HLS_PUBLIC_BASE_URL%/obs-01/index.m3u8  ^(240p^)
+echo  - HLS Dron:  %HLS_PUBLIC_BASE_URL%/%DRONE_STREAM_KEY%/index.m3u8  ^(240p^)
 echo  - Guia:     Operaciones\ffmpeg_drones.md
 echo  - FFmpeg:    verificado en %FFMPEG_DIR%
 echo  - LAN IP:    %LAN_IP%

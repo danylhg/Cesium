@@ -493,6 +493,25 @@ function parseAttachmentContent(content = "") {
   }
 }
 
+function normalizeAttachmentUrl(url = "") {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (/^data:/i.test(raw)) return raw;
+
+  try {
+    const parsed = new URL(raw, API_BASE);
+    if (parsed.pathname.startsWith("/api/storage/")) {
+      const base = new URL(API_BASE);
+      return `${base.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.href;
+  } catch {
+    return /^https?:\/\//i.test(raw)
+      ? raw
+      : `${API_BASE}${raw.startsWith("/") ? "" : "/"}${raw}`;
+  }
+}
+
 function renderMessageContent(msg) {
   const content = msg.contenido || "";
   const attachment = parseAttachmentContent(content);
@@ -530,6 +549,51 @@ function fileToDataUrl(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function dataUrlToBlob(dataUrl) {
+  const text = String(dataUrl || "");
+  const comma = text.indexOf(",");
+  const meta = text.slice(0, comma);
+  const payload = text.slice(comma + 1);
+  if (!meta.startsWith("data:") || comma === -1) {
+    throw new Error("Adjunto invalido");
+  }
+
+  const mime = meta.match(/^data:([^;,]+)/i)?.[1] || "application/octet-stream";
+  const isBase64 = /;base64/i.test(meta);
+  const binary = isBase64 ? atob(payload) : decodeURIComponent(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+function apiAttachmentKind(kind = "") {
+  const raw = String(kind || "").trim().toLowerCase();
+  const normalized = String(kind || "").trim().toUpperCase();
+  if (["IMAGE", "VIDEO", "AUDIO", "FILE"].includes(normalized)) return normalized;
+  if (normalized === "VOICE") return "AUDIO";
+  if (raw === "image") return "IMAGE";
+  if (raw === "audio") return "AUDIO";
+  if (raw === "video") return "VIDEO";
+  return "FILE";
+}
+
+function defaultAttachmentName(kind = "", mime = "") {
+  const upper = apiAttachmentKind(kind);
+  const lowerMime = String(mime || "").toLowerCase();
+  if (upper === "IMAGE") return lowerMime.includes("png") ? "imagen.png" : "imagen.jpg";
+  if (upper === "AUDIO") return lowerMime.includes("mp4") ? "audio.m4a" : "audio.webm";
+  if (upper === "VIDEO") return lowerMime.includes("webm") ? "video.webm" : "video.mp4";
+  return "adjunto.bin";
+}
+
+function attachmentSourceToBlob(source) {
+  if (source instanceof Blob) return source;
+  if (typeof source === "string") return dataUrlToBlob(source);
+  throw new Error("Adjunto invalido");
 }
 
 async function imageFileToDataUrl(file) {
@@ -612,7 +676,7 @@ function buildAttachmentMarkup(msg) {
   const url = msg.attachment_url;
   if (!url) return "";
 
-  const absolute = /^https?:\/\//i.test(url) ? url : `${API_BASE}${String(url).startsWith("/") ? "" : "/"}${url}`;
+  const absolute = normalizeAttachmentUrl(url);
   const kind = String(msg.attachment_kind || "").toUpperCase();
   const name = escapeHtml(msg.attachment_name || "Adjunto");
   const safeUrl = escapeHtml(absolute);
@@ -666,12 +730,6 @@ function appendMessage(msg) {
 async function loadMessages() {
   if (!_opId) return;
   try {
-    const destinoPayload = getDestinoPayload();
-    if (destinoPayload === null) {
-      if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
-      return;
-    }
-
     const token = localStorage.getItem("token");
     const res   = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
       headers: { "Authorization": `Bearer ${token}` }
@@ -694,6 +752,12 @@ async function sendChatContent(content, { clearText = false, restoreText = "" } 
   const text = String(content || "").trim();
   if (!text) return;
 
+  const destinoPayload = getDestinoPayload();
+  if (destinoPayload === null) {
+    if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+    return;
+  }
+
   if (clearText && dom.chatInput) dom.chatInput.value = "";
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
 
@@ -712,14 +776,20 @@ async function sendChatContent(content, { clearText = false, restoreText = "" } 
         ...destinoPayload
       })
     });
-    if (!res.ok) {
-      console.error("[CHAT] Error al enviar:", res.status);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      console.error("[CHAT] Error al enviar:", res.status, data);
       if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+      alert(data?.mensaje || "No se pudo enviar el mensaje.");
+      return;
     }
-    // El mensaje llega vía socket — no se agrega localmente aquí
+
+    const savedMessage = data?.item || data?.mensaje;
+    if (savedMessage) appendMessage(savedMessage);
   } catch (err) {
     console.error("[CHAT] Error enviando mensaje:", err);
     if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+    alert("No se pudo enviar el mensaje.");
   } finally {
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = false;
     dom.chatInput?.focus();
@@ -731,13 +801,75 @@ async function sendMessage() {
   await sendChatContent(text, { clearText: true, restoreText: text });
 }
 
-async function sendAttachment(kind, dataUrl, name = "") {
+async function sendAttachment(kind, source, name = "") {
   const caption = dom.chatInput?.value.trim() || "";
-  if (dom.chatInput) dom.chatInput.value = "";
-  await sendChatContent(attachmentToContent({ kind, dataUrl, name, caption }), {
-    clearText: false,
-    restoreText: caption
+  if (!_opId) return;
+
+  const destinoPayload = getDestinoPayload();
+  if (destinoPayload === null) return;
+
+  const blob = attachmentSourceToBlob(source);
+  const attachmentKind = apiAttachmentKind(kind);
+  const fileName = name || defaultAttachmentName(attachmentKind, blob.type);
+  const params = new URLSearchParams({
+    tipo_mensaje: "NORMAL",
+    destinatario_rol: getDestinatarioRol()
   });
+
+  if (caption) params.set("contenido", caption);
+  Object.entries(destinoPayload).forEach(([key, value]) => {
+    if (value != null && String(value).trim()) params.set(key, String(value));
+  });
+
+  if (dom.chatInput) dom.chatInput.value = "";
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
+
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_BASE}/ops/${_opId}/chat/attachments?${params.toString()}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": blob.type || "application/octet-stream",
+        "X-File-Name": fileName,
+        "X-Attachment-Kind": attachmentKind
+      },
+      body: blob
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      console.error("[CHAT] Error al enviar adjunto:", res.status, data);
+      if (dom.chatInput) dom.chatInput.value = caption;
+      alert(data?.mensaje || "No se pudo enviar el adjunto.");
+      return;
+    }
+
+    const savedMessage = data?.item || data?.mensaje;
+    if (savedMessage) appendMessage(savedMessage);
+  } catch (err) {
+    console.error("[CHAT] Error enviando adjunto:", err);
+    if (dom.chatInput) dom.chatInput.value = caption;
+    alert("No se pudo enviar el adjunto.");
+  } finally {
+    if (dom.sendChatBtn) dom.sendChatBtn.disabled = false;
+    dom.chatInput?.focus();
+  }
+}
+
+async function sendVideoFromInput(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  try {
+    setAttachStatus("Enviando video...");
+    await sendAttachment("video", file, file.name || "video.mp4");
+  } catch (err) {
+    console.error("[CHAT] Error enviando video:", err);
+    alert("No se pudo enviar el video.");
+  } finally {
+    if (input) input.value = "";
+    setAttachStatus("");
+  }
 }
 
 async function sendImageFromInput(input) {
@@ -785,8 +917,7 @@ async function toggleAudioRecording() {
       }
       setAttachStatus("Enviando audio...");
       const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || "audio/webm" });
-      const dataUrl = await fileToDataUrl(blob);
-      await sendAttachment("audio", dataUrl, "audio.webm");
+      await sendAttachment("audio", blob, "audio.webm");
       setAttachStatus("");
     };
     _mediaRecorder.start();
@@ -905,12 +1036,20 @@ export function bindChatEvents() {
     dom.chatCameraBtn.addEventListener("click", () => dom.chatCameraInput?.click());
   }
 
+  if (dom.chatVideoBtn) {
+    dom.chatVideoBtn.addEventListener("click", () => dom.chatVideoInput?.click());
+  }
+
   if (dom.chatAudioBtn) {
     dom.chatAudioBtn.addEventListener("click", toggleAudioRecording);
   }
 
   if (dom.chatCameraInput) {
     dom.chatCameraInput.addEventListener("change", () => sendImageFromInput(dom.chatCameraInput));
+  }
+
+  if (dom.chatVideoInput) {
+    dom.chatVideoInput.addEventListener("change", () => sendVideoFromInput(dom.chatVideoInput));
   }
 
   if (dom.chatInput) {

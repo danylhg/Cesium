@@ -63,9 +63,11 @@ export const dom = {
   chatImageBtn: document.getElementById("chatImageBtn"),
   chatEmojiBtn: document.getElementById("chatEmojiBtn"),
   chatCameraBtn: document.getElementById("chatCameraBtn"),
+  chatVideoBtn: document.getElementById("chatVideoBtn"),
   chatAudioBtn: document.getElementById("chatAudioBtn"),
   chatImageInput: document.getElementById("chatImageInput"),
   chatCameraInput: document.getElementById("chatCameraInput"),
+  chatVideoInput: document.getElementById("chatVideoInput"),
   chatAttachStatus: document.getElementById("chatAttachStatus"),
   // Cámaras
   cameraFeeds: document.getElementById("cameraFeeds"),

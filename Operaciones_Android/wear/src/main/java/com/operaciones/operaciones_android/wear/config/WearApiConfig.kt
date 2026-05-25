@@ -47,11 +47,16 @@ object WearApiConfig {
         }
 
         val path = uri.encodedPath.orEmpty()
-        if (uri.port == -1 && (path.isBlank() || path == "/")) {
+        if (uri.port == -1 && shouldAppendDefaultApiPort(uri) && (path.isBlank() || path == "/")) {
             value = "$value:$DEFAULT_API_PORT"
         }
 
         return value.trimEnd('/')
+    }
+
+    private fun shouldAppendDefaultApiPort(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase()
+        return scheme == "http"
     }
 
     fun absoluteUrl(pathOrUrl: String): String {

@@ -7,6 +7,7 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Base64
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -19,16 +20,22 @@ import android.widget.TextView
 import android.widget.VideoView
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.R
+import com.operaciones.operaciones_android.auth.AuthManager
 import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.MessageType
-import java.net.HttpURLConnection
-import java.net.URL
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.File
+import java.io.FileOutputStream
+import kotlin.math.abs
 
 class ChatAdapter(private val messages: List<ChatMessage>)
     : RecyclerView.Adapter<ChatAdapter.ViewHolder>() {
 
     companion object {
+        private const val LEGACY_ATTACHMENT_PREFIX = "CHAT_ATTACHMENT:"
         private val COLOR_META_DEFAULT = Color.parseColor("#4a6580")
         private val COLOR_META_ADMIN = Color.parseColor("#4ade80")
         private val COLOR_META_CUT = Color.parseColor("#86efac")
@@ -40,6 +47,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
         private val mainHandler = Handler(Looper.getMainLooper())
         private var activeAudioPlayer: MediaPlayer? = null
         private var activeAudioUrl: String? = null
+        private val attachmentHttp = OkHttpClient()
     }
 
     class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -51,6 +59,13 @@ class ChatAdapter(private val messages: List<ChatMessage>)
         val audioAttachment: TextView = view.findViewById(R.id.msgAudioAttachment)
         val attachment: TextView = view.findViewById(R.id.msgAttachment)
     }
+
+    private data class LegacyAttachment(
+        val kind: String,
+        val dataUrl: String,
+        val name: String?,
+        val caption: String?
+    )
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val view = LayoutInflater.from(parent.context)
@@ -70,7 +85,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
         when (msg.type) {
             MessageType.SYSTEM -> {
                 holder.meta.visibility = View.GONE
-                holder.text.text = msg.text
+                holder.text.text = displayText(msg)
                 holder.text.setTextColor(COLOR_TEXT_SYSTEM)
                 holder.text.textSize = 11f
                 holder.text.gravity = Gravity.CENTER
@@ -87,7 +102,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
                 holder.meta.visibility = View.VISIBLE
                 holder.meta.text = buildMeta(msg)
                 holder.meta.setTextColor(COLOR_META_ALERT)
-                holder.text.text = msg.text
+                holder.text.text = displayText(msg)
                 holder.text.setTextColor(COLOR_TEXT_ALERT)
                 holder.text.textSize = 13f
                 holder.text.gravity = Gravity.START
@@ -104,7 +119,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
                 holder.meta.visibility = View.VISIBLE
                 holder.meta.text = buildMeta(msg)
                 holder.meta.setTextColor(metaColor(msg))
-                holder.text.text = msg.text
+                holder.text.text = displayText(msg)
                 holder.text.setTextColor(COLOR_TEXT_NORMAL)
                 holder.text.textSize = 13f
                 holder.text.gravity = Gravity.START
@@ -174,13 +189,14 @@ class ChatAdapter(private val messages: List<ChatMessage>)
     }
 
     private fun bindAttachment(holder: ViewHolder, msg: ChatMessage) {
+        resetAttachmentViews(holder)
+
         val url = msg.attachmentUrl?.takeIf { it.isNotBlank() }
         if (url == null) {
-            resetAttachmentViews(holder)
+            bindLegacyAttachment(holder, legacyAttachment(msg))
             return
         }
 
-        resetAttachmentViews(holder)
         val fullUrl = absoluteAttachmentUrl(url)
         when (attachmentKind(msg)) {
             "IMAGE" -> bindImageAttachment(holder, fullUrl)
@@ -209,12 +225,96 @@ class ChatAdapter(private val messages: List<ChatMessage>)
         holder.attachment.setOnClickListener(null)
     }
 
-    private fun absoluteAttachmentUrl(url: String): String =
+    private fun absoluteAttachmentUrl(url: String): String {
         if (url.startsWith("http://") || url.startsWith("https://")) {
-            url
-        } else {
-            "${ApiConfig.BASE_URL}${if (url.startsWith("/")) "" else "/"}$url"
+            val parsed = Uri.parse(url)
+            if (parsed.path?.startsWith("/api/storage/") == true) {
+                return Uri.parse(ApiConfig.BASE_URL)
+                    .buildUpon()
+                    .encodedPath(parsed.encodedPath)
+                    .encodedQuery(parsed.encodedQuery)
+                    .fragment(parsed.fragment)
+                    .build()
+                    .toString()
+            }
+            return url
         }
+        return "${ApiConfig.BASE_URL}${if (url.startsWith("/")) "" else "/"}$url"
+    }
+
+    private fun legacyAttachment(msg: ChatMessage): LegacyAttachment? {
+        val text = msg.text.trim()
+        if (!text.startsWith(LEGACY_ATTACHMENT_PREFIX)) return null
+        return runCatching {
+            val json = JSONObject(text.removePrefix(LEGACY_ATTACHMENT_PREFIX))
+            LegacyAttachment(
+                kind = json.optString("kind", ""),
+                dataUrl = json.optString("dataUrl", ""),
+                name = json.optString("name", "").takeIf { it.isNotBlank() },
+                caption = json.optString("caption", "").takeIf { it.isNotBlank() }
+            )
+        }.getOrNull()?.takeIf { it.dataUrl.isNotBlank() }
+    }
+
+    private fun displayText(msg: ChatMessage): String {
+        val legacy = legacyAttachment(msg) ?: return msg.text
+        return legacy.caption?.takeIf { it.isNotBlank() } ?: legacyLabel(legacy)
+    }
+
+    private fun bindLegacyAttachment(holder: ViewHolder, legacy: LegacyAttachment?) {
+        if (legacy == null) return
+        when (legacyKind(legacy)) {
+            "IMAGE" -> bindDataImageAttachment(holder, legacy.dataUrl)
+            else -> {
+                holder.attachment.visibility = View.VISIBLE
+                holder.attachment.text = legacyLabel(legacy)
+            }
+        }
+    }
+
+    private fun legacyKind(legacy: LegacyAttachment): String {
+        val kind = legacy.kind.trim().uppercase()
+        if (kind in setOf("IMAGE", "VIDEO", "AUDIO", "FILE")) return kind
+        val dataUrl = legacy.dataUrl.lowercase()
+        return when {
+            dataUrl.startsWith("data:image/") -> "IMAGE"
+            dataUrl.startsWith("data:video/") -> "VIDEO"
+            dataUrl.startsWith("data:audio/") -> "AUDIO"
+            else -> "FILE"
+        }
+    }
+
+    private fun legacyLabel(legacy: LegacyAttachment): String {
+        val name = legacy.name?.takeIf { it.isNotBlank() }
+        return when (legacyKind(legacy)) {
+            "IMAGE" -> name?.let { "Imagen: $it" } ?: "Imagen adjunta"
+            "VIDEO" -> name?.let { "Video: $it" } ?: "Video adjunto"
+            "AUDIO" -> name?.let { "Audio: $it" } ?: "Audio adjunto"
+            else -> name?.let { "Archivo: $it" } ?: "Archivo adjunto"
+        }
+    }
+
+    private fun bindDataImageAttachment(holder: ViewHolder, dataUrl: String) {
+        holder.imageAttachment.visibility = View.VISIBLE
+        holder.imageAttachment.tag = dataUrl
+        holder.imageAttachment.setBackgroundColor(Color.parseColor("#0f172a"))
+
+        Thread {
+            val bitmap = decodeDataImage(dataUrl)
+            mainHandler.post {
+                if (holder.imageAttachment.tag == dataUrl && bitmap != null) {
+                    holder.imageAttachment.setImageBitmap(bitmap)
+                }
+            }
+        }.start()
+    }
+
+    private fun decodeDataImage(dataUrl: String) = runCatching {
+        val comma = dataUrl.indexOf(',')
+        if (comma == -1) return@runCatching null
+        val bytes = Base64.decode(dataUrl.substring(comma + 1), Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
 
     private fun attachmentKind(msg: ChatMessage): String {
         val kind = msg.attachmentKind?.uppercase().orEmpty()
@@ -229,6 +329,7 @@ class ChatAdapter(private val messages: List<ChatMessage>)
     }
 
     private fun bindImageAttachment(holder: ViewHolder, fullUrl: String) {
+        val context = holder.itemView.context.applicationContext
         holder.imageAttachment.visibility = View.VISIBLE
         holder.imageAttachment.tag = fullUrl
         holder.imageAttachment.setBackgroundColor(Color.parseColor("#0f172a"))
@@ -236,10 +337,18 @@ class ChatAdapter(private val messages: List<ChatMessage>)
 
         Thread {
             val bitmap = runCatching {
-                val connection = URL(fullUrl).openConnection() as HttpURLConnection
-                connection.connectTimeout = 8_000
-                connection.readTimeout = 12_000
-                connection.inputStream.use { BitmapFactory.decodeStream(it) }
+                val token = AuthManager.getToken(context)
+                val request = Request.Builder()
+                    .url(fullUrl)
+                    .apply {
+                        if (token.isNotBlank()) addHeader("Authorization", "Bearer $token")
+                    }
+                    .build()
+
+                attachmentHttp.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    response.body?.byteStream()?.use { BitmapFactory.decodeStream(it) }
+                }
             }.getOrNull()
 
             mainHandler.post {
@@ -251,14 +360,74 @@ class ChatAdapter(private val messages: List<ChatMessage>)
     }
 
     private fun bindVideoAttachment(holder: ViewHolder, fullUrl: String) {
-        val context = holder.itemView.context
+        val context = holder.itemView.context.applicationContext
         val controller = MediaController(context)
         holder.videoAttachment.visibility = View.VISIBLE
-        holder.videoAttachment.setVideoURI(Uri.parse(fullUrl))
+        holder.videoAttachment.tag = fullUrl
         holder.videoAttachment.setMediaController(controller)
         controller.setAnchorView(holder.videoAttachment)
-        holder.videoAttachment.setOnPreparedListener {
-            holder.videoAttachment.seekTo(1)
+        holder.attachment.visibility = View.VISIBLE
+        holder.attachment.text = "Cargando video..."
+        holder.attachment.setOnClickListener(null)
+
+        Thread {
+            val cachedFile = runCatching {
+                val token = AuthManager.getToken(context)
+                val request = Request.Builder()
+                    .url(fullUrl)
+                    .apply {
+                        if (token.isNotBlank()) addHeader("Authorization", "Bearer $token")
+                    }
+                    .build()
+
+                attachmentHttp.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@runCatching null
+                    val extension = videoExtension(fullUrl, response.header("Content-Type").orEmpty())
+                    val file = File(context.cacheDir, "chat_video_${abs(fullUrl.hashCode())}$extension")
+                    response.body?.byteStream()?.use { input ->
+                        FileOutputStream(file).use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: return@runCatching null
+                    file
+                }
+            }.getOrNull()
+
+            mainHandler.post {
+                if (holder.videoAttachment.tag != fullUrl) return@post
+
+                if (cachedFile == null || !cachedFile.exists()) {
+                    holder.attachment.text = "Abrir video"
+                    holder.attachment.setOnClickListener { openExternal(holder, fullUrl) }
+                    return@post
+                }
+
+                holder.videoAttachment.setVideoURI(Uri.fromFile(cachedFile))
+                holder.videoAttachment.setOnPreparedListener {
+                    holder.videoAttachment.seekTo(1)
+                    holder.attachment.text = "Reproducir video"
+                    holder.attachment.setOnClickListener {
+                        holder.videoAttachment.start()
+                    }
+                }
+                holder.videoAttachment.setOnErrorListener { _, _, _ ->
+                    holder.videoAttachment.visibility = View.GONE
+                    holder.attachment.text = "Abrir video"
+                    holder.attachment.setOnClickListener { openExternal(holder, fullUrl) }
+                    true
+                }
+                holder.videoAttachment.requestFocus()
+            }
+        }
+    }
+
+    private fun videoExtension(url: String, contentType: String): String {
+        val path = Uri.parse(url).path.orEmpty().lowercase()
+        return when {
+            path.endsWith(".mp4") || contentType.contains("mp4", ignoreCase = true) -> ".mp4"
+            path.endsWith(".webm") || contentType.contains("webm", ignoreCase = true) -> ".webm"
+            path.endsWith(".3gp") || contentType.contains("3gpp", ignoreCase = true) -> ".3gp"
+            else -> ".mp4"
         }
     }
 

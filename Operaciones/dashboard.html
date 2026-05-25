@@ -7,6 +7,7 @@
   <title>Panorama táctico</title>
 
   <link rel="stylesheet" href="css/dashboard.css" />
+  <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
 
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
@@ -504,12 +505,14 @@
     <div class="chatComposer">
       <div class="chatInputBar">
         <button id="chatCameraBtn" class="chatIconBtn" type="button" title="Tomar foto" aria-label="Tomar foto">📷</button>
+        <button id="chatVideoBtn" class="chatIconBtn" type="button" title="Enviar video" aria-label="Enviar video">🎬</button>
         <textarea id="chatInput" placeholder="Escribe un mensaje"></textarea>
         <button id="sendChatBtn" class="chatIconBtn sendChatBtn" type="button" title="Enviar" aria-label="Enviar">➤</button>
         <button id="chatAudioBtn" class="chatIconBtn voiceBtn" type="button" title="Grabar audio" aria-label="Grabar audio">🎙</button>
       </div>
       <div id="chatAttachStatus" class="voiceStatus" style="display:none;"></div>
       <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
+      <input id="chatVideoInput" type="file" accept="video/*" hidden>
     </div>
   </aside>
 

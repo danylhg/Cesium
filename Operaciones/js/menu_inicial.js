@@ -1,4 +1,4 @@
-const API = `http://${window.location.hostname}:3001`;
+const API = (window.OPERACIONES_API_BASE || localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`).replace(/\/$/, "");
 
 function getToken() {
   return localStorage.getItem("token");
