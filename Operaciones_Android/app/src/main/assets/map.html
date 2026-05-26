@@ -2038,6 +2038,46 @@
     let _drawHandler = null;
     let _drawCounter = 0;
     let _drawDomHandlers = null;
+    let _drawCameraLocked = false;
+
+    function _applyDrawCameraLock(locked) {
+      if (!viewer || !viewer.scene || !viewer.scene.screenSpaceCameraController) return;
+      const controller = viewer.scene.screenSpaceCameraController;
+      controller.enableRotate    = !locked;
+      controller.enableTranslate = !locked;
+      controller.enableLook      = !locked;
+      controller.enableZoom      = true;
+      controller.enableTilt      = true;
+    }
+
+    function _bindDrawTouchCameraOverride() {
+      const canvas = viewer && viewer.scene && viewer.scene.canvas;
+      if (!canvas || canvas.dataset.drawTouchOverride === '1') return;
+      const activeTouchPointers = new Set();
+
+      const syncTouchCamera = function (event) {
+        if (!_drawCameraLocked) return;
+        _applyDrawCameraLock(!(event.touches && event.touches.length >= 2));
+      };
+      const restoreSingleTouchLock = function () {
+        if (_drawCameraLocked) _applyDrawCameraLock(true);
+      };
+      const syncPointerCamera = function (event) {
+        if (event.pointerType !== 'touch' || !_drawCameraLocked) return;
+        if (event.type === 'pointerdown') activeTouchPointers.add(event.pointerId);
+        if (event.type === 'pointerup' || event.type === 'pointercancel') activeTouchPointers.delete(event.pointerId);
+        _applyDrawCameraLock(activeTouchPointers.size < 2);
+      };
+
+      canvas.addEventListener('touchstart', syncTouchCamera, { passive: true });
+      canvas.addEventListener('touchmove', syncTouchCamera, { passive: true });
+      canvas.addEventListener('touchend', restoreSingleTouchLock, { passive: true });
+      canvas.addEventListener('touchcancel', restoreSingleTouchLock, { passive: true });
+      canvas.addEventListener('pointerdown', syncPointerCamera, { passive: true });
+      canvas.addEventListener('pointerup', syncPointerCamera, { passive: true });
+      canvas.addEventListener('pointercancel', syncPointerCamera, { passive: true });
+      canvas.dataset.drawTouchOverride = '1';
+    }
 
     function _destroyDrawHandler() {
       if (_drawHandler) { _drawHandler.destroy(); _drawHandler = null; }
@@ -2046,9 +2086,9 @@
 
     function _setDrawCameraEnabled(enabled) {
       if (!viewer || !viewer.scene || !viewer.scene.screenSpaceCameraController) return;
-      viewer.scene.screenSpaceCameraController.enableRotate    = enabled;
-      viewer.scene.screenSpaceCameraController.enableTranslate = enabled;
-      viewer.scene.screenSpaceCameraController.enableZoom      = enabled;
+      _drawCameraLocked = !enabled;
+      _bindDrawTouchCameraOverride();
+      _applyDrawCameraLock(!enabled);
     }
 
     function _canvasPositionFromClient(clientX, clientY) {
@@ -2105,7 +2145,9 @@
     function _finishPencilStroke() {
       if (!_isDrawing) return;
       _isDrawing = false;
-      _setDrawCameraEnabled(true);
+      if (_drawMode !== 'pencil') {
+        _setDrawCameraEnabled(true);
+      }
 
       if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
 
@@ -2141,11 +2183,22 @@
       _unbindPencilDomEvents();
 
       if (window.PointerEvent) {
+        const activeTouchPointers = new Set();
+
         const onPointerDown = function (ev) {
           if (_drawMode !== 'pencil') return;
           if (ev.button !== undefined && ev.button !== 0) return;
+          if (ev.pointerType === 'touch') {
+            activeTouchPointers.add(ev.pointerId);
+            if (activeTouchPointers.size >= 2) {
+              _finishPencilStroke();
+              _applyDrawCameraLock(false);
+              return;
+            }
+          }
           ev.preventDefault();
           ev.stopPropagation();
+          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
           if (canvas.setPointerCapture && ev.pointerId !== undefined) {
             try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
           }
@@ -2153,24 +2206,35 @@
         };
         const onPointerMove = function (ev) {
           if (_drawMode !== 'pencil' || !_isDrawing) return;
+          if (ev.pointerType === 'touch' && activeTouchPointers.size >= 2) return;
           ev.preventDefault();
           ev.stopPropagation();
+          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
           _appendPencilPoint(_canvasPositionFromClient(ev.clientX, ev.clientY));
         };
         const onPointerUp = function (ev) {
           if (_drawMode !== 'pencil') return;
+          if (ev.pointerType === 'touch') {
+            const wasMultiTouch = activeTouchPointers.size >= 2;
+            activeTouchPointers.delete(ev.pointerId);
+            if (wasMultiTouch) {
+              if (activeTouchPointers.size < 2 && _drawCameraLocked) _applyDrawCameraLock(true);
+              return;
+            }
+          }
           ev.preventDefault();
           ev.stopPropagation();
+          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
           if (canvas.releasePointerCapture && ev.pointerId !== undefined) {
             try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
           }
           _finishPencilStroke();
         };
 
-        canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
-        canvas.addEventListener('pointermove', onPointerMove, { passive: false });
-        canvas.addEventListener('pointerup', onPointerUp, { passive: false });
-        canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+        canvas.addEventListener('pointerdown', onPointerDown, { passive: false, capture: true });
+        canvas.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
+        canvas.addEventListener('pointerup', onPointerUp, { passive: false, capture: true });
+        canvas.addEventListener('pointercancel', onPointerUp, { passive: false, capture: true });
         _drawDomHandlers = { type: 'pointer', canvas, onPointerDown, onPointerMove, onPointerUp };
         return;
       }
@@ -2184,6 +2248,7 @@
         if (!touch) return;
         ev.preventDefault();
         ev.stopPropagation();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
         _startPencilStroke(_canvasPositionFromClient(touch.clientX, touch.clientY));
       };
       const onTouchMove = function (ev) {
@@ -2192,19 +2257,21 @@
         if (!touch) return;
         ev.preventDefault();
         ev.stopPropagation();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
         _appendPencilPoint(_canvasPositionFromClient(touch.clientX, touch.clientY));
       };
       const onTouchEnd = function (ev) {
         if (_drawMode !== 'pencil') return;
         ev.preventDefault();
         ev.stopPropagation();
+        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
         _finishPencilStroke();
       };
 
-      canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-      canvas.addEventListener('touchmove', onTouchMove, { passive: false });
-      canvas.addEventListener('touchend', onTouchEnd, { passive: false });
-      canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+      canvas.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
+      canvas.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
+      canvas.addEventListener('touchcancel', onTouchEnd, { passive: false, capture: true });
       _drawDomHandlers = { type: 'touch', canvas, onTouchStart, onTouchMove, onTouchEnd };
     }
 
@@ -2212,15 +2279,15 @@
       if (!_drawDomHandlers) return;
       const h = _drawDomHandlers;
       if (h.type === 'pointer') {
-        h.canvas.removeEventListener('pointerdown', h.onPointerDown);
-        h.canvas.removeEventListener('pointermove', h.onPointerMove);
-        h.canvas.removeEventListener('pointerup', h.onPointerUp);
-        h.canvas.removeEventListener('pointercancel', h.onPointerUp);
+        h.canvas.removeEventListener('pointerdown', h.onPointerDown, true);
+        h.canvas.removeEventListener('pointermove', h.onPointerMove, true);
+        h.canvas.removeEventListener('pointerup', h.onPointerUp, true);
+        h.canvas.removeEventListener('pointercancel', h.onPointerUp, true);
       } else {
-        h.canvas.removeEventListener('touchstart', h.onTouchStart);
-        h.canvas.removeEventListener('touchmove', h.onTouchMove);
-        h.canvas.removeEventListener('touchend', h.onTouchEnd);
-        h.canvas.removeEventListener('touchcancel', h.onTouchEnd);
+        h.canvas.removeEventListener('touchstart', h.onTouchStart, true);
+        h.canvas.removeEventListener('touchmove', h.onTouchMove, true);
+        h.canvas.removeEventListener('touchend', h.onTouchEnd, true);
+        h.canvas.removeEventListener('touchcancel', h.onTouchEnd, true);
       }
       _drawDomHandlers = null;
     }
@@ -2228,6 +2295,7 @@
     window.startPencilMode = function () {
       _drawMode = 'pencil';
       _destroyDrawHandler();
+      _setDrawCameraEnabled(false);
       _bindPencilDomEvents();
     };
 

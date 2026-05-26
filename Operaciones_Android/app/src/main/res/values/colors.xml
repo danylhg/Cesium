@@ -2,4 +2,19 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    
+    <!-- Dashboard colors -->
+    <color name="dash_bg">#08111b</color>
+    <color name="dash_surface">#133b5c</color>
+    <color name="dash_surface_strong">#163f69</color>
+    <color name="dash_surface_soft">#93c5fd</color>
+    <color name="dash_border">#bae6fd</color>
+    <color name="dash_border_strong">#7dd3fc</color>
+    <color name="dash_text">#ffffff</color>
+    <color name="dash_muted">#f8fafc</color>
+    <color name="dash_accent">#0284c7</color>
+    <color name="dash_accent_light">#67e8f9</color>
+    <color name="dash_accent_soft">#0ea5e9</color>
+    <color name="dash_danger">#f87171</color>
+    <color name="dash_danger_soft">#f87171</color>
 </resources>

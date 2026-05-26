@@ -9,15 +9,16 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top"
-        android:background="#B71C1C"
+        android:background="@color/dash_danger"
         android:elevation="12dp"
         android:gravity="center"
         android:paddingHorizontal="16dp"
-        android:paddingVertical="10dp"
+        android:paddingVertical="0dp"
         android:text="Se perdio la conexion con el servidor."
-        android:textColor="#FFFFFF"
+        android:textColor="@color/dash_text"
         android:textStyle="bold"
-        android:visibility="gone" />
+        android:visibility="gone"
+        android:maxHeight="0dp" />
 
     <!-- Mapa Cesium — pantalla completa -->
     <WebView
@@ -352,7 +353,7 @@
             android:layout_width="match_parent"
             android:layout_height="56dp"
             android:orientation="horizontal"
-            android:background="#0d1526">
+            android:background="@color/dash_surface_strong">
 
             <!-- Botón Operación -->
             <LinearLayout
@@ -375,7 +376,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Operación"
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp"/>
             </LinearLayout>
 
@@ -400,7 +401,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Mensajes"
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp"/>
             </LinearLayout>
 
@@ -426,7 +427,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Personal"
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp"/>
             </LinearLayout>
 
@@ -452,7 +453,7 @@
                     android:layout_height="wrap_content"
                     android:text="Recursos"
 
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp"/>
             </LinearLayout>
 

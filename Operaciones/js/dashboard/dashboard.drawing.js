@@ -172,10 +172,16 @@ export function pushUndoAction(action) {
 export function undo() {
   if (undoStack.length === 0) return;
   const action = undoStack.pop();
-  const viewer = dashboardState.viewer;
-  if (!viewer) return;
 
-  if (action.type === "add") {
+  if (action.type === "ui") {
+    action.undo?.();
+    redoStack.push(action);
+  } else if (action.type === "add") {
+    const viewer = dashboardState.viewer;
+    if (!viewer) {
+      undoStack.push(action);
+      return;
+    }
     // Undo an add → hide the entity
     const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
@@ -194,6 +200,11 @@ export function undo() {
     }
     redoStack.push(action);
   } else if (action.type === "remove") {
+    const viewer = dashboardState.viewer;
+    if (!viewer) {
+      undoStack.push(action);
+      return;
+    }
     // Undo a remove → show the entity again or rebuild
     if (action.entityRef && viewer.entities.contains(action.entityRef)) {
       action.entityRef.show = true;
@@ -226,10 +237,16 @@ export function undo() {
 export function redo() {
   if (redoStack.length === 0) return;
   const action = redoStack.pop();
-  const viewer = dashboardState.viewer;
-  if (!viewer) return;
 
-  if (action.type === "add") {
+  if (action.type === "ui") {
+    action.redo?.();
+    undoStack.push(action);
+  } else if (action.type === "add") {
+    const viewer = dashboardState.viewer;
+    if (!viewer) {
+      redoStack.push(action);
+      return;
+    }
     // Redo an add → show the entity again or rebuild
     if (action.entityRef && viewer.entities.contains(action.entityRef)) {
       action.entityRef.show = true;
@@ -255,6 +272,11 @@ export function redo() {
     }
     undoStack.push(action);
   } else if (action.type === "remove") {
+    const viewer = dashboardState.viewer;
+    if (!viewer) {
+      redoStack.push(action);
+      return;
+    }
     // Redo a remove → hide the entity again
     const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
@@ -343,6 +365,71 @@ let _isDrawing = false;
 let _currentDrawCoords = [];
 let _currentPreviewEntity = null;
 let _pencilHandler = null;
+let _previousCanvasTouchAction = "";
+let _drawCameraLocked = false;
+let _drawTouchOverrideBound = false;
+
+function applyDrawCameraLock(locked) {
+  const viewer = dashboardState.viewer;
+  if (!viewer?.scene?.screenSpaceCameraController) return;
+
+  const controller = viewer.scene.screenSpaceCameraController;
+  controller.enableRotate = !locked;
+  controller.enableTranslate = !locked;
+  controller.enableLook = !locked;
+  controller.enableZoom = true;
+  controller.enableTilt = true;
+}
+
+function bindDrawTouchCameraOverride() {
+  const canvas = dashboardState.viewer?.scene?.canvas;
+  if (!canvas || _drawTouchOverrideBound) return;
+  const activeTouchPointers = new Set();
+
+  const syncTouchCamera = (event) => {
+    if (!_drawCameraLocked) return;
+    applyDrawCameraLock(!(event.touches && event.touches.length >= 2));
+  };
+
+  const restoreSingleTouchLock = () => {
+    if (_drawCameraLocked) applyDrawCameraLock(true);
+  };
+
+  const syncPointerCamera = (event) => {
+    if (event.pointerType !== "touch" || !_drawCameraLocked) return;
+    if (event.type === "pointerdown") activeTouchPointers.add(event.pointerId);
+    if (event.type === "pointerup" || event.type === "pointercancel") activeTouchPointers.delete(event.pointerId);
+    applyDrawCameraLock(activeTouchPointers.size < 2);
+  };
+
+  canvas.addEventListener("touchstart", syncTouchCamera, { passive: true });
+  canvas.addEventListener("touchmove", syncTouchCamera, { passive: true });
+  canvas.addEventListener("touchend", restoreSingleTouchLock, { passive: true });
+  canvas.addEventListener("touchcancel", restoreSingleTouchLock, { passive: true });
+  canvas.addEventListener("pointerdown", syncPointerCamera, { passive: true });
+  canvas.addEventListener("pointerup", syncPointerCamera, { passive: true });
+  canvas.addEventListener("pointercancel", syncPointerCamera, { passive: true });
+  _drawTouchOverrideBound = true;
+}
+
+function setDrawCameraEnabled(enabled) {
+  const viewer = dashboardState.viewer;
+  if (!viewer?.scene?.screenSpaceCameraController) return;
+
+  _drawCameraLocked = !enabled;
+  bindDrawTouchCameraOverride();
+  applyDrawCameraLock(!enabled);
+
+  const canvas = viewer.scene.canvas;
+  if (!canvas) return;
+
+  if (!enabled) {
+    _previousCanvasTouchAction = canvas.style.touchAction || "";
+    canvas.style.touchAction = "none";
+  } else {
+    canvas.style.touchAction = _previousCanvasTouchAction;
+  }
+}
 
 export function startPencilMode() {
   const viewer = dashboardState.viewer;
@@ -353,14 +440,11 @@ export function startPencilMode() {
 
   if (_pencilHandler) _pencilHandler.destroy();
   _pencilHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  setDrawCameraEnabled(false);
 
-  // Disable map rotation while drawing
   _pencilHandler.setInputAction((click) => {
     _isDrawing = true;
     _currentDrawCoords = [];
-    viewer.scene.screenSpaceCameraController.enableRotate = false;
-    viewer.scene.screenSpaceCameraController.enableTranslate = false;
-    viewer.scene.screenSpaceCameraController.enableZoom = false;
 
     const cartesian = viewer.camera.pickEllipsoid(
       click.position, viewer.scene.globe.ellipsoid
@@ -407,10 +491,6 @@ export function startPencilMode() {
   _pencilHandler.setInputAction(() => {
     if (!_isDrawing) return;
     _isDrawing = false;
-
-    viewer.scene.screenSpaceCameraController.enableRotate = true;
-    viewer.scene.screenSpaceCameraController.enableTranslate = true;
-    viewer.scene.screenSpaceCameraController.enableZoom = true;
 
     // Remove preview
     if (_currentPreviewEntity) {
@@ -481,9 +561,7 @@ export function stopPencilMode() {
       viewer.entities.remove(_currentPreviewEntity);
       _currentPreviewEntity = null;
     }
-    viewer.scene.screenSpaceCameraController.enableRotate = true;
-    viewer.scene.screenSpaceCameraController.enableTranslate = true;
-    viewer.scene.screenSpaceCameraController.enableZoom = true;
+    setDrawCameraEnabled(true);
   }
 
   if (dashboardState.drawingMode === "pencil") {

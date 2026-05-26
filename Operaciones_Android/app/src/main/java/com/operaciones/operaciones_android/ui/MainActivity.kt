@@ -90,6 +90,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnMyLocation: ImageButton
     private lateinit var btnStreamMedia: ImageButton
     private lateinit var btnDeleteSelectedObject: ImageButton
+    private lateinit var navBar: LinearLayout
 
     private var chatSocketManager: ChatSocketManager? = null
 
@@ -249,6 +250,7 @@ class MainActivity : AppCompatActivity(),
         btnMyLocation = findViewById(R.id.btnMyLocation)
         btnStreamMedia = findViewById(R.id.btnStreamMedia)
         btnDeleteSelectedObject = findViewById(R.id.btnDeleteSelectedObject)
+        navBar = findViewById(R.id.navBar)
         webView = findViewById(R.id.cesiumWebView)
 
         mediaStreamController = MediaStreamController(this, btnStreamMedia, this)
@@ -316,6 +318,7 @@ class MainActivity : AppCompatActivity(),
             btnNavChat = btnNavChat,
             btnNavPersonal = btnNavPersonal,
             btnNavRecursos = btnNavVehiculos,
+            navBar = navBar,
             host = this
         )
 

@@ -70,11 +70,13 @@ async function ensureDispositivosTable() {
 }
 
 function normalizeDevicePayload(body = {}) {
+  const tipo = (body.tipo || "").toString().trim().toUpperCase();
+
   return {
-    tipo: (body.tipo || "").toString().trim().toUpperCase(),
+    tipo,
     marca: (body.marca || "").toString().trim(),
     modelo: (body.modelo || "").toString().trim(),
-    numero_telefono: (body.numero_telefono || "").toString().trim() || null,
+    numero_telefono: tipo === "TELEFONO" ? ((body.numero_telefono || "").toString().trim() || null) : null,
     imei: (body.imei || "").toString().trim() || null,
     numero_serie: (body.numero_serie || "").toString().trim() || null,
     sistema_operativo: (body.sistema_operativo || "").toString().trim() || null,
@@ -85,7 +87,7 @@ function normalizeDevicePayload(body = {}) {
 }
 
 function validateDevicePayload(data) {
-  const tiposValidos = ["TELEFONO", "TABLET", "LAPTOP", "RADIO", "GPS", "OTRO"];
+  const tiposValidos = ["TELEFONO", "TABLET", "SMART_WATCH"];
   const estadosValidos = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
 
   if (!data.tipo || !data.marca || !data.modelo || !data.estado) {
@@ -94,6 +96,10 @@ function validateDevicePayload(data) {
 
   if (!tiposValidos.includes(data.tipo)) {
     return `tipo invÃ¡lido (${tiposValidos.join("|")})`;
+  }
+
+  if (data.tipo === "TELEFONO" && !data.numero_telefono) {
+    return "El nÃºmero de telÃ©fono es obligatorio para tipo TELEFONO";
   }
 
   if (!estadosValidos.includes(data.estado)) {

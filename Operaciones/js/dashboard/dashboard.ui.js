@@ -141,7 +141,7 @@ function renderPersonalHtml(personalNorm) {
 
   const nameLink = (p) => {
     const nombre = p.nombre || p.apodo || p.apodo_personal || "Sin apodo";
-    return `<span class="person-link" data-person-id="${escapeHtml(p.id)}" data-person-name="${escapeHtml(nombre)}" style="cursor:pointer; color:#00ffa6; text-decoration:underline;">${escapeHtml(nombre)}</span>`;
+    return `<span class="person-link" data-person-id="${escapeHtml(p.id)}" data-person-name="${escapeHtml(nombre)}" style="cursor:pointer; color:#67e8f9; text-decoration:underline;">${escapeHtml(nombre)}</span>`;
   };
 
   cuts.forEach((cut) => {
@@ -464,7 +464,7 @@ export function renderInfoPanel(bdData = null) {
     <div class="infoBlock">
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
         <h3 style="margin:0;">Operacion</h3>
-        ${!esActiva ? `<button id="editOpInfoBtn" style="padding:4px 12px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid #00ffa6; background:rgba(0,255,170,0.12); color:#00ffa6; cursor:pointer;">Editar</button>` : ""}
+        ${!esActiva ? `<button id="editOpInfoBtn" style="padding:4px 12px; font-size:12px; font-weight:700; border-radius:8px; border:1px solid rgba(103,232,249,0.5); background:rgba(14,165,233,0.18); color:#cffafe; cursor:pointer;">Editar</button>` : ""}
       </div>
       <p><strong>Titulo:</strong> ${escapeHtml(titulo)}</p>
       <p><strong>Descripcion:</strong> ${escapeHtml(descripcion)}</p>
@@ -517,7 +517,7 @@ export function updateChatAvailability() {
 
   if (badge) badge.style.display = "none";
   if (title) title.textContent = op?.id ? operationName : "Panorama tactico";
-  if (dot) dot.style.background = active ? "#ff4444" : "#00ffa6";
+  if (dot) dot.style.background = active ? "#ff4444" : "#67e8f9";
   if (actionBtns) actionBtns.style.display = active || closed ? "none" : "flex";
   if (activateOpBtn) activateOpBtn.style.display = !active && !closed ? "inline-flex" : "none";
   if (closeActiveBtn) closeActiveBtn.style.display = active ? "inline-flex" : "none";
@@ -580,7 +580,7 @@ export function updateSelectionInfo(selectedEntity) {
       : `<span style="color:#94a3b8; font-size:11px;">Sin tripulaciÃ³n detectada.</span>`;
 
     dom.selectionInfo.innerHTML = `
-      <div style="font-weight:bold; color:#00ffa6; margin-bottom:4px;">${escapeHtml(name)}</div>
+      <div style="font-weight:bold; color:#67e8f9; margin-bottom:4px;">${escapeHtml(name)}</div>
       <div style="font-size:11px; margin-bottom:8px;">Tipo: ${escapeHtml(type)}</div>
       <div style="font-size:11px; font-weight:bold; margin-bottom:4px;">Pasajeros a bordo:</div>
       <div style="margin-bottom:12px;">${ocupantesHtml}</div>
@@ -597,7 +597,7 @@ export function updateSelectionInfo(selectedEntity) {
     }
   } else {
     dom.selectionInfo.innerHTML = `
-      <div style="font-weight:bold; color:#00ffa6;">${escapeHtml(name)}</div>
+      <div style="font-weight:bold; color:#67e8f9;">${escapeHtml(name)}</div>
       <div style="font-size:11px; margin-top:2px;">Tipo: ${escapeHtml(type)}</div>
     `;
   }

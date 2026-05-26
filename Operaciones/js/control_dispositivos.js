@@ -57,7 +57,7 @@
     return data;
   }
 
-  const TIPOS = ["TELEFONO", "TABLET", "LAPTOP", "RADIO", "GPS", "OTRO"];
+  const TIPOS = ["TELEFONO", "TABLET", "SMART_WATCH"];
   const ESTADOS = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
 
   function normalize(value) {
@@ -71,6 +71,15 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function formatTipo(tipo) {
+    const labels = {
+      TELEFONO: "Teléfono",
+      TABLET: "Tablet",
+      SMART_WATCH: "Smart watch",
+    };
+    return labels[tipo] || tipo || "-";
   }
 
   const btnBack = document.getElementById("btnBack");
@@ -95,6 +104,7 @@
   const form = document.getElementById("form");
 
   const fTipo = document.getElementById("fTipo");
+  const phoneField = document.getElementById("phoneField");
   const fMarca = document.getElementById("fMarca");
   const fModelo = document.getElementById("fModelo");
   const fNumeroTelefono = document.getElementById("fNumeroTelefono");
@@ -124,6 +134,16 @@
   let dispositivos = [];
   let selectedId = null;
   let mode = "add";
+
+  function syncPhoneField() {
+    const needsPhone = (fTipo?.value || "").toUpperCase() === "TELEFONO";
+    if (phoneField) phoneField.hidden = !needsPhone;
+    if (fNumeroTelefono) {
+      fNumeroTelefono.disabled = !needsPhone;
+      fNumeroTelefono.required = needsPhone;
+      if (!needsPhone) fNumeroTelefono.value = "";
+    }
+  }
 
   btnBack?.addEventListener("click", () => window.location.href = "menu_inicial.html");
 
@@ -202,7 +222,7 @@
         if (d.id_dispositivo === selectedId) tr.classList.add("selected");
 
         tr.innerHTML = `
-          <td>${escapeHtml(d.tipo || "-")}</td>
+          <td>${escapeHtml(formatTipo(d.tipo))}</td>
           <td>${escapeHtml(d.marca || "-")}</td>
           <td>${escapeHtml(d.modelo || "-")}</td>
           <td>${escapeHtml(d.numero_telefono || "-")}</td>
@@ -245,6 +265,7 @@
     if (mode === "add") {
       modalTitle.textContent = "Agregar dispositivo";
       form.reset();
+      syncPhoneField();
       return;
     }
 
@@ -260,6 +281,7 @@
     fNumeroSerie.value = d.numero_serie ?? "";
     fSistemaOperativo.value = d.sistema_operativo ?? "";
     fDetalles.value = d.detalles ?? "";
+    syncPhoneField();
   }
 
   function closeModal() {
@@ -319,6 +341,8 @@
   filterTipo?.addEventListener("change", renderTable);
   filterEstado?.addEventListener("change", renderTable);
 
+  fTipo?.addEventListener("change", syncPhoneField);
+
   fNumeroTelefono?.addEventListener("input", () => {
     fNumeroTelefono.value = fNumeroTelefono.value.replace(/\D/g, "").slice(0, 10);
   });
@@ -338,7 +362,7 @@
       tipo: fTipo.value.trim().toUpperCase(),
       marca: fMarca.value.trim(),
       modelo: fModelo.value.trim(),
-      numero_telefono: fNumeroTelefono?.value?.trim() || null,
+      numero_telefono: fTipo.value.trim().toUpperCase() === "TELEFONO" ? (fNumeroTelefono?.value?.trim() || null) : null,
       imei: fImei?.value?.trim() || null,
       numero_serie: fNumeroSerie?.value?.trim() || null,
       sistema_operativo: fSistemaOperativo?.value?.trim() || null,
@@ -353,6 +377,11 @@
 
     if (!TIPOS.includes(body.tipo)) {
       alert("Tipo inválido.");
+      return;
+    }
+
+    if (body.tipo === "TELEFONO" && !body.numero_telefono) {
+      alert("Captura el número de teléfono.");
       return;
     }
 

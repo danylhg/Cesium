@@ -8,6 +8,120 @@ import {
 } from "./dashboard.storage.js";
 import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
+import { pushUndoAction } from "./dashboard.drawing.js";
+
+let suppressUiHistory = false;
+
+function snapshotPanelUi() {
+  return {
+    openPanels: [...document.querySelectorAll(".glassPanel.open")].map(el => el.id).filter(Boolean),
+    activeTools: [...document.querySelectorAll(".toolFab.active")].map(el => el.id).filter(Boolean)
+  };
+}
+
+function applyPanelUiSnapshot(snapshot) {
+  suppressUiHistory = true;
+  document.querySelectorAll(".glassPanel").forEach(panel => {
+    panel.classList.toggle("open", snapshot.openPanels.includes(panel.id));
+  });
+  document.querySelectorAll(".toolFab").forEach(btn => {
+    btn.classList.toggle("active", snapshot.activeTools.includes(btn.id));
+  });
+  suppressUiHistory = false;
+}
+
+function setControlValue(el, value, eventName = "change") {
+  suppressUiHistory = true;
+  el.value = value;
+  updateRangeFill(el);
+  el.dispatchEvent(new Event(eventName, { bubbles: true }));
+  suppressUiHistory = false;
+}
+
+function updateRangeFill(el) {
+  if (!el || el.type !== "range") return;
+  const min = Number(el.min || 0);
+  const max = Number(el.max || 100);
+  const value = Number(el.value || min);
+  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  el.style.setProperty("--range-fill", `${Math.min(100, Math.max(0, percent))}%`);
+}
+
+function bindControlHistory(el, eventName = "change") {
+  if (!el) return;
+  updateRangeFill(el);
+  el.dataset.undoPrevValue = el.value;
+
+  const remember = () => {
+    if (!suppressUiHistory) el.dataset.undoPrevValue = el.value;
+  };
+
+  el.addEventListener("focusin", remember);
+  el.addEventListener("pointerdown", remember);
+  el.addEventListener("keydown", remember);
+
+  el.addEventListener(eventName, () => {
+    if (suppressUiHistory) return;
+    updateRangeFill(el);
+    const before = el.dataset.undoPrevValue ?? "";
+    const after = el.value;
+    if (before === after) return;
+
+    pushUndoAction({
+      type: "ui",
+      undo: () => setControlValue(el, before, eventName),
+      redo: () => setControlValue(el, after, eventName)
+    });
+
+    el.dataset.undoPrevValue = after;
+  });
+
+  if (el.type === "range") {
+    el.addEventListener("input", () => updateRangeFill(el));
+  }
+}
+
+function bindUiHistoryEvents() {
+  [
+    document.getElementById("layerSelect"),
+    dom.routeVehicleSelect,
+    dom.zoneColorSelect,
+    dom.zoneWidthRange,
+    dom.colorSelect,
+    dom.widthRange,
+    dom.opacityRange,
+    dom.radiusInput,
+    dom.gridSizeSelect,
+    dom.milIdentity,
+    dom.milDimension,
+    dom.milIcon,
+    dom.symLabel
+  ].forEach(el => bindControlHistory(el));
+
+  document.addEventListener("pointerdown", (e) => {
+    const tool = e.target.closest(".toolFab");
+    if (!tool || suppressUiHistory) return;
+    tool.dataset.uiBefore = JSON.stringify(snapshotPanelUi());
+  });
+
+  document.addEventListener("click", (e) => {
+    const tool = e.target.closest(".toolFab");
+    if (!tool || suppressUiHistory) return;
+
+    const before = JSON.parse(tool.dataset.uiBefore || "null");
+    if (!before) return;
+
+    setTimeout(() => {
+      const after = snapshotPanelUi();
+      if (JSON.stringify(before) === JSON.stringify(after)) return;
+      pushUndoAction({
+        type: "ui",
+        undo: () => applyPanelUiSnapshot(before),
+        redo: () => applyPanelUiSnapshot(after)
+      });
+    }, 0);
+  });
+}
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -270,6 +384,7 @@ export function bindDashboardEvents() {
   bindGlobalClickEvents();
   bindOperationActionEvents();
   bindPersonnelDetailEvents();
+  bindUiHistoryEvents();
 }
 
 function bindPersonnelDetailEvents() {

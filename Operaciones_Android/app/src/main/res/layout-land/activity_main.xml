@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0a0f1e"
+    android:background="@color/dash_bg"
     android:orientation="horizontal">
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -10,7 +10,7 @@
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:background="#0a0f1e">
+        android:background="@color/dash_bg">
 
         <WebView
             android:id="@+id/cesiumWebView"
@@ -38,15 +38,16 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="top"
-            android:background="#B71C1C"
+            android:background="@color/dash_danger"
             android:elevation="12dp"
             android:gravity="center"
             android:paddingHorizontal="16dp"
-            android:paddingVertical="10dp"
+            android:paddingVertical="0dp"
             android:text="Se perdio la conexion con el servidor."
-            android:textColor="#FFFFFF"
+            android:textColor="@color/dash_text"
             android:textStyle="bold"
-            android:visibility="gone" />
+            android:visibility="gone"
+            android:maxHeight="0dp" />
 
         <LinearLayout
             android:id="@+id/drawingToolbar"
@@ -397,7 +398,7 @@
             android:id="@+id/navBar"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:background="#0d1526"
+            android:background="@color/dash_surface_strong"
             android:orientation="horizontal">
 
             <LinearLayout
@@ -422,7 +423,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Op."
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -448,7 +449,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Chat"
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -475,7 +476,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Pers."
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -501,7 +502,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Rec."
-                    android:textColor="#64748b"
+                    android:textColor="#9FB3BF"
                     android:textSize="10sp" />
             </LinearLayout>
 

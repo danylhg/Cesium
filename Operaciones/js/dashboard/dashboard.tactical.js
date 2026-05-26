@@ -21,6 +21,72 @@ const COLOR_HEX_MAP = {
   white: '#FFFFFF'
 };
 
+let tacticalPreviousCanvasTouchAction = "";
+let tacticalCameraLocked = false;
+let tacticalTouchOverrideBound = false;
+
+function applyTacticalCameraLock(locked) {
+  const viewer = dashboardState.viewer;
+  if (!viewer?.scene?.screenSpaceCameraController) return;
+
+  const controller = viewer.scene.screenSpaceCameraController;
+  controller.enableRotate = !locked;
+  controller.enableTranslate = !locked;
+  controller.enableLook = !locked;
+  controller.enableZoom = true;
+  controller.enableTilt = true;
+}
+
+function bindTacticalTouchCameraOverride() {
+  const canvas = dashboardState.viewer?.scene?.canvas;
+  if (!canvas || tacticalTouchOverrideBound) return;
+  const activeTouchPointers = new Set();
+
+  const syncTouchCamera = (event) => {
+    if (!tacticalCameraLocked) return;
+    applyTacticalCameraLock(!(event.touches && event.touches.length >= 2));
+  };
+
+  const restoreSingleTouchLock = () => {
+    if (tacticalCameraLocked) applyTacticalCameraLock(true);
+  };
+
+  const syncPointerCamera = (event) => {
+    if (event.pointerType !== "touch" || !tacticalCameraLocked) return;
+    if (event.type === "pointerdown") activeTouchPointers.add(event.pointerId);
+    if (event.type === "pointerup" || event.type === "pointercancel") activeTouchPointers.delete(event.pointerId);
+    applyTacticalCameraLock(activeTouchPointers.size < 2);
+  };
+
+  canvas.addEventListener("touchstart", syncTouchCamera, { passive: true });
+  canvas.addEventListener("touchmove", syncTouchCamera, { passive: true });
+  canvas.addEventListener("touchend", restoreSingleTouchLock, { passive: true });
+  canvas.addEventListener("touchcancel", restoreSingleTouchLock, { passive: true });
+  canvas.addEventListener("pointerdown", syncPointerCamera, { passive: true });
+  canvas.addEventListener("pointerup", syncPointerCamera, { passive: true });
+  canvas.addEventListener("pointercancel", syncPointerCamera, { passive: true });
+  tacticalTouchOverrideBound = true;
+}
+
+function setTacticalDrawingCameraEnabled(enabled) {
+  const viewer = dashboardState.viewer;
+  if (!viewer?.scene?.screenSpaceCameraController) return;
+
+  tacticalCameraLocked = !enabled;
+  bindTacticalTouchCameraOverride();
+  applyTacticalCameraLock(!enabled);
+
+  const canvas = viewer.scene.canvas;
+  if (!canvas) return;
+
+  if (!enabled) {
+    tacticalPreviousCanvasTouchAction = canvas.style.touchAction || "";
+    canvas.style.touchAction = "none";
+  } else {
+    canvas.style.touchAction = tacticalPreviousCanvasTouchAction;
+  }
+}
+
 export function getCesiumColor(name, alpha = 1) {
   const map = {
     red: Cesium.Color.RED,
@@ -994,6 +1060,35 @@ async function saveOperationZoneToBackend(points, nombre, colorName) {
   }
 }
 
+async function restoreOperationZoneToBackend(zona) {
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId || !zona?.geometria) return null;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/zona`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        nombre: zona.nombre || "Zona de operacion",
+        geometria: zona.geometria,
+        color: zona.color || COLOR_HEX_MAP.blue
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.ok === false) return null;
+    return data.zona || null;
+  } catch (err) {
+    console.warn("[ZONA] Error restaurando zona de operacion:", err);
+    return null;
+  }
+}
+
 async function deleteOperationZoneFromBackend() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
@@ -1073,6 +1168,9 @@ export function addTacticalEntity(entity) {
 export function resetDrawingState() {
   dashboardState.placingMode = false;
   dashboardState.drawingPoints = [];
+  if (dashboardState.drawingMode !== "pencil") {
+    setTacticalDrawingCameraEnabled(true);
+  }
 
   const viewer = dashboardState.viewer;
   if (viewer) {
@@ -1219,12 +1317,12 @@ export function setTacticalUI() {
   if (dom.pencilSubmenu) dom.pencilSubmenu.style.display = isPencil ? "block" : "none";
   if (isPencil) {
     if (dom.btnSelectPencil) {
-      dom.btnSelectPencil.style.background = isEraser ? "rgba(255,255,255,0.1)" : "#00ffa6";
-      dom.btnSelectPencil.style.color = isEraser ? "#fff" : "#001b1b";
+      dom.btnSelectPencil.style.background = isEraser ? "rgba(255,255,255,0.12)" : "#0284c7";
+      dom.btnSelectPencil.style.color = "#fff";
     }
     if (dom.btnSelectEraser) {
-      dom.btnSelectEraser.style.background = isEraser ? "#00ffa6" : "rgba(255,255,255,0.1)";
-      dom.btnSelectEraser.style.color = isEraser ? "#001b1b" : "#fff";
+      dom.btnSelectEraser.style.background = isEraser ? "#0284c7" : "rgba(255,255,255,0.12)";
+      dom.btnSelectEraser.style.color = "#fff";
     }
   }
 
@@ -1259,8 +1357,8 @@ export function setTacticalUI() {
   if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
   if (dom.markZoneBtn) {
     const isModeZone = dashboardState.toolMode === "perimeter";
-    dom.markZoneBtn.style.background = isModeZone ? "#00ffa6" : "";
-    dom.markZoneBtn.style.color = isModeZone ? "#001b1b" : "#000000";
+    dom.markZoneBtn.style.background = isModeZone ? "#0284c7" : "";
+    dom.markZoneBtn.style.color = isModeZone ? "#ffffff" : "";
     dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
   }
 
@@ -2651,6 +2749,12 @@ export function bindTacticalEvents() {
         startPencilMode();
       }
 
+      if (["polygon", "polyline", "perimeter"].includes(newMode)) {
+        dashboardState.placingMode = true;
+        setTacticalDrawingCameraEnabled(false);
+        if (dom.tbHint) dom.tbHint.textContent = "Toca el mapa para dibujar sin moverlo.";
+      }
+
       // Auto-enter placing mode for building and label (click map to place)
       if (["building", "label", "poi"].includes(newMode)) {
         dashboardState.placingMode = true;
@@ -2678,6 +2782,8 @@ export function bindTacticalEvents() {
       } else {
         stopAllDrawingModes();
         startPencilMode();
+        dashboardState.toolMode = "pencil";
+        if (dom.toolSelect) dom.toolSelect.value = "pencil";
       }
       setTacticalUI();
     });
@@ -2692,6 +2798,8 @@ export function bindTacticalEvents() {
       } else {
         stopAllDrawingModes();
         startEraserMode();
+        dashboardState.toolMode = "pencil";
+        if (dom.toolSelect) dom.toolSelect.value = "pencil";
       }
       setTacticalUI();
     });
@@ -2711,6 +2819,9 @@ export function bindTacticalEvents() {
 
       dashboardState.placingMode = true;
       dashboardState.drawingPoints = [];
+      if (["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode)) {
+        setTacticalDrawingCameraEnabled(false);
+      }
       if (dom.tbHint) {
         dom.tbHint.textContent = "Modo activo. Usa el mapa para colocar elementos.";
       }
@@ -2802,6 +2913,7 @@ export function bindTacticalEvents() {
         dashboardState.toolMode = "perimeter";
         resetDrawingState();
         dashboardState.placingMode = true;
+        setTacticalDrawingCameraEnabled(false);
         if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para empezar a delimitar la zona de operacion.";
       }
       setTacticalUI();
@@ -2811,10 +2923,40 @@ export function bindTacticalEvents() {
   if (dom.clearZoneBtn) {
     dom.clearZoneBtn.addEventListener("click", async () => {
       if (!dashboardState.currentOperationZone) return;
+      const zoneSnapshot = JSON.parse(JSON.stringify(dashboardState.currentOperationZone));
       const idZona = dashboardState.currentOperationZone.id_zona;
       const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
       if (deleted) {
         clearOperationZoneEntities();
+        let restoredZonePromise = null;
+        let zoneVisible = false;
+        pushUndoAction({
+          type: "ui",
+          undo: () => {
+            zoneVisible = true;
+            buildOperationZoneEntity(zoneSnapshot);
+            restoredZonePromise = restoreOperationZoneToBackend(zoneSnapshot).then((restoredZone) => {
+              if (restoredZone && zoneVisible) buildOperationZoneEntity(restoredZone);
+              return restoredZone;
+            });
+            if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion restaurada.";
+          },
+          redo: () => {
+            zoneVisible = false;
+            const currentZoneId = dashboardState.currentOperationZone?.id_zona || zoneSnapshot.id_zona;
+            clearOperationZoneEntities();
+            const deleteRestoredZone = (restoredZone) => {
+              const idToDelete = restoredZone?.id_zona || currentZoneId;
+              if (idToDelete) deleteCurrentOperationZoneFromBackend(idToDelete);
+            };
+            if (restoredZonePromise) {
+              restoredZonePromise.then(deleteRestoredZone);
+            } else {
+              deleteRestoredZone(null);
+            }
+            if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion eliminada.";
+          }
+        });
         if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion eliminada.";
       }
     });

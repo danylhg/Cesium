@@ -12,6 +12,7 @@ class PanelNavigationController(
     private val btnNavChat: LinearLayout,
     private val btnNavPersonal: LinearLayout,
     private val btnNavRecursos: LinearLayout,
+    private val navBar: LinearLayout,
     private val host: Host
 ) {
 
