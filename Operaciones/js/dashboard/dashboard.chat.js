@@ -888,6 +888,24 @@ async function sendImageFromInput(input) {
   }
 }
 
+async function sendAttachmentFromInput(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  const type = String(file.type || "").toLowerCase();
+  if (type.startsWith("image/")) {
+    await sendImageFromInput(input);
+    return;
+  }
+  if (type.startsWith("video/")) {
+    await sendVideoFromInput(input);
+    return;
+  }
+
+  input.value = "";
+  alert("Selecciona una foto o un video.");
+}
+
 async function toggleAudioRecording() {
   if (_isRecordingAudio && _mediaRecorder) {
     _mediaRecorder.stop();
@@ -1032,24 +1050,16 @@ export function bindChatEvents() {
     dom.sendChatBtn.addEventListener("click", sendMessage);
   }
 
-  if (dom.chatCameraBtn) {
-    dom.chatCameraBtn.addEventListener("click", () => dom.chatCameraInput?.click());
-  }
-
-  if (dom.chatVideoBtn) {
-    dom.chatVideoBtn.addEventListener("click", () => dom.chatVideoInput?.click());
+  if (dom.chatAttachmentBtn) {
+    dom.chatAttachmentBtn.addEventListener("click", () => dom.chatAttachmentInput?.click());
   }
 
   if (dom.chatAudioBtn) {
     dom.chatAudioBtn.addEventListener("click", toggleAudioRecording);
   }
 
-  if (dom.chatCameraInput) {
-    dom.chatCameraInput.addEventListener("change", () => sendImageFromInput(dom.chatCameraInput));
-  }
-
-  if (dom.chatVideoInput) {
-    dom.chatVideoInput.addEventListener("change", () => sendVideoFromInput(dom.chatVideoInput));
+  if (dom.chatAttachmentInput) {
+    dom.chatAttachmentInput.addEventListener("change", () => sendAttachmentFromInput(dom.chatAttachmentInput));
   }
 
   if (dom.chatInput) {

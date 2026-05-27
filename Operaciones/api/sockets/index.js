@@ -1,6 +1,6 @@
 import { Server } from "socket.io";
 import { pool } from "../db.js";
-import { ensureExtendedTrackingSchema } from "../utils/trackingSchema.js";
+import { ensureExtendedTrackingSchema, ensurePersonalMotionTrackingSchema } from "../utils/trackingSchema.js";
 
 function streamRoomName(idStream) {
   return `media_stream_${idStream}`;
@@ -124,7 +124,7 @@ export function initSocket(server) {
 
       let savedTracking = null;
       try {
-        await ensureExtendedTrackingSchema();
+        await ensurePersonalMotionTrackingSchema();
         const { rows } = await pool.query(
           `INSERT INTO tracking_personal (
              id_operacion, id_personal, latitud, longitud, altitud,
@@ -133,8 +133,8 @@ export function initSocket(server) {
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp, estado_operacion_creacion`,
           [opId, Number(id_personal), Number(latitud), Number(longitud),
-            altitud != null ? Number(altitud) : null,
-            precision_m != null ? Number(precision_m) : null,
+            optionalNumber(altitud),
+            optionalNumber(precision_m),
             optionalNumber(velocidad_kmh),
             optionalNumber(rumbo_grados)]
         );

@@ -278,7 +278,7 @@
     <div class="tacticalToolPicker">
       <div class="groupTitle" id="tacticalToolGroupTitle">Herramienta</div>
       <select id="toolSelect" class="opsInput">
-        <option value="none" hidden disabled selected>Selecciona herramienta...</option>
+        <option value="none" disabled selected>Selecciona tipo de objeto...</option>
         <optgroup label="DIBUJO LIBRE">
           <option value="pencil">✏️ Dibujo libre (Lápiz/Goma)</option>
         </optgroup>
@@ -289,6 +289,7 @@
         </optgroup>
 
         <optgroup label="ÁREAS DE INTERÉS">
+          <option value="perimeter">Perímetro / zona de operación</option>
           <option value="polygon">Polígono Táctico</option>
           <option value="circle">Círculo de cobertura</option>
           <option value="polyline">Línea Táctica (Ruta)</option>
@@ -441,6 +442,7 @@
     </div>
 
     <div id="tacticalActionButtons" class="btnGrid tacticalActionGrid" style="display:none; margin-top:20px;">
+      <button id="clearTactical" class="btnBeige secondaryAction">Limpiar táctico</button>
       <button id="finishShape" class="btnBeige secondaryAction">Terminar figura</button>
     </div>
 
@@ -514,15 +516,13 @@
 
     <div class="chatComposer">
       <div class="chatInputBar">
-        <button id="chatCameraBtn" class="chatIconBtn" type="button" title="Tomar foto" aria-label="Tomar foto">📷</button>
-        <button id="chatVideoBtn" class="chatIconBtn" type="button" title="Enviar video" aria-label="Enviar video">🎬</button>
+        <button id="chatAttachmentBtn" class="chatIconBtn" type="button" title="Adjuntar foto o video" aria-label="Adjuntar foto o video">📎</button>
         <textarea id="chatInput" placeholder="Escribe un mensaje"></textarea>
         <button id="sendChatBtn" class="chatIconBtn sendChatBtn" type="button" title="Enviar" aria-label="Enviar">➤</button>
         <button id="chatAudioBtn" class="chatIconBtn voiceBtn" type="button" title="Grabar audio" aria-label="Grabar audio">🎙</button>
       </div>
       <div id="chatAttachStatus" class="voiceStatus" style="display:none;"></div>
-      <input id="chatCameraInput" type="file" accept="image/*" capture="environment" hidden>
-      <input id="chatVideoInput" type="file" accept="video/*" hidden>
+      <input id="chatAttachmentInput" type="file" accept="image/*,video/*" hidden>
     </div>
   </aside>
 

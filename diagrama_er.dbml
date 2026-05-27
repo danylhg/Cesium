@@ -1,0 +1,743 @@
+// Diagrama ER para dbdiagram.io
+// Proyecto: Visualizador Tactico / Operaciones
+
+Table usuario {
+  id_usuario int [pk, increment]
+  rol rol_usuario_enum [not null]
+  nombre text [not null]
+  apellido text [not null]
+  puesto text
+  username text [not null, unique]
+  password_hash text [not null]
+  activo boolean [not null, default: true]
+  fecha_creacion timestamptz [not null]
+  ultimo_acceso timestamptz
+}
+
+Table personal {
+  id_personal int [pk, increment]
+  rol rol_personal_enum [not null]
+  apodo text [not null, unique]
+  nombre text [not null]
+  apellido text [not null]
+  puesto text
+  username text [not null, unique]
+  password_hash text [not null]
+  activo boolean [not null, default: true]
+  fecha_creacion timestamptz [not null]
+  creado_por int [not null]
+  ultimo_acceso timestamptz
+}
+
+Table equipo {
+  id_equipo int [pk, increment]
+  numero_serie text [not null, unique]
+  nombre text [not null]
+  categoria text [not null]
+  estado estado_equipo_enum [not null]
+  fecha_creacion timestamptz [not null]
+}
+
+Table equipo_comunicacion {
+  id_equipo int [pk]
+  imagen_eqcom text
+  marca text
+  modelo text
+  notas text
+}
+
+Table equipo_tactico {
+  id_equipo int [pk]
+  imagen_eqtac text
+  tipo_tactico text
+  calibre text
+  nivel text
+  notas text
+}
+
+Table vehiculo {
+  id_vehiculo int [pk, increment]
+  imagen_veh text
+  codigo_interno text [not null, unique]
+  tipo text
+  alias text
+  estado estado_vehiculo_enum [not null]
+  capacidad int
+  fecha_creacion timestamptz [not null]
+}
+
+Table dispositivo {
+  id_dispositivo int [pk, increment]
+  tipo text [not null]
+  marca text [not null]
+  modelo text [not null]
+  numero_telefono text
+  imei text
+  numero_serie text
+  sistema_operativo text
+  estado estado_dispositivo_enum [not null]
+  detalles text
+  fecha_creacion timestamptz [not null]
+}
+
+Table operacion {
+  id_operacion int [pk, increment]
+  codigo text [not null, unique]
+  nombre text [not null]
+  descripcion text
+  prioridad prioridad_operacion_enum [not null]
+  estado estado_operacion_enum [not null]
+  fecha_inicio timestamptz
+  fecha_fin timestamptz
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  creada_por int [not null]
+  id_cut int
+}
+
+Table personal_equipo {
+  id_personal int [not null]
+  id_equipo int [not null]
+  cantidad int [not null]
+  estado estado_asig_equipo_enum [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_devolucion timestamptz
+  asignado_por int [not null]
+
+  indexes {
+    (id_personal, id_equipo) [pk]
+  }
+}
+
+Table vehiculo_equipo {
+  id_vehiculo int [not null]
+  id_equipo int [not null]
+  cantidad int [not null]
+  estado estado_instalacion_enum [not null]
+  fecha_instalacion timestamptz [not null]
+  fecha_retiro timestamptz
+
+  indexes {
+    (id_vehiculo, id_equipo) [pk]
+  }
+}
+
+Table asignacion_operacion_personal {
+  id_operacion int [not null]
+  id_personal int [not null]
+  rol_en_operacion text
+  estado_asignacion estado_asignacion_enum [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_fin_asignacion timestamptz
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, id_personal) [pk]
+  }
+}
+
+Table vehiculo_operacion {
+  id_operacion int [not null]
+  id_vehiculo int [not null]
+  id_personal int [not null]
+  id_grupo_operacion int
+  nivel_asignacion varchar(50)
+  uso_en_operacion text
+  estado_asignacion estado_asig_vehiculo_enum [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_fin_asignacion timestamptz
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, id_vehiculo, id_personal) [pk]
+  }
+}
+
+Table operacion_equipo {
+  id_operacion_equipo int [pk, increment]
+  id_operacion int [not null]
+  id_equipo int [not null]
+  id_personal int
+  id_vehiculo int
+  cantidad int [not null]
+  uso_en_operacion text
+  estado_asignacion estado_asig_equipo_operacion_enum [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_fin_asignacion timestamptz
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, id_equipo) [unique]
+  }
+}
+
+Table uso_equipo_operacion {
+  id_uso_equipo_operacion int [pk, increment]
+  id_operacion int [not null]
+  id_equipo int [not null]
+  id_personal int [not null]
+  id_vehiculo_contexto int
+  id_grupo_operacion int
+  cantidad int [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_devolucion timestamptz
+  asignado_por int [not null]
+  notas text
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, id_equipo, id_personal, id_grupo_operacion) [unique]
+  }
+}
+
+Table operacion_dispositivo {
+  id_operacion int [not null]
+  id_dispositivo int [not null]
+  id_personal int [not null]
+  estado_asignacion text [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_devolucion timestamptz
+  asignado_por int [not null]
+  notas text
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, id_dispositivo) [pk]
+  }
+}
+
+Table grupo_operacion {
+  id_grupo_operacion int [pk, increment]
+  id_operacion int [not null]
+  nombre text [not null]
+  apodo text
+  id_grupo_padre int
+  descripcion text
+  creado_por int [not null]
+  fecha_creacion timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, nombre) [unique]
+    (id_operacion, id_grupo_operacion) [unique]
+  }
+}
+
+Table grupo_personal {
+  id_grupo_operacion int [not null]
+  id_personal int [not null]
+  rol_en_grupo text
+  fecha_asignacion timestamptz [not null]
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_grupo_operacion, id_personal) [pk]
+  }
+}
+
+Table grupo_equipo {
+  id_grupo_operacion int [not null]
+  id_operacion int [not null]
+  id_equipo int [not null]
+  cantidad int [not null]
+  uso_en_grupo text
+  estado_asignacion estado_asig_equipo_operacion_enum [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_fin_asignacion timestamptz
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_grupo_operacion, id_equipo) [pk]
+    (id_operacion, id_equipo) [unique]
+  }
+}
+
+Table grupo_vehiculo {
+  id_grupo_operacion int [not null]
+  id_operacion int [not null]
+  id_vehiculo int [not null]
+  id_personal int [not null]
+  uso_en_grupo text
+  estado_asignacion estado_asig_vehiculo_enum [not null]
+  fecha_asignacion timestamptz [not null]
+  fecha_fin_asignacion timestamptz
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_grupo_operacion, id_vehiculo, id_personal) [pk]
+  }
+}
+
+Table mando_operacion {
+  id_operacion int [not null]
+  id_cet int [not null]
+  id_cell int [not null]
+  fecha_asignacion timestamptz [not null]
+  asignado_por int [not null]
+  estado_operacion_creacion estado_operacion_enum
+
+  indexes {
+    (id_operacion, id_cell) [pk]
+  }
+}
+
+Table chat_operacion {
+  id_chat int [pk, increment]
+  id_operacion int [not null, unique]
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  fecha_cierre timestamptz
+  activo boolean [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table participante_chat {
+  id_participante int [pk, increment]
+  id_chat int [not null]
+  tipo tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+
+  indexes {
+    (id_chat, id_usuario) [unique]
+    (id_chat, id_personal) [unique]
+  }
+}
+
+Table mensaje_chat {
+  id_mensaje int [pk, increment]
+  id_chat int [not null]
+  id_participante int [not null]
+  contenido text [not null]
+  tipo_mensaje tipo_mensaje_enum [not null]
+  destinatario_rol text
+  destino_tipo text
+  destino_id text
+  destino_label text
+  attachment_kind text
+  attachment_url text
+  attachment_mime text
+  attachment_name text
+  attachment_size bigint
+  attachment_duration_ms bigint
+  fecha_envio timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table puntos_interes {
+  id_poi int [pk, increment]
+  tipo_creador tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+  nombre text [not null]
+  tipo_poi text [not null]
+  latitud numeric(9,6) [not null]
+  longitud numeric(9,6) [not null]
+  descripcion text
+  color text [not null]
+  icono_src text
+  sidc text
+  id_operacion int
+  activo boolean [not null]
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table dibujo_libre_operacion {
+  id_dibujo int [pk, increment]
+  tipo_creador tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+  id_operacion int [not null]
+  puntos jsonb [not null]
+  color text [not null]
+  grosor numeric(6,2) [not null]
+  activo boolean [not null]
+  fecha_creacion timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table area_interes {
+  id_area int [pk, increment]
+  id_operacion int [not null]
+  tipo_creador tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+  nombre text [not null]
+  descripcion text
+  geometria jsonb [not null]
+  color text [not null]
+  estado estado_area_enum [not null]
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table ruta_operacion {
+  id_ruta int [pk, increment]
+  id_operacion int [not null]
+  tipo_creador tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+  nombre text [not null]
+  descripcion text
+  geometria jsonb [not null]
+  color text [not null]
+  estado estado_ruta_enum [not null]
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table marca_edificio {
+  id_marca int [pk, increment]
+  id_operacion int [not null]
+  tipo_creador tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+  nombre text [not null]
+  tipo_estructura text [not null]
+  latitud numeric(8,5) [not null]
+  longitud numeric(9,5) [not null]
+  estado estado_edificio_enum [not null]
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table ruta_navegacion {
+  id_ruta int [pk, increment]
+  id_operacion int [not null]
+  geojson jsonb [not null]
+  origen_lat double [not null]
+  origen_lon double [not null]
+  destino_lat double [not null]
+  destino_lon double [not null]
+  distancia_m double
+  duracion_s double
+  created_by_tipo varchar(10)
+  id_usuario int
+  id_personal int
+  id_vehiculo int
+  activo boolean [not null]
+  fecha_eliminacion timestamp
+  eliminado_por_tipo varchar(20)
+  id_usuario_elim int
+  id_personal_elim int
+  fecha_creacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table zona_operacion {
+  id_zona int [pk, increment]
+  id_operacion int [not null, unique]
+  nombre text [not null]
+  geometria jsonb [not null]
+  centroide_lat numeric(8,5) [not null]
+  centroide_lon numeric(9,5) [not null]
+  zoom_inicial int [not null]
+  color text [not null]
+  creado_por int [not null]
+  fecha_creacion timestamptz [not null]
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table tracking_personal {
+  id_tracking bigint [pk, increment]
+  id_operacion int [not null]
+  id_personal int [not null]
+  latitud numeric(8,5) [not null]
+  longitud numeric(9,5) [not null]
+  altitud numeric(7,2)
+  velocidad_kmh numeric(6,2)
+  rumbo_grados numeric(5,2)
+  precision_m numeric(6,2)
+  timestamp timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table tracking_vehiculo {
+  id_tracking bigint [pk, increment]
+  id_operacion int [not null]
+  id_vehiculo int [not null]
+  latitud numeric(8,5) [not null]
+  longitud numeric(9,5) [not null]
+  altitud numeric(7,2)
+  velocidad_kmh numeric(6,2)
+  rumbo_grados numeric(5,2)
+  precision_m numeric(6,2)
+  timestamp timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table tracking_equipo {
+  id_tracking bigint [pk, increment]
+  id_operacion int [not null]
+  id_equipo int [not null]
+  latitud numeric(8,5) [not null]
+  longitud numeric(9,5) [not null]
+  altitud numeric(7,2)
+  velocidad_kmh numeric(6,2)
+  rumbo_grados numeric(5,2)
+  precision_m numeric(6,2)
+  timestamp timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table tracking_dispositivo {
+  id_tracking bigint [pk, increment]
+  id_operacion int [not null]
+  id_dispositivo int [not null]
+  latitud numeric(8,5) [not null]
+  longitud numeric(9,5) [not null]
+  altitud numeric(7,2)
+  velocidad_kmh numeric(6,2)
+  rumbo_grados numeric(5,2)
+  precision_m numeric(6,2)
+  bateria_pct numeric(5,2)
+  timestamp timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table signos_vitales_personal {
+  id_signo_vital bigint [pk, increment]
+  id_operacion int [not null]
+  id_personal int [not null]
+  frecuencia_cardiaca_bpm numeric(5,2)
+  oxigenacion_spo2 numeric(5,2)
+  temperatura_c numeric(4,2)
+  frecuencia_respiratoria_rpm numeric(5,2)
+  presion_sistolica_mmhg numeric(5,2)
+  presion_diastolica_mmhg numeric(5,2)
+  pasos bigint
+  presion_barometrica_hpa numeric(7,2)
+  bateria_pct numeric(5,2)
+  latitud numeric(8,5)
+  longitud numeric(9,5)
+  dispositivo_id text
+  origen text [not null]
+  metadata jsonb [not null]
+  timestamp timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table aviso_operacion {
+  id_aviso int [pk, increment]
+  id_operacion int [not null]
+  id_personal_emisor int [not null]
+  tipo_receptor tipo_participante_enum
+  id_personal_receptor int
+  id_usuario_receptor int
+  tipo_aviso tipo_aviso_enum [not null]
+  contenido text [not null]
+  estado estado_aviso_enum [not null]
+  fecha_envio timestamptz [not null]
+  fecha_atencion timestamptz
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table novedad_operacion {
+  id_novedad int [pk, increment]
+  id_operacion int [not null]
+  tipo_creador tipo_participante_enum [not null]
+  id_usuario int
+  id_personal int
+  tipo_novedad tipo_novedad_enum [not null]
+  titulo text [not null]
+  descripcion text
+  solo_mando boolean [not null]
+  fecha_registro timestamptz [not null]
+  fecha_actualizacion timestamptz
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table operacion_evento {
+  id_evento bigint [pk, increment]
+  id_operacion int [not null]
+  tipo_evento text [not null]
+  entidad_tipo text [not null]
+  entidad_id text
+  payload jsonb [not null]
+  actor_tipo text
+  id_usuario int
+  id_personal int
+  occurred_at timestamptz [not null]
+  estado_operacion_creacion estado_operacion_enum
+}
+
+Table media_stream_session {
+  id_stream bigint [pk, increment]
+  id_operacion int [not null]
+  id_usuario int
+  id_personal int
+  id_equipo int
+  id_dispositivo int
+  estado_operacion_creacion estado_operacion_enum
+  kind text [not null]
+  status text [not null]
+  label text
+  protocol text [not null]
+  source_type text [not null]
+  stream_key text [not null, unique]
+  rtmp_publish_url text
+  rtmp_playback_url text
+  playback_url text
+  external_device_id text
+  publisher_socket_id text
+  viewer_count int [not null]
+  consent_ack boolean [not null]
+  foreground_notice boolean [not null]
+  created_by_tabla text
+  created_by_id int
+  started_at timestamptz [not null]
+  last_seen_at timestamptz
+  ended_at timestamptz
+}
+
+Table media_stream_recording {
+  id_recording bigint [pk, increment]
+  id_stream bigint [not null]
+  id_operacion int [not null]
+  estado_operacion_creacion estado_operacion_enum
+  mime_type text [not null]
+  storage_path text [not null]
+  original_filename text
+  size_bytes bigint [not null]
+  duration_ms bigint
+  recorded_by_tabla text
+  recorded_by_id int
+  created_at timestamptz [not null]
+}
+
+Ref: personal.creado_por > usuario.id_usuario
+Ref: equipo_comunicacion.id_equipo > equipo.id_equipo
+Ref: equipo_tactico.id_equipo > equipo.id_equipo
+Ref: operacion.creada_por > usuario.id_usuario
+Ref: operacion.id_cut > personal.id_personal
+
+Ref: personal_equipo.id_personal > personal.id_personal
+Ref: personal_equipo.id_equipo > equipo.id_equipo
+Ref: personal_equipo.asignado_por > usuario.id_usuario
+Ref: vehiculo_equipo.id_vehiculo > vehiculo.id_vehiculo
+Ref: vehiculo_equipo.id_equipo > equipo.id_equipo
+
+Ref: asignacion_operacion_personal.id_operacion > operacion.id_operacion
+Ref: asignacion_operacion_personal.id_personal > personal.id_personal
+Ref: asignacion_operacion_personal.asignado_por > usuario.id_usuario
+
+Ref: vehiculo_operacion.id_operacion > operacion.id_operacion
+Ref: vehiculo_operacion.id_vehiculo > vehiculo.id_vehiculo
+Ref: vehiculo_operacion.id_personal > personal.id_personal
+Ref: vehiculo_operacion.id_grupo_operacion > grupo_operacion.id_grupo_operacion
+Ref: vehiculo_operacion.asignado_por > usuario.id_usuario
+
+Ref: operacion_equipo.id_operacion > operacion.id_operacion
+Ref: operacion_equipo.id_equipo > equipo.id_equipo
+Ref: operacion_equipo.id_personal > personal.id_personal
+Ref: operacion_equipo.id_vehiculo > vehiculo.id_vehiculo
+Ref: operacion_equipo.asignado_por > usuario.id_usuario
+
+Ref: uso_equipo_operacion.id_operacion > operacion.id_operacion
+Ref: uso_equipo_operacion.id_equipo > equipo.id_equipo
+Ref: uso_equipo_operacion.id_personal > personal.id_personal
+Ref: uso_equipo_operacion.id_vehiculo_contexto > vehiculo.id_vehiculo
+Ref: uso_equipo_operacion.id_grupo_operacion > grupo_operacion.id_grupo_operacion
+Ref: uso_equipo_operacion.asignado_por > usuario.id_usuario
+
+Ref: operacion_dispositivo.id_operacion > operacion.id_operacion
+Ref: operacion_dispositivo.id_dispositivo > dispositivo.id_dispositivo
+Ref: operacion_dispositivo.id_personal > personal.id_personal
+Ref: operacion_dispositivo.asignado_por > usuario.id_usuario
+
+Ref: grupo_operacion.id_operacion > operacion.id_operacion
+Ref: grupo_operacion.id_grupo_padre > grupo_operacion.id_grupo_operacion
+Ref: grupo_operacion.creado_por > usuario.id_usuario
+Ref: grupo_personal.id_grupo_operacion > grupo_operacion.id_grupo_operacion
+Ref: grupo_personal.id_personal > personal.id_personal
+Ref: grupo_personal.asignado_por > usuario.id_usuario
+Ref: grupo_equipo.id_grupo_operacion > grupo_operacion.id_grupo_operacion
+Ref: grupo_equipo.id_operacion > operacion.id_operacion
+Ref: grupo_equipo.id_equipo > equipo.id_equipo
+Ref: grupo_equipo.asignado_por > usuario.id_usuario
+Ref: grupo_vehiculo.id_grupo_operacion > grupo_operacion.id_grupo_operacion
+Ref: grupo_vehiculo.id_operacion > operacion.id_operacion
+Ref: grupo_vehiculo.id_vehiculo > vehiculo.id_vehiculo
+Ref: grupo_vehiculo.id_personal > personal.id_personal
+Ref: grupo_vehiculo.asignado_por > usuario.id_usuario
+Ref: mando_operacion.id_operacion > operacion.id_operacion
+Ref: mando_operacion.id_cet > personal.id_personal
+Ref: mando_operacion.id_cell > personal.id_personal
+Ref: mando_operacion.asignado_por > usuario.id_usuario
+
+Ref: chat_operacion.id_operacion > operacion.id_operacion
+Ref: participante_chat.id_chat > chat_operacion.id_chat
+Ref: participante_chat.id_usuario > usuario.id_usuario
+Ref: participante_chat.id_personal > personal.id_personal
+Ref: mensaje_chat.id_chat > chat_operacion.id_chat
+Ref: mensaje_chat.id_participante > participante_chat.id_participante
+
+Ref: puntos_interes.id_usuario > usuario.id_usuario
+Ref: puntos_interes.id_personal > personal.id_personal
+Ref: puntos_interes.id_operacion > operacion.id_operacion
+Ref: dibujo_libre_operacion.id_usuario > usuario.id_usuario
+Ref: dibujo_libre_operacion.id_personal > personal.id_personal
+Ref: dibujo_libre_operacion.id_operacion > operacion.id_operacion
+Ref: area_interes.id_operacion > operacion.id_operacion
+Ref: area_interes.id_usuario > usuario.id_usuario
+Ref: area_interes.id_personal > personal.id_personal
+Ref: ruta_operacion.id_operacion > operacion.id_operacion
+Ref: ruta_operacion.id_usuario > usuario.id_usuario
+Ref: ruta_operacion.id_personal > personal.id_personal
+Ref: marca_edificio.id_operacion > operacion.id_operacion
+Ref: marca_edificio.id_usuario > usuario.id_usuario
+Ref: marca_edificio.id_personal > personal.id_personal
+Ref: ruta_navegacion.id_operacion > operacion.id_operacion
+Ref: ruta_navegacion.id_usuario > usuario.id_usuario
+Ref: ruta_navegacion.id_personal > personal.id_personal
+Ref: ruta_navegacion.id_vehiculo > vehiculo.id_vehiculo
+Ref: zona_operacion.id_operacion > operacion.id_operacion
+Ref: zona_operacion.creado_por > usuario.id_usuario
+
+Ref: tracking_personal.id_operacion > operacion.id_operacion
+Ref: tracking_personal.id_personal > personal.id_personal
+Ref: tracking_vehiculo.id_operacion > operacion.id_operacion
+Ref: tracking_vehiculo.id_vehiculo > vehiculo.id_vehiculo
+Ref: tracking_equipo.id_operacion > operacion.id_operacion
+Ref: tracking_equipo.id_equipo > equipo.id_equipo
+Ref: tracking_dispositivo.id_operacion > operacion.id_operacion
+Ref: tracking_dispositivo.id_dispositivo > dispositivo.id_dispositivo
+Ref: signos_vitales_personal.id_operacion > operacion.id_operacion
+Ref: signos_vitales_personal.id_personal > personal.id_personal
+
+Ref: aviso_operacion.id_operacion > operacion.id_operacion
+Ref: aviso_operacion.id_personal_emisor > personal.id_personal
+Ref: aviso_operacion.id_personal_receptor > personal.id_personal
+Ref: aviso_operacion.id_usuario_receptor > usuario.id_usuario
+Ref: novedad_operacion.id_operacion > operacion.id_operacion
+Ref: novedad_operacion.id_usuario > usuario.id_usuario
+Ref: novedad_operacion.id_personal > personal.id_personal
+Ref: operacion_evento.id_operacion > operacion.id_operacion
+Ref: operacion_evento.id_usuario > usuario.id_usuario
+Ref: operacion_evento.id_personal > personal.id_personal
+
+Ref: media_stream_session.id_operacion > operacion.id_operacion
+Ref: media_stream_session.id_usuario > usuario.id_usuario
+Ref: media_stream_session.id_personal > personal.id_personal
+Ref: media_stream_session.id_equipo > equipo.id_equipo
+Ref: media_stream_session.id_dispositivo > dispositivo.id_dispositivo
+Ref: media_stream_recording.id_stream > media_stream_session.id_stream
+Ref: media_stream_recording.id_operacion > operacion.id_operacion
+
+Ref: uso_equipo_operacion.(id_operacion, id_equipo) > operacion_equipo.(id_operacion, id_equipo)
+Ref: mando_operacion.(id_operacion, id_cet) > asignacion_operacion_personal.(id_operacion, id_personal)
+Ref: mando_operacion.(id_operacion, id_cell) > asignacion_operacion_personal.(id_operacion, id_personal)
+Ref: signos_vitales_personal.(id_operacion, id_personal) > asignacion_operacion_personal.(id_operacion, id_personal)

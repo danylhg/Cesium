@@ -4,17 +4,18 @@ title Setup Cesium Proyecto
 :: ============================================================
 ::  CONFIGURACION
 :: ============================================================
-set PROYECTO=C:\Users\PC\Desktop\cesium-proyecto
-set ENV_FILE=%PROYECTO%\Operaciones\api\.env
-set INIT_SQL=C:\Users\PC\Desktop\cesium-proyecto\db\remodulacion\00_init.sql
-set PSQL="C:\Program Files\PostgreSQL\18\bin\psql.exe"
-set STREAM_STORAGE=%PROYECTO%\Operaciones\api\storage\streams
-set FRONT_RUNTIME=%PROYECTO%\Operaciones\runtime
-set FFMPEG_STREAM_ROOT=%FRONT_RUNTIME%\ffmpeg-streams
-set SETUP_CLEANUP_MARKER=%FRONT_RUNTIME%\setup_cleanup.json
-set FFMPEG_DIR=%PROYECTO%\tools\ffmpeg
-set DRONE_STREAM_KEY=dron-01
-set DRONE_RTMP_PORT=1936
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "PROYECTO=%%~fI"
+set "ENV_FILE=%PROYECTO%\Operaciones\api\.env"
+set "INIT_SQL=%PROYECTO%\db\remodulacion\00_init.sql"
+set "PSQL=C:\Program Files\PostgreSQL\18\bin\psql.exe"
+set "STREAM_STORAGE=%PROYECTO%\Operaciones\api\storage\streams"
+set "FRONT_RUNTIME=%PROYECTO%\Operaciones\runtime"
+set "FFMPEG_STREAM_ROOT=%FRONT_RUNTIME%\ffmpeg-streams"
+set "SETUP_CLEANUP_MARKER=%FRONT_RUNTIME%\setup_cleanup.json"
+set "FFMPEG_DIR=%PROYECTO%\tools\ffmpeg"
+set "DRONE_STREAM_KEY=dron-01"
+set "DRONE_RTMP_PORT=1936"
 
 if not exist "%ENV_FILE%" (
     echo ERROR: No se encontro el archivo .env en %ENV_FILE%.
@@ -99,9 +100,10 @@ echo.
 ::  PASO 2: Borrar base de datos configurada (si existe)
 :: ============================================================
 echo [2/6] Borrando base de datos %PGDATABASE% ...
-%PSQL% -h %PGHOST% -p %PGPORT% -U %PGUSER% -c "DROP DATABASE IF EXISTS %PGDATABASE%;" postgres
+"%PSQL%" -h %PGHOST% -p %PGPORT% -U %PGUSER% -c "DROP DATABASE IF EXISTS %PGDATABASE%;" postgres
 if %ERRORLEVEL% NEQ 0 (
-    echo ERROR: No se pudo conectar a PostgreSQL. Verifica la contrasena.
+    echo ERROR: No se pudo conectar a PostgreSQL en %PGHOST%:%PGPORT% con usuario %PGUSER%.
+    echo        Verifica que PostgreSQL este iniciado y que la contrasena sea correcta.
     pause
     exit /b 1
 )
@@ -112,7 +114,7 @@ echo.
 ::  PASO 3: Crear base de datos configurada y ejecutar init.sql
 :: ============================================================
 echo [3/6] Creando base de datos %PGDATABASE% ...
-%PSQL% -h %PGHOST% -p %PGPORT% -U %PGUSER% postgres -c "CREATE DATABASE %PGDATABASE%;"
+"%PSQL%" -h %PGHOST% -p %PGPORT% -U %PGUSER% postgres -c "CREATE DATABASE %PGDATABASE%;"
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: No se pudo crear la base de datos.
     pause
@@ -121,7 +123,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo       %PGDATABASE% creada.
 
 echo       Ejecutando init.sql ...
-%PSQL% -h %PGHOST% -p %PGPORT% -U %PGUSER% %PGDATABASE% -f "%INIT_SQL%"
+"%PSQL%" -h %PGHOST% -p %PGPORT% -U %PGUSER% %PGDATABASE% -f "%INIT_SQL%"
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: Fallo al ejecutar init.sql.
     pause
@@ -134,7 +136,7 @@ echo.
 ::  PASO 4: Ejecutar seed modular EN ESTA MISMA VENTANA
 :: ============================================================
 echo [4/6] Ejecutando seed modular ...
-cd /d %PROYECTO%\operaciones\api
+cd /d "%PROYECTO%\operaciones\api"
 node seed\index.js
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: El seed fallo. Revisa el mensaje de arriba.
@@ -170,11 +172,11 @@ echo.
 echo [6/6] Iniciando servidores ...
 
 :: Ventana 1 - npx serve (frontend estatico en puerto 3000)
-start "Frontend" cmd /k "cd /d %PROYECTO% && npx serve -l 3000"
+start "Frontend" cmd /k "cd /d ""%PROYECTO%"" && npx serve -l 3000"
 timeout /t 2 /nobreak >nul
 
 :: Ventana 2 - node server.js (API - lee Operaciones\api\.env)
-start "API Server" cmd /k "cd /d %PROYECTO%\operaciones\api && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
+start "API Server" cmd /k "cd /d ""%PROYECTO%\operaciones\api"" && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
 
 :: Ventana 3 - OBS RTMP a HLS (OBS publica a rtmp://LAN_IP:1935/live con key obs-01)
 start "OBS RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_obs_rtmp_hls.ps1" -StreamKey "obs-01" -Port 1935 -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%"

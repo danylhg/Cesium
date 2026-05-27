@@ -15,6 +15,7 @@ const PERSONAL_CONNECTION_STALE_MS = 30000;
 const personalLiveData = new Map();
 let activePersonInfoPopup = null;
 let personInfoRefreshTimer = null;
+const DEFAULT_PERSONNEL_SIDC = "SFGPUCI--------";
 
 export function setRouteInfo(text) {
   if (dom.routeInfo) dom.routeInfo.textContent = text;
@@ -800,8 +801,7 @@ export function updateChatAvailability() {
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = !active;
   if (dom.chatImageBtn) dom.chatImageBtn.disabled = !active;
   if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
-  if (dom.chatCameraBtn) dom.chatCameraBtn.disabled = !active;
-  if (dom.chatVideoBtn) dom.chatVideoBtn.disabled = !active;
+  if (dom.chatAttachmentBtn) dom.chatAttachmentBtn.disabled = !active;
   if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
   if (dom.chatTargetPicker) dom.chatTargetPicker.disabled = !active;
   document.querySelectorAll("[data-chat-channel]").forEach((btn) => {

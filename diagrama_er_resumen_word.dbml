@@ -1,0 +1,254 @@
+// Diagrama ER resumido para documento Word
+// Pegar en dbdiagram.io
+// Recomendado para exportar como SVG o PNG 3x
+
+Table usuario {
+  id_usuario int [pk]
+  rol varchar
+  nombre varchar
+  apellido varchar
+  username varchar [unique]
+  activo boolean
+}
+
+Table personal {
+  id_personal int [pk]
+  rol varchar
+  apodo varchar [unique]
+  nombre varchar
+  apellido varchar
+  username varchar [unique]
+  creado_por int
+}
+
+Table operacion {
+  id_operacion int [pk]
+  codigo varchar [unique]
+  nombre varchar
+  prioridad varchar
+  estado varchar
+  fecha_inicio datetime
+  fecha_fin datetime
+  creada_por int
+  id_cut int
+}
+
+Table vehiculo {
+  id_vehiculo int [pk]
+  codigo_interno varchar [unique]
+  tipo varchar
+  alias varchar
+  estado varchar
+  capacidad int
+}
+
+Table equipo {
+  id_equipo int [pk]
+  numero_serie varchar [unique]
+  nombre varchar
+  categoria varchar
+  estado varchar
+}
+
+Table dispositivo {
+  id_dispositivo int [pk]
+  tipo varchar
+  marca varchar
+  modelo varchar
+  imei varchar
+  numero_serie varchar
+  estado varchar
+}
+
+Table asignacion_personal {
+  id_operacion int [pk]
+  id_personal int [pk]
+  rol_en_operacion varchar
+  estado_asignacion varchar
+  asignado_por int
+}
+
+Table asignacion_vehiculo {
+  id_operacion int [pk]
+  id_vehiculo int [pk]
+  id_personal int [pk]
+  estado_asignacion varchar
+  asignado_por int
+}
+
+Table asignacion_equipo {
+  id_operacion_equipo int [pk]
+  id_operacion int
+  id_equipo int
+  id_personal int
+  id_vehiculo int
+  cantidad int
+  estado_asignacion varchar
+  asignado_por int
+}
+
+Table asignacion_dispositivo {
+  id_operacion int [pk]
+  id_dispositivo int [pk]
+  id_personal int
+  estado_asignacion varchar
+  asignado_por int
+}
+
+Table grupo_operacion {
+  id_grupo_operacion int [pk]
+  id_operacion int
+  nombre varchar
+  apodo varchar
+  id_grupo_padre int
+  creado_por int
+}
+
+Table grupo_personal {
+  id_grupo_operacion int [pk]
+  id_personal int [pk]
+  rol_en_grupo varchar
+  asignado_por int
+}
+
+Table chat_operacion {
+  id_chat int [pk]
+  id_operacion int [unique]
+  activo boolean
+  fecha_creacion datetime
+}
+
+Table mensaje_chat {
+  id_mensaje int [pk]
+  id_chat int
+  id_participante int
+  contenido text
+  tipo_mensaje varchar
+  fecha_envio datetime
+}
+
+Table mapa_operacion {
+  id_elemento int [pk]
+  id_operacion int
+  tipo_elemento varchar
+  nombre varchar
+  geometria json
+  latitud decimal
+  longitud decimal
+  creado_por_usuario int
+  creado_por_personal int
+}
+
+Table tracking_personal {
+  id_tracking int [pk]
+  id_operacion int
+  id_personal int
+  latitud decimal
+  longitud decimal
+  velocidad_kmh decimal
+  timestamp datetime
+}
+
+Table tracking_recurso {
+  id_tracking int [pk]
+  id_operacion int
+  tipo_recurso varchar
+  id_vehiculo int
+  id_equipo int
+  id_dispositivo int
+  latitud decimal
+  longitud decimal
+  timestamp datetime
+}
+
+Table signos_vitales {
+  id_signo_vital int [pk]
+  id_operacion int
+  id_personal int
+  frecuencia_cardiaca_bpm decimal
+  oxigenacion_spo2 decimal
+  temperatura_c decimal
+  bateria_pct decimal
+  timestamp datetime
+}
+
+Table aviso_novedad {
+  id_registro int [pk]
+  id_operacion int
+  tipo_registro varchar
+  id_usuario int
+  id_personal int
+  titulo varchar
+  contenido text
+  fecha_registro datetime
+}
+
+Table media_stream {
+  id_stream int [pk]
+  id_operacion int
+  id_usuario int
+  id_personal int
+  id_equipo int
+  id_dispositivo int
+  kind varchar
+  status varchar
+  stream_key varchar [unique]
+}
+
+Ref: personal.creado_por > usuario.id_usuario
+Ref: operacion.creada_por > usuario.id_usuario
+Ref: operacion.id_cut > personal.id_personal
+
+Ref: asignacion_personal.id_operacion > operacion.id_operacion
+Ref: asignacion_personal.id_personal > personal.id_personal
+Ref: asignacion_personal.asignado_por > usuario.id_usuario
+
+Ref: asignacion_vehiculo.id_operacion > operacion.id_operacion
+Ref: asignacion_vehiculo.id_vehiculo > vehiculo.id_vehiculo
+Ref: asignacion_vehiculo.id_personal > personal.id_personal
+Ref: asignacion_vehiculo.asignado_por > usuario.id_usuario
+
+Ref: asignacion_equipo.id_operacion > operacion.id_operacion
+Ref: asignacion_equipo.id_equipo > equipo.id_equipo
+Ref: asignacion_equipo.id_personal > personal.id_personal
+Ref: asignacion_equipo.id_vehiculo > vehiculo.id_vehiculo
+Ref: asignacion_equipo.asignado_por > usuario.id_usuario
+
+Ref: asignacion_dispositivo.id_operacion > operacion.id_operacion
+Ref: asignacion_dispositivo.id_dispositivo > dispositivo.id_dispositivo
+Ref: asignacion_dispositivo.id_personal > personal.id_personal
+Ref: asignacion_dispositivo.asignado_por > usuario.id_usuario
+
+Ref: grupo_operacion.id_operacion > operacion.id_operacion
+Ref: grupo_operacion.id_grupo_padre > grupo_operacion.id_grupo_operacion
+Ref: grupo_operacion.creado_por > usuario.id_usuario
+Ref: grupo_personal.id_grupo_operacion > grupo_operacion.id_grupo_operacion
+Ref: grupo_personal.id_personal > personal.id_personal
+Ref: grupo_personal.asignado_por > usuario.id_usuario
+
+Ref: chat_operacion.id_operacion > operacion.id_operacion
+Ref: mensaje_chat.id_chat > chat_operacion.id_chat
+
+Ref: mapa_operacion.id_operacion > operacion.id_operacion
+Ref: mapa_operacion.creado_por_usuario > usuario.id_usuario
+Ref: mapa_operacion.creado_por_personal > personal.id_personal
+
+Ref: tracking_personal.id_operacion > operacion.id_operacion
+Ref: tracking_personal.id_personal > personal.id_personal
+Ref: tracking_recurso.id_operacion > operacion.id_operacion
+Ref: tracking_recurso.id_vehiculo > vehiculo.id_vehiculo
+Ref: tracking_recurso.id_equipo > equipo.id_equipo
+Ref: tracking_recurso.id_dispositivo > dispositivo.id_dispositivo
+
+Ref: signos_vitales.id_operacion > operacion.id_operacion
+Ref: signos_vitales.id_personal > personal.id_personal
+
+Ref: aviso_novedad.id_operacion > operacion.id_operacion
+Ref: aviso_novedad.id_usuario > usuario.id_usuario
+Ref: aviso_novedad.id_personal > personal.id_personal
+
+Ref: media_stream.id_operacion > operacion.id_operacion
+Ref: media_stream.id_usuario > usuario.id_usuario
+Ref: media_stream.id_personal > personal.id_personal
+Ref: media_stream.id_equipo > equipo.id_equipo
+Ref: media_stream.id_dispositivo > dispositivo.id_dispositivo

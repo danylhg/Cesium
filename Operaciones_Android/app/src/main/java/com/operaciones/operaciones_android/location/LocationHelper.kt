@@ -31,6 +31,12 @@ class LocationHelper(
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
 
+    private fun speedKmh(location: Location): Double? =
+        if (location.hasSpeed()) (location.speed * 3.6).toDouble() else null
+
+    private fun bearingDegrees(location: Location): Double? =
+        if (location.hasBearing()) location.bearing.toDouble() else null
+
     @SuppressLint("MissingPermission")
     private fun emitLastKnownLocation() {
         val manager = locationManager ?: return

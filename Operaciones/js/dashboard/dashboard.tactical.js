@@ -1515,7 +1515,7 @@ export function setTacticalUI() {
   const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
   const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
-  const showsFinishShapeAction = ["polygon", "polyline"].includes(dashboardState.toolMode) || dashboardState.areaDrawing;
+  const showsFinishShapeAction = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode) || dashboardState.areaDrawing;
   const showCancelButton = !isGrid && !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
   const showLabelInput = !isGrid && needsLabel && !isMil && !isDrawingTool;
   const showColorInput = !isBuilding && !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
@@ -1553,7 +1553,10 @@ export function setTacticalUI() {
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
   updateTacticalControlReadouts();
-  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = showsFinishShapeAction ? "grid" : "none";
+  if (dom.tacticalActionButtons) {
+    dom.tacticalActionButtons.style.display =
+      isToolActive || dashboardState.areaDrawing ? "grid" : "none";
+  }
   if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
   if (dom.clearTactical) {
     dom.clearTactical.style.display = "";
@@ -3162,7 +3165,6 @@ export function generateGrid({ persist = true, names = null } = {}) {
 
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "block";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
-  setRouteInfo(`Cuadricula ${rows}x${cols} generada en la zona de operacion.`);
 
   if (persist) void saveGridToBackend();
 }

@@ -150,14 +150,15 @@ function showPlanningExitModal() {
 }
 
 function handleClosedOperation(operacion) {
-  if (operationClosedHandled || !operacion) return;
+  if (operationClosedHandled || !operacion) return false;
 
   const estado = String(operacion.estado || operacion.phase || "").toLowerCase();
-  if (!["cerrada", "cancelada"].includes(estado)) return;
+  if (!["cerrada", "cancelada"].includes(estado)) return false;
 
   operationClosedHandled = true;
   alert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
   window.location.href = "menu_inicial.html";
+  return true;
 }
 
 async function apiFetch(path) {
@@ -284,6 +285,7 @@ async function connectSocket(opId) {
       id: operacion.id_operacion
     });
     dashboardState.currentOperation = getCurrentOperation();
+    if (handleClosedOperation(dashboardState.currentOperation)) return;
     renderInfoPanel();
     updateChatAvailability();
     setTacticalUI();
@@ -400,7 +402,7 @@ window.addEventListener("load", async () => {
   // Cargar datos de la operación desde BD
   const bdData = await loadDashboardFromBD();
   if (bdData) {
-    handleClosedOperation(bdData.operacion);
+    if (handleClosedOperation(bdData.operacion)) return;
     saveCurrentOperation({
       ...bdData.operacion,
       id: bdData.operacion.id_operacion,
@@ -463,7 +465,7 @@ window.addEventListener("load", async () => {
   setInterval(async () => {
     const fresh = await loadDashboardFromBD();
     if (fresh) {
-      handleClosedOperation(fresh.operacion);
+      if (handleClosedOperation(fresh.operacion)) return;
       saveCurrentOperation({
         ...fresh.operacion,
         id: fresh.operacion.id_operacion,

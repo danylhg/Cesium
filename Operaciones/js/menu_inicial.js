@@ -135,6 +135,10 @@ function renderOps(ops) {
     const pClass = normalizeOperationState(op.estado);
     const li = document.createElement("li");
     li.textContent = op.nombre;
+    if (pClass === "cancelada") {
+      li.classList.add("opCancelled");
+      li.title = "No se puede entrar a una operacion cancelada";
+    }
 
     const tag = document.createElement("span");
     tag.className = "tag";
@@ -192,6 +196,11 @@ function renderOps(ops) {
     li.appendChild(rightSide);
 
     li.addEventListener("click", async () => {
+      if (pClass === "cancelada") {
+        alert(`La operacion "${op.nombre}" esta cancelada y no se puede abrir.`);
+        return;
+      }
+
       try {
         const res = await apiFetch(`/ops/${op.id_operacion}`);
         if (!res.ok) throw new Error("error al cargar operación");
@@ -207,7 +216,7 @@ function renderOps(ops) {
         window.location.href = "dashboard.html";
       } else if (pClass === "planificada") {
         window.location.href = "dashboard.html";
-      } else {
+      } else if (pClass === "cerrada") {
         window.location.href = `historial.html?id=${op.id_operacion}`;
       }
     });
