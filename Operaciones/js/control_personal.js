@@ -726,6 +726,30 @@
 
   btnSearch?.addEventListener("click", renderTable);
 
+  // If the search input is collapsed, clicking the magnifier should open it and focus
+  (function attachSearchIconFocus() {
+    const icon = document.getElementById("btnSearch");
+    if (!icon || !searchInput) return;
+
+    icon.addEventListener(
+      "click",
+      (ev) => {
+        try {
+          const style = window.getComputedStyle(searchInput);
+          const collapsed = style.opacity === "0" || searchInput.offsetWidth === 0;
+          if (collapsed) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            searchInput.focus();
+          }
+        } catch (e) {
+          // ignore
+        }
+      },
+      true
+    );
+  })();
+
   searchInput?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();

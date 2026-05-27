@@ -197,6 +197,7 @@
   <aside id="routePanel" class="glassPanel">
     <h2 class="panelTitle">Rutas y mapa</h2>
 
+    <div class="routeSection">
     <div class="groupTitle">Vista del mapa</div>
     <select id="layerSelect">
       <option value="osm">Normal (OSM)</option>
@@ -205,6 +206,9 @@
     </select>
 
     <div class="groupTitle">Ruta por Vehículo</div>
+    </div>
+
+    <div class="routeSection">
     <select id="routeVehicleSelect"
       style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(226,232,240,0.24); background: rgba(248,250,252,0.12); color: #fff;">
       <option value="global">Ruta General (Todos los vehículos)</option>
@@ -225,6 +229,9 @@
     </div>
 
     <div class="groupTitle">Zona de operación</div>
+    </div>
+
+    <div class="routeSection">
     <div class="btnGrid">
       <button id="markZoneBtn" class="btnBeige" style="background: #3b82f6; color: #f8fbff;">Marcar zona</button>
       <button id="clearZoneBtn" class="btnBeige">Limpiar zona</button>
@@ -250,6 +257,8 @@
     </div>
     <div id="zoneActionBtns" style="display:none;">
       <button id="finishZoneBtn" class="btnBeige" style="display:none;">Finalizar zona</button>
+    </div>
+
     </div>
 
     <div style="display:none;">

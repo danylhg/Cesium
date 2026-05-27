@@ -119,6 +119,14 @@ class MainActivity : AppCompatActivity(),
     private val vehiculosList = mutableListOf<VehiculoItem>()
     private val equiposList = mutableListOf<EquipoItem>()
     private val dispositivosList = mutableListOf<DispositivoItem>()
+    private var personalFetchInFlight = false
+    private var vehiculosFetchInFlight = false
+    private var equiposFetchInFlight = false
+    private var dispositivosFetchInFlight = false
+    private var personalLoadedOnce = false
+    private var vehiculosLoadedOnce = false
+    private var equiposLoadedOnce = false
+    private var dispositivosLoadedOnce = false
 
     private var opLat = 0.0
     private var opLon = 0.0
@@ -319,7 +327,8 @@ class MainActivity : AppCompatActivity(),
             btnNavPersonal = btnNavPersonal,
             btnNavRecursos = btnNavVehiculos,
             navBar = navBar,
-            host = this
+            host = this,
+            onPanelChanged = { panel -> configurePanelContentSize(panel) }
         )
 
         setupWebView()
@@ -410,7 +419,11 @@ class MainActivity : AppCompatActivity(),
         mapObjectsController.setupDeleteButton(btnDeleteSelectedObject)
     }
 
-    private fun configurePanelContentSize() {
+    private fun configurePanelContentSize(panel: Panel = if (::panelNavigationController.isInitialized) {
+        panelNavigationController.activePanel
+    } else {
+        Panel.NONE
+    }) {
         panelContent.post {
             val params = panelContent.layoutParams
             val parentParams = (panelContent.parent as? View)?.layoutParams
@@ -421,12 +434,30 @@ class MainActivity : AppCompatActivity(),
                 params.height = 0
                 (params as? LinearLayout.LayoutParams)?.weight = 1f
             } else {
-                params.height = (resources.displayMetrics.heightPixels * 0.40).toInt()
+                params.height = when (panel) {
+                    // Chat debe ocupar toda la pantalla en móvil
+                    Panel.CHAT -> resources.displayMetrics.heightPixels
+                    Panel.RECURSOS -> (resources.displayMetrics.heightPixels * 0.68).toInt()
+                    Panel.OPERATION,
+                    Panel.PERSONAL -> (resources.displayMetrics.heightPixels * 0.40).toInt()
+                    Panel.NONE -> 0
+                }
                 (params as? LinearLayout.LayoutParams)?.weight = 0f
             }
             panelContent.layoutParams = params
         }
     }
+
+    private fun fullPanelContentHeight(): Int {
+        val navHeight = navBar.height.takeIf { it > 0 } ?: dp(56f)
+        val handleAndPadding = dp(18f)
+        val minHeight = (resources.displayMetrics.heightPixels * 0.72).toInt()
+        return (resources.displayMetrics.heightPixels - navHeight - handleAndPadding)
+            .coerceAtLeast(minHeight)
+    }
+
+    private fun dp(value: Float): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun restoreActivePanel(savedInstanceState: Bundle?) {
         val restoredPanel = savedInstanceState
@@ -872,6 +903,8 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPanelPersonalLoaded(items: List<PersonalItem>) {
+        personalFetchInFlight = false
+        personalLoadedOnce = true
         personalList.clear()
         personalList.addAll(items)
 
@@ -885,6 +918,8 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPanelVehiculosLoaded(items: List<VehiculoItem>) {
+        vehiculosFetchInFlight = false
+        vehiculosLoadedOnce = true
         vehiculosList.clear()
         vehiculosList.addAll(items)
 
@@ -896,6 +931,8 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPanelEquiposLoaded(items: List<EquipoItem>) {
+        equiposFetchInFlight = false
+        equiposLoadedOnce = true
         equiposList.clear()
         equiposList.addAll(items)
 
@@ -905,6 +942,8 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPanelDispositivosLoaded(items: List<DispositivoItem>) {
+        dispositivosFetchInFlight = false
+        dispositivosLoadedOnce = true
         dispositivosList.clear()
         dispositivosList.addAll(items)
 
@@ -913,23 +952,37 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onPanelDataError(message: String) {
+    override fun onPanelDataError(source: String, message: String) {
+        when (source) {
+            "personal" -> personalFetchInFlight = false
+            "vehiculos" -> vehiculosFetchInFlight = false
+            "equipos" -> equiposFetchInFlight = false
+            "dispositivos" -> dispositivosFetchInFlight = false
+        }
         addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
     }
 
     private fun fetchPersonalPanelData() {
+        if (personalFetchInFlight || personalLoadedOnce) return
+        personalFetchInFlight = true
         panelDataController.fetchPersonal()
     }
 
     private fun fetchVehiculosPanelData() {
+        if (vehiculosFetchInFlight || vehiculosLoadedOnce) return
+        vehiculosFetchInFlight = true
         panelDataController.fetchVehiculos()
     }
 
     private fun fetchEquiposPanelData() {
+        if (equiposFetchInFlight || equiposLoadedOnce) return
+        equiposFetchInFlight = true
         panelDataController.fetchEquipos()
     }
 
     private fun fetchDispositivosPanelData() {
+        if (dispositivosFetchInFlight || dispositivosLoadedOnce) return
+        dispositivosFetchInFlight = true
         panelDataController.fetchDispositivos()
     }
 

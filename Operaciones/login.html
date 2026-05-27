@@ -5,40 +5,80 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Login - Sistema de Operaciones</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/login.css" />
 </head>
 
 <body>
 
-  <!-- Fondo -->
-  <div class="bgOrbs" aria-hidden="true">
-    <span class="orb orb1"></span>
-    <span class="orb orb2"></span>
-    <span class="orb orb3"></span>
+  <!-- Animated background -->
+  <div class="bg-glow" aria-hidden="true">
+    <span class="glow glow-1"></span>
+    <span class="glow glow-2"></span>
+    <span class="glow glow-3"></span>
   </div>
 
-  <!-- Card de login -->
+  <!-- Floating particles -->
+  <div class="particles" aria-hidden="true">
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+    <span class="particle"></span>
+  </div>
+
+  <!-- Login Card -->
   <main class="wrap">
     <div class="card">
+      <!-- Top accent line -->
+      <div class="card-accent"></div>
+
+      <!-- Logo -->
       <div class="icon">
-        <img src="img/logo_sedam.jpeg" alt="Logo SEDAM" class="logoSedam" />
+        <div class="logo-ring">
+          <img src="img/logo_sedam.png" alt="Logo SEDAM" class="logoSedam" />
+        </div>
       </div>
 
-      <h1>Sistema de Operaciones</h1>
-      <p class="sub">Ingresa tus credenciales para continuar</p>
+      <!-- Header -->
+      <h1>SEDAM</h1>
+      <p class="sub">Sistema de Enlace de Datos &mdash; Armada de México</p>
 
-      <label>Usuario</label>
-      <input id="username" placeholder="Ingresa tu usuario" />
+      <!-- Form -->
+      <div class="field">
+        <label for="username">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Usuario
+        </label>
+        <input id="username" placeholder="Ingresa tu usuario" autocomplete="username" />
+      </div>
 
-      <label>Contraseña</label>
-      <input id="password" type="password" placeholder="Ingresa tu contraseña" />
+      <div class="field">
+        <label for="password">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Contraseña
+        </label>
+        <input id="password" type="password" placeholder="Ingresa tu contraseña" autocomplete="current-password" />
+      </div>
 
-      <button id="btnLogin">Iniciar Sesión</button>
+      <button id="btnLogin">
+        <span class="btn-text">Iniciar Sesión</span>
+        <svg class="btn-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+      </button>
       <p id="msg" class="msg"></p>
 
-      <p class="hint">
-        Demo: usuario <b>admin</b> · contraseña <b>1234</b>
-      </p>
+      <!-- Footer -->
+      <div class="card-footer">
+        <p class="hint">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          Demo: <b>admin</b> · <b>1234</b>
+        </p>
+      </div>
     </div>
   </main>
 

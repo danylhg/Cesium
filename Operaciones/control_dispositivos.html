@@ -43,9 +43,11 @@
         <div class="field">
           <label>Buscar</label>
           <div class="searchRow">
-            <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, teléfono, IMEI..." />
-            <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
-            <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+            <div class="searchWrap" tabindex="0">
+              <button class="searchIcon" id="btnSearch" type="button" aria-label="Buscar"><span class="btnIcon miniIcon">⌕</span></button>
+              <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, teléfono, IMEI..." />
+              <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+            </div>
           </div>
         </div>
 

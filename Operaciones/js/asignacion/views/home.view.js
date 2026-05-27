@@ -32,9 +32,14 @@ export function renderHome() {
   state.categoria = null;
   state.pasoPersonal = "home";
 
-  setHeader("Asignar", "");
+  setHeader("Asignar recursos", "");
   setAccion("Siguiente", true);
   showBack(false);
+
+  const intro = document.createElement("p");
+  intro.className = "rightIntro";
+  intro.textContent = "Selecciona los recursos que participaran en esta operacion.";
+  panel.appendChild(intro);
 
   const grid = document.createElement("div");
   grid.className = "optGrid";

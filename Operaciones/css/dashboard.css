@@ -298,13 +298,11 @@ body {
 #routePanel {
   width: 390px;
   max-height: calc(100dvh - 108px);
-  padding: 28px 18px 54px;
+  padding: 28px 18px 24px;
 }
 
 #routePanel::after {
-  content: "";
-  display: block;
-  height: 24px;
+  display: none;
 }
 
 #routePanel .panelTitle {
@@ -321,6 +319,42 @@ body {
 
 #routePanel .groupTitle:first-of-type {
   margin-top: 0;
+}
+
+#routePanel .routeSection {
+  padding: 12px;
+  margin: 0 0 14px;
+  border: 1px solid rgba(226, 232, 240, .12);
+  border-radius: 12px;
+  background: rgba(248, 250, 252, .04);
+}
+
+#routePanel .routeSection .groupTitle {
+  margin: 0 0 10px;
+}
+
+#routePanel .routeSection:has(#routeVehicleSelect)::before,
+#routePanel .routeSection:has(#markZoneBtn)::before {
+  display: block;
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .8px;
+  text-transform: uppercase;
+  opacity: .94;
+}
+
+#routePanel .routeSection:has(#routeVehicleSelect)::before {
+  content: "Ruta por vehiculo";
+}
+
+#routePanel .routeSection:has(#markZoneBtn)::before {
+  content: "Zona de operacion";
+}
+
+#routePanel .routeSection > select#layerSelect + .groupTitle,
+#routePanel .routeSection:has(#markRoute) > .groupTitle {
+  display: none;
 }
 
 #routePanel select,
@@ -352,10 +386,7 @@ body {
 }
 
 #routePanel .routeInfo {
-  margin: 14px 0 8px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  font-size: 12.5px;
+  display: none;
 }
 
 #routePanel .btnGrid {

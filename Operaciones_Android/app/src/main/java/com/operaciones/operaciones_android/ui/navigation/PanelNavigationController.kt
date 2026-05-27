@@ -13,7 +13,8 @@ class PanelNavigationController(
     private val btnNavPersonal: LinearLayout,
     private val btnNavRecursos: LinearLayout,
     private val navBar: LinearLayout,
-    private val host: Host
+    private val host: Host,
+    private val onPanelChanged: (Panel) -> Unit = {}
 ) {
 
     enum class Panel {
@@ -48,6 +49,7 @@ class PanelNavigationController(
     fun showPanel(panel: Panel) {
         activePanel = panel
         panelContent.removeAllViews()
+        onPanelChanged(panel)
 
         setNavActive(btnNavOperation, panel == Panel.OPERATION)
         setNavActive(btnNavChat, panel == Panel.CHAT)

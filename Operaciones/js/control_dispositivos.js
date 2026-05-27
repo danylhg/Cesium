@@ -323,6 +323,28 @@
 
   btnSearch?.addEventListener("click", renderTable);
 
+  // Make magnifier open the collapsed input on first click
+  (function attachSearchIconFocus() {
+    const icon = document.getElementById("btnSearch");
+    if (!icon || !searchInput) return;
+
+    icon.addEventListener(
+      "click",
+      (ev) => {
+        try {
+          const style = window.getComputedStyle(searchInput);
+          const collapsed = style.opacity === "0" || searchInput.offsetWidth === 0;
+          if (collapsed) {
+            ev.preventDefault();
+            ev.stopImmediatePropagation();
+            searchInput.focus();
+          }
+        } catch (e) {}
+      },
+      true
+    );
+  })();
+
   searchInput?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();

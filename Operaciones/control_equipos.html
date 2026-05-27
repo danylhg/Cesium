@@ -9,6 +9,7 @@
 </head>
 <body>
 
+  <button id="btnBack" class="backArrow" type="button" aria-label="Volver" title="Volver">&larr;</button>
   <header class="topbar">
     <div class="brand">
       <div class="logo"></div>
@@ -19,7 +20,7 @@
     </div>
 
     <div class="topActions">
-      <button id="btnBack" class="btnTop">Volver</button>
+      <button class="btnTop">Volver</button>
       <button id="btnLogout" class="btnTop">Cerrar sesión</button>
     </div>
   </header>
@@ -44,9 +45,11 @@
         <div class="field">
           <label>Buscar</label>
           <div class="searchRow">
-            <input id="searchInput" type="text" placeholder="Buscar por serie, nombre, categoría..." />
-            <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
-            <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+            <div class="searchWrap" tabindex="0">
+              <button class="searchIcon" id="btnSearch" type="button" aria-label="Buscar"><span class="btnIcon miniIcon">⌕</span></button>
+              <input id="searchInput" type="text" placeholder="Buscar por serie, nombre, categoría..." />
+              <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+            </div>
           </div>
         </div>
 

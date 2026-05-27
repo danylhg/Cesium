@@ -17,15 +17,20 @@
       <span class="opName">Operación: <strong id="lblOperacion">—</strong></span>
     </div>
 
-    <button class="btnGhost" id="btnVolver">Volver</button>
+    <button class="btnGhost" id="btnVolver" aria-label="Volver" title="Volver">&larr;</button>
   </header>
 
   <main class="wrap">
     <section class="shell">
+      <div class="pageIntro">
+        <h1>Información de operación</h1>
+        <p>Completa los detalles de la operación y asigna los recursos necesarios.</p>
+      </div>
+
       <div class="cols">
 
         <aside class="card leftCard" id="leftCard">
-          <div class="cardTitle" id="leftCardTitle">Información de operación</div>
+          <div class="cardTitle" id="leftCardTitle">Detalles de la operación</div>
 
           <div id="leftCardContent">
             <div class="form" id="opInfoForm">
@@ -35,15 +40,22 @@
               <label class="lbl">Descripción</label>
               <textarea class="inp area" id="opDesc" placeholder="Descripción de la operación"></textarea>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <label class="lbl" style="margin-bottom:0;">Fecha de inicio de operación</label>
-                <button type="button" class="btnGhost" id="btnHoy"
-                  style="padding: 2px 8px; font-size: 11px; height: auto;">Hoy</button>
-              </div>
-              <input class="inp" type="date" id="opInicio" />
+              <div class="formRow">
+                <div class="fieldGroup">
+                  <div class="dateLabelRow">
+                    <label class="lbl" style="margin-bottom:0;">Fecha de inicio de operación</label>
+                  </div>
+                  <div class="dateInputWrap">
+                    <input class="inp" type="date" id="opInicio" />
+                    <button type="button" class="btnGhost btnToday" id="btnHoy">Hoy</button>
+                  </div>
+                </div>
 
-              <label class="lbl">Hora de inicio de operación</label>
-              <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5" list="opHoraInicioList" autocomplete="off" />
+                <div class="fieldGroup">
+                  <label class="lbl">Hora de inicio de operación</label>
+                  <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5" list="opHoraInicioList" autocomplete="off" />
+                </div>
+              </div>
               <datalist id="opHoraInicioList">
                 <option value="00:00"></option>
                 <option value="01:00"></option>
@@ -98,7 +110,7 @@
           <div class="panel" id="panel"></div>
 
           <div class="rightFooter">
-            <button class="btnPrimary" id="btnAccion">Siguiente</button>
+
             <p class="hint" id="rightHint"></p>
           </div>
         </section>

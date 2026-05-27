@@ -24,7 +24,7 @@ class PanelDataController(
         fun onPanelVehiculosLoaded(items: List<VehiculoItem>)
         fun onPanelEquiposLoaded(items: List<EquipoItem>)
         fun onPanelDispositivosLoaded(items: List<DispositivoItem>)
-        fun onPanelDataError(message: String)
+        fun onPanelDataError(source: String, message: String)
     }
 
     fun fetchPersonal() {
@@ -38,7 +38,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError(message)
+                    host.onPanelDataError("personal", message)
                 }
             }
         )
@@ -55,7 +55,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError(message)
+                    host.onPanelDataError("vehiculos", message)
                 }
             }
         )
@@ -72,7 +72,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError(message)
+                    host.onPanelDataError("equipos", message)
                 }
             }
         )
@@ -89,7 +89,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError(message)
+                    host.onPanelDataError("dispositivos", message)
                 }
             }
         )

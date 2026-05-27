@@ -147,6 +147,19 @@ function handleClosedOperation(operacion) {
   window.location.href = "menu_inicial.html";
 }
 
+function updateOperationZonePlanningVisibility(operacion = getCurrentOperation()) {
+  const zoneSection = dom.markZoneBtn?.closest?.(".routeSection");
+  if (!zoneSection) return;
+
+  const phase = String(operacion?.phase || operacion?.estado || "").toLowerCase();
+  const isPlanning = phase === "planificada";
+  zoneSection.style.display = isPlanning ? "" : "none";
+
+  if (!isPlanning && dom.zoneActionBtns) {
+    dom.zoneActionBtns.style.display = "none";
+  }
+}
+
 async function apiFetch(path) {
   const token = localStorage.getItem("token");
   try {
@@ -214,6 +227,7 @@ if (dom.logout) {
 function loadCurrentOperationOnMap() {
   const op = getCurrentOperation();
   dashboardState.currentOperation = op;
+  updateOperationZonePlanningVisibility(op);
   if (!op || !dashboardState.viewer) return;
   populateRouteVehicleSelect(op?.vehiculos || []);
   loadRouteForSelectedVehicle();
@@ -342,12 +356,14 @@ window.addEventListener("load", async () => {
     dashboardState.currentOperation = currentOperation;
     dashboardState.currentOperationZone = bdData.zona_operacion || dashboardState.currentOperationZone;
     saveCurrentOperation(currentOperation);
+    updateOperationZonePlanningVisibility(currentOperation);
     renderInfoPanel(bdData);
     setTacticalUI();
     if (bdData.zona_operacion) {
       centerMapOnOperationZone(bdData.zona_operacion);
     }
   } else {
+    updateOperationZonePlanningVisibility();
     renderInfoPanel();
   }
   updateChatAvailability();
@@ -392,6 +408,11 @@ window.addEventListener("load", async () => {
     if (fresh) {
       handleClosedOperation(fresh.operacion);
       saveCurrentOperation({
+        ...fresh.operacion,
+        id: fresh.operacion.id_operacion,
+        zona_operacion: fresh.zona_operacion || null
+      });
+      updateOperationZonePlanningVisibility({
         ...fresh.operacion,
         id: fresh.operacion.id_operacion,
         zona_operacion: fresh.zona_operacion || null
