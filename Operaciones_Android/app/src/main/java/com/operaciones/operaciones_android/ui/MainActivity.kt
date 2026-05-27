@@ -295,7 +295,7 @@ class MainActivity : AppCompatActivity(),
                     cesiumWebController.centerOnLocation(latitude, longitude, follow = false)
                 }
             },
-            onEmitLocation = { lat, lon ->
+            onEmitLocation = { lat, lon, speedKmh, headingDegrees, accuracyMeters ->
                 lastKnownLat = lat
                 lastKnownLon = lon
                 if (::currentUser.isInitialized) {
@@ -304,7 +304,10 @@ class MainActivity : AppCompatActivity(),
                         lat = lat,
                         lon = lon,
                         apodo = currentUser.nombreCompleto,
-                        rol = currentUser.rol.name
+                        rol = currentUser.rol.name,
+                        speedKmh = speedKmh,
+                        headingDegrees = headingDegrees,
+                        accuracyMeters = accuracyMeters
                     )
                 }
             }

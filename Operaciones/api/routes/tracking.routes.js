@@ -256,16 +256,24 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
 
-  const { id_personal, latitud, longitud, altitud, precision_m } = req.body ?? {};
+  const { id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados } = req.body ?? {};
   if (!isInt(Number(id_personal))) return res.status(400).json({ ok: false, mensaje: "Falta id_personal" });
   if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
 
   try {
+    await ensureExtendedTrackingSchema();
     const { rows } = await pool.query(
-      `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+      `INSERT INTO tracking_personal (
+         id_operacion, id_personal, latitud, longitud, altitud,
+         precision_m, velocidad_kmh, rumbo_grados
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id_tracking, timestamp, estado_operacion_creacion`,
       [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
-        altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
+        altitud != null ? Number(altitud) : null,
+        precision_m != null ? Number(precision_m) : null,
+        optionalNumber(velocidad_kmh),
+        optionalNumber(rumbo_grados)]
     );
 
     const latest = await getLatestPersonalPosition(id_operacion, Number(id_personal));
@@ -276,7 +284,9 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
       latitud: Number(latitud),
       longitud: Number(longitud),
       altitud: altitud != null ? Number(altitud) : null,
-      precision_m: precision_m != null ? Number(precision_m) : null
+      precision_m: precision_m != null ? Number(precision_m) : null,
+      velocidad_kmh: optionalNumber(velocidad_kmh),
+      rumbo_grados: optionalNumber(rumbo_grados)
     });
 
     res.json({ ok: true, tracking: rows[0] });
@@ -290,6 +300,7 @@ router.get("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
+    await ensureExtendedTrackingSchema();
     const { rows } = await pool.query(
       `SELECT * FROM v_ultima_posicion_personal WHERE id_operacion=$1`, [id_operacion]);
     res.json({ ok: true, items: rows });
@@ -305,8 +316,9 @@ router.get("/ops/:id/tracking/personal/:id_personal/historial", requireAuth, asy
   if (!isInt(id_operacion) || !isInt(id_personal))
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
+    await ensureExtendedTrackingSchema();
     const { rows } = await pool.query(
-      `SELECT id_tracking, latitud, longitud, altitud, precision_m, timestamp,
+      `SELECT id_tracking, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp,
               estado_operacion_creacion
        FROM tracking_personal
        WHERE id_operacion=$1 AND id_personal=$2

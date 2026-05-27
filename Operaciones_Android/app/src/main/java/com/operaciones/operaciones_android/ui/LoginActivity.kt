@@ -2,7 +2,9 @@ package com.operaciones.operaciones_android.ui
 import com.operaciones.operaciones_android.config.ApiConfig
 import android.content.Intent
 import android.graphics.Rect
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.text.InputType
 import android.view.MotionEvent
 import android.view.View
@@ -94,9 +96,11 @@ class LoginActivity : AppCompatActivity() {
         currentCall?.cancel()
         setLoading(true)
 
+        val devicePayload = buildDevicePayload()
         val body = JSONObject().apply {
             put("username", username)
             put("password", password)
+            put("device", devicePayload)
         }.toString().toRequestBody("application/json".toMediaType())
 
         val baseUrl = ApiConfig.BASE_URL
@@ -123,8 +127,17 @@ class LoginActivity : AppCompatActivity() {
                         when {
                             response.isSuccessful && json.optBoolean("ok") ->
                                 handleLoginSuccess(json)
-                            response.code == 403 ->
-                                showError(json.optString("mensaje", "Usuario inactivo."))
+                            response.code == 403 -> {
+                                val message = json.optString("mensaje", "Usuario inactivo.")
+                                val code = json.optString("codigo", "")
+                                val deviceId = devicePayload.optString("identificador_app", "")
+                                val deviceMessage = if (code.startsWith("DISPOSITIVO") && deviceId.isNotBlank()) {
+                                    "$message\nID app: $deviceId"
+                                } else {
+                                    message
+                                }
+                                showError(deviceMessage)
+                            }
                             else ->
                                 showError(json.optString("mensaje", "Usuario o contraseña incorrectos."))
                         }
@@ -134,6 +147,21 @@ class LoginActivity : AppCompatActivity() {
                 }
             }
         })
+    }
+
+    private fun buildDevicePayload(): JSONObject {
+        val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
+        return JSONObject().apply {
+            put("plataforma", "ANDROID")
+            put("identificador_app", androidId)
+            put("android_id", androidId)
+            put("fabricante", Build.MANUFACTURER.orEmpty())
+            put("marca", Build.BRAND.orEmpty())
+            put("modelo", Build.MODEL.orEmpty())
+            put("dispositivo", Build.DEVICE.orEmpty())
+            put("producto", Build.PRODUCT.orEmpty())
+            put("sdk_int", Build.VERSION.SDK_INT)
+        }
     }
 
     private fun handleLoginSuccess(json: JSONObject) {

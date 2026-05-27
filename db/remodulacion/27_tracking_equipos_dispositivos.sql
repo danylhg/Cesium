@@ -138,6 +138,7 @@ SELECT DISTINCT ON (td.id_operacion, td.id_dispositivo)
   d.imei,
   d.numero_serie,
   d.sistema_operativo,
+  d.identificador_app,
   d.estado AS dispositivo_estado,
   od.id_personal,
   p.apodo AS personal_apodo,

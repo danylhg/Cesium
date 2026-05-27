@@ -7,7 +7,16 @@ export async function ensureExtendedTrackingSchema() {
 
   await pool.query(`
     ALTER TABLE dispositivo
-      ADD COLUMN IF NOT EXISTS imagen_disp TEXT;
+      ADD COLUMN IF NOT EXISTS imagen_disp TEXT,
+      ADD COLUMN IF NOT EXISTS identificador_app TEXT;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_identificador_app
+      ON dispositivo(identificador_app)
+      WHERE identificador_app IS NOT NULL AND btrim(identificador_app) <> '';
+
+    ALTER TABLE tracking_personal
+      ADD COLUMN IF NOT EXISTS velocidad_kmh NUMERIC(6,2),
+      ADD COLUMN IF NOT EXISTS rumbo_grados NUMERIC(5,2);
 
     CREATE TABLE IF NOT EXISTS tracking_equipo (
       id_tracking BIGSERIAL PRIMARY KEY,
@@ -80,6 +89,51 @@ export async function ensureExtendedTrackingSchema() {
     CREATE INDEX IF NOT EXISTS idx_tracking_dispositivo_estado_operacion_creacion
       ON tracking_dispositivo(id_operacion, estado_operacion_creacion);
 
+    DO $$
+    BEGIN
+      IF to_regclass('public.v_ultimos_signos_vitales_personal') IS NOT NULL THEN
+        EXECUTE $view$
+          CREATE OR REPLACE VIEW v_ultima_posicion_personal AS
+          SELECT DISTINCT ON (tp.id_operacion, tp.id_personal)
+            tp.id_operacion,
+            tp.id_personal,
+            p.apodo,
+            p.rol,
+            tp.latitud,
+            tp.longitud,
+            tp.altitud,
+            tp.precision_m,
+            tp."timestamp" AS ultima_actualizacion,
+            tp.estado_operacion_creacion,
+            sv.frecuencia_cardiaca_bpm,
+            sv.frecuencia_cardiaca,
+            sv.fc,
+            sv.heart_rate,
+            sv.oxigenacion_spo2,
+            sv.spo2,
+            sv.temperatura_c,
+            sv.frecuencia_respiratoria_rpm,
+            sv.presion_sistolica_mmhg,
+            sv.presion_diastolica_mmhg,
+            sv.pasos,
+            sv.presion_barometrica_hpa,
+            sv.barometro,
+            sv.baro,
+            sv.bateria_pct,
+            sv.bateria,
+            sv.signos_actualizacion,
+            tp.velocidad_kmh,
+            tp.rumbo_grados
+          FROM tracking_personal tp
+          JOIN personal p ON p.id_personal = tp.id_personal
+          LEFT JOIN v_ultimos_signos_vitales_personal sv
+            ON sv.id_operacion = tp.id_operacion
+           AND sv.id_personal = tp.id_personal
+          ORDER BY tp.id_operacion, tp.id_personal, tp."timestamp" DESC
+        $view$;
+      END IF;
+    END $$;
+
     CREATE OR REPLACE VIEW v_ultima_posicion_equipo AS
     SELECT DISTINCT ON (te.id_operacion, te.id_equipo)
       te.id_tracking,
@@ -135,6 +189,7 @@ export async function ensureExtendedTrackingSchema() {
       d.imei,
       d.numero_serie,
       d.sistema_operativo,
+      d.identificador_app,
       d.estado AS dispositivo_estado,
       od.id_personal,
       p.apodo AS personal_apodo,

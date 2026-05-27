@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS dispositivo (
   imei TEXT,
   numero_serie TEXT,
   sistema_operativo TEXT,
+  identificador_app TEXT,
   estado estado_dispositivo_enum NOT NULL DEFAULT 'DISPONIBLE',
   detalles TEXT,
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -27,7 +28,8 @@ CREATE TABLE IF NOT EXISTS dispositivo (
 );
 
 ALTER TABLE dispositivo
-  ADD COLUMN IF NOT EXISTS imagen_disp TEXT;
+  ADD COLUMN IF NOT EXISTS imagen_disp TEXT,
+  ADD COLUMN IF NOT EXISTS identificador_app TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_numero_telefono
   ON dispositivo(numero_telefono)
@@ -40,6 +42,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_imei
 CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_numero_serie
   ON dispositivo(numero_serie)
   WHERE numero_serie IS NOT NULL AND btrim(numero_serie) <> '';
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_identificador_app
+  ON dispositivo(identificador_app)
+  WHERE identificador_app IS NOT NULL AND btrim(identificador_app) <> '';
 
 CREATE INDEX IF NOT EXISTS idx_dispositivo_tipo_estado
   ON dispositivo(tipo, estado);

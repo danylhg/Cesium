@@ -163,7 +163,16 @@ class ChatSocketManager(
         socket?.connect()
     }
 
-    fun emitTracking(idPersonal: Int, lat: Double, lon: Double, apodo: String, rol: String = "") {
+    fun emitTracking(
+        idPersonal: Int,
+        lat: Double,
+        lon: Double,
+        apodo: String,
+        rol: String = "",
+        speedKmh: Double? = null,
+        headingDegrees: Double? = null,
+        accuracyMeters: Float? = null
+    ) {
         val connected = socket?.connected() == true
         Log.d(
             "TrackingPersonal",
@@ -182,6 +191,9 @@ class ChatSocketManager(
             put("apodo", apodo)
             put("nombre", apodo)
             put("rol", rol)
+            speedKmh?.let { put("velocidad_kmh", it) }
+            headingDegrees?.let { put("rumbo_grados", it) }
+            accuracyMeters?.let { put("precision_m", it) }
         }
         socket?.emit("tracking_personal", payload)
     }

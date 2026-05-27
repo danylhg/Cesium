@@ -732,7 +732,9 @@ class WearMainActivity : Activity(), SensorEventListener {
             idPersonal = user.id,
             latitude = location.latitude,
             longitude = location.longitude,
-            accuracyMeters = location.accuracy
+            accuracyMeters = if (location.hasAccuracy()) location.accuracy else null,
+            speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
+            headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
         )
         maybeSendVitals()
     }

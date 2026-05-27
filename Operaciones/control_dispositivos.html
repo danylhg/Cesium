@@ -44,7 +44,7 @@
         <div class="field">
           <label>Buscar</label>
           <div class="searchRow">
-            <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, teléfono, IMEI..." />
+            <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, telefono, IMEI, ID app..." />
             <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
             <button id="btnClear" class="btn mini" type="button">Limpiar</button>
           </div>
@@ -96,6 +96,7 @@
                 <th>Núm. teléfono</th>
                 <th>IMEI</th>
                 <th>Núm. serie</th>
+                <th>ID app</th>
                 <th>Estado</th>
                 <th>Responsable</th>
                 <th>Fecha registro</th>
@@ -156,6 +157,11 @@
             <div class="field">
               <label>Núm. serie</label>
               <input id="fNumeroSerie" type="text" maxlength="80" />
+            </div>
+
+            <div class="field">
+              <label>ID app Android</label>
+              <input id="fIdentificadorApp" type="text" maxlength="120" placeholder="ANDROID_ID de la app movil" />
             </div>
 
             <div class="field">

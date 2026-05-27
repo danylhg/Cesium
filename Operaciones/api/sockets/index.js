@@ -112,7 +112,7 @@ export function initSocket(server) {
         return;
       }
 
-      const { id_personal, latitud, longitud, altitud, precision_m } = data ?? {};
+      const { id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados } = data ?? {};
       if (!id_personal || latitud == null || longitud == null) {
         console.warn("[SOCKET] tracking_personal ignorado: payload incompleto", data);
         return;
@@ -124,13 +124,19 @@ export function initSocket(server) {
 
       let savedTracking = null;
       try {
+        await ensureExtendedTrackingSchema();
         const { rows } = await pool.query(
-          `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
-           VALUES ($1,$2,$3,$4,$5,$6)
-           RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, timestamp, estado_operacion_creacion`,
+          `INSERT INTO tracking_personal (
+             id_operacion, id_personal, latitud, longitud, altitud,
+             precision_m, velocidad_kmh, rumbo_grados
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp, estado_operacion_creacion`,
           [opId, Number(id_personal), Number(latitud), Number(longitud),
             altitud != null ? Number(altitud) : null,
-            precision_m != null ? Number(precision_m) : null]
+            precision_m != null ? Number(precision_m) : null,
+            optionalNumber(velocidad_kmh),
+            optionalNumber(rumbo_grados)]
         );
         savedTracking = rows[0];
       } catch (err) {

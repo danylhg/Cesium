@@ -10,18 +10,18 @@ import {
 
 const TIPOS_DISPOSITIVO = ["TELEFONO", "TABLET", "SMARTWATCH", "LORA", "LAPTOP", "RADIO", "GPS", "OTRO"];
 const ESTADOS_DISPOSITIVO = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
-const DISPOSITIVO_DATA_FIELDS = ["numero_telefono", "imei", "numero_serie", "sistema_operativo"];
+const DISPOSITIVO_DATA_FIELDS = ["numero_telefono", "imei", "numero_serie", "sistema_operativo", "identificador_app"];
 const DISPOSITIVO_FIELD_RULES = {
   TELEFONO: {
-    allowed: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+    allowed: ["numero_telefono", "imei", "numero_serie", "sistema_operativo", "identificador_app"],
     required: ["numero_telefono", "imei", "sistema_operativo"],
   },
   TABLET: {
-    allowed: ["imei", "numero_serie", "sistema_operativo"],
+    allowed: ["imei", "numero_serie", "sistema_operativo", "identificador_app"],
     required: ["numero_serie", "sistema_operativo"],
   },
   SMARTWATCH: {
-    allowed: ["imei", "numero_serie", "sistema_operativo"],
+    allowed: ["imei", "numero_serie", "sistema_operativo", "identificador_app"],
     required: ["numero_serie", "sistema_operativo"],
   },
   LORA: {
@@ -37,11 +37,11 @@ const DISPOSITIVO_FIELD_RULES = {
     required: ["numero_serie"],
   },
   GPS: {
-    allowed: ["imei", "numero_serie"],
+    allowed: ["imei", "numero_serie", "identificador_app"],
     required: ["numero_serie"],
   },
   OTRO: {
-    allowed: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+    allowed: ["numero_telefono", "imei", "numero_serie", "sistema_operativo", "identificador_app"],
     required: [],
   },
 };
@@ -50,6 +50,7 @@ const DISPOSITIVO_FIELD_LABELS = {
   imei: "IMEI",
   numero_serie: "numero_serie",
   sistema_operativo: "sistema_operativo",
+  identificador_app: "identificador_app",
 };
 
 let dispositivoSchemaReady = false;
@@ -69,7 +70,15 @@ function hasOwn(obj, key) {
 
 async function ensureDispositivoSchema() {
   if (dispositivoSchemaReady) return;
-  await pool.query("ALTER TABLE dispositivo ADD COLUMN IF NOT EXISTS imagen_disp TEXT");
+  await pool.query(`
+    ALTER TABLE dispositivo
+      ADD COLUMN IF NOT EXISTS imagen_disp TEXT,
+      ADD COLUMN IF NOT EXISTS identificador_app TEXT;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_identificador_app
+      ON dispositivo(identificador_app)
+      WHERE identificador_app IS NOT NULL AND btrim(identificador_app) <> '';
+  `);
   dispositivoSchemaReady = true;
 }
 
@@ -452,6 +461,7 @@ export async function listDispositivos(req, res) {
         d.imei,
         d.numero_serie,
         d.sistema_operativo,
+        d.identificador_app,
         CASE
           WHEN od.id_operacion IS NOT NULL THEN 'ASIGNADO'
           ELSE d.estado::text
@@ -502,6 +512,7 @@ export async function createDispositivo(req, res) {
     const imei = cleanOptionalText(req.body?.imei);
     const numero_serie = cleanOptionalText(req.body?.numero_serie);
     const sistema_operativo = cleanOptionalText(req.body?.sistema_operativo);
+    const identificador_app = cleanOptionalText(req.body?.identificador_app);
     const estado = cleanText(req.body?.estado || "DISPONIBLE").toUpperCase();
     const detalles = cleanOptionalText(req.body?.detalles);
 
@@ -532,6 +543,7 @@ export async function createDispositivo(req, res) {
       imei,
       numero_serie,
       sistema_operativo,
+      identificador_app,
       estado,
       detalles,
     });
@@ -545,10 +557,10 @@ export async function createDispositivo(req, res) {
     const { rows } = await pool.query(
       `INSERT INTO dispositivo
          (imagen_disp, tipo, marca, modelo, numero_telefono, imei, numero_serie,
-          sistema_operativo, estado, detalles)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+          sistema_operativo, identificador_app, estado, detalles)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING id_dispositivo, imagen_disp, tipo, marca, modelo, numero_telefono, imei,
-                 numero_serie, sistema_operativo, estado, detalles,
+                 numero_serie, sistema_operativo, identificador_app, estado, detalles,
                  fecha_creacion AS fecha_registro`,
       [
         item.imagen_disp,
@@ -559,6 +571,7 @@ export async function createDispositivo(req, res) {
         item.imei,
         item.numero_serie,
         item.sistema_operativo,
+        item.identificador_app,
         item.estado,
         item.detalles,
       ]
@@ -569,7 +582,7 @@ export async function createDispositivo(req, res) {
     if (err.code === "23505") {
       return res.status(409).json({
         ok: false,
-        mensaje: "Ya existe un dispositivo con ese telefono, IMEI o numero de serie",
+        mensaje: "Ya existe un dispositivo con ese telefono, IMEI, numero de serie o identificador de app",
         error: err.detail || err.message,
       });
     }
@@ -598,6 +611,7 @@ export async function updateDispositivo(req, res) {
       "imei",
       "numero_serie",
       "sistema_operativo",
+      "identificador_app",
       "estado",
       "detalles",
     ].some(fieldName => hasOwn(body, fieldName));
@@ -614,6 +628,7 @@ export async function updateDispositivo(req, res) {
     const imei = hasOwn(body, "imei") ? cleanOptionalText(body.imei) : undefined;
     const numero_serie = hasOwn(body, "numero_serie") ? cleanOptionalText(body.numero_serie) : undefined;
     const sistema_operativo = hasOwn(body, "sistema_operativo") ? cleanOptionalText(body.sistema_operativo) : undefined;
+    const identificador_app = hasOwn(body, "identificador_app") ? cleanOptionalText(body.identificador_app) : undefined;
     const estado = hasOwn(body, "estado") ? cleanText(body.estado).toUpperCase() : null;
     const detalles = hasOwn(body, "detalles") ? cleanOptionalText(body.detalles) : undefined;
 
@@ -641,7 +656,7 @@ export async function updateDispositivo(req, res) {
 
     const { rows: currentRows } = await pool.query(
       `SELECT tipo, marca, modelo, numero_telefono, imei, numero_serie,
-              sistema_operativo, estado, detalles, imagen_disp
+              sistema_operativo, identificador_app, estado, detalles, imagen_disp
        FROM dispositivo
        WHERE id_dispositivo = $1`,
       [id_dispositivo]
@@ -661,6 +676,7 @@ export async function updateDispositivo(req, res) {
       imei: imei !== undefined ? imei : current.imei,
       numero_serie: numero_serie !== undefined ? numero_serie : current.numero_serie,
       sistema_operativo: sistema_operativo !== undefined ? sistema_operativo : current.sistema_operativo,
+      identificador_app: identificador_app !== undefined ? identificador_app : current.identificador_app,
       estado: estado !== null ? estado : current.estado,
       detalles: detalles !== undefined ? detalles : current.detalles,
     });
@@ -681,11 +697,12 @@ export async function updateDispositivo(req, res) {
            imei = $6,
            numero_serie = $7,
            sistema_operativo = $8,
-           estado = $9,
-           detalles = $10
-       WHERE id_dispositivo = $11
+           identificador_app = $9,
+           estado = $10,
+           detalles = $11
+       WHERE id_dispositivo = $12
        RETURNING id_dispositivo, imagen_disp, tipo, marca, modelo, numero_telefono, imei,
-                 numero_serie, sistema_operativo, estado, detalles,
+                 numero_serie, sistema_operativo, identificador_app, estado, detalles,
                  fecha_creacion AS fecha_registro`,
       [
         item.imagen_disp,
@@ -696,6 +713,7 @@ export async function updateDispositivo(req, res) {
         item.imei,
         item.numero_serie,
         item.sistema_operativo,
+        item.identificador_app,
         item.estado,
         item.detalles,
         id_dispositivo,
@@ -711,7 +729,7 @@ export async function updateDispositivo(req, res) {
     if (err.code === "23505") {
       return res.status(409).json({
         ok: false,
-        mensaje: "Ya existe un dispositivo con ese telefono, IMEI o numero de serie",
+        mensaje: "Ya existe un dispositivo con ese telefono, IMEI, numero de serie o identificador de app",
         error: err.detail || err.message,
       });
     }

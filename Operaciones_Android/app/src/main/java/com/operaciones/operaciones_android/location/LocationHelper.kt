@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.util.Log
@@ -14,7 +15,13 @@ import androidx.core.content.ContextCompat
 class LocationHelper(
     private val activity: Activity,
     private val onLocationUpdate: (latitude: Double, longitude: Double) -> Unit,
-    private val onEmitLocation: ((latitude: Double, longitude: Double) -> Unit)? = null
+    private val onEmitLocation: ((
+        latitude: Double,
+        longitude: Double,
+        speedKmh: Double?,
+        headingDegrees: Double?,
+        accuracyMeters: Float?
+    ) -> Unit)? = null
 ) {
 
     companion object {
@@ -46,7 +53,7 @@ class LocationHelper(
         bestLocation?.let { loc ->
             Log.d("TrackingPersonal", "lastKnown lat=${loc.latitude} lon=${loc.longitude}")
             onLocationUpdate(loc.latitude, loc.longitude)
-            onEmitLocation?.invoke(loc.latitude, loc.longitude)
+            emitLocation(loc)
         } ?: Log.w("TrackingPersonal", "Sin lastKnownLocation disponible")
     }
 
@@ -99,7 +106,7 @@ class LocationHelper(
         locationListener = LocationListener { loc ->
             Log.d("TrackingPersonal", "location update lat=${loc.latitude} lon=${loc.longitude}")
             onLocationUpdate(loc.latitude, loc.longitude)
-            onEmitLocation?.invoke(loc.latitude, loc.longitude)
+            emitLocation(loc)
         }
 
         try {
@@ -123,6 +130,19 @@ class LocationHelper(
         }
 
         emitLastKnownLocation()
+    }
+
+    private fun emitLocation(loc: Location) {
+        val speedKmh = if (loc.hasSpeed()) loc.speed.toDouble() * 3.6 else null
+        val headingDegrees = if (loc.hasBearing()) loc.bearing.toDouble() else null
+        val accuracyMeters = if (loc.hasAccuracy()) loc.accuracy else null
+        onEmitLocation?.invoke(
+            loc.latitude,
+            loc.longitude,
+            speedKmh,
+            headingDegrees,
+            accuracyMeters
+        )
     }
 
     fun stopLocationUpdates() {

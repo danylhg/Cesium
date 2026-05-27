@@ -59,7 +59,7 @@
 
   const TIPOS = ["TELEFONO", "TABLET", "SMARTWATCH", "LORA", "LAPTOP", "RADIO", "GPS", "OTRO"];
   const ESTADOS = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
-  const DISPOSITIVO_FIELDS = ["numero_telefono", "imei", "numero_serie", "sistema_operativo"];
+  const DISPOSITIVO_FIELDS = ["numero_telefono", "imei", "numero_serie", "sistema_operativo", "identificador_app"];
   const DEVICE_FIELD_RULES = {
     "": {
       visible: [],
@@ -67,17 +67,17 @@
       detallesPlaceholder: "Observaciones generales del dispositivo...",
     },
     TELEFONO: {
-      visible: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+      visible: ["numero_telefono", "imei", "numero_serie", "sistema_operativo", "identificador_app"],
       required: ["numero_telefono", "imei", "sistema_operativo"],
       detallesPlaceholder: "Compania, SIM, cargador, accesorios u observaciones...",
     },
     TABLET: {
-      visible: ["imei", "numero_serie", "sistema_operativo"],
+      visible: ["imei", "numero_serie", "sistema_operativo", "identificador_app"],
       required: ["numero_serie", "sistema_operativo"],
       detallesPlaceholder: "Funda, cargador, SIM de datos si aplica u observaciones...",
     },
     SMARTWATCH: {
-      visible: ["imei", "numero_serie", "sistema_operativo"],
+      visible: ["imei", "numero_serie", "sistema_operativo", "identificador_app"],
       required: ["numero_serie", "sistema_operativo"],
       detallesPlaceholder: "Cargador, color, talla, sensores u observaciones...",
     },
@@ -97,12 +97,12 @@
       detallesPlaceholder: "Banda, canal, frecuencia, bateria u observaciones...",
     },
     GPS: {
-      visible: ["imei", "numero_serie"],
+      visible: ["imei", "numero_serie", "identificador_app"],
       required: ["numero_serie"],
       detallesPlaceholder: "ID de tracker, chip interno, accesorios u observaciones...",
     },
     OTRO: {
-      visible: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+      visible: ["numero_telefono", "imei", "numero_serie", "sistema_operativo", "identificador_app"],
       required: [],
       detallesPlaceholder: "Descripcion, identificadores y observaciones...",
     },
@@ -112,6 +112,7 @@
     imei: "IMEI",
     numero_serie: "Num. serie",
     sistema_operativo: "Sistema operativo",
+    identificador_app: "ID app",
   };
 
   function normalize(value) {
@@ -159,6 +160,7 @@
   const fNumeroTelefono = document.getElementById("fNumeroTelefono");
   const fImei = document.getElementById("fImei");
   const fNumeroSerie = document.getElementById("fNumeroSerie");
+  const fIdentificadorApp = document.getElementById("fIdentificadorApp");
   const fSistemaOperativo = document.getElementById("fSistemaOperativo");
   const fDetalles = document.getElementById("fDetalles");
   const deviceFieldControls = {
@@ -179,6 +181,12 @@
       field: fNumeroSerie?.closest(".field"),
       label: fNumeroSerie?.closest(".field")?.querySelector("label"),
       labelText: DEVICE_FIELD_LABELS.numero_serie,
+    },
+    identificador_app: {
+      el: fIdentificadorApp,
+      field: fIdentificadorApp?.closest(".field"),
+      label: fIdentificadorApp?.closest(".field")?.querySelector("label"),
+      labelText: DEVICE_FIELD_LABELS.identificador_app,
     },
     sistema_operativo: {
       el: fSistemaOperativo,
@@ -272,6 +280,7 @@
       numero_telefono: d.numero_telefono ?? "",
       imei: d.imei ?? "",
       numero_serie: d.numero_serie ?? "",
+      identificador_app: d.identificador_app ?? "",
       sistema_operativo: d.sistema_operativo ?? "",
       estado: d.estado ?? "DISPONIBLE",
       responsable: d.responsable ?? "",
@@ -297,6 +306,7 @@
         normalize(d.numero_telefono).includes(q) ||
         normalize(d.imei).includes(q) ||
         normalize(d.numero_serie).includes(q) ||
+        normalize(d.identificador_app).includes(q) ||
         normalize(d.sistema_operativo).includes(q) ||
         normalize(d.estado).includes(q) ||
         normalize(d.responsable).includes(q) ||
@@ -322,7 +332,7 @@
 
     if (!list.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="10" style="color: rgba(11,18,32,.65); padding: 16px;">
+      tr.innerHTML = `<td colspan="11" style="color: rgba(11,18,32,.65); padding: 16px;">
         No hay registros con los filtros actuales.
       </td>`;
       tbody.appendChild(tr);
@@ -339,6 +349,7 @@
           <td>${escapeHtml(d.numero_telefono || "-")}</td>
           <td>${escapeHtml(d.imei || "-")}</td>
           <td>${escapeHtml(d.numero_serie || "-")}</td>
+          <td>${escapeHtml(d.identificador_app || "-")}</td>
           <td>${escapeHtml(d.estado || "DISPONIBLE")}</td>
           <td>${escapeHtml(d.responsable || "-")}</td>
           <td>${escapeHtml(d.fecha_registro || "-")}</td>
@@ -390,6 +401,7 @@
     fNumeroTelefono.value = d.numero_telefono ?? "";
     fImei.value = d.imei ?? "";
     fNumeroSerie.value = d.numero_serie ?? "";
+    if (fIdentificadorApp) fIdentificadorApp.value = d.identificador_app ?? "";
     fSistemaOperativo.value = d.sistema_operativo ?? "";
     fDetalles.value = d.detalles ?? "";
     updateFormForType();
@@ -476,6 +488,7 @@
       numero_telefono: readDeviceField("numero_telefono", rule),
       imei: readDeviceField("imei", rule),
       numero_serie: readDeviceField("numero_serie", rule),
+      identificador_app: readDeviceField("identificador_app", rule),
       sistema_operativo: readDeviceField("sistema_operativo", rule),
       detalles: fDetalles?.value?.trim() || null,
     };

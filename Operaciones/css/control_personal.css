@@ -206,7 +206,7 @@ input, select{
 .tbl{
   width: 100%;
   border-collapse: collapse;
-  min-width: 1050px;
+  min-width: 1150px;
   background: rgba(255,255,255,.70);
 }
 .tbl thead th{

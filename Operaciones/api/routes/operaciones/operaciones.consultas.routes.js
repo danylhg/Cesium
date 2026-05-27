@@ -133,6 +133,8 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureExtendedTrackingSchema();
+
     // Query principal:
     // Parte de asignacion_operacion_personal y le va colgando
     // personal, grupos, mando y tracking.
@@ -224,6 +226,10 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         t.latitud,
         t.longitud,
         t.ultima_actualizacion,
+        t.velocidad_kmh,
+        t.rumbo_grados,
+        t.rumbo_grados AS curso,
+        t.rumbo_grados AS heading,
         COALESCE(t.frecuencia_cardiaca_bpm, sv.frecuencia_cardiaca_bpm) AS frecuencia_cardiaca_bpm,
         COALESCE(t.frecuencia_cardiaca, sv.frecuencia_cardiaca) AS frecuencia_cardiaca,
         COALESCE(t.fc, sv.fc) AS fc,
@@ -699,6 +705,7 @@ router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
          d.imei,
          d.numero_serie,
          d.sistema_operativo,
+         d.identificador_app,
          d.estado AS dispositivo_estado,
          od.id_personal,
          p.apodo AS personal_apodo,
