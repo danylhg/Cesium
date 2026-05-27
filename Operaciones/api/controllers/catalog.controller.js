@@ -10,6 +10,49 @@ import {
 
 const TIPOS_DISPOSITIVO = ["TELEFONO", "TABLET", "SMARTWATCH", "LORA", "LAPTOP", "RADIO", "GPS", "OTRO"];
 const ESTADOS_DISPOSITIVO = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
+const DISPOSITIVO_DATA_FIELDS = ["numero_telefono", "imei", "numero_serie", "sistema_operativo"];
+const DISPOSITIVO_FIELD_RULES = {
+  TELEFONO: {
+    allowed: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+    required: ["numero_telefono", "imei", "sistema_operativo"],
+  },
+  TABLET: {
+    allowed: ["imei", "numero_serie", "sistema_operativo"],
+    required: ["numero_serie", "sistema_operativo"],
+  },
+  SMARTWATCH: {
+    allowed: ["imei", "numero_serie", "sistema_operativo"],
+    required: ["numero_serie", "sistema_operativo"],
+  },
+  LORA: {
+    allowed: ["numero_serie"],
+    required: ["numero_serie"],
+  },
+  LAPTOP: {
+    allowed: ["numero_serie", "sistema_operativo"],
+    required: ["numero_serie", "sistema_operativo"],
+  },
+  RADIO: {
+    allowed: ["numero_serie"],
+    required: ["numero_serie"],
+  },
+  GPS: {
+    allowed: ["imei", "numero_serie"],
+    required: ["numero_serie"],
+  },
+  OTRO: {
+    allowed: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+    required: [],
+  },
+};
+const DISPOSITIVO_FIELD_LABELS = {
+  numero_telefono: "numero_telefono",
+  imei: "IMEI",
+  numero_serie: "numero_serie",
+  sistema_operativo: "sistema_operativo",
+};
+
+let dispositivoSchemaReady = false;
 
 function cleanText(value) {
   return (value ?? "").toString().trim();
@@ -18,6 +61,44 @@ function cleanText(value) {
 function cleanOptionalText(value) {
   const cleaned = cleanText(value);
   return cleaned || null;
+}
+
+function hasOwn(obj, key) {
+  return Object.prototype.hasOwnProperty.call(obj ?? {}, key);
+}
+
+async function ensureDispositivoSchema() {
+  if (dispositivoSchemaReady) return;
+  await pool.query("ALTER TABLE dispositivo ADD COLUMN IF NOT EXISTS imagen_disp TEXT");
+  dispositivoSchemaReady = true;
+}
+
+function validateAndNormalizeDispositivo(values) {
+  const rule = DISPOSITIVO_FIELD_RULES[values.tipo] || DISPOSITIVO_FIELD_RULES.OTRO;
+  const normalized = { ...values };
+
+  for (const fieldName of DISPOSITIVO_DATA_FIELDS) {
+    if (!rule.allowed.includes(fieldName)) {
+      normalized[fieldName] = null;
+    }
+  }
+
+  const missing = rule.required.filter(fieldName => !normalized[fieldName]);
+  if (missing.length) {
+    return {
+      ok: false,
+      mensaje: `Falta ${missing.map(fieldName => DISPOSITIVO_FIELD_LABELS[fieldName]).join(", ")} para tipo ${values.tipo}`,
+    };
+  }
+
+  if (normalized.numero_telefono && !/^\d{7,15}$/.test(normalized.numero_telefono)) {
+    return {
+      ok: false,
+      mensaje: "numero_telefono invalido: usa solo digitos (7 a 15).",
+    };
+  }
+
+  return { ok: true, values: normalized };
 }
 
 // Lista personal filtrado por rol y marca si ya esta ocupado en otra operacion.
@@ -358,9 +439,12 @@ export async function deletePersonal(req, res) {
 // en una operacion activa o planificada.
 export async function listDispositivos(req, res) {
   try {
+    await ensureDispositivoSchema();
+
     const { rows } = await pool.query(`
       SELECT
         d.id_dispositivo,
+        d.imagen_disp,
         d.tipo,
         d.marca,
         d.modelo,
@@ -408,7 +492,10 @@ export async function listDispositivos(req, res) {
 
 export async function createDispositivo(req, res) {
   try {
+    await ensureDispositivoSchema();
+
     const tipo = cleanText(req.body?.tipo).toUpperCase();
+    const imagen_disp = cleanOptionalText(req.body?.imagen_disp);
     const marca = cleanText(req.body?.marca);
     const modelo = cleanText(req.body?.modelo);
     const numero_telefono = cleanOptionalText(req.body?.numero_telefono);
@@ -436,31 +523,44 @@ export async function createDispositivo(req, res) {
       });
     }
 
-    if (numero_telefono && !/^\d{7,15}$/.test(numero_telefono)) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "numero_telefono invalido: usa solo digitos (7 a 15).",
-      });
+    const normalized = validateAndNormalizeDispositivo({
+      tipo,
+      imagen_disp,
+      marca,
+      modelo,
+      numero_telefono,
+      imei,
+      numero_serie,
+      sistema_operativo,
+      estado,
+      detalles,
+    });
+
+    if (!normalized.ok) {
+      return res.status(400).json({ ok: false, mensaje: normalized.mensaje });
     }
+
+    const item = normalized.values;
 
     const { rows } = await pool.query(
       `INSERT INTO dispositivo
-         (tipo, marca, modelo, numero_telefono, imei, numero_serie,
+         (imagen_disp, tipo, marca, modelo, numero_telefono, imei, numero_serie,
           sistema_operativo, estado, detalles)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-       RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono, imei,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       RETURNING id_dispositivo, imagen_disp, tipo, marca, modelo, numero_telefono, imei,
                  numero_serie, sistema_operativo, estado, detalles,
                  fecha_creacion AS fecha_registro`,
       [
-        tipo,
-        marca,
-        modelo,
-        numero_telefono,
-        imei,
-        numero_serie,
-        sistema_operativo,
-        estado,
-        detalles,
+        item.imagen_disp,
+        item.tipo,
+        item.marca,
+        item.modelo,
+        item.numero_telefono,
+        item.imei,
+        item.numero_serie,
+        item.sistema_operativo,
+        item.estado,
+        item.detalles,
       ]
     );
 
@@ -486,15 +586,36 @@ export async function updateDispositivo(req, res) {
   }
 
   try {
-    const tipo = req.body?.tipo != null ? cleanText(req.body.tipo).toUpperCase() : null;
-    const marca = req.body?.marca != null ? cleanText(req.body.marca) : null;
-    const modelo = req.body?.modelo != null ? cleanText(req.body.modelo) : null;
-    const numero_telefono = req.body?.numero_telefono != null ? cleanOptionalText(req.body.numero_telefono) : undefined;
-    const imei = req.body?.imei != null ? cleanOptionalText(req.body.imei) : undefined;
-    const numero_serie = req.body?.numero_serie != null ? cleanOptionalText(req.body.numero_serie) : undefined;
-    const sistema_operativo = req.body?.sistema_operativo != null ? cleanOptionalText(req.body.sistema_operativo) : undefined;
-    const estado = req.body?.estado != null ? cleanText(req.body.estado).toUpperCase() : null;
-    const detalles = req.body?.detalles != null ? cleanOptionalText(req.body.detalles) : undefined;
+    await ensureDispositivoSchema();
+
+    const body = req.body ?? {};
+    const hasUpdates = [
+      "tipo",
+      "imagen_disp",
+      "marca",
+      "modelo",
+      "numero_telefono",
+      "imei",
+      "numero_serie",
+      "sistema_operativo",
+      "estado",
+      "detalles",
+    ].some(fieldName => hasOwn(body, fieldName));
+
+    if (!hasUpdates) {
+      return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
+    }
+
+    const tipo = hasOwn(body, "tipo") ? cleanText(body.tipo).toUpperCase() : null;
+    const imagen_disp = hasOwn(body, "imagen_disp") ? cleanOptionalText(body.imagen_disp) : undefined;
+    const marca = hasOwn(body, "marca") ? cleanText(body.marca) : null;
+    const modelo = hasOwn(body, "modelo") ? cleanText(body.modelo) : null;
+    const numero_telefono = hasOwn(body, "numero_telefono") ? cleanOptionalText(body.numero_telefono) : undefined;
+    const imei = hasOwn(body, "imei") ? cleanOptionalText(body.imei) : undefined;
+    const numero_serie = hasOwn(body, "numero_serie") ? cleanOptionalText(body.numero_serie) : undefined;
+    const sistema_operativo = hasOwn(body, "sistema_operativo") ? cleanOptionalText(body.sistema_operativo) : undefined;
+    const estado = hasOwn(body, "estado") ? cleanText(body.estado).toUpperCase() : null;
+    const detalles = hasOwn(body, "detalles") ? cleanOptionalText(body.detalles) : undefined;
 
     if (tipo !== null && (!tipo || !TIPOS_DISPOSITIVO.includes(tipo))) {
       return res.status(400).json({
@@ -518,41 +639,67 @@ export async function updateDispositivo(req, res) {
       });
     }
 
-    if (numero_telefono && !/^\d{7,15}$/.test(numero_telefono)) {
-      return res.status(400).json({
-        ok: false,
-        mensaje: "numero_telefono invalido: usa solo digitos (7 a 15).",
-      });
+    const { rows: currentRows } = await pool.query(
+      `SELECT tipo, marca, modelo, numero_telefono, imei, numero_serie,
+              sistema_operativo, estado, detalles, imagen_disp
+       FROM dispositivo
+       WHERE id_dispositivo = $1`,
+      [id_dispositivo]
+    );
+
+    if (!currentRows[0]) {
+      return res.status(404).json({ ok: false, mensaje: "Dispositivo no existe" });
     }
 
-    const sets = [];
-    const vals = [];
-    let i = 1;
+    const current = currentRows[0];
+    const normalized = validateAndNormalizeDispositivo({
+      tipo: tipo !== null ? tipo : current.tipo,
+      imagen_disp: imagen_disp !== undefined ? imagen_disp : current.imagen_disp,
+      marca: marca !== null ? marca : current.marca,
+      modelo: modelo !== null ? modelo : current.modelo,
+      numero_telefono: numero_telefono !== undefined ? numero_telefono : current.numero_telefono,
+      imei: imei !== undefined ? imei : current.imei,
+      numero_serie: numero_serie !== undefined ? numero_serie : current.numero_serie,
+      sistema_operativo: sistema_operativo !== undefined ? sistema_operativo : current.sistema_operativo,
+      estado: estado !== null ? estado : current.estado,
+      detalles: detalles !== undefined ? detalles : current.detalles,
+    });
 
-    if (tipo !== null) { sets.push(`tipo = $${i++}`); vals.push(tipo); }
-    if (marca !== null) { sets.push(`marca = $${i++}`); vals.push(marca); }
-    if (modelo !== null) { sets.push(`modelo = $${i++}`); vals.push(modelo); }
-    if (numero_telefono !== undefined) { sets.push(`numero_telefono = $${i++}`); vals.push(numero_telefono); }
-    if (imei !== undefined) { sets.push(`imei = $${i++}`); vals.push(imei); }
-    if (numero_serie !== undefined) { sets.push(`numero_serie = $${i++}`); vals.push(numero_serie); }
-    if (sistema_operativo !== undefined) { sets.push(`sistema_operativo = $${i++}`); vals.push(sistema_operativo); }
-    if (estado !== null) { sets.push(`estado = $${i++}`); vals.push(estado); }
-    if (detalles !== undefined) { sets.push(`detalles = $${i++}`); vals.push(detalles); }
-
-    if (sets.length === 0) {
-      return res.status(400).json({ ok: false, mensaje: "Nada para actualizar" });
+    if (!normalized.ok) {
+      return res.status(400).json({ ok: false, mensaje: normalized.mensaje });
     }
 
-    vals.push(id_dispositivo);
+    const item = normalized.values;
 
     const { rows } = await pool.query(
       `UPDATE dispositivo
-       SET ${sets.join(", ")}
-       WHERE id_dispositivo = $${i}
-       RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono, imei,
+       SET imagen_disp = $1,
+           tipo = $2,
+           marca = $3,
+           modelo = $4,
+           numero_telefono = $5,
+           imei = $6,
+           numero_serie = $7,
+           sistema_operativo = $8,
+           estado = $9,
+           detalles = $10
+       WHERE id_dispositivo = $11
+       RETURNING id_dispositivo, imagen_disp, tipo, marca, modelo, numero_telefono, imei,
                  numero_serie, sistema_operativo, estado, detalles,
                  fecha_creacion AS fecha_registro`,
-      vals
+      [
+        item.imagen_disp,
+        item.tipo,
+        item.marca,
+        item.modelo,
+        item.numero_telefono,
+        item.imei,
+        item.numero_serie,
+        item.sistema_operativo,
+        item.estado,
+        item.detalles,
+        id_dispositivo,
+      ]
     );
 
     if (!rows[0]) {

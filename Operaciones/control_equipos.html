@@ -30,7 +30,7 @@
       <div class="panelHead">
         <div>
           <h1 class="title">Control de Equipos</h1>
-          <p class="subtitle">Administra equipos registrados (localStorage)</p>
+          <p class="subtitle">Administra equipos tacticos y de comunicacion registrados</p>
         </div>
 
         <div class="headBtns">
@@ -120,12 +120,11 @@
                 <option value="MANTENIMIENTO">Mantenimiento</option>
               </select>
             </div>
-            <div class="field full"><label>Detalles</label><textarea id="fDetalles"></textarea></div>
+            <div class="field full"><label>Detalles</label><textarea id="fDetalles" class="detailsTextarea" rows="4"></textarea></div>
           </div>
 
           <div class="modalActions">
             <button type="button" id="btnDeleteModal" class="btn danger"><span class="btnIcon">🗑</span>Eliminar</button>
-            <button type="button" id="btnCancel" class="btn soft">Cancelar</button>
             <button type="submit" id="btnSave" class="btn primary"><span class="btnIcon">✔</span>Guardar</button>
           </div>
         </form>

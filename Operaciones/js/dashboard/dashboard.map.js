@@ -45,6 +45,20 @@ const providers = {
   })
 };
 
+const BASE_LAYER_LABELS = {
+  osm: "Normal",
+  satellite: "Satélite",
+  hybrid: "Híbrida"
+};
+
+function updateLayerControl(key) {
+  const layerKey = BASE_LAYER_LABELS[key] ? key : "satellite";
+
+  document.querySelectorAll("[data-map-layer]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mapLayer === layerKey);
+  });
+}
+
 export class OpenStreetMapNominatimGeocoder {
   constructor() {
     this._credit = undefined;
@@ -110,6 +124,8 @@ export function setBaseLayer(key) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
+  dashboardState.baseLayerKey = key;
+  updateLayerControl(key);
   viewer.imageryLayers.removeAll();
 
   if (key === "hybrid") {
@@ -443,9 +459,10 @@ function bindCesiumPointerEvents(handler) {
   handler.setInputAction((click) => {
     const cartesian = getMapClickPosition(click.position);
 
-    handleEntitySelection(click.position);
-
-    if (!cartesian) return;
+    if (!cartesian) {
+      handleEntitySelection(click.position);
+      return;
+    }
 
     const pos = cartesianToLatLng(cartesian);
     const lat = pos.lat;
@@ -457,10 +474,16 @@ function bindCesiumPointerEvents(handler) {
     }
 
     if (handleTacticalPlacement(lat, lng)) return;
-    handleRoutePick(lat, lng);
+    if (handleRoutePick(lat, lng)) return;
+
+    handleEntitySelection(click.position);
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
   handler.setInputAction((click) => {
+    if (dashboardState.toolMode === "pencil" || dashboardState.drawingMode === "pencil" || dashboardState.drawingMode === "eraser") {
+      return;
+    }
+
     const picked = viewer.scene.pick(click.position);
     if (!picked || !picked.id) return;
 
@@ -599,10 +622,27 @@ function bindMapUiEvents() {
     };
   }
 
-  const layerSelect = document.getElementById("layerSelect");
-  if (layerSelect) {
-    layerSelect.addEventListener("change", (e) => {
-      setBaseLayer(e.target.value);
+  if (dom.mapLayerButton && dom.mapLayerControl) {
+    dom.mapLayerButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const isOpen = dom.mapLayerControl.classList.toggle("open");
+      dom.mapLayerButton.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    dom.mapLayerControl.querySelectorAll("[data-map-layer]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setBaseLayer(button.dataset.mapLayer || "hybrid");
+        dom.mapLayerControl.classList.remove("open");
+        dom.mapLayerButton.setAttribute("aria-expanded", "false");
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!dom.mapLayerControl.contains(event.target)) {
+        dom.mapLayerControl.classList.remove("open");
+        dom.mapLayerButton.setAttribute("aria-expanded", "false");
+      }
     });
   }
 

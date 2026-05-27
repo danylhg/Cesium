@@ -162,10 +162,11 @@ export async function seedOperation1(client) {
 
   // ── Equipos ────────────────────────────────────────────────
   const eqCom = await getEquipoBySerie(client, "HFC-001"); // radio → vehículo VH-001
-  const eqTac = await getEquipoBySerie(client, "DRN-001"); // dron  → personal mcruz
+  const eqDji = await getEquipoBySerie(client, "1581F7K3C25CD00DYNZD"); // DJI Matrice 4T → CET mlopez
+  const eqOldDron = await getEquipoBySerie(client, "DRN-001"); // seed anterior, se libera de OP1
 
   // operacion_equipo (reserva global) — primero porque uso_equipo_operacion referencia esto
-  for (const eq of [eqCom, eqTac]) {
+  for (const eq of [eqCom, eqDji]) {
     await client.query(
       `INSERT INTO operacion_equipo
          (id_operacion, id_equipo, cantidad, estado_asignacion, asignado_por)
@@ -175,6 +176,22 @@ export async function seedOperation1(client) {
       [idOp, eq.id_equipo, creadoPor]
     );
   }
+
+  await client.query(
+    `DELETE FROM uso_equipo_operacion
+     WHERE id_operacion = $1 AND id_equipo = $2`,
+    [idOp, eqOldDron.id_equipo]
+  );
+  await client.query(
+    `DELETE FROM grupo_equipo
+     WHERE id_operacion = $1 AND id_equipo = $2`,
+    [idOp, eqOldDron.id_equipo]
+  );
+  await client.query(
+    `DELETE FROM operacion_equipo
+     WHERE id_operacion = $1 AND id_equipo = $2`,
+    [idOp, eqOldDron.id_equipo]
+  );
 
   // uso_equipo_operacion — equipo de comunicación en vehículo VH-001
   await client.query(
@@ -187,15 +204,15 @@ export async function seedOperation1(client) {
      "Radio instalada en VH-001 de Aguila 1"]
   );
 
-  // uso_equipo_operacion — dron táctico asignado a mcruz (personal)
+  // uso_equipo_operacion — DJI Matrice 4T asignado a Maria Lopez (CET)
   await client.query(
     `INSERT INTO uso_equipo_operacion
        (id_operacion, id_equipo, id_personal, id_vehiculo_contexto, id_grupo_operacion, cantidad, asignado_por, notas)
-     VALUES ($1,$2,$3,NULL,$4,1,$5,$6)
+     VALUES ($1,$2,$3,NULL,NULL,1,$4,$5)
      ON CONFLICT (id_operacion, id_equipo, id_personal, id_grupo_operacion) DO UPDATE SET
-       id_vehiculo_contexto=NULL, cantidad=1, asignado_por=$5, fecha_asignacion=NOW(), fecha_devolucion=NULL`,
-    [idOp, eqTac.id_equipo, respAg1.id_personal, idAg1, creadoPor,
-     "Dron táctico bajo resguardo de mcruz en Aguila 1"]
+       id_vehiculo_contexto=NULL, cantidad=1, asignado_por=$4, fecha_asignacion=NOW(), fecha_devolucion=NULL`,
+    [idOp, eqDji.id_equipo, cet.id_personal, creadoPor,
+     "DJI Matrice 4T bajo resguardo de Maria Lopez"]
   );
 
   // ── Chat ───────────────────────────────────────────────────

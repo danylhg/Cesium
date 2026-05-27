@@ -55,6 +55,28 @@ function optionalNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function optionalBoolean(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "boolean") return value;
+  const text = String(value).trim().toLowerCase();
+  if (["true", "1", "si", "yes", "on"].includes(text)) return true;
+  if (["false", "0", "no", "off"].includes(text)) return false;
+  return null;
+}
+
+function optionalInteger(value) {
+  const number = optionalNumber(value);
+  return number == null ? null : Math.trunc(number);
+}
+
+function firstPayloadValue(payload, ...keys) {
+  for (const key of keys) {
+    const value = payload?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return null;
+}
+
 function validCoords(latitud, longitud) {
   const lat = Number(latitud);
   const lon = Number(longitud);
@@ -65,6 +87,165 @@ function validCoords(latitud, longitud) {
     lon >= -180 &&
     lon <= 180;
 }
+
+async function resolveDroneOperationId(payload) {
+  const requested = Number(firstPayloadValue(
+    payload,
+    "id_operacion",
+    "idOperacion",
+    "operation_id",
+    "operationId"
+  ));
+
+  if (isInt(requested)) return requested;
+
+  const { rows } = await pool.query(
+    `SELECT id_operacion
+     FROM operacion
+     WHERE estado = 'ACTIVA'
+     ORDER BY fecha_inicio DESC NULLS LAST, id_operacion DESC
+     LIMIT 1`
+  );
+  return rows[0]?.id_operacion || null;
+}
+
+async function resolveDroneEquipo({ id_operacion, id_equipo, serial }) {
+  const numericId = Number(id_equipo);
+  if (isInt(numericId)) {
+    const { rows } = await pool.query(
+      `SELECT e.id_equipo, e.numero_serie, e.nombre
+       FROM equipo e
+       WHERE e.id_equipo = $1
+       LIMIT 1`,
+      [numericId]
+    );
+    if (rows[0]) return rows[0];
+  }
+
+  if (serial) {
+    const { rows } = await pool.query(
+      `SELECT e.id_equipo, e.numero_serie, e.nombre
+       FROM equipo e
+       WHERE e.numero_serie = $1
+       LIMIT 1`,
+      [serial]
+    );
+    if (rows[0]) return rows[0];
+  }
+
+  const { rows } = await pool.query(
+    `SELECT e.id_equipo, e.numero_serie, e.nombre
+     FROM operacion_equipo oe
+     JOIN equipo e ON e.id_equipo = oe.id_equipo
+     LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+     WHERE oe.id_operacion = $1
+       AND oe.estado_asignacion != 'LIBERADO'
+       AND UPPER(COALESCE(et.tipo_tactico, e.categoria, '')) = 'DRON'
+     ORDER BY e.id_equipo
+     LIMIT 1`,
+    [id_operacion]
+  );
+  return rows[0] || null;
+}
+
+// ===============================
+// TRACKING PUBLICO DRON
+// ===============================
+
+// POST /external/drone/telemetry - telemetria de app externa sin token.
+router.post("/external/drone/telemetry", async (req, res) => {
+  const payload = req.body ?? {};
+  const latitud = firstPayloadValue(payload, "EXTRA_LAT", "latitud", "lat", "latitude");
+  const longitud = firstPayloadValue(payload, "EXTRA_LNG", "longitud", "lng", "lon", "longitude");
+
+  if (!validCoords(latitud, longitud)) {
+    return res.status(400).json({ ok: false, mensaje: "Latitud/longitud invalidas" });
+  }
+
+  try {
+    await ensureExtendedTrackingSchema();
+
+    const id_operacion = await resolveDroneOperationId(payload);
+    if (!id_operacion) {
+      return res.status(404).json({ ok: false, mensaje: "No hay operacion activa para registrar el dron" });
+    }
+
+    const serial = firstPayloadValue(payload, "EXTRA_SERIAL", "serial", "droneSerialNumber", "drone_serial");
+    const equipo = await resolveDroneEquipo({
+      id_operacion,
+      id_equipo: firstPayloadValue(payload, "id_equipo", "idEquipo", "equipment_id"),
+      serial
+    });
+
+    if (!equipo) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "No se encontro un equipo dron asignado a la operacion activa"
+      });
+    }
+
+    const altitud = firstPayloadValue(payload, "EXTRA_ALT", "altitud", "alt", "altitude");
+    const velocidad = firstPayloadValue(payload, "EXTRA_SPEED", "velocidad_kmh", "speed_kmh", "speed");
+    const rumbo = firstPayloadValue(payload, "EXTRA_HEADING", "rumbo_grados", "heading", "heading_deg");
+    const bateria = firstPayloadValue(payload, "EXTRA_BATTERY", "bateria_pct", "battery", "battery_pct");
+    const modoVuelo = firstPayloadValue(payload, "EXTRA_FLIGHT_MODE", "modo_vuelo", "flight_mode");
+    const tiempoVuelo = firstPayloadValue(payload, "EXTRA_FLIGHT_TIME", "tiempo_vuelo_s", "flight_time", "flight_time_s");
+
+    const { rows } = await pool.query(
+      `INSERT INTO tracking_equipo (
+         id_operacion, id_equipo, latitud, longitud, altitud,
+         velocidad_kmh, rumbo_grados, precision_m, bateria_pct,
+         conectado, dron_encendido, modo_vuelo, pitch_grados, roll_grados,
+         satelites, tiempo_vuelo_s, serial_dispositivo
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+      [
+        id_operacion,
+        equipo.id_equipo,
+        Number(latitud),
+        Number(longitud),
+        optionalNumber(altitud),
+        optionalNumber(velocidad),
+        optionalNumber(rumbo),
+        optionalNumber(firstPayloadValue(payload, "precision_m", "accuracy", "accuracy_m")),
+        optionalNumber(bateria),
+        optionalBoolean(firstPayloadValue(payload, "EXTRA_CONNECTED", "connected", "is_connected")),
+        optionalBoolean(firstPayloadValue(payload, "EXTRA_DRONE_ON", "drone_on", "dron_encendido")),
+        modoVuelo ? String(modoVuelo).trim() : null,
+        optionalNumber(firstPayloadValue(payload, "EXTRA_PITCH", "pitch", "pitch_grados")),
+        optionalNumber(firstPayloadValue(payload, "EXTRA_ROLL", "roll", "roll_grados")),
+        optionalInteger(firstPayloadValue(payload, "EXTRA_SATS", "sats", "satellites")),
+        optionalNumber(tiempoVuelo),
+        serial ? String(serial).trim() : null
+      ]
+    );
+
+    const latest = await getLatestEquipoPosition(id_operacion, equipo.id_equipo);
+    const io = req.app.get("io");
+    io?.to(`op_${id_operacion}`).emit("tracking_equipo", latest || {
+      id_operacion,
+      id_equipo: equipo.id_equipo,
+      latitud: Number(latitud),
+      longitud: Number(longitud),
+      altitud: optionalNumber(altitud),
+      velocidad_kmh: optionalNumber(velocidad),
+      rumbo_grados: optionalNumber(rumbo),
+      bateria_pct: optionalNumber(bateria),
+      serial_dispositivo: serial ? String(serial).trim() : null
+    });
+
+    return res.json({
+      ok: true,
+      id_operacion,
+      id_equipo: equipo.id_equipo,
+      numero_serie_equipo: equipo.numero_serie,
+      tracking: rows[0]
+    });
+  } catch (err) {
+    return sendDbError(res, err, "Error registrando telemetria del dron");
+  }
+});
 
 // ===============================
 // TRACKING PERSONAL

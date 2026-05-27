@@ -26,7 +26,6 @@ export const dom = {
   iconPallet: document.getElementById("iconPallet"),
   symLabelContainer: document.getElementById("symLabelContainer"),
   symLabel: document.getElementById("symLabel"),
-  placeBtn: document.getElementById("placeBtn"),
   finishShape: document.getElementById("finishShape"),
   cancelPlace: document.getElementById("cancelPlace"),
   tacticalActionButtons: document.getElementById("tacticalActionButtons"),
@@ -35,8 +34,10 @@ export const dom = {
   colorSelect: document.getElementById("colorSelect"),
   opacityContainer: document.getElementById("opacityContainer"),
   opacityRange: document.getElementById("opacityRange"),
+  opacityValue: document.getElementById("opacityValue"),
   widthContainer: document.getElementById("widthContainer"),
   widthRange: document.getElementById("widthRange"),
+  widthValue: document.getElementById("widthValue"),
   radiusInput: document.getElementById("radiusInput"),
   radiusContainer: document.getElementById("radiusContainer"),
 
@@ -116,6 +117,9 @@ export const dom = {
 
   // Mapa
   map: document.getElementById("map"),
+  mapLayerControl: document.getElementById("mapLayerControl"),
+  mapLayerButton: document.getElementById("mapLayerButton"),
+  mapLayerMenu: document.getElementById("mapLayerMenu"),
 
   // Botones operación
   saveOpMapBtn: document.getElementById("saveOpMapBtn"),

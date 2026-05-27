@@ -89,6 +89,7 @@
           <table class="tbl">
             <thead>
               <tr>
+                <th>Imagen</th>
                 <th>Tipo</th>
                 <th>Marca</th>
                 <th>Modelo</th>
@@ -162,6 +163,7 @@
               <select id="fSistemaOperativo">
                 <option value="" selected>Selecciona...</option>
                 <option value="Android">Android</option>
+                <option value="Wear OS">Wear OS</option>
                 <option value="iOS">iOS</option>
                 <option value="Windows">Windows</option>
                 <option value="HarmonyOS">HarmonyOS</option>
@@ -172,13 +174,12 @@
 
             <div class="field full">
               <label>Detalles</label>
-              <textarea id="fDetalles" placeholder="Accesorios, cargador, SIM, observaciones..."></textarea>
+              <textarea id="fDetalles" class="detailsTextarea" rows="4" placeholder="Accesorios, cargador, SIM, observaciones..."></textarea>
             </div>
           </div>
 
           <div class="modalActions">
             <button type="button" id="btnDeleteModal" class="btn danger"><span class="btnIcon">×</span>Eliminar</button>
-            <button type="button" id="btnCancel" class="btn soft">Cancelar</button>
             <button type="submit" id="btnSave" class="btn primary"><span class="btnIcon">✓</span>Guardar</button>
           </div>
         </form>

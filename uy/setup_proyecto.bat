@@ -36,17 +36,20 @@ if not defined LAN_IP set LAN_IP=localhost
 
 echo.
 echo Si vas a verlo por VS Code Tunnel desde otra red, pega aqui la URL publica del puerto 3000.
+echo Puedes pegar la URL completa; se recortara a la raiz del tunel.
 echo Ejemplo: https://TU-TUNEL-3000
 echo Si solo usaras red local, deja vacio y presiona Enter.
 set /p TUNNEL_FRONTEND_URL="URL tunel 3000 (opcional): "
 
 if defined TUNNEL_FRONTEND_URL goto use_tunnel_hls
+set FRONTEND_PUBLIC_URL=http://%LAN_IP%:3000
 set HLS_PUBLIC_BASE_URL=http://%LAN_IP%:3000/Operaciones/runtime/ffmpeg-streams
 goto hls_base_ready
 
 :use_tunnel_hls
-if "%TUNNEL_FRONTEND_URL:~-1%"=="/" set "TUNNEL_FRONTEND_URL=%TUNNEL_FRONTEND_URL:~0,-1%"
-set HLS_PUBLIC_BASE_URL=%TUNNEL_FRONTEND_URL%/Operaciones/runtime/ffmpeg-streams
+for /f "usebackq delims=" %%U in (`powershell -NoProfile -Command "$raw = ($env:TUNNEL_FRONTEND_URL).Trim(); try { $uri = [Uri]$raw; if ($uri.IsAbsoluteUri) { $uri.GetLeftPart([System.UriPartial]::Authority).TrimEnd('/') } else { $raw.TrimEnd('/') } } catch { $raw.TrimEnd('/') }"`) do set "TUNNEL_FRONTEND_URL=%%U"
+set FRONTEND_PUBLIC_URL=%TUNNEL_FRONTEND_URL%
+set HLS_PUBLIC_BASE_URL=%FRONTEND_PUBLIC_URL%/Operaciones/runtime/ffmpeg-streams
 
 :hls_base_ready
 
@@ -183,7 +186,7 @@ echo.
 echo ============================================================
 echo  LISTO!
 echo  - Base de datos %PGDATABASE% configurada con seed
-echo  - Frontend:  http://%LAN_IP%:3000/Operaciones/login
+echo  - Frontend:  %FRONTEND_PUBLIC_URL%
 echo  - API:       http://localhost:3001
 echo  - Android:   WebRTC 240p
 echo  - OBS RTMP:  Server rtmp://%LAN_IP%:1935/live  Key obs-01

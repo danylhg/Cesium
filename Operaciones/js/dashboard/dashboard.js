@@ -314,11 +314,51 @@ function bindPlanningLogoutChoice() {
   };
 }
 
+function updateRangeVisual(range) {
+  if (!range) return;
+
+  const min = Number(range.min || 0);
+  const max = Number(range.max || 100);
+  const value = Number(range.value || min);
+  const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  const clamped = Math.max(0, Math.min(100, progress));
+  range.style.setProperty("--range-fill", `${clamped}%`);
+
+  const outputId = range.dataset?.output;
+  const output = outputId ? document.getElementById(outputId) : null;
+  if (output) output.textContent = formatRangeValue(range);
+}
+
+function formatRangeValue(range) {
+  const value = Number(range.value || 0);
+
+  if (range.id === "opacityRange") {
+    return `${Math.round(value * 100)}%`;
+  }
+
+  if (range.id === "widthRange" || range.id === "zoneWidthRange") {
+    return `${value} px`;
+  }
+
+  return String(range.value || "");
+}
+
+function bindDashboardRangeVisuals() {
+  [dom.zoneWidthRange, dom.opacityRange, dom.widthRange]
+    .filter(Boolean)
+    .forEach((range) => {
+      updateRangeVisual(range);
+      range.addEventListener("input", () => updateRangeVisual(range));
+      range.addEventListener("change", () => updateRangeVisual(range));
+    });
+}
+
 window.addEventListener("load", async () => {
   ensureConnectionBanner();
   bindPlanningLogoutChoice();
   await loadCesiumToken();
   initCesium();
+  bindDashboardRangeVisuals();
   bindChatEvents();
   bindTacticalEvents();
   bindAreaEvents();

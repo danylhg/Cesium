@@ -2,6 +2,22 @@
   box-sizing: border-box;
 }
 
+:root {
+  --dash-surface: rgba(19, 55, 92, 0.42);
+  --dash-surface-strong: rgba(22, 63, 105, 0.58);
+  --dash-surface-soft: rgba(147, 197, 253, 0.14);
+  --dash-border: rgba(186, 230, 253, 0.36);
+  --dash-border-strong: rgba(125, 211, 252, 0.62);
+  --dash-text: #ffffff;
+  --dash-muted: #f8fafc;
+  --dash-accent: #0284c7;
+  --dash-accent-light: #67e8f9;
+  --dash-accent-soft: rgba(14, 165, 233, 0.24);
+  --dash-danger: #f87171;
+  --dash-danger-soft: rgba(248, 113, 113, 0.18);
+  --dash-shadow: 0 12px 30px rgba(8, 47, 73, 0.22);
+}
+
 html,
 body {
   margin: 0;
@@ -189,6 +205,105 @@ body {
   background: rgba(75, 12, 12, 0.92);
 }
 
+.mapLayerControl {
+  position: fixed;
+  top: 18px;
+  right: 12px;
+  z-index: 1305;
+}
+
+.mapLayerButton {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 255, 170, 0.36);
+  background: rgba(7, 13, 23, 0.92);
+  color: #eafcf8;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.34);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.mapLayerButton:hover,
+.mapLayerControl.open .mapLayerButton {
+  border-color: rgba(0, 255, 170, 0.55);
+  box-shadow: 0 0 16px rgba(0, 255, 170, 0.20);
+}
+
+.mapLayerIcon {
+  position: relative;
+  width: 20px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.mapLayerIcon::before,
+.mapLayerIcon::after,
+.mapLayerIcon {
+  border-radius: 4px;
+}
+
+.mapLayerIcon::before,
+.mapLayerIcon::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(0, 255, 170, 0.76);
+  background: rgba(0, 255, 170, 0.10);
+}
+
+.mapLayerIcon::before {
+  transform: translate(4px, -3px);
+}
+
+.mapLayerIcon::after {
+  transform: translate(-2px, 3px);
+  background: rgba(14, 165, 233, 0.16);
+}
+
+.mapLayerMenu {
+  display: none;
+  position: absolute;
+  top: 40px;
+  right: 0;
+  width: 176px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 255, 170, 0.24);
+  background: rgba(7, 13, 23, 0.96);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.mapLayerControl.open .mapLayerMenu {
+  display: grid;
+  gap: 4px;
+}
+
+.mapLayerOption {
+  width: 100%;
+  border: 0;
+  border-radius: 9px;
+  padding: 10px 11px;
+  background: transparent;
+  color: #dbeafe;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mapLayerOption:hover,
+.mapLayerOption.active {
+  background: rgba(0, 255, 170, 0.14);
+  color: #00ffa6;
+}
+
 .mapTopActionBtn:disabled,
 .toolFab:disabled,
 .actionBtn:disabled {
@@ -209,6 +324,16 @@ body {
   .mapTopRightActions {
     top: 56px;
     right: 10px;
+  }
+
+  .mapLayerControl {
+    top: 18px;
+    right: 12px;
+  }
+
+  .mapLayerButton {
+    width: 34px;
+    height: 34px;
   }
 }
 
@@ -428,6 +553,80 @@ body {
 .glassPanel textarea:focus {
   border-color: rgba(0, 255, 170, 0.55);
   box-shadow: 0 0 0 2px rgba(0, 255, 170, 0.12);
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange) {
+  display: block;
+  width: 100% !important;
+  height: 6px;
+  margin: 22px 0 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 999px !important;
+  background: linear-gradient(90deg, #0ea5e9 0%, #0ea5e9 var(--range-fill, 0%), rgba(226, 232, 240, .82) var(--range-fill, 0%), rgba(226, 232, 240, .82) 100%) !important;
+  background-size: 100% 6px !important;
+  background-repeat: no-repeat !important;
+  background-position: center !important;
+  box-shadow: none !important;
+  outline: none !important;
+  accent-color: #0ea5e9;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange):focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange)::-webkit-slider-runnable-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange)::-webkit-slider-thumb {
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  border: 2px solid rgba(255, 255, 255, .92);
+  border-radius: 50%;
+  background: #0284c7;
+  box-shadow: 0 2px 8px rgba(8, 47, 73, .36);
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange)::-moz-range-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(226, 232, 240, .82);
+  box-shadow: none;
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange)::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: #0ea5e9;
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange)::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, .92);
+  border-radius: 50%;
+  background: #0284c7;
+  box-shadow: 0 2px 8px rgba(8, 47, 73, .36);
+}
+
+.glassPanel input[type="range"]:not(.cameraPlaybackRange):disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .latlngRow {
@@ -1265,6 +1464,153 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* Tactical object panel */
+#tacticalPanel {
+  width: 416px;
+  padding: 24px 18px 18px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(12, 18, 27, 0.94), rgba(7, 12, 20, 0.90)),
+    rgba(10, 15, 25, 0.88);
+  border-color: rgba(0, 255, 170, 0.22);
+}
+
+#tacticalPanel .panelTitle {
+  margin-bottom: 18px;
+  font-size: 21px;
+  line-height: 1.15;
+}
+
+#tacticalPanel .groupTitle {
+  margin: 0 0 8px;
+  color: #c7d2de;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
+#tacticalPanel .tacticalToolPicker {
+  margin-bottom: 12px;
+}
+
+#tacticalPanel .opsInput,
+#tacticalPanel select,
+#tacticalPanel input:not([type="range"]) {
+  min-height: 42px;
+  margin-bottom: 0;
+  border-radius: 12px;
+  background: rgba(2, 8, 14, 0.72);
+  border-color: rgba(0, 255, 170, 0.28);
+}
+
+#tacticalPanel .opsInput:hover,
+#tacticalPanel select:hover,
+#tacticalPanel input:not([type="range"]):hover {
+  border-color: rgba(0, 255, 170, 0.42);
+}
+
+#tacticalPanel #symLabelContainer {
+  margin: 10px 0 16px;
+}
+
+#tacticalPanel .tacticalStyleGrid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px 12px;
+  align-items: end;
+  margin-top: 0;
+}
+
+#tacticalPanel .tacticalField {
+  min-width: 0;
+}
+
+#tacticalPanel #widthContainer,
+#tacticalPanel #radiusContainer {
+  grid-column: 1 / -1;
+}
+
+#tacticalPanel.is-circle-tool #widthContainer,
+#tacticalPanel.is-circle-tool #radiusContainer {
+  grid-column: auto;
+}
+
+#tacticalPanel .controlLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+#tacticalPanel .rangeValue {
+  min-width: 48px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+  color: #e7f8ff;
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+  text-transform: none;
+}
+
+#tacticalPanel input[type="range"]:not(.cameraPlaybackRange) {
+  margin: 14px 0 7px !important;
+}
+
+#tacticalPanel .tacticalNumberInput {
+  font-variant-numeric: tabular-nums;
+}
+
+#tacticalPanel #tacticalActionButtons {
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 18px !important;
+}
+
+#tacticalPanel .btnBeige {
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+#tacticalPanel .btnBeige:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+#tacticalPanel .secondaryAction {
+  min-height: 46px;
+  border: 1px solid rgba(0, 255, 170, 0.5);
+  background: linear-gradient(135deg, rgba(0, 255, 170, 0.92), rgba(14, 165, 233, 0.9));
+  color: #041016;
+  font-weight: 900;
+  box-shadow: 0 10px 24px rgba(0, 255, 170, 0.16);
+}
+
+#tacticalPanel .secondaryAction:hover:not(:disabled) {
+  background: linear-gradient(135deg, #35ffc0, #38bdf8);
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.24);
+}
+
+#tacticalPanel .secondaryAction:disabled {
+  border-color: rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(226, 232, 240, 0.55);
+  box-shadow: none;
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  #tacticalPanel {
+    width: calc(100vw - 84px);
+    padding: 22px 14px 16px;
+  }
+
+  #tacticalPanel .tacticalStyleGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Cursores tácticos */
 #map.pencil-cursor canvas { cursor: crosshair !important; }
 #map.eraser-cursor canvas { cursor: cell !important; }
@@ -1273,7 +1619,7 @@ body {
 .recenterMapBtn {
   position: fixed;
   right: 26px;
-  bottom: 156px;
+  bottom: 84px;
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -1542,7 +1888,9 @@ body {
 .personInfoPopup {
   position: fixed;
   z-index: 1260;
-  width: min(260px, calc(100vw - 28px));
+  width: min(306px, calc(100vw - 28px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   padding: 14px;
   border-radius: 10px;
   border: 1px solid rgba(0, 255, 170, 0.42);
@@ -1583,7 +1931,7 @@ body {
 
 .personInfoGrid {
   display: grid;
-  grid-template-columns: 68px 1fr;
+  grid-template-columns: 74px minmax(0, 1fr);
   gap: 6px 10px;
   font-size: 13px;
   line-height: 1.25;
@@ -1592,12 +1940,44 @@ body {
 .personInfoLabel {
   color: #dbeafe;
   font-weight: 900;
+  white-space: nowrap;
 }
 
 .personInfoValue {
   color: #f8fafc;
   font-weight: 600;
-  word-break: break-word;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.personInfoDevices {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.personInfoDeviceLabel {
+  color: #dbeafe;
+  font-weight: 900;
+}
+
+.personInfoDeviceList {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.personInfoDeviceLine {
+  color: #f8fafc;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.personInfoDeviceLine.muted {
+  color: #cbd5e1;
 }
 
 .personInfoStatus {
@@ -1633,6 +2013,7 @@ body {
 .personInfoBioTitle {
   margin-bottom: 8px;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .personInfoUpdated {
@@ -2456,4 +2837,374 @@ body {
   padding: 7px 10px;
   border-radius: 6px;
   background: rgba(30, 41, 59, 0.85);
+}
+
+/* Dashboard palette from origin/frontend */
+body {
+  color: var(--dash-text);
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.32);
+}
+
+.topbar {
+  background: var(--dash-surface-strong);
+  border-color: var(--dash-border);
+  color: var(--dash-text);
+  box-shadow: var(--dash-shadow);
+}
+
+.brandDot {
+  background: var(--dash-accent-light);
+  box-shadow: 0 0 12px rgba(96, 165, 250, .75);
+}
+
+.who {
+  color: var(--dash-muted);
+}
+
+.topBtn,
+.mapTopActionBtn,
+.toolFab.active,
+.btnBeige,
+.chatTab.active,
+.gridGenerateBtn,
+.actionBtn.saveBtn,
+#markZoneBtn,
+#btnSelectPencil,
+#opStatusBadge {
+  background: linear-gradient(135deg, #0284c7, #38bdf8) !important;
+  color: #f8fbff !important;
+  border-color: rgba(191, 219, 254, 0.52) !important;
+  box-shadow: 0 8px 20px rgba(14, 165, 233, .32) !important;
+}
+
+.topBtn {
+  border: 0;
+}
+
+.mapTopActionBtn {
+  font-weight: 900;
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.42);
+}
+
+.mapTopActionBtn:hover,
+.btnBeige:hover,
+.actionBtn.saveBtn:hover {
+  background: linear-gradient(135deg, #0369a1, #0ea5e9) !important;
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.42) !important;
+}
+
+#closeActiveOpBtn,
+.actionBtn.cancelBtn {
+  background: rgba(127, 29, 29, 0.82) !important;
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  color: #fee2e2 !important;
+  box-shadow: 0 10px 24px rgba(127, 29, 29, 0.28) !important;
+}
+
+#closeActiveOpBtn:hover,
+.actionBtn.cancelBtn:hover {
+  background: rgba(153, 27, 27, 0.88) !important;
+  box-shadow: 0 12px 28px rgba(127, 29, 29, 0.34) !important;
+}
+
+.planningExitBtnPrimary {
+  background: var(--dash-accent);
+  color: #f8fbff;
+}
+
+.mapLayerButton,
+.cesium-button,
+.cesium-viewer-toolbar .cesium-button,
+.cesium-home-button,
+.cesium-navigationHelpButton-wrapper,
+.cesium-sceneModePicker-wrapper .cesium-button,
+.cesium-baseLayerPicker-dropDown,
+.cesium-navigation-help,
+.cesium-geocoder-input {
+  background: var(--dash-surface-strong) !important;
+  border-color: var(--dash-border) !important;
+  color: var(--dash-text) !important;
+  box-shadow: var(--dash-shadow) !important;
+}
+
+.mapLayerButton:hover,
+.mapLayerControl.open .mapLayerButton,
+.cesium-viewer-toolbar .cesium-button:hover,
+.cesium-home-button:hover,
+.cesium-navigationHelpButton-wrapper:hover {
+  border-color: var(--dash-border-strong) !important;
+  background: rgba(59, 130, 246, 0.32) !important;
+  box-shadow: 0 0 16px rgba(96, 165, 250, 0.20) !important;
+}
+
+.mapLayerIcon::before,
+.mapLayerIcon::after {
+  border-color: rgba(125, 211, 252, 0.76);
+  background: rgba(96, 165, 250, 0.12);
+}
+
+.mapLayerMenu {
+  border-color: var(--dash-border);
+  background: rgba(14, 23, 37, 0.96);
+}
+
+.mapLayerOption:hover,
+.mapLayerOption.active {
+  background: var(--dash-accent-soft);
+  color: var(--dash-accent-light);
+}
+
+.toolFab {
+  background: var(--dash-surface);
+  color: var(--dash-accent-light);
+  border-color: var(--dash-border);
+  box-shadow: var(--dash-shadow);
+}
+
+.toolFab:hover {
+  background: var(--dash-surface-strong);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, .24);
+}
+
+.glassPanel,
+.chatPanel,
+.chatAudiencePanel {
+  background: var(--dash-surface-strong);
+  border-color: var(--dash-border);
+  box-shadow: var(--dash-shadow);
+  color: var(--dash-text);
+  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.36);
+}
+
+.chatPanel .opsInput,
+.chatPanel select,
+.chatAudiencePanel .opsInput,
+.chatAudiencePanel select,
+.opsInput,
+.latlngBox,
+.glassPanel select,
+.glassPanel input,
+.glassPanel textarea,
+#routePanel #routeVehicleSelect,
+#routePanel #zoneColorSelect,
+.cameraBottomControls .obsControls input {
+  background: rgba(255, 255, 255, 0.14) !important;
+  border-color: var(--dash-border) !important;
+  color: var(--dash-text) !important;
+}
+
+.opsInput:focus,
+.latlngBox:focus,
+.glassPanel select:focus,
+.glassPanel input:focus,
+.glassPanel textarea:focus {
+  border-color: var(--dash-border-strong) !important;
+  box-shadow: 0 0 0 2px var(--dash-accent-soft) !important;
+}
+
+.glassPanel select optgroup {
+  color: var(--dash-accent-light);
+  background: #1f2937;
+}
+
+.glassPanel select option {
+  color: var(--dash-text);
+  background: #1f2937;
+}
+
+.glassPanel::-webkit-scrollbar-thumb {
+  background: rgba(96, 165, 250, 0.34);
+}
+
+.panelTitle {
+  color: #ffffff;
+  text-shadow: 0 2px 8px rgba(15, 23, 42, 0.48);
+}
+
+.groupTitle,
+.fieldLabel {
+  color: #f8fafc;
+  text-shadow: 0 1px 3px rgba(15, 23, 42, 0.42);
+}
+
+.iconPallet,
+.routeInfo,
+.quickMsgBtn,
+.chatActionBtn,
+.sendChatBtn,
+.chatAudienceToggle,
+.chatAudienceChip::before,
+.chatConversationAvatar,
+.chatTargetBox,
+.milPreviewBox {
+  background: var(--dash-surface-soft);
+  border-color: var(--dash-border);
+}
+
+.quickMsgBtn,
+.chatActionBtn,
+.sendChatBtn,
+.chatAudienceToggle,
+.chatAudienceChip.active,
+.chatAudienceSummary,
+.person-link,
+.personInfoStatus strong,
+.topHistoryBtn {
+  color: var(--dash-accent-light) !important;
+}
+
+.quickMsgBtn:hover,
+.chatAudienceChip.active,
+.topHistoryBtn:hover:not(:disabled) {
+  background: var(--dash-accent-soft);
+}
+
+.iconItem:hover img,
+.milPreviewBox:hover {
+  box-shadow: 0 0 15px rgba(96, 165, 250, 0.26);
+}
+
+.infoBlock,
+.miniCard {
+  background: rgba(224, 242, 254, 0.09);
+  border-color: var(--dash-border);
+  color: #ffffff;
+}
+
+.infoBlock h3 {
+  color: #a5f3fc;
+}
+
+.infoBlock p {
+  color: #f8fafc;
+}
+
+.chatTab,
+.chatMessages,
+.chatBubble,
+.chatInputBar,
+.chatAttachmentImage {
+  border-color: rgba(96, 165, 250, 0.20);
+}
+
+.chatTab,
+.quickMsgBtn,
+.chatBubble.mine,
+.sendChatBtn {
+  background: rgba(96, 165, 250, 0.14);
+}
+
+.chatBubble.rol-cet,
+.chatBubble.rol-cell {
+  border-color: rgba(96, 165, 250, 0.18);
+}
+
+.chatBubbleHeader {
+  color: #9fd9cb;
+}
+
+.chatAudienceEyebrow,
+.chatAudienceTitle,
+.chatAudienceChip small,
+.chatConversationSubtitle,
+.chatTargetEmpty,
+.emptyChat {
+  color: #9fb3bf;
+}
+
+.chatAudienceChip,
+.chatConversationTitle,
+.chatIconBtn,
+.chatActionBtn,
+.cameraSourceBtn,
+.cameraBottomControls .obsControls input {
+  color: #eafff8;
+}
+
+.chatAudienceChip.active::after {
+  background: var(--dash-accent-light);
+}
+
+.chatConversationHeader,
+.personInfoSubtitle,
+.personInfoBio,
+.personInfoCamera,
+.chatAttachmentImage {
+  border-color: var(--dash-border-strong);
+}
+
+.chatTargetBox {
+  border-left-color: var(--dash-accent-light);
+}
+
+.chatTargetEmpty {
+  border-color: rgba(96, 165, 250, 0.24);
+}
+
+.actionBtn {
+  color: var(--dash-text);
+  box-shadow: var(--dash-shadow);
+}
+
+.compassRose {
+  background: radial-gradient(circle, rgba(55, 65, 81, 0.58) 0%, rgba(55, 65, 81, 0.24) 58%, rgba(55, 65, 81, 0.08) 100%);
+  box-shadow: 0 0 22px rgba(15, 23, 42, 0.28);
+}
+
+#tacticalPanel {
+  background: var(--dash-surface-strong);
+  border-color: var(--dash-border);
+}
+
+#tacticalPanel .opsInput,
+#tacticalPanel select,
+#tacticalPanel input:not([type="range"]) {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: var(--dash-border);
+}
+
+#tacticalPanel .opsInput:hover,
+#tacticalPanel select:hover,
+#tacticalPanel input:not([type="range"]):hover {
+  border-color: var(--dash-border-strong);
+}
+
+#tacticalPanel .secondaryAction {
+  border-color: rgba(191, 219, 254, 0.52);
+  background: linear-gradient(135deg, #0284c7, #38bdf8);
+  color: #f8fbff;
+  box-shadow: 0 10px 24px rgba(14, 165, 233, 0.28);
+}
+
+#tacticalPanel .secondaryAction:hover:not(:disabled) {
+  background: linear-gradient(135deg, #0369a1, #0ea5e9);
+  box-shadow: 0 12px 28px rgba(14, 165, 233, 0.34);
+}
+
+.milPreviewBox {
+  border-style: dashed;
+}
+
+.recenterMapBtn {
+  background: var(--dash-surface-strong);
+  border-color: var(--dash-border-strong);
+  color: var(--dash-accent-light);
+  box-shadow: var(--dash-shadow);
+}
+
+.recenterMapBtn:hover {
+  background: var(--dash-accent);
+  color: #f8fbff;
+  box-shadow: 0 0 20px rgba(96, 165, 250, 0.42);
+}
+
+.confirmationCard h3,
+.personInfoTitle {
+  color: #60a5fa;
+}
+
+.personInfoPopup,
+.personnelDetailCard,
+.confirmationCard {
+  border-color: rgba(96, 165, 250, 0.30);
 }

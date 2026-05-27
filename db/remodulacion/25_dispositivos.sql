@@ -12,6 +12,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS dispositivo (
   id_dispositivo SERIAL PRIMARY KEY,
+  imagen_disp TEXT,
   tipo TEXT NOT NULL,
   marca TEXT NOT NULL,
   modelo TEXT NOT NULL,
@@ -24,6 +25,9 @@ CREATE TABLE IF NOT EXISTS dispositivo (
   fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CHECK (tipo IN ('TELEFONO','TABLET','SMARTWATCH','LORA','LAPTOP','RADIO','GPS','OTRO'))
 );
+
+ALTER TABLE dispositivo
+  ADD COLUMN IF NOT EXISTS imagen_disp TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_dispositivo_numero_telefono
   ON dispositivo(numero_telefono)

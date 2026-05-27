@@ -59,6 +59,60 @@
 
   const TIPOS = ["TELEFONO", "TABLET", "SMARTWATCH", "LORA", "LAPTOP", "RADIO", "GPS", "OTRO"];
   const ESTADOS = ["DISPONIBLE", "ASIGNADO", "MANTENIMIENTO", "BAJA"];
+  const DISPOSITIVO_FIELDS = ["numero_telefono", "imei", "numero_serie", "sistema_operativo"];
+  const DEVICE_FIELD_RULES = {
+    "": {
+      visible: [],
+      required: [],
+      detallesPlaceholder: "Observaciones generales del dispositivo...",
+    },
+    TELEFONO: {
+      visible: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+      required: ["numero_telefono", "imei", "sistema_operativo"],
+      detallesPlaceholder: "Compania, SIM, cargador, accesorios u observaciones...",
+    },
+    TABLET: {
+      visible: ["imei", "numero_serie", "sistema_operativo"],
+      required: ["numero_serie", "sistema_operativo"],
+      detallesPlaceholder: "Funda, cargador, SIM de datos si aplica u observaciones...",
+    },
+    SMARTWATCH: {
+      visible: ["imei", "numero_serie", "sistema_operativo"],
+      required: ["numero_serie", "sistema_operativo"],
+      detallesPlaceholder: "Cargador, color, talla, sensores u observaciones...",
+    },
+    LORA: {
+      visible: ["numero_serie"],
+      required: ["numero_serie"],
+      detallesPlaceholder: "DevEUI/AppEUI, frecuencia, antena u observaciones...",
+    },
+    LAPTOP: {
+      visible: ["numero_serie", "sistema_operativo"],
+      required: ["numero_serie", "sistema_operativo"],
+      detallesPlaceholder: "Cargador, RAM, almacenamiento, accesorios u observaciones...",
+    },
+    RADIO: {
+      visible: ["numero_serie"],
+      required: ["numero_serie"],
+      detallesPlaceholder: "Banda, canal, frecuencia, bateria u observaciones...",
+    },
+    GPS: {
+      visible: ["imei", "numero_serie"],
+      required: ["numero_serie"],
+      detallesPlaceholder: "ID de tracker, chip interno, accesorios u observaciones...",
+    },
+    OTRO: {
+      visible: ["numero_telefono", "imei", "numero_serie", "sistema_operativo"],
+      required: [],
+      detallesPlaceholder: "Descripcion, identificadores y observaciones...",
+    },
+  };
+  const DEVICE_FIELD_LABELS = {
+    numero_telefono: "Num. telefono",
+    imei: "IMEI",
+    numero_serie: "Num. serie",
+    sistema_operativo: "Sistema operativo",
+  };
 
   function normalize(value) {
     return (value ?? "").toString().trim().toLowerCase();
@@ -71,6 +125,12 @@
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#039;");
+  }
+
+  function renderDeviceImage(src, alt) {
+    const cleanSrc = (src ?? "").toString().trim();
+    if (!cleanSrc) return "-";
+    return `<img class="thumbImg" src="${escapeHtml(cleanSrc)}" alt="${escapeHtml(alt || "Dispositivo")}">`;
   }
 
   const btnBack = document.getElementById("btnBack");
@@ -90,7 +150,6 @@
   const modal = document.getElementById("modal");
   const modalTitle = document.getElementById("modalTitle");
   const btnCloseModal = document.getElementById("btnCloseModal");
-  const btnCancel = document.getElementById("btnCancel");
   const btnDeleteModal = document.getElementById("btnDeleteModal");
   const form = document.getElementById("form");
 
@@ -102,6 +161,32 @@
   const fNumeroSerie = document.getElementById("fNumeroSerie");
   const fSistemaOperativo = document.getElementById("fSistemaOperativo");
   const fDetalles = document.getElementById("fDetalles");
+  const deviceFieldControls = {
+    numero_telefono: {
+      el: fNumeroTelefono,
+      field: fNumeroTelefono?.closest(".field"),
+      label: fNumeroTelefono?.closest(".field")?.querySelector("label"),
+      labelText: DEVICE_FIELD_LABELS.numero_telefono,
+    },
+    imei: {
+      el: fImei,
+      field: fImei?.closest(".field"),
+      label: fImei?.closest(".field")?.querySelector("label"),
+      labelText: DEVICE_FIELD_LABELS.imei,
+    },
+    numero_serie: {
+      el: fNumeroSerie,
+      field: fNumeroSerie?.closest(".field"),
+      label: fNumeroSerie?.closest(".field")?.querySelector("label"),
+      labelText: DEVICE_FIELD_LABELS.numero_serie,
+    },
+    sistema_operativo: {
+      el: fSistemaOperativo,
+      field: fSistemaOperativo?.closest(".field"),
+      label: fSistemaOperativo?.closest(".field")?.querySelector("label"),
+      labelText: DEVICE_FIELD_LABELS.sistema_operativo,
+    },
+  };
 
   const requiredEls = {
     tbody,
@@ -125,6 +210,50 @@
   let selectedId = null;
   let mode = "add";
 
+  function getDeviceRule(tipo) {
+    return DEVICE_FIELD_RULES[tipo] || DEVICE_FIELD_RULES[""];
+  }
+
+  function fieldApplies(rule, fieldName) {
+    return rule.visible.includes(fieldName);
+  }
+
+  function fieldIsRequired(rule, fieldName) {
+    return rule.required.includes(fieldName);
+  }
+
+  function updateFormForType() {
+    const tipo = (fTipo?.value || "").trim().toUpperCase();
+    const rule = getDeviceRule(tipo);
+
+    DISPOSITIVO_FIELDS.forEach(fieldName => {
+      const control = deviceFieldControls[fieldName];
+      if (!control?.el || !control.field) return;
+
+      const applies = fieldApplies(rule, fieldName);
+      const required = applies && fieldIsRequired(rule, fieldName);
+
+      control.field.style.display = applies ? "" : "none";
+      control.el.required = required;
+      control.el.setAttribute("aria-required", required ? "true" : "false");
+      if (control.label) control.label.textContent = `${control.labelText}${required ? " *" : ""}`;
+      if (!applies) control.el.value = "";
+    });
+
+    if (fDetalles) {
+      fDetalles.placeholder = rule.detallesPlaceholder || "Observaciones generales del dispositivo...";
+    }
+  }
+
+  function readDeviceField(fieldName, rule) {
+    if (!fieldApplies(rule, fieldName)) return null;
+    return deviceFieldControls[fieldName]?.el?.value?.trim() || null;
+  }
+
+  function missingRequiredFields(rule, body) {
+    return rule.required.filter(fieldName => !body[fieldName]);
+  }
+
   btnBack?.addEventListener("click", () => window.location.href = "menu_inicial.html");
 
   btnLogout?.addEventListener("click", () => {
@@ -136,6 +265,7 @@
     const r = await api("/catalog/dispositivos");
     dispositivos = (r.items || []).map(d => ({
       id_dispositivo: d.id_dispositivo,
+      imagen_disp: d.imagen_disp ?? "",
       tipo: d.tipo ?? "",
       marca: d.marca ?? "",
       modelo: d.modelo ?? "",
@@ -192,7 +322,7 @@
 
     if (!list.length) {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td colspan="9" style="color: rgba(11,18,32,.65); padding: 16px;">
+      tr.innerHTML = `<td colspan="10" style="color: rgba(11,18,32,.65); padding: 16px;">
         No hay registros con los filtros actuales.
       </td>`;
       tbody.appendChild(tr);
@@ -202,6 +332,7 @@
         if (d.id_dispositivo === selectedId) tr.classList.add("selected");
 
         tr.innerHTML = `
+          <td>${renderDeviceImage(d.imagen_disp, `${d.marca} ${d.modelo}`)}</td>
           <td>${escapeHtml(d.tipo || "-")}</td>
           <td>${escapeHtml(d.marca || "-")}</td>
           <td>${escapeHtml(d.modelo || "-")}</td>
@@ -245,6 +376,7 @@
     if (mode === "add") {
       modalTitle.textContent = "Agregar dispositivo";
       form.reset();
+      updateFormForType();
       return;
     }
 
@@ -260,6 +392,7 @@
     fNumeroSerie.value = d.numero_serie ?? "";
     fSistemaOperativo.value = d.sistema_operativo ?? "";
     fDetalles.value = d.detalles ?? "";
+    updateFormForType();
   }
 
   function closeModal() {
@@ -268,7 +401,6 @@
   }
 
   btnCloseModal?.addEventListener("click", closeModal);
-  btnCancel?.addEventListener("click", closeModal);
   btnDeleteModal?.addEventListener("click", () => btnDelete?.click());
 
   modal?.addEventListener("click", (e) => {
@@ -318,6 +450,7 @@
 
   filterTipo?.addEventListener("change", renderTable);
   filterEstado?.addEventListener("change", renderTable);
+  fTipo?.addEventListener("change", updateFormForType);
 
   fNumeroTelefono?.addEventListener("input", () => {
     fNumeroTelefono.value = fNumeroTelefono.value.replace(/\D/g, "").slice(0, 10);
@@ -333,16 +466,17 @@
 
   form?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    const tipo = fTipo.value.trim().toUpperCase();
+    const rule = getDeviceRule(tipo);
 
     const body = {
-      tipo: fTipo.value.trim().toUpperCase(),
+      tipo,
       marca: fMarca.value.trim(),
       modelo: fModelo.value.trim(),
-      numero_telefono: fNumeroTelefono?.value?.trim() || null,
-      imei: fImei?.value?.trim() || null,
-      numero_serie: fNumeroSerie?.value?.trim() || null,
-      sistema_operativo: fSistemaOperativo?.value?.trim() || null,
-      estado: "DISPONIBLE",
+      numero_telefono: readDeviceField("numero_telefono", rule),
+      imei: readDeviceField("imei", rule),
+      numero_serie: readDeviceField("numero_serie", rule),
+      sistema_operativo: readDeviceField("sistema_operativo", rule),
       detalles: fDetalles?.value?.trim() || null,
     };
 
@@ -354,6 +488,21 @@
     if (!TIPOS.includes(body.tipo)) {
       alert("Tipo inválido.");
       return;
+    }
+
+    const missing = missingRequiredFields(rule, body);
+    if (missing.length) {
+      alert(`Completa ${missing.map(fieldName => DEVICE_FIELD_LABELS[fieldName]).join(", ")} para ${body.tipo}.`);
+      return;
+    }
+
+    if (body.numero_telefono && !/^\d{7,15}$/.test(body.numero_telefono)) {
+      alert("El numero de telefono debe tener solo digitos (7 a 15).");
+      return;
+    }
+
+    if (mode === "add") {
+      body.estado = "DISPONIBLE";
     }
 
     try {
@@ -373,6 +522,7 @@
 
   (async function init() {
     try {
+      updateFormForType();
       await loadFromApi();
       renderTable();
     } catch (err) {

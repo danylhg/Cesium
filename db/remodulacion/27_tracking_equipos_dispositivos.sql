@@ -13,6 +13,15 @@ CREATE TABLE IF NOT EXISTS tracking_equipo (
   velocidad_kmh NUMERIC(6,2),
   rumbo_grados NUMERIC(5,2),
   precision_m NUMERIC(6,2),
+  bateria_pct NUMERIC(5,2),
+  conectado BOOLEAN,
+  dron_encendido BOOLEAN,
+  modo_vuelo TEXT,
+  pitch_grados NUMERIC(7,2),
+  roll_grados NUMERIC(7,2),
+  satelites INT,
+  tiempo_vuelo_s NUMERIC(10,2),
+  serial_dispositivo TEXT,
   "timestamp" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   estado_operacion_creacion estado_operacion_enum,
   CONSTRAINT chk_te_latitud CHECK (latitud BETWEEN -90 AND 90),
@@ -30,6 +39,17 @@ CREATE INDEX IF NOT EXISTS idx_tracking_equipo_ts
 
 CREATE INDEX IF NOT EXISTS idx_tracking_equipo_estado_operacion_creacion
   ON tracking_equipo(id_operacion, estado_operacion_creacion);
+
+ALTER TABLE tracking_equipo
+  ADD COLUMN IF NOT EXISTS bateria_pct NUMERIC(5,2),
+  ADD COLUMN IF NOT EXISTS conectado BOOLEAN,
+  ADD COLUMN IF NOT EXISTS dron_encendido BOOLEAN,
+  ADD COLUMN IF NOT EXISTS modo_vuelo TEXT,
+  ADD COLUMN IF NOT EXISTS pitch_grados NUMERIC(7,2),
+  ADD COLUMN IF NOT EXISTS roll_grados NUMERIC(7,2),
+  ADD COLUMN IF NOT EXISTS satelites INT,
+  ADD COLUMN IF NOT EXISTS tiempo_vuelo_s NUMERIC(10,2),
+  ADD COLUMN IF NOT EXISTS serial_dispositivo TEXT;
 
 CREATE TABLE IF NOT EXISTS tracking_dispositivo (
   id_tracking BIGSERIAL PRIMARY KEY,
@@ -88,6 +108,15 @@ SELECT DISTINCT ON (te.id_operacion, te.id_equipo)
   te.velocidad_kmh,
   te.rumbo_grados,
   te.precision_m,
+  te.bateria_pct,
+  te.conectado,
+  te.dron_encendido,
+  te.modo_vuelo,
+  te.pitch_grados,
+  te.roll_grados,
+  te.satelites,
+  te.tiempo_vuelo_s,
+  te.serial_dispositivo,
   te."timestamp" AS ultima_actualizacion,
   te.estado_operacion_creacion
 FROM tracking_equipo te
@@ -101,6 +130,7 @@ SELECT DISTINCT ON (td.id_operacion, td.id_dispositivo)
   td.id_tracking,
   td.id_operacion,
   td.id_dispositivo,
+  d.imagen_disp,
   d.tipo,
   d.marca,
   d.modelo,

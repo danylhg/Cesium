@@ -13,7 +13,7 @@
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
 
-  <script src="https://unpkg.com/milsymbol@2.2.0/dist/milsymbol.js"></script>
+  <script src="js/libs/milsymbol.min.js"></script>
 </head>
 
 <body>
@@ -69,6 +69,17 @@
 
   <main class="mapStage">
     <div id="map" class="mapBox"></div>
+
+    <div id="mapLayerControl" class="mapLayerControl">
+      <button id="mapLayerButton" class="mapLayerButton" type="button" aria-label="Capas del mapa" title="Capas del mapa" aria-haspopup="true" aria-expanded="false">
+        <span class="mapLayerIcon" aria-hidden="true"></span>
+      </button>
+      <div id="mapLayerMenu" class="mapLayerMenu" role="menu" aria-label="Capas del mapa">
+        <button class="mapLayerOption" type="button" data-map-layer="osm" role="menuitem">Normal</button>
+        <button class="mapLayerOption" type="button" data-map-layer="satellite" role="menuitem">Satélite</button>
+        <button class="mapLayerOption active" type="button" data-map-layer="hybrid" role="menuitem">Híbrida</button>
+      </div>
+    </div>
 
     <div id="mapTopRightActions" class="mapTopRightActions">
       <button id="activateOpBtn" class="mapTopActionBtn" style="display:none;" disabled>Activar operación</button>
@@ -198,33 +209,6 @@
   <aside id="routePanel" class="glassPanel">
     <h2 class="panelTitle">Rutas y mapa</h2>
 
-    <div class="groupTitle">Vista del mapa</div>
-    <select id="layerSelect">
-      <option value="osm">Normal</option>
-      <option value="satellite">Satélite</option>
-      <option value="hybrid" selected>Híbrida</option>
-    </select>
-
-    <div class="groupTitle">Ruta por Vehículo</div>
-    <select id="routeVehicleSelect"
-      style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
-      <option value="global">Ruta General (Todos los vehículos)</option>
-    </select>
-
-    <div class="latlngRow">
-      <input id="opLat" class="latlngBox" placeholder="Origen LAT-LNG" readonly />
-      <input id="opLng" class="latlngBox" placeholder="Destino LAT-LNG" readonly />
-    </div>
-
-    <div class="routeInfo" id="routeInfo">
-      Listo. Busca una ciudad con la barra de búsqueda de Cesium, delimita un área y luego elige ORIGEN y DESTINO.
-    </div>
-
-    <div class="btnGrid">
-      <button id="markRoute" class="btnBeige">Marcar ruta</button>
-      <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
-    </div>
-
     <div id="operationZoneControls">
       <div class="groupTitle">Zona de operación</div>
       <div class="btnGrid">
@@ -255,6 +239,26 @@
       </div>
     </div>
 
+    <div class="groupTitle">Ruta por Vehículo</div>
+    <select id="routeVehicleSelect"
+      style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
+      <option value="global">Ruta General (Todos los vehículos)</option>
+    </select>
+
+    <div class="latlngRow">
+      <input id="opLat" class="latlngBox" placeholder="Origen LAT-LNG" readonly />
+      <input id="opLng" class="latlngBox" placeholder="Destino LAT-LNG" readonly />
+    </div>
+
+    <div class="routeInfo" id="routeInfo">
+      Listo. Busca una ciudad con la barra de búsqueda de Cesium, delimita un área y luego elige ORIGEN y DESTINO.
+    </div>
+
+    <div class="btnGrid">
+      <button id="markRoute" class="btnBeige">Marcar ruta</button>
+      <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
+    </div>
+
     <div style="display:none;">
       <button id="calcRoute" class="btnBeige">Calcular ruta</button>
       <div class="groupTitle">Área de planeación</div>
@@ -269,32 +273,34 @@
   </aside>
 
   <aside id="tacticalPanel" class="glassPanel tacticalWide">
-    <h2 class="panelTitle">Herramientas tácticas</h2>
+    <h2 id="tacticalPanelTitle" class="panelTitle">Herramientas tácticas</h2>
 
-    <div class="groupTitle">Herramienta</div>
-    <select id="toolSelect">
-      <option value="none" hidden disabled selected>Selecciona herramienta...</option>
-      <optgroup label="DIBUJO LIBRE">
-        <option value="pencil">✏️ Dibujo libre (Lápiz/Goma)</option>
-      </optgroup>
+    <div class="tacticalToolPicker">
+      <div class="groupTitle" id="tacticalToolGroupTitle">Herramienta</div>
+      <select id="toolSelect" class="opsInput">
+        <option value="none" hidden disabled selected>Selecciona herramienta...</option>
+        <optgroup label="DIBUJO LIBRE">
+          <option value="pencil">✏️ Dibujo libre (Lápiz/Goma)</option>
+        </optgroup>
 
-      <optgroup label="PUNTOS DE INTERÉS">
-        <option value="mil">Símbolo Militar (MIL)</option>
-        <option value="poi">Puntos de Interés</option>
-      </optgroup>
+        <optgroup label="PUNTOS DE INTERÉS">
+          <option value="mil">Símbolo Militar (MIL)</option>
+          <option value="poi">Puntos de Interés</option>
+        </optgroup>
 
-      <optgroup label="ÁREAS DE INTERÉS">
-        <option value="polygon">Polígono Táctico</option>
-        <option value="circle">Círculo de cobertura</option>
-        <option value="polyline">Línea Táctica (Ruta)</option>
-        <option value="grid">🔲 Cuadrícula / Cuadrantes</option>
-      </optgroup>
+        <optgroup label="ÁREAS DE INTERÉS">
+          <option value="polygon">Polígono Táctico</option>
+          <option value="circle">Círculo de cobertura</option>
+          <option value="polyline">Línea Táctica (Ruta)</option>
+          <option value="grid">🔲 Cuadrícula / Cuadrantes</option>
+        </optgroup>
 
-      <optgroup label="OTROS">
-        <option value="building">🏠 Edificio / Estructura</option>
-        <option value="label">🏷️ Etiqueta</option>
-      </optgroup>
-    </select>
+        <optgroup label="OTROS">
+          <option value="building">🏠 Edificio / Estructura</option>
+          <option value="label">🏷️ Etiqueta</option>
+        </optgroup>
+      </select>
+    </div>
 
     <div id="pencilSubmenu"
       style="display:none; margin-bottom: 20px; background: rgba(255,255,255,0.05); padding: 15px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);">
@@ -314,8 +320,6 @@
         <option value="2x2">2 x 2</option>
         <option value="3x3" selected>3 x 3</option>
         <option value="4x4">4 x 4</option>
-        <option value="5x5">5 x 5</option>
-        <option value="10x10">10 x 10</option>
       </select>
       <button id="generateGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; background: #00ffa6; color: #001b1b;">Generar en Zona de Operación</button>
       <button id="clearGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; display:none;">Limpiar Cuadrícula</button>
@@ -344,11 +348,10 @@
         <div class="fieldCol">
           <label class="fieldLabel">Dimensión</label>
           <select id="milDimension" class="opsInput">
-            <option value="G">Tierra (Unidades)</option>
-            <option value="E">Tierra (Equipo)</option>
+            <option value="G">Tierra</option>
             <option value="A">Aire</option>
             <option value="S">Mar</option>
-            <option value="H">Subsuperficie</option>
+            <option value="U">Subsuperficie</option>
           </select>
         </div>
       </div>
@@ -394,14 +397,17 @@
       </div>
     </div>
 
-    <div id="symLabelContainer">
-      <input id="symLabel" class="opsInput" placeholder="Texto / etiqueta" disabled />
+    <div id="symLabelContainer" class="tacticalField tacticalFieldFull">
+      <label class="fieldLabel" for="symLabel">Nombre</label>
+      <input id="symLabel" class="opsInput" placeholder="Texto / etiqueta" autocomplete="off" disabled />
     </div>
 
-    <div class="styleGrid">
-      <div id="colorContainer">
-        <label class="fieldLabel">Color</label>
-        <select id="colorSelect">
+    <div class="styleGrid tacticalStyleGrid">
+      <div id="colorContainer" class="tacticalField">
+        <label class="fieldLabel controlLabel" for="colorSelect">
+          <span>Color</span>
+        </label>
+        <select id="colorSelect" class="opsInput">
           <option value="red">Rojo</option>
           <option value="blue">Azul</option>
           <option value="black">Negro</option>
@@ -412,26 +418,30 @@
         </select>
       </div>
 
-      <div id="opacityContainer">
-        <label class="fieldLabel">Opacidad</label>
-        <input id="opacityRange" type="range" min="0.1" max="1" step="0.05" value="0.35">
+      <div id="opacityContainer" class="tacticalField" style="display:none;">
+        <label class="fieldLabel controlLabel" for="opacityRange">
+          <span>Opacidad</span>
+          <output id="opacityValue" class="rangeValue" for="opacityRange">35%</output>
+        </label>
+        <input id="opacityRange" type="range" min="0.1" max="1" step="0.05" value="0.35" data-output="opacityValue">
       </div>
 
-      <div id="widthContainer">
-        <label class="fieldLabel">Grosor</label>
-        <input id="widthRange" type="range" min="1" max="10" step="1" value="3">
+      <div id="widthContainer" class="tacticalField">
+        <label class="fieldLabel controlLabel" for="widthRange">
+          <span>Grosor</span>
+          <output id="widthValue" class="rangeValue" for="widthRange">3 px</output>
+        </label>
+        <input id="widthRange" type="range" min="1" max="10" step="1" value="3" data-output="widthValue">
       </div>
 
-      <div id="radiusContainer" style="display:none;">
-        <label class="fieldLabel">Radio (m)</label>
-        <input id="radiusInput" class="opsInput compactInput" type="number" min="50" step="50" value="5000">
+      <div id="radiusContainer" class="tacticalField" style="display:none;">
+        <label class="fieldLabel" for="radiusInput">Radio (m)</label>
+        <input id="radiusInput" class="opsInput compactInput tacticalNumberInput" type="number" min="50" step="50" value="5000" inputmode="numeric">
       </div>
     </div>
 
-    <div id="tacticalActionButtons" class="btnGrid" style="display:grid; margin-top:20px;">
-      <button id="placeBtn" class="btnBeige" disabled>Colocar</button>
-      <button id="clearTactical" class="btnBeige">Limpiar táctico</button>
-      <button id="finishShape" class="btnBeige" style="grid-column: 1 / -1;">Terminar figura</button>
+    <div id="tacticalActionButtons" class="btnGrid tacticalActionGrid" style="display:none; margin-top:20px;">
+      <button id="finishShape" class="btnBeige secondaryAction">Terminar figura</button>
     </div>
 
   </aside>

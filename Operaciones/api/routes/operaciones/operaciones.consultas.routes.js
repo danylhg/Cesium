@@ -240,7 +240,10 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         COALESCE(t.baro, sv.baro) AS baro,
         COALESCE(t.bateria_pct, sv.bateria_pct) AS bateria_pct,
         COALESCE(t.bateria, sv.bateria) AS bateria,
-        COALESCE(t.signos_actualizacion, sv.signos_actualizacion) AS signos_actualizacion
+        COALESCE(t.signos_actualizacion, sv.signos_actualizacion) AS signos_actualizacion,
+        sv.dispositivo_id AS signos_dispositivo_id,
+        sv.origen AS signos_origen,
+        sv.metadata AS signos_metadata
       FROM asignacion_operacion_personal a
 
       -- Datos base del personal asignado
@@ -688,6 +691,7 @@ router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
       `SELECT
          od.id_operacion,
          od.id_dispositivo,
+         d.imagen_disp,
          d.tipo,
          d.marca,
          d.modelo,

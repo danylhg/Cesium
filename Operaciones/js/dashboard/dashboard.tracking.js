@@ -19,6 +19,142 @@ const COLOR_EQUIPO = Cesium.Color.fromCssColorString("#B4FF39");
 const COLOR_DISPOSITIVO = Cesium.Color.fromCssColorString("#FF8A3D");
 
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
+const SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
+const TRACKING_SYMBOL_SIZE = 42;
+const TRACKING_SYMBOL_RENDER_SIZE = 160;
+const trackingSymbolImageCache = new Map();
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function textIncludes(text, ...needles) {
+  return needles.some(needle => text.includes(needle));
+}
+
+function buildMilSidc(identity = "F", dimension = "G", icon = "U-----") {
+  const safeIcon = String(icon || "U-----").padEnd(6, "-").slice(0, 6);
+  return `S${identity}${dimension}P${safeIcon}-----`;
+}
+
+function resolveTrackingMilSymbol(tacticalType, item = {}) {
+  const providedSidc = item.sidc || item.codigo_sidc || item.mil_sidc;
+  if (providedSidc) return String(providedSidc);
+
+  const text = normalizeText([
+    tacticalType,
+    item.rol_en_operacion,
+    item.rol,
+    item.tipo,
+    item.tipo_equipo,
+    item.tipo_tactico,
+    item.categoria,
+    item.nombre,
+    item.marca,
+    item.modelo,
+    item.sistema_operativo,
+    item.codigo_interno,
+    item.alias
+  ].filter(Boolean).join(" "));
+
+  if (tacticalType === "vehiculo") {
+    if (textIncludes(text, "AMBULANC", "MEDIC")) return buildMilSidc("F", "G", "UCM---");
+    if (textIncludes(text, "BLIND", "TANQUE", "ARMORED")) return buildMilSidc("F", "G", "UCD---");
+    if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCP---");
+    return buildMilSidc("F", "G", "EV----");
+  }
+
+  if (tacticalType === "equipo") {
+    if (textIncludes(text, "DRON", "DRONE", "UAV", "MATRICE")) return buildMilSidc("F", "A", "MFQ---");
+    if (textIncludes(text, "RADIO", "COMUNIC", "SENAL", "SIGNAL")) return buildMilSidc("F", "G", "UCS---");
+    if (textIncludes(text, "ARMA", "RIFLE", "PISTOLA", "FUSIL")) return buildMilSidc("F", "G", "EW----");
+    if (textIncludes(text, "CAMARA", "SENSOR", "TACTICO")) return buildMilSidc("F", "G", "EX----");
+    return buildMilSidc("F", "G", "E-----");
+  }
+
+  if (tacticalType === "dispositivo") {
+    if (textIncludes(text, "TELEFONO", "CELULAR", "TABLET", "RADIO", "COMUNIC")) {
+      return buildMilSidc("F", "G", "UCS---");
+    }
+    if (textIncludes(text, "CAMARA", "SENSOR")) return buildMilSidc("F", "G", "EX----");
+    return buildMilSidc("F", "G", "E-----");
+  }
+
+  if (tacticalType === "personal") {
+    if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "U-----");
+    return buildMilSidc("F", "G", "UCP---");
+  }
+
+  return buildMilSidc("F", "G", "U-----");
+}
+
+function renderMilSymbol(sidc) {
+  if (!sidc || typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
+  if (trackingSymbolImageCache.has(sidc)) return trackingSymbolImageCache.get(sidc);
+
+  try {
+    const symbol = new ms.Symbol(sidc, {
+      size: TRACKING_SYMBOL_RENDER_SIZE,
+      colorMode: "Light"
+    });
+
+    if (typeof symbol.isValid === "function" && symbol.isValid() === false) {
+      trackingSymbolImageCache.set(sidc, null);
+      return null;
+    }
+
+    if (typeof symbol.asSVG === "function" && />\s*\?\s*</.test(symbol.asSVG())) {
+      trackingSymbolImageCache.set(sidc, null);
+      return null;
+    }
+
+    const image = symbol.asCanvas();
+    trackingSymbolImageCache.set(sidc, image);
+    return image;
+  } catch (err) {
+    console.warn("[TRACKING] No se pudo generar simbolo MIL:", sidc, err);
+    trackingSymbolImageCache.set(sidc, null);
+    return null;
+  }
+}
+
+function makeTrackingBillboard(image) {
+  return new Cesium.BillboardGraphics({
+    image,
+    width: TRACKING_SYMBOL_SIZE,
+    height: TRACKING_SYMBOL_SIZE,
+    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    scaleByDistance: SYMBOL_SCALE_BY_DIST
+  });
+}
+
+function makeTrackingPoint(color) {
+  return new Cesium.PointGraphics({
+    pixelSize: 10,
+    color: color.withAlpha(0.18),
+    outlineColor: Cesium.Color.BLACK,
+    outlineWidth: 3,
+    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
+  });
+}
+
+function getTrackingMarker(meta, color) {
+  const sidc = resolveTrackingMilSymbol(meta.tacticalType || "personal", meta.liveData || {});
+  const image = renderMilSymbol(sidc);
+  return {
+    sidc,
+    billboard: image ? makeTrackingBillboard(image) : undefined,
+    point: image ? undefined : makeTrackingPoint(color),
+    labelOffset: image ? new Cesium.Cartesian2(0, 17) : new Cesium.Cartesian2(0, -18)
+  };
+}
 
 function makePersonalLabel(item) {
   const fullName = [item.nombre, item.apellido].filter(Boolean).join(" ").trim();
@@ -81,7 +217,9 @@ function upsertVehiculoTracking(item) {
   if (!coords || item?.id_vehiculo == null) return;
 
   upsertTrackingEntity(`V:${item.id_vehiculo}`, coords.lat, coords.lng, makeVehiculoLabel(item), COLOR_VEHICULO, {
-    tacticalType: "vehiculo"
+    tacticalType: "vehiculo",
+    trackingRole: item.tipo || "",
+    liveData: item
   });
 }
 
@@ -115,6 +253,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
   if (!viewer) return;
 
   const position = Cesium.Cartesian3.fromDegrees(Number(lng), Number(lat));
+  const marker = getTrackingMarker(meta, color);
 
   if (dashboardState.trackingEntities.has(key)) {
     // Mover y refrescar estilo/etiqueta si ya existe
@@ -124,14 +263,14 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
     if (ent.label) {
       ent.label.text = label;
       ent.label.backgroundColor = color.withAlpha(0.7);
+      ent.label.pixelOffset = marker.labelOffset;
     }
-    if (ent.point) {
-      ent.point.color = color.withAlpha(0.18);
-      ent.point.outlineColor = Cesium.Color.BLACK;
-    }
+    ent.billboard = marker.billboard;
+    ent.point = marker.point;
     if (ent.properties) {
       ent.properties.trackingRole = meta.trackingRole || ent.properties.trackingRole;
       ent.properties.tacticalType = meta.tacticalType || ent.properties.tacticalType;
+      ent.properties.trackingSidc = marker.sidc || ent.properties.trackingSidc;
     }
     return;
   }
@@ -140,19 +279,12 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
   const ent = viewer.entities.add({
     name: label,
     position,
-    point: {
-      pixelSize: 10,
-      color: color.withAlpha(0.18),
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-    },
+    billboard: marker.billboard,
+    point: marker.point,
     label: {
       text: label,
       font: "11px sans-serif",
-      pixelOffset: new Cesium.Cartesian2(0, -18),
+      pixelOffset: marker.labelOffset,
       fillColor: Cesium.Color.WHITE,
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 2,
@@ -167,6 +299,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
       trackingKey: key,
       tacticalType: meta.tacticalType || (key.startsWith("V:") ? "vehiculo" : "personal"),
       trackingRole: meta.trackingRole || "",
+      trackingSidc: marker.sidc || "",
       draggable: false
     }
   });

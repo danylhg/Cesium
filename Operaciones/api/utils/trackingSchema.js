@@ -6,6 +6,9 @@ export async function ensureExtendedTrackingSchema() {
   if (extendedTrackingReady) return;
 
   await pool.query(`
+    ALTER TABLE dispositivo
+      ADD COLUMN IF NOT EXISTS imagen_disp TEXT;
+
     CREATE TABLE IF NOT EXISTS tracking_equipo (
       id_tracking BIGSERIAL PRIMARY KEY,
       id_operacion INT NOT NULL REFERENCES operacion(id_operacion) ON DELETE CASCADE,
@@ -33,6 +36,17 @@ export async function ensureExtendedTrackingSchema() {
 
     CREATE INDEX IF NOT EXISTS idx_tracking_equipo_estado_operacion_creacion
       ON tracking_equipo(id_operacion, estado_operacion_creacion);
+
+    ALTER TABLE tracking_equipo
+      ADD COLUMN IF NOT EXISTS bateria_pct NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS conectado BOOLEAN,
+      ADD COLUMN IF NOT EXISTS dron_encendido BOOLEAN,
+      ADD COLUMN IF NOT EXISTS modo_vuelo TEXT,
+      ADD COLUMN IF NOT EXISTS pitch_grados NUMERIC(7,2),
+      ADD COLUMN IF NOT EXISTS roll_grados NUMERIC(7,2),
+      ADD COLUMN IF NOT EXISTS satelites INT,
+      ADD COLUMN IF NOT EXISTS tiempo_vuelo_s NUMERIC(10,2),
+      ADD COLUMN IF NOT EXISTS serial_dispositivo TEXT;
 
     CREATE TABLE IF NOT EXISTS tracking_dispositivo (
       id_tracking BIGSERIAL PRIMARY KEY,
@@ -91,6 +105,15 @@ export async function ensureExtendedTrackingSchema() {
       te.velocidad_kmh,
       te.rumbo_grados,
       te.precision_m,
+      te.bateria_pct,
+      te.conectado,
+      te.dron_encendido,
+      te.modo_vuelo,
+      te.pitch_grados,
+      te.roll_grados,
+      te.satelites,
+      te.tiempo_vuelo_s,
+      te.serial_dispositivo,
       te."timestamp" AS ultima_actualizacion,
       te.estado_operacion_creacion
     FROM tracking_equipo te
@@ -104,6 +127,7 @@ export async function ensureExtendedTrackingSchema() {
       td.id_tracking,
       td.id_operacion,
       td.id_dispositivo,
+      d.imagen_disp,
       d.tipo,
       d.marca,
       d.modelo,

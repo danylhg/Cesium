@@ -87,8 +87,16 @@ export function abrirModalCrearGrupo(cetActivo) {
   btnCreate.style.width = "180px";
 
   let nameInputs = [];
+  let draftNames = [...info.names];
+
+  function syncDraftNamesFromInputs() {
+    nameInputs.forEach((input, index) => {
+      draftNames[index] = input.value;
+    });
+  }
 
   function buildFields() {
+    syncDraftNamesFromInputs();
     formWrap.innerHTML = "";
     nameInputs = [];
 
@@ -108,7 +116,10 @@ export function abrirModalCrearGrupo(cetActivo) {
 
       const inp = document.createElement("input");
       inp.className = "inp";
-      inp.value = info.names[i] || "";
+      inp.value = draftNames[i] || "";
+      inp.addEventListener("input", () => {
+        draftNames[i] = inp.value;
+      });
       nameInputs.push(inp);
 
       line.append(l, inp);

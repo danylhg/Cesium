@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { createClient } from "./db/client.js";
 import { seedUsers } from "./seeds/seedUsers.js";
+import { seedDispositivos } from "./seeds/seedDispositivos.js";
 import { seedOperation1 } from "./seeds/seedOperation1.js";
 import { seedOperation2 } from "./seeds/seedOperation2.js";
 import { seedOperation3 } from "./seeds/seedOperation3.js";
@@ -17,6 +18,7 @@ async function main() {
     const op2Result = await seedOperation2(client);
     const op3Result = await seedOperation3(client);
     const op4Result = await seedOperation4(client);
+    const dispositivosResult = await seedDispositivos(client);
 
     await client.query("COMMIT");
 
@@ -25,6 +27,7 @@ async function main() {
     console.log(`Operacion 2 creada/actualizada: ${op2Result.codigo} - ${op2Result.estado} (id=${op2Result.idOp}) CUT=atorres grid=${op2Result.cuadricula}`);
     console.log(`Operacion 3 creada/actualizada: ${op3Result.codigo} - ${op3Result.estado} (id=${op3Result.idOp}) CUT=cramirez grid=${op3Result.cuadricula}`);
     console.log(`Operacion 4 creada/actualizada: ${op4Result.codigo} - ${op4Result.estado} (id=${op4Result.idOp}) CUT=atorres grid=${op4Result.cuadricula}`);
+    console.log(`Dispositivos seed: ${dispositivosResult.insertados} creados, ${dispositivosResult.actualizados} actualizados, ${dispositivosResult.asignados} asignados (${dispositivosResult.total} definidos)`);
     console.log(`Password para usuarios seed: ${usersResult.defaultPassword}`);
     console.log(`Personal OP1: ${op1Result.personalAsignado}`);
     console.log(`Personal OP2: ${op2Result.personalAsignado}`);

@@ -314,6 +314,49 @@ function refreshUndoRedoButtons() {
 /* ─── Serialize / Rebuild helpers ───────────────────────────── */
 
 let _drawIdCounter = 0;
+let _drawingCameraLock = null;
+
+function getCameraController(viewer = dashboardState.viewer) {
+  return viewer?.scene?.screenSpaceCameraController || null;
+}
+
+function lockMapMovement(viewer = dashboardState.viewer) {
+  const controller = getCameraController(viewer);
+  if (!controller) return;
+
+  if (!_drawingCameraLock) {
+    _drawingCameraLock = {
+      enableRotate: controller.enableRotate,
+      enableTranslate: controller.enableTranslate,
+      enableZoom: controller.enableZoom,
+      enableTilt: controller.enableTilt,
+      enableLook: controller.enableLook,
+    };
+  }
+
+  controller.enableRotate = false;
+  controller.enableTranslate = false;
+  controller.enableZoom = false;
+  controller.enableTilt = false;
+  controller.enableLook = false;
+}
+
+function unlockMapMovement(viewer = dashboardState.viewer) {
+  const controller = getCameraController(viewer);
+  if (!controller) return;
+
+  if (_drawingCameraLock) {
+    Object.assign(controller, _drawingCameraLock);
+    _drawingCameraLock = null;
+    return;
+  }
+
+  controller.enableRotate = true;
+  controller.enableTranslate = true;
+  controller.enableZoom = true;
+  controller.enableTilt = true;
+  controller.enableLook = true;
+}
 
 function serializePolyline(entity) {
   if (!entity?.polyline) return null;
@@ -378,18 +421,16 @@ export function startPencilMode() {
   if (!viewer) return;
 
   dashboardState.drawingMode = "pencil";
-  stopEraserMode();
+  stopEraserMode({ keepMapLocked: true });
+  lockMapMovement(viewer);
 
   if (_pencilHandler) _pencilHandler.destroy();
   _pencilHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
-  // Disable map rotation while drawing
   _pencilHandler.setInputAction((click) => {
     _isDrawing = true;
     _currentDrawCoords = [];
-    viewer.scene.screenSpaceCameraController.enableRotate = false;
-    viewer.scene.screenSpaceCameraController.enableTranslate = false;
-    viewer.scene.screenSpaceCameraController.enableZoom = false;
+    lockMapMovement(viewer);
 
     const cartesian = viewer.camera.pickEllipsoid(
       click.position, viewer.scene.globe.ellipsoid
@@ -437,10 +478,7 @@ export function startPencilMode() {
   _pencilHandler.setInputAction(() => {
     if (!_isDrawing) return;
     _isDrawing = false;
-
-    viewer.scene.screenSpaceCameraController.enableRotate = true;
-    viewer.scene.screenSpaceCameraController.enableTranslate = true;
-    viewer.scene.screenSpaceCameraController.enableZoom = true;
+    lockMapMovement(viewer);
 
     // Remove preview
     if (_currentPreviewEntity) {
@@ -510,7 +548,7 @@ export function startPencilMode() {
 
 }
 
-export function stopPencilMode() {
+export function stopPencilMode({ keepMapLocked = false } = {}) {
   if (_pencilHandler) {
     _pencilHandler.destroy();
     _pencilHandler = null;
@@ -524,9 +562,7 @@ export function stopPencilMode() {
       viewer.entities.remove(_currentPreviewEntity);
       _currentPreviewEntity = null;
     }
-    viewer.scene.screenSpaceCameraController.enableRotate = true;
-    viewer.scene.screenSpaceCameraController.enableTranslate = true;
-    viewer.scene.screenSpaceCameraController.enableZoom = true;
+    if (!keepMapLocked) unlockMapMovement(viewer);
   }
 
   if (dashboardState.drawingMode === "pencil") {
@@ -536,65 +572,196 @@ export function stopPencilMode() {
 
 /* ─── Eraser mode ───────────────────────────────────────────── */
 
+const ERASER_RADIUS_PX = 18;
+
+function getTacticalType(entity) {
+  return entity?.properties?.tacticalType?.getValue?.() ??
+    entity?.properties?.tacticalType ??
+    "";
+}
+
+function isFreehandDrawingEntity(entity) {
+  return getTacticalType(entity) === "freehand-drawing";
+}
+
+function getPolylinePositions(entity) {
+  return entity?.polyline?.positions?.getValue?.(Cesium.JulianDate.now()) ??
+    entity?.polyline?.positions ??
+    [];
+}
+
+function distanceToSegmentSquared(point, start, end) {
+  const vx = end.x - start.x;
+  const vy = end.y - start.y;
+  const wx = point.x - start.x;
+  const wy = point.y - start.y;
+  const segmentLengthSquared = vx * vx + vy * vy;
+
+  if (segmentLengthSquared === 0) {
+    const dx = point.x - start.x;
+    const dy = point.y - start.y;
+    return dx * dx + dy * dy;
+  }
+
+  const t = Math.max(0, Math.min(1, (wx * vx + wy * vy) / segmentLengthSquared));
+  const projection = {
+    x: start.x + t * vx,
+    y: start.y + t * vy,
+  };
+  const dx = point.x - projection.x;
+  const dy = point.y - projection.y;
+  return dx * dx + dy * dy;
+}
+
+function cursorTouchesDrawing(viewer, entity, position) {
+  if (!viewer || !isFreehandDrawingEntity(entity) || entity.show === false) return false;
+
+  const points = getPolylinePositions(entity);
+  if (!Array.isArray(points) || points.length < 2) return false;
+
+  const width = Number(entity.polyline?.width?.getValue?.(Cesium.JulianDate.now()) ??
+    entity.polyline?.width ??
+    3);
+  const radius = Math.max(ERASER_RADIUS_PX, width / 2 + 10);
+  const radiusSquared = radius * radius;
+  const cursor = { x: Number(position?.x), y: Number(position?.y) };
+
+  if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return false;
+
+  for (let i = 1; i < points.length; i += 1) {
+    const start = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, points[i - 1]);
+    const end = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, points[i]);
+    if (!start || !end) continue;
+
+    if (distanceToSegmentSquared(cursor, start, end) <= radiusSquared) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getDrawingsAtPosition(viewer, position) {
+  const entities = new Set();
+  const picks = viewer.scene.drillPick?.(position, 12) || [viewer.scene.pick(position)];
+
+  picks.forEach(pick => {
+    if (isFreehandDrawingEntity(pick?.id)) {
+      entities.add(pick.id);
+    }
+  });
+
+  (dashboardState.drawingEntities || []).forEach(entity => {
+    if (cursorTouchesDrawing(viewer, entity, position)) {
+      entities.add(entity);
+    }
+  });
+
+  return [...entities];
+}
+
+function eraseDrawingEntity(entity) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !entity || !isFreehandDrawingEntity(entity)) return false;
+
+  const data = serializePolyline(entity);
+  const id_dibujo = _drawingBackendIds.get(entity.id);
+
+  if (id_dibujo) {
+    deleteDrawingFromBackend(id_dibujo);
+    _drawingBackendIds.delete(entity.id);
+  } else {
+    _drawingPendingDeletes.add(entity.id);
+  }
+
+  const removed = viewer.entities.remove(entity);
+  if (!removed) return false;
+
+  dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+    .filter(e => e !== entity);
+
+  if (data) {
+    pushUndoAction({
+      type: "remove",
+      entityId: data.id,
+      entityRef: entity,
+      entityData: data,
+      source: "drawing",
+      backendId: id_dibujo ?? null
+    });
+  }
+
+  return true;
+}
+
 let _eraserHandler = null;
+let _isErasing = false;
+let _erasedThisStroke = new Set();
+
+function eraseAtScreenPosition(position) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !position) return 0;
+
+  let erased = 0;
+  getDrawingsAtPosition(viewer, position).forEach(entity => {
+    if (!entity?.id || _erasedThisStroke.has(entity.id)) return;
+    if (eraseDrawingEntity(entity)) {
+      _erasedThisStroke.add(entity.id);
+      erased += 1;
+    }
+  });
+
+  if (erased) viewer.scene.requestRender?.();
+  return erased;
+}
 
 export function startEraserMode() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
   dashboardState.drawingMode = "eraser";
-  stopPencilMode();
+  stopPencilMode({ keepMapLocked: true });
+  lockMapMovement(viewer);
 
   if (_eraserHandler) _eraserHandler.destroy();
   _eraserHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
   _eraserHandler.setInputAction((click) => {
-    const picked = viewer.scene.pick(click.position);
-    if (!picked || !picked.id) return;
+    _isErasing = true;
+    _erasedThisStroke = new Set();
+    lockMapMovement(viewer);
+    eraseAtScreenPosition(click.position);
+  }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
 
-    const entity = picked.id;
-    const tacticalType =
-      entity.properties?.tacticalType?.getValue?.() ??
-      entity.properties?.tacticalType ?? "";
+  _eraserHandler.setInputAction((movement) => {
+    if (!_isErasing) return;
+    eraseAtScreenPosition(movement.endPosition);
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-    if (tacticalType === "freehand-drawing") {
-      // Serialize before removing (for undo)
-      const data = serializePolyline(entity);
+  _eraserHandler.setInputAction(() => {
+    _isErasing = false;
+    _erasedThisStroke.clear();
+    lockMapMovement(viewer);
+  }, Cesium.ScreenSpaceEventType.LEFT_UP);
 
-      // Borrar del backend si tenemos el id_dibujo
-      const id_dibujo = _drawingBackendIds.get(entity.id);
-      if (id_dibujo) {
-        deleteDrawingFromBackend(id_dibujo);
-        _drawingBackendIds.delete(entity.id);
-      } else {
-        _drawingPendingDeletes.add(entity.id);
-      }
-
-      viewer.entities.remove(entity);
-      dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
-        .filter(e => e !== entity);
-
-      if (data) {
-        pushUndoAction({
-          type: "remove",
-          entityId: data.id,
-          entityRef: entity,
-          entityData: data,
-          source: "drawing",
-          backendId: id_dibujo ?? null
-        });
-      }
-    }
+  _eraserHandler.setInputAction((click) => {
+    if (_isErasing) return;
+    _erasedThisStroke = new Set();
+    eraseAtScreenPosition(click.position);
+    _erasedThisStroke.clear();
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 
 }
 
-export function stopEraserMode() {
+export function stopEraserMode({ keepMapLocked = false } = {}) {
   if (_eraserHandler) {
     _eraserHandler.destroy();
     _eraserHandler = null;
   }
+  _isErasing = false;
+  _erasedThisStroke.clear();
+  if (!keepMapLocked) unlockMapMovement();
   if (dashboardState.drawingMode === "eraser") {
     dashboardState.drawingMode = null;
   }

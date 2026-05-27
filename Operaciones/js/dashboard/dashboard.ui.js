@@ -511,6 +511,104 @@ function renderEquiposGroupedHtml(equiposNorm) {
   `).join("");
 }
 
+function normalizeDispositivos(dispositivos) {
+  return dispositivos.map((d) => {
+    const tipo = String(d.tipo || "").toUpperCase();
+    const asignadoA = [
+      d.personal_puesto,
+      d.personal_nombre,
+      d.personal_apellido
+    ].filter(Boolean).join(" ").trim() ||
+      d.responsable ||
+      d.asignado_a_personal ||
+      d.personal_apodo ||
+      "";
+
+    return {
+      id_dispositivo: d.id_dispositivo || d.id,
+      tipo,
+      marca: d.marca || "",
+      modelo: d.modelo || d.nombre || d.name || "",
+      numero_telefono: d.numero_telefono || d.numeroTelefono || "",
+      imei: d.imei || "",
+      numero_serie: d.numero_serie || d.numeroSerie || "",
+      sistema_operativo: d.sistema_operativo || d.os || "",
+      estado: d.estado_asignacion || d.estado || d.dispositivo_estado || "",
+      asignadoA,
+      bateria_pct: d.bateria_pct ?? d.bateria ?? d.battery ?? null,
+      latitud: d.latitud ?? d.lat ?? null,
+      longitud: d.longitud ?? d.lng ?? d.lon ?? null,
+      ultima_actualizacion: d.ultima_actualizacion || d.updated_at || d.timestamp || ""
+    };
+  });
+}
+
+function getDispositivoGroup(tipo) {
+  if (tipo === "TELEFONO") return "Telefonos";
+  if (tipo === "SMARTWATCH") return "Relojes / wearables";
+  if (tipo === "TABLET") return "Tablets";
+  if (tipo === "GPS" || tipo === "LORA") return "GPS / LoRa";
+  if (tipo === "LAPTOP") return "Laptops";
+  if (tipo === "RADIO") return "Radios";
+  return "Otros dispositivos";
+}
+
+function getDispositivoName(d) {
+  return [d.marca, d.modelo].filter(Boolean).join(" ").trim() ||
+    d.tipo ||
+    `Dispositivo ${d.id_dispositivo || ""}`.trim();
+}
+
+function getDispositivoCode(d) {
+  return d.numero_telefono || d.numero_serie || d.imei || "Sin identificador";
+}
+
+function renderDispositivosGroupedHtml(dispositivosNorm) {
+  if (!dispositivosNorm.length) return "<p>sin dispositivos asignados</p>";
+
+  const order = [
+    "Telefonos",
+    "Relojes / wearables",
+    "Tablets",
+    "GPS / LoRa",
+    "Radios",
+    "Laptops",
+    "Otros dispositivos"
+  ];
+
+  const groups = order
+    .map((title) => ({
+      title,
+      items: dispositivosNorm.filter((d) => getDispositivoGroup(d.tipo) === title)
+    }))
+    .filter((group) => group.items.length);
+
+  const renderCard = (d) => {
+    const nombre = getDispositivoName(d);
+    const codigo = getDispositivoCode(d);
+    const bateria = d.bateria_pct != null && d.bateria_pct !== "" ? `${d.bateria_pct}%` : "";
+    const tieneUbicacion = d.latitud != null && d.longitud != null;
+
+    return `
+      <div class="miniCard">
+        <p><strong>Dispositivo:</strong> ${escapeHtml(nombre)}</p>
+        <p><strong>Identificador:</strong> ${escapeHtml(codigo)}</p>
+        ${d.sistema_operativo ? `<p><strong>Sistema:</strong> ${escapeHtml(d.sistema_operativo)}</p>` : ""}
+        ${d.asignadoA ? `<p><strong>Custodio:</strong> ${escapeHtml(d.asignadoA)}</p>` : ""}
+        ${bateria ? `<p><strong>Bateria:</strong> ${escapeHtml(bateria)}</p>` : ""}
+        ${tieneUbicacion ? `<p><strong>Ubicacion:</strong> ${escapeHtml(formatCoord(d.latitud))}, ${escapeHtml(formatCoord(d.longitud))}</p>` : ""}
+      </div>
+    `;
+  };
+
+  return groups.map((group) => `
+    <div style="margin-bottom:16px;">
+      <h4 style="margin:0 0 8px 0; color:#a0c4ff;">${escapeHtml(group.title)}</h4>
+      ${group.items.map(renderCard).join("")}
+    </div>
+  `).join("");
+}
+
 export function renderInfoPanel(bdData = null) {
   const container = document.getElementById("infoPanelContent");
   if (!container) return;
@@ -520,10 +618,12 @@ export function renderInfoPanel(bdData = null) {
   let personal;
   let vehiculos;
   let equipos;
+  let dispositivos;
   if (bdData) {
     personal = bdData.personal || [];
     vehiculos = bdData.vehiculos || [];
     equipos = bdData.equipos || [];
+    dispositivos = bdData.dispositivos || [];
   } else {
     const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
     personal = Array.isArray(asignacion.personal) && asignacion.personal.length
@@ -535,6 +635,9 @@ export function renderInfoPanel(bdData = null) {
     equipos = Array.isArray(asignacion.equipos) && asignacion.equipos.length
       ? asignacion.equipos
       : (Array.isArray(operacion.equipos) ? operacion.equipos : []);
+    dispositivos = Array.isArray(asignacion.dispositivos) && asignacion.dispositivos.length
+      ? asignacion.dispositivos
+      : (Array.isArray(operacion.dispositivos) ? operacion.dispositivos : []);
   }
 
   const esActiva = (operacion.phase || operacion.estado?.toLowerCase()) === "activa";
@@ -578,6 +681,8 @@ export function renderInfoPanel(bdData = null) {
 
   const equiposNorm = normalizeEquipos(equipos);
   const equiposHtml = renderEquiposGroupedHtml(equiposNorm);
+  const dispositivosNorm = normalizeDispositivos(dispositivos);
+  const dispositivosHtml = renderDispositivosGroupedHtml(dispositivosNorm);
 
   container.innerHTML = `
     <div class="infoBlock">
@@ -605,6 +710,11 @@ export function renderInfoPanel(bdData = null) {
     <div class="infoBlock">
       <h3>Equipos asignados</h3>
       ${equiposHtml}
+    </div>
+
+    <div class="infoBlock">
+      <h3>Dispositivos asignados</h3>
+      ${dispositivosHtml}
     </div>
   `;
 
@@ -852,6 +962,48 @@ function sameText(a, b) {
   return clean(a) && clean(a) === clean(b);
 }
 
+function normalizeSidcText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function sidcTextIncludes(text, ...needles) {
+  return needles.some((needle) => text.includes(needle));
+}
+
+function buildTrackingSidc(identity = "F", dimension = "G", icon = "U-----") {
+  const safeIcon = String(icon || "U-----").padEnd(6, "-").slice(0, 6);
+  return `S${identity}${dimension}P${safeIcon}-----`;
+}
+
+function getPersonalSidc(person = {}, live = {}) {
+  const provided = firstValue(
+    person.sidc,
+    person.codigo_sidc,
+    person.mil_sidc,
+    live.sidc,
+    live.codigo_sidc,
+    live.mil_sidc
+  );
+  if (provided) return String(provided);
+
+  const text = normalizeSidcText([
+    person.rol_en_operacion,
+    person.rol,
+    live.rol_en_operacion,
+    live.rol,
+    person.puesto,
+    person.nombre,
+    person.apellido,
+    person.apodo
+  ].filter(Boolean).join(" "));
+
+  if (sidcTextIncludes(text, "CUT", "CET")) return buildTrackingSidc("F", "G", "U-----");
+  return buildTrackingSidc("F", "G", "UCP---");
+}
+
 function getPersonId(person = {}) {
   return firstValue(
     person.id_personal,
@@ -888,7 +1040,95 @@ function findPerson(personId, fallbackName = "") {
   return people.find((person) => sameText(getPersonName(person), fallbackName));
 }
 
-function getAssignedDevice(person = {}, personId, personName) {
+function getDeviceId(device = {}) {
+  return firstValue(
+    device.id_dispositivo,
+    device.id,
+    device.dispositivo_id,
+    device.idDispositivo,
+    device.device_id
+  );
+}
+
+function getDeviceDisplayName(device = {}) {
+  return [
+    device.tipo,
+    device.marca,
+    device.modelo
+  ].filter(Boolean).join(" ").trim() ||
+    device.nombre ||
+    device.name ||
+    (getDeviceId(device) ? `Dispositivo ${getDeviceId(device)}` : "Dispositivo");
+}
+
+function getDeviceCompactName(device = {}) {
+  return [
+    device.marca,
+    device.modelo
+  ].filter(Boolean).join(" ").trim() ||
+    device.modelo ||
+    device.marca ||
+    device.tipo ||
+    device.nombre ||
+    device.name ||
+    "Dispositivo";
+}
+
+function getDeviceCodeValue(device = {}) {
+  return firstValue(
+    device.numeroTelefono,
+    device.numero_telefono,
+    device.telefono,
+    device.phone,
+    device.imei,
+    device.numeroSerie,
+    device.numero_serie,
+    device.serial,
+    device.serial_dispositivo
+  ) || "Sin identificador";
+}
+
+function uniqueDeviceKey(device = {}) {
+  const id = getDeviceId(device);
+  if (id != null && String(id).trim() !== "") return `id:${String(id).trim()}`;
+
+  const code = getDeviceCodeValue(device);
+  if (code && code !== "Sin identificador") return `code:${String(code).trim()}`;
+
+  return `name:${getDeviceDisplayName(device).toLowerCase()}`;
+}
+
+function deviceMatchesIdentifier(device = {}, identifier) {
+  const target = String(identifier || "").trim().toLowerCase();
+  if (!target) return false;
+
+  return [
+    getDeviceId(device),
+    device.dispositivo_id,
+    device.idDispositivo,
+    device.device_id,
+    device.numeroTelefono,
+    device.numero_telefono,
+    device.telefono,
+    device.phone,
+    device.imei,
+    device.numeroSerie,
+    device.numero_serie,
+    device.serial,
+    device.serial_dispositivo
+  ].some((value) => String(value || "").trim().toLowerCase() === target);
+}
+
+function formatBiometricOrigin(value) {
+  const text = String(value || "").trim().replace(/[_-]+/g, " ");
+  if (!text) return "";
+  if (text === text.toUpperCase()) {
+    return text.toLowerCase().replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+  return text;
+}
+
+function getAssignedDevices(person = {}, personId, personName) {
   const op = getCurrentOperation();
   const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
   const devices = [
@@ -904,19 +1144,95 @@ function getAssignedDevice(person = {}, personId, personName) {
   ];
   const id = String(personId || getPersonId(person) || "").trim();
   const name = personName || getPersonName(person);
-  const directAssignment = assignments.find((a) => String(a.id_personal || "").trim() === id);
-  if (directAssignment) {
-    const assignedId = String(directAssignment.id_dispositivo || directAssignment.id || "").trim();
-    if (assignedId) {
-      const byId = devices.find((device) =>
-        String(device.id_dispositivo || device.id || "").trim() === assignedId
-      );
-      if (byId) return byId;
-    }
-  }
-  return devices.find((device) =>
-    sameText(device.responsable || device.asignado_a_personal || device.personal_nombre, name)
+  const matched = [];
+  const seen = new Set();
+  const pushDevice = (device) => {
+    if (!device) return;
+    const key = uniqueDeviceKey(device);
+    if (seen.has(key)) return;
+    seen.add(key);
+    matched.push(device);
+  };
+
+  devices
+    .filter((device) =>
+      String(device.id_personal || device.personal_id || device.id_persona || "").trim() === id
+    )
+    .forEach(pushDevice);
+
+  assignments
+    .filter((a) => String(a.id_personal || "").trim() === id)
+    .forEach((directAssignment) => {
+      const assignedId = String(directAssignment.id_dispositivo || directAssignment.id || "").trim();
+      if (assignedId) {
+        const byId = devices.find((device) =>
+          String(device.id_dispositivo || device.id || "").trim() === assignedId
+        );
+        pushDevice(byId || directAssignment);
+      }
+    });
+
+  devices
+    .filter((device) =>
+      sameText(device.responsable || device.asignado_a_personal || device.personal_nombre, name)
+    )
+    .forEach(pushDevice);
+
+  return matched;
+}
+
+function getBiometricSourceLabel(live = {}, person = {}, assignedDevices = [], assignedDevice = {}) {
+  const metadata = [
+    live.metadata,
+    live.signos_metadata,
+    person.metadata,
+    person.signos_metadata
+  ].find((value) => value && typeof value === "object" && !Array.isArray(value)) || {};
+  const sourceId = firstValue(
+    live.dispositivo_id,
+    live.signos_dispositivo_id,
+    live.device_id,
+    live.deviceId,
+    person.dispositivo_id,
+    person.signos_dispositivo_id
   );
+  const metadataOrigin = firstValue(
+    metadata.device_name,
+    metadata.deviceName,
+    metadata.nombre_dispositivo,
+    metadata.modelo,
+    metadata.model,
+    metadata.origen,
+    metadata.source
+  );
+  const origin = firstValue(
+    metadataOrigin,
+    live.origen,
+    live.signos_origen,
+    live.source,
+    live.fuente,
+    person.origen,
+    person.signos_origen
+  );
+
+  const sourceDevice = sourceId
+    ? assignedDevices.find((device) => deviceMatchesIdentifier(device, sourceId))
+    : null;
+  if (sourceDevice) return getDeviceCompactName(sourceDevice);
+
+  const originText = formatBiometricOrigin(origin);
+  if (originText) {
+    const byType = assignedDevices.find((device) => sameText(device.tipo, originText));
+    if (byType) return getDeviceCompactName(byType);
+    return originText;
+  }
+
+  const wearable = assignedDevices.find((device) =>
+    ["SMARTWATCH", "WEARABLE", "RELOJ"].includes(String(device.tipo || "").trim().toUpperCase())
+  );
+  if (wearable) return getDeviceCompactName(wearable);
+
+  return assignedDevice && Object.keys(assignedDevice).length ? getDeviceCompactName(assignedDevice) : "";
 }
 
 function getPersonCameraImage(personId) {
@@ -937,7 +1253,7 @@ function getPersonCameraImage(personId) {
 function placePersonInfoPopup(anchor = {}) {
   if (!dom.personInfoPopup) return;
 
-  const width = 260;
+  const width = 306;
   const x = Number(anchor.x);
   const y = Number(anchor.y);
 
@@ -977,14 +1293,15 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const id = String(personId);
   const live = getPersonalLiveRecord(id, anchor);
   const nombre = getPersonName(person) || anchor.name || `Personal ${personId}`;
-  const assignedDevice = getAssignedDevice(person, personId, nombre) || {};
+  const assignedDevices = getAssignedDevices(person, personId, nombre);
+  const assignedDevice = assignedDevices[0] || {};
   const liveCoords = getPersonalEntityCoordinates(personId);
   const lat = firstValue(live.lat, liveCoords?.lat, person.latitud, person.lat);
   const lng = firstValue(live.lng, liveCoords?.lon, person.longitud, person.lng, person.lon);
   const velocidad = firstValue(live.velocidad, live.speed, live.velocidad_kmh, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
   const curso = firstValue(live.curso, live.heading, live.rumbo, person.curso, person.heading, person.rumbo, "-");
   const connectionStatus = getConnectionStatus(id, person, live);
-  const sidc = firstValue(person.sidc, person.codigo_sidc, "-");
+  const sidc = getPersonalSidc(person, live);
   const fc = firstValue(live.frecuencia_cardiaca_bpm, live.frecuencia_cardiaca, live.fc, live.heart_rate_bpm, live.heart_rate, person.frecuencia_cardiaca_bpm, person.frecuencia_cardiaca, person.fc, person.heart_rate_bpm, person.heart_rate, assignedDevice.frecuencia_cardiaca_bpm, assignedDevice.frecuencia_cardiaca, assignedDevice.fc, assignedDevice.heart_rate_bpm, assignedDevice.heart_rate, "-");
   const spo2 = firstValue(live.oxigenacion_spo2, live.spo2, live.oxigenacion, person.oxigenacion_spo2, person.spo2, person.oxigenacion, assignedDevice.oxigenacion_spo2, assignedDevice.spo2, assignedDevice.oxigenacion, "-");
   const temp = firstValue(live.temperatura_c, live.temperatura, live.temperature_c, person.temperatura_c, person.temperatura, person.temperature_c, "-");
@@ -993,20 +1310,14 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const bateria = formatBattery(firstValue(live.bateria_pct, live.bateria, live.battery, live.battery_level, person.bateria_pct, person.bateria, person.battery, person.battery_level, assignedDevice.bateria_pct, assignedDevice.bateria, assignedDevice.battery, assignedDevice.battery_level, assignedDevice.nivel_bateria));
   const actualizado = firstValue(live.signos_actualizacion, live.timestamp, person.signos_actualizacion, person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
   const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
-  const deviceName = [
-    assignedDevice.tipo,
-    assignedDevice.marca,
-    assignedDevice.modelo
-  ].filter(Boolean).join(" ") || assignedDevice.nombre || assignedDevice.name || "-";
-  const deviceCode = firstValue(
-    assignedDevice.numeroTelefono,
-    assignedDevice.numero_telefono,
-    assignedDevice.telefono,
-    assignedDevice.imei,
-    assignedDevice.numeroSerie,
-    assignedDevice.numero_serie,
-    "-"
-  );
+  const dispositivosHtml = assignedDevices.length
+    ? assignedDevices.map((device) => {
+      const code = getDeviceCodeValue(device);
+      return `<div class="personInfoDeviceLine">${escapeHtml(`${getDeviceDisplayName(device)} (${code})`)}</div>`;
+    }).join("")
+    : `<div class="personInfoDeviceLine muted">-</div>`;
+  const biometricSource = getBiometricSourceLabel(live, person, assignedDevices, assignedDevice);
+  const biometricTitle = biometricSource ? `Biometricos (${biometricSource})` : "Biometricos";
 
   dom.personInfoPopupContent.innerHTML = `
     <h3 class="personInfoTitle">${escapeHtml(nombre)}</h3>
@@ -1016,15 +1327,17 @@ export function showPersonnelDetail(personId, anchor = {}) {
       <div class="personInfoLabel">Vel:</div><div class="personInfoValue">${escapeHtml(String(velocidad))} km/h</div>
       <div class="personInfoLabel">Curso:</div><div class="personInfoValue">${escapeHtml(String(curso))}${String(curso) !== "-" ? "&deg;" : ""}</div>
       <div class="personInfoLabel">SIDC:</div><div class="personInfoValue">${escapeHtml(String(sidc))}</div>
-      <div class="personInfoLabel">Dispositivo:</div><div class="personInfoValue">${escapeHtml(String(deviceName))}</div>
-      <div class="personInfoLabel">ID disp.:</div><div class="personInfoValue">${escapeHtml(String(deviceCode))}</div>
+    </div>
+    <div class="personInfoDevices">
+      <div class="personInfoDeviceLabel">Dispositivos:</div>
+      <div class="personInfoDeviceList">${dispositivosHtml}</div>
     </div>
     <div class="personInfoStatus ${connectionStatus.online ? "online" : "offline"}">
       Estado <strong>${escapeHtml(connectionStatus.text)}</strong>
       <span>${escapeHtml(connectionStatus.detail)}</span>
     </div>
     <div class="personInfoBio">
-      <div class="personInfoBioTitle">Biometricos (Galaxy Watch)</div>
+      <div class="personInfoBioTitle">${escapeHtml(biometricTitle)}</div>
       <div class="personInfoGrid">
         <div class="personInfoLabel">FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}${String(fc) !== "-" ? " bpm" : ""}</div>
         <div class="personInfoLabel">SpO2:</div><div class="personInfoValue">${escapeHtml(String(spo2))}${String(spo2) !== "-" ? "%" : ""}</div>

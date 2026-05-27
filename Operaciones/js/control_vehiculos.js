@@ -128,7 +128,6 @@
   const modal = document.getElementById("modal");
   const modalTitle = document.getElementById("modalTitle");
   const btnCloseModal = document.getElementById("btnCloseModal");
-  const btnCancel = document.getElementById("btnCancel");
   const btnDeleteModal = document.getElementById("btnDeleteModal");
   const form = document.getElementById("form");
 
@@ -432,7 +431,6 @@
   }
 
   btnCloseModal?.addEventListener("click", closeModal);
-  btnCancel?.addEventListener("click", closeModal);
   btnDeleteModal?.addEventListener("click", () => btnDelete?.click());
 
   modal?.addEventListener("click", (e) => {

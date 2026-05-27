@@ -495,12 +495,158 @@ function getMilBillboardSize() {
   return 42;
 }
 
-function buildMilSidc() {
+const MIL_SYMBOL_CATALOG = [
+  { dimension: "G", group: "Tierra - Unidades", code: "U-----", label: "Unidad genérica" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCI---", label: "Infantería" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCD---", label: "Blindada / Tanques" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCA---", label: "Artillería" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCF---", label: "Defensa aérea" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCR---", label: "Reconocimiento / Exploración" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCJ---", label: "Ingenieros" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCO---", label: "Aviación" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCS---", label: "Comunicaciones / Señales" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCM---", label: "Médica" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCL---", label: "Logística / Abastecimiento" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCP---", label: "Policía / Seguridad" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCK---", label: "CBRN / Química" },
+  { dimension: "G", group: "Instalaciones", code: "IB----", label: "Base / Cuartel" },
+  { dimension: "G", group: "Instalaciones", code: "IP----", label: "Punto de control" },
+  { dimension: "G", group: "Instalaciones", code: "IR----", label: "Radar" },
+  { dimension: "A", group: "Aire", code: "MF----", label: "Aeronave militar" },
+  { dimension: "A", group: "Aire", code: "MFF---", label: "Ala fija" },
+  { dimension: "A", group: "Aire", code: "MFR---", label: "Ala rotatoria" },
+  { dimension: "A", group: "Aire", code: "MFQ---", label: "UAV / Drone" },
+  { dimension: "A", group: "Aire", code: "MFB---", label: "Bombardero" },
+  { dimension: "A", group: "Aire", code: "MFI---", label: "Caza" },
+  { dimension: "S", group: "Mar superficie", code: "C-----", label: "Combatiente" },
+  { dimension: "S", group: "Mar superficie", code: "CL----", label: "Buque de línea" },
+  { dimension: "S", group: "Mar superficie", code: "CLCV--", label: "Portaaviones" },
+  { dimension: "S", group: "Mar superficie", code: "CLDD--", label: "Destructor" },
+  { dimension: "S", group: "Mar superficie", code: "CLFF--", label: "Fragata / Corbeta" },
+  { dimension: "U", group: "Subsuperficie", code: "S-----", label: "Submarino" },
+  { dimension: "U", group: "Subsuperficie", code: "SC----", label: "Submarino convencional" },
+  { dimension: "U", group: "Subsuperficie", code: "SU----", label: "UUV / Vehículo submarino no tripulado" },
+  { dimension: "U", group: "Subsuperficie", code: "W-----", label: "Arma submarina" },
+  { dimension: "G", group: "Tierra - Equipo", code: "E-----", label: "Equipo genérico" },
+  { dimension: "G", group: "Tierra - Equipo", code: "EW----", label: "Arma" },
+  { dimension: "G", group: "Tierra - Equipo", code: "EV----", label: "Vehículo" },
+  { dimension: "G", group: "Tierra - Equipo", code: "EX----", label: "Equipo especial" }
+];
+
+const milSidcValidityCache = new Map();
+
+function buildMilSidcFromParts(identity, dimension, icon) {
+  const safeIdentity = identity || "F";
+  const safeDimension = dimension || "G";
+  const safeIcon = String(icon || "UCI---").padEnd(6, "-").slice(0, 6);
+
+  return `S${safeIdentity}${safeDimension}P${safeIcon}-----`;
+}
+
+function isMilSidcRenderable(sidc) {
+  if (milSidcValidityCache.has(sidc)) {
+    return milSidcValidityCache.get(sidc);
+  }
+
+  const symbol = getMilSymbolInstance(sidc, 64);
+  let isRenderable = !!symbol;
+
+  if (isRenderable && typeof symbol.isValid === "function") {
+    isRenderable = symbol.isValid() !== false;
+  }
+
+  if (isRenderable && typeof symbol.getMetadata === "function") {
+    const metadata = (() => {
+      try {
+        return symbol.getMetadata() || {};
+      } catch {
+        return {};
+      }
+    })();
+
+    if (metadata.valid === false || metadata.validIcon === false || metadata.validSIDC === false) {
+      isRenderable = false;
+    }
+  }
+
+  if (isRenderable && typeof symbol.asSVG === "function") {
+    const svg = (() => {
+      try {
+        return symbol.asSVG();
+      } catch {
+        return "";
+      }
+    })();
+
+    if (typeof svg === "string" && />\s*\?\s*</.test(svg)) {
+      isRenderable = false;
+    }
+  }
+
+  milSidcValidityCache.set(sidc, isRenderable);
+  return isRenderable;
+}
+
+function getMilOptionsForCurrentDimension() {
   const identity = dom.milIdentity?.value || "F";
   const dimension = dom.milDimension?.value || "G";
-  const icon = String(dom.milIcon?.value || "UCI---").padEnd(6, "-").slice(0, 6);
 
-  return `S${identity}${dimension}P${icon}-----`;
+  return MIL_SYMBOL_CATALOG
+    .filter(item => item.dimension === dimension)
+    .filter(item => isMilSidcRenderable(buildMilSidcFromParts(identity, item.dimension, item.code)));
+}
+
+function populateMilIconOptions() {
+  if (!dom.milIcon) return;
+
+  const previousValue = dom.milIcon.value;
+  const validOptions = getMilOptionsForCurrentDimension();
+  dom.milIcon.innerHTML = "";
+
+  if (!validOptions.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Sin símbolos válidos para esta dimensión";
+    option.disabled = true;
+    option.selected = true;
+    dom.milIcon.appendChild(option);
+    return;
+  }
+
+  const byGroup = new Map();
+  validOptions.forEach((item) => {
+    if (!byGroup.has(item.group)) byGroup.set(item.group, []);
+    byGroup.get(item.group).push(item);
+  });
+
+  byGroup.forEach((items, groupName) => {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = groupName;
+
+    items.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.code;
+      option.textContent = item.label;
+      option.dataset.dimension = item.dimension;
+      optgroup.appendChild(option);
+    });
+
+    dom.milIcon.appendChild(optgroup);
+  });
+
+  const stillExists = validOptions.some(item => item.code === previousValue);
+  dom.milIcon.value = stillExists ? previousValue : validOptions[0].code;
+}
+
+function buildMilSidc() {
+  const identity = dom.milIdentity?.value || "F";
+  const selectedOption = dom.milIcon?.selectedOptions?.[0];
+  const dimension = selectedOption?.dataset.dimension || dom.milDimension?.value || "G";
+  const icon = dom.milIcon?.value || "";
+
+  if (!icon) return "";
+
+  return buildMilSidcFromParts(identity, dimension, icon);
 }
 
 function buildPoiEntity(poi, tacticalType = "poi") {
@@ -1213,6 +1359,17 @@ export function getCurrentColorName() {
   return dom.colorSelect?.value || "red";
 }
 
+function updateTacticalControlReadouts() {
+  if (dom.opacityValue && dom.opacityRange) {
+    const opacity = Number(dom.opacityRange.value || 0);
+    dom.opacityValue.textContent = `${Math.round(opacity * 100)}%`;
+  }
+
+  if (dom.widthValue && dom.widthRange) {
+    dom.widthValue.textContent = `${Number(dom.widthRange.value || 0)} px`;
+  }
+}
+
 export function toCartesianArray(points) {
   return points.map(p => Cesium.Cartesian3.fromDegrees(p.lng, p.lat));
 }
@@ -1352,16 +1509,23 @@ export function setTacticalUI() {
   const isEraser = dashboardState.drawingMode === "eraser";
   const isDrawingTool = isPencil;
   const isBuilding = dashboardState.toolMode === "building";
+  const isLabel = dashboardState.toolMode === "label";
   const isGrid = dashboardState.toolMode === "grid";
-  const usesPlaceOnly = ["poi", "mil", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter", "building"].includes(dashboardState.toolMode);
+  const isCircle = dashboardState.toolMode === "circle";
+  const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
   const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
+  const showsFinishShapeAction = ["polygon", "polyline"].includes(dashboardState.toolMode) || dashboardState.areaDrawing;
   const showCancelButton = !isGrid && !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
   const showLabelInput = !isGrid && needsLabel && !isMil && !isDrawingTool;
-  const showColorInput = !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
-  const showOpacityInput = !isGrid && !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
-  const showWidthInput = !isGrid && !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
+  const showColorInput = !isBuilding && !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
+  const showOpacityInput = !isBuilding && !isLabel && isToolActive && !isGrid && !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
+  const showWidthInput = !isBuilding && !isLabel && !isGrid && !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
+
+  if (dom.tacticalPanel) {
+    dom.tacticalPanel.classList.toggle("has-active-tool", isToolActive);
+    dom.tacticalPanel.classList.toggle("is-circle-tool", isCircle);
+  }
 
   const milTitle = document.getElementById("milSymbolTitle");
   if (milTitle) milTitle.style.display = isMil ? "block" : "none";
@@ -1388,9 +1552,9 @@ export function setTacticalUI() {
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
-  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = "grid";
+  updateTacticalControlReadouts();
+  if (dom.tacticalActionButtons) dom.tacticalActionButtons.style.display = showsFinishShapeAction ? "grid" : "none";
   if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
-  if (dom.finishShape) dom.finishShape.style.display = "";
   if (dom.clearTactical) {
     dom.clearTactical.style.display = "";
     dom.clearTactical.disabled = !isPlanningOperation;
@@ -1405,16 +1569,26 @@ export function setTacticalUI() {
     dom.radiusContainer.style.display = needsRadius ? "block" : "none";
   }
 
-  if (isMil) updateMilSymbolPreview();
-
-  if (dom.placeBtn) {
-    dom.placeBtn.disabled = !isToolActive || isMil || isDrawingTool || isGrid;
-    dom.placeBtn.style.display = "";
-    dom.placeBtn.textContent = usesPlaceOnly
-      ? "Colocar"
-      : "Colocar / iniciar";
+  if (isMil) {
+    populateMilIconOptions();
+    updateMilSymbolPreview();
   }
-  if (dom.finishShape) dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
+
+  const finishActionLabels = {
+    polygon: "Terminar polígono",
+    polyline: "Terminar ruta",
+    perimeter: "Terminar perímetro"
+  };
+
+  if (dom.finishShape) {
+    const minPoints = dashboardState.toolMode === "polygon" ? 3 : 2;
+    const canFinishShape = dashboardState.areaDrawing || (isMultiPoint && dashboardState.placingMode && dashboardState.drawingPoints.length >= minPoints);
+    dom.finishShape.style.display = showsFinishShapeAction ? "" : "none";
+    dom.finishShape.textContent = dashboardState.areaDrawing
+      ? "Terminar área"
+      : (finishActionLabels[dashboardState.toolMode] || "Terminar figura");
+    dom.finishShape.disabled = !canFinishShape;
+  }
 
   const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
   if (dom.operationZoneControls) dom.operationZoneControls.style.display = isPlanningOperation ? "" : "none";
@@ -1452,7 +1626,9 @@ export async function createPoi(lat, lng, iconPath = null) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
-  const label = getCurrentLabel() || (dashboardState.toolMode === "building" ? "Edificio" : "Punto de interés");
+  const label = dashboardState.toolMode === "building"
+    ? "Edificio"
+    : (getCurrentLabel() || "Punto de interés");
   const color = getCesiumColor(getCurrentColorName(), 1);
 
   if (dashboardState.toolMode === "poi") {
@@ -1557,6 +1733,18 @@ export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08, 
     addTacticalEntity(ent);
     if (dom.tbHint) dom.tbHint.textContent = `${nombre} colocado.`;
   }
+}
+
+function getCurrentMilPlacement() {
+  const sidc = buildMilSidc();
+  if (!sidc || !isMilSidcRenderable(sidc)) return null;
+
+  return {
+    sidc,
+    title: dom.milIcon?.selectedOptions?.[0]?.textContent
+      || dom.milPreviewContainer?.dataset.title
+      || "Simbolo MIL"
+  };
 }
 
 export async function createLabel(lat, lng) {
@@ -1866,11 +2054,36 @@ export function handleTacticalPlacement(lat, lng) {
   if (!viewer) return false;
 
   if (!dashboardState.placingMode || dashboardState.toolMode === "none") return false;
-  if (dashboardState.toolMode === "mil") return false;
+
+  if (dashboardState.toolMode === "mil") {
+    const mil = getCurrentMilPlacement();
+    if (!mil) {
+      if (dom.tbHint) dom.tbHint.textContent = "Selecciona un simbolo MIL valido.";
+      return true;
+    }
+
+    createMilSymbol(lat, lng, mil.title, null, 1, mil.sidc);
+    dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
+    setTacticalUI();
+    return true;
+  }
+
+  if (dashboardState.toolMode === "grid") {
+    generateGrid();
+    dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
+    setTacticalUI();
+    return true;
+  }
 
   if (dashboardState.toolMode === "poi") {
     createPoi(lat, lng);
     dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
@@ -1878,6 +2091,8 @@ export function handleTacticalPlacement(lat, lng) {
   if (dashboardState.toolMode === "building") {
     createPoi(lat, lng, "img/estructuras/casa.png");
     dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
@@ -1885,6 +2100,8 @@ export function handleTacticalPlacement(lat, lng) {
   if (dashboardState.toolMode === "label") {
     createLabel(lat, lng);
     dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
@@ -1892,6 +2109,8 @@ export function handleTacticalPlacement(lat, lng) {
   if (dashboardState.toolMode === "circle") {
     createCircle(lat, lng);
     dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
@@ -1915,6 +2134,7 @@ export function handleTacticalPlacement(lat, lng) {
     if (dom.tbHint) {
       dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
     }
+    setTacticalUI();
     return true;
   }
 
@@ -3009,6 +3229,48 @@ export function bindTacticalEvents() {
         startPencilMode();
       }
 
+      if (newMode === "poi") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar el punto de interes.";
+      }
+
+      if (newMode === "mil") {
+        dashboardState.placingMode = true;
+        populateMilIconOptions();
+        updateMilSymbolPreview();
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar el simbolo MIL.";
+      }
+
+      if (newMode === "circle") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar el circulo de cobertura.";
+      }
+
+      if (newMode === "label") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar la etiqueta.";
+      }
+
+      if (newMode === "building") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar la estructura.";
+      }
+
+      if (newMode === "grid") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para generar la cuadricula.";
+      }
+
+      if (newMode === "polygon") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Marca puntos en el mapa y usa Terminar figura al finalizar.";
+      }
+
+      if (newMode === "polyline") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Marca la ruta en el mapa y usa Terminar figura al finalizar.";
+      }
+
       setTacticalUI();
     });
   }
@@ -3052,26 +3314,6 @@ export function bindTacticalEvents() {
       }
 
       setTacticalUI();
-    });
-  }
-
-  if (dom.placeBtn) {
-    dom.placeBtn.addEventListener("click", () => {
-      if (dashboardState.toolMode === "mil") return;
-
-      const canToggleCancelFromPlace = ["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
-      if (dashboardState.placingMode && canToggleCancelFromPlace) {
-        resetDrawingState();
-        if (dom.tbHint) dom.tbHint.textContent = "Accion cancelada.";
-        setTacticalUI();
-        return;
-      }
-
-      dashboardState.placingMode = true;
-      dashboardState.drawingPoints = [];
-      if (dom.tbHint) {
-        dom.tbHint.textContent = "Modo activo. Usa el mapa para colocar elementos.";
-      }
     });
   }
 
@@ -3197,8 +3439,28 @@ export function bindTacticalEvents() {
     });
   }
 
-  if (dom.milIdentity) dom.milIdentity.addEventListener("change", updateMilSymbolPreview);
-  if (dom.milDimension) dom.milDimension.addEventListener("change", updateMilSymbolPreview);
+  [dom.opacityRange, dom.widthRange]
+    .filter(Boolean)
+    .forEach((control) => {
+      control.addEventListener("input", updateTacticalControlReadouts);
+      control.addEventListener("change", updateTacticalControlReadouts);
+    });
+  updateTacticalControlReadouts();
+
+  populateMilIconOptions();
+
+  if (dom.milIdentity) {
+    dom.milIdentity.addEventListener("change", () => {
+      populateMilIconOptions();
+      updateMilSymbolPreview();
+    });
+  }
+  if (dom.milDimension) {
+    dom.milDimension.addEventListener("change", () => {
+      populateMilIconOptions();
+      updateMilSymbolPreview();
+    });
+  }
   if (dom.milIcon) dom.milIcon.addEventListener("change", updateMilSymbolPreview);
 
   if (dom.milPreviewContainer) {
@@ -3230,13 +3492,23 @@ export function updateMilSymbolPreview() {
   if (!dom.milPreviewContainer) return;
   const sidc = buildMilSidc();
 
-  if (!sidc) return;
+  if (!sidc) {
+    dom.milPreviewContainer.innerHTML = '<span style="font-size:11px;color:#a0c4ff;font-weight:700;text-align:center;">Sin símbolo válido</span>';
+    delete dom.milPreviewContainer.dataset.sidc;
+    delete dom.milPreviewContainer.dataset.title;
+    return;
+  }
 
   const canvas = renderMilSymbolImage(sidc, 130);
-  if (!canvas) return;
+  if (!canvas || !isMilSidcRenderable(sidc)) {
+    dom.milPreviewContainer.innerHTML = '<span style="font-size:11px;color:#a0c4ff;font-weight:700;text-align:center;">SIDC no soportado</span>';
+    delete dom.milPreviewContainer.dataset.sidc;
+    delete dom.milPreviewContainer.dataset.title;
+    return;
+  }
 
   dom.milPreviewContainer.innerHTML = "";
   dom.milPreviewContainer.appendChild(canvas);
   dom.milPreviewContainer.dataset.sidc = sidc;
-  dom.milPreviewContainer.dataset.title = dom.milIcon.options[dom.milIcon.selectedIndex].text;
+  dom.milPreviewContainer.dataset.title = dom.milIcon?.selectedOptions?.[0]?.text || "Símbolo MIL";
 }
