@@ -25,7 +25,8 @@ export async function ensurePersonalMotionTrackingSchema() {
       END IF;
     END $$;
 
-    CREATE OR REPLACE VIEW v_ultima_posicion_personal AS
+    DROP VIEW IF EXISTS v_ultima_posicion_personal;
+    CREATE VIEW v_ultima_posicion_personal AS
     SELECT DISTINCT ON (tp.id_operacion, tp.id_personal)
       tp.id_operacion,
       tp.id_personal,
@@ -158,7 +159,8 @@ export async function ensureExtendedTrackingSchema() {
     BEGIN
       IF to_regclass('public.v_ultimos_signos_vitales_personal') IS NOT NULL THEN
         EXECUTE $view$
-          CREATE OR REPLACE VIEW v_ultima_posicion_personal AS
+          DROP VIEW IF EXISTS v_ultima_posicion_personal;
+          CREATE VIEW v_ultima_posicion_personal AS
           SELECT DISTINCT ON (tp.id_operacion, tp.id_personal)
             tp.id_operacion,
             tp.id_personal,
@@ -167,6 +169,8 @@ export async function ensureExtendedTrackingSchema() {
             tp.latitud,
             tp.longitud,
             tp.altitud,
+            tp.velocidad_kmh,
+            tp.rumbo_grados,
             tp.precision_m,
             tp."timestamp" AS ultima_actualizacion,
             tp.estado_operacion_creacion,
@@ -186,9 +190,7 @@ export async function ensureExtendedTrackingSchema() {
             sv.baro,
             sv.bateria_pct,
             sv.bateria,
-            sv.signos_actualizacion,
-            tp.velocidad_kmh,
-            tp.rumbo_grados
+            sv.signos_actualizacion
           FROM tracking_personal tp
           JOIN personal p ON p.id_personal = tp.id_personal
           LEFT JOIN v_ultimos_signos_vitales_personal sv
