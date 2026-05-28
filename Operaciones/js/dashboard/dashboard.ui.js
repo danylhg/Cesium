@@ -888,6 +888,15 @@ function formatBattery(value) {
   return text.endsWith("%") ? text : `${text}%`;
 }
 
+function normalizeDegrees(value) {
+  const raw = firstValue(value);
+  if (raw == null || raw === "-") return "-";
+  const num = Number(String(raw).replace("°", "").trim());
+  if (!Number.isFinite(num)) return raw;
+  const normalized = ((num % 360) + 360) % 360;
+  return Number.isInteger(normalized) ? String(normalized) : normalized.toFixed(1);
+}
+
 function parseTimestamp(value) {
   if (value == null || value === "") return null;
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -920,6 +929,23 @@ function getPersonalLiveRecord(personId, anchor = {}) {
       stored.timestamp,
       stored.updated_at,
       history.time
+    ),
+    rumbo_grados: firstValue(
+      anchor.rumbo_grados,
+      anchor.rumboGrados,
+      anchor.headingDegrees,
+      anchor.heading,
+      anchor.bearing,
+      liveData.rumbo_grados,
+      liveData.rumboGrados,
+      liveData.headingDegrees,
+      liveData.heading,
+      liveData.bearing,
+      stored.rumbo_grados,
+      stored.rumboGrados,
+      stored.headingDegrees,
+      stored.heading,
+      stored.bearing
     )
   };
 }
@@ -1076,15 +1102,15 @@ function getDeviceCompactName(device = {}) {
 
 function getDeviceCodeValue(device = {}) {
   return firstValue(
-    device.numeroTelefono,
-    device.numero_telefono,
-    device.telefono,
-    device.phone,
-    device.imei,
     device.numeroSerie,
     device.numero_serie,
     device.serial,
-    device.serial_dispositivo
+    device.serial_dispositivo,
+    device.imei,
+    device.numeroTelefono,
+    device.numero_telefono,
+    device.telefono,
+    device.phone
   ) || "Sin identificador";
 }
 
@@ -1299,7 +1325,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const lat = firstValue(live.lat, liveCoords?.lat, person.latitud, person.lat);
   const lng = firstValue(live.lng, liveCoords?.lon, person.longitud, person.lng, person.lon);
   const velocidad = firstValue(live.velocidad, live.speed, live.velocidad_kmh, person.velocidad, person.speed, person.velocidad_kmh, "0.00");
-  const curso = firstValue(live.curso, live.heading, live.rumbo, live.rumbo_grados, person.curso, person.heading, person.rumbo, person.rumbo_grados, "-");
+  const curso = normalizeDegrees(firstValue(live.curso, live.rumbo_grados, live.rumboGrados, live.headingDegrees, live.heading, live.bearing, live.rumbo, person.curso, person.rumbo_grados, person.rumboGrados, person.headingDegrees, person.heading, person.bearing, person.rumbo, "-"));
   const connectionStatus = getConnectionStatus(id, person, live);
   const sidc = getPersonalSidc(person, live);
   const fc = firstValue(live.frecuencia_cardiaca_bpm, live.frecuencia_cardiaca, live.fc, live.heart_rate_bpm, live.heart_rate, person.frecuencia_cardiaca_bpm, person.frecuencia_cardiaca, person.fc, person.heart_rate_bpm, person.heart_rate, assignedDevice.frecuencia_cardiaca_bpm, assignedDevice.frecuencia_cardiaca, assignedDevice.fc, assignedDevice.heart_rate_bpm, assignedDevice.heart_rate, "-");

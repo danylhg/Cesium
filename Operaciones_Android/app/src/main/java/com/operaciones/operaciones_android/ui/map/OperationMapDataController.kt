@@ -483,7 +483,19 @@ class OperationMapDataController(
                 append(lon)
                 append(",'")
                 append(jsString(label))
-                append("');")
+                append("',")
+                append(
+                    JSONObject()
+                        .put("rol", person.rol)
+                        .put("nombre", person.nombre)
+                        .put("apellido", person.apellido)
+                        .put("apodo", person.apodo)
+                        .put("grupoNombre", person.grupoNombre)
+                        .put("grupoApodo", person.grupoApodo)
+                        .put("cetNombre", person.cetNombre)
+                        .toString()
+                )
+                append(");")
             }
             vehiculos.forEach { vehiculo ->
                 val lat = vehiculo.lat ?: return@forEach
@@ -499,7 +511,17 @@ class OperationMapDataController(
                 append(lon)
                 append(",'")
                 append(jsString(label))
-                append("');")
+                append("',")
+                append(
+                    JSONObject()
+                        .put("tipo", vehiculo.tipo)
+                        .put("nombre", vehiculo.nombre)
+                        .put("alias", vehiculo.alias)
+                        .put("codigo_interno", vehiculo.codigoInterno)
+                        .put("detalle", vehiculo.detalle)
+                        .toString()
+                )
+                append(");")
             }
             append("})();")
         }

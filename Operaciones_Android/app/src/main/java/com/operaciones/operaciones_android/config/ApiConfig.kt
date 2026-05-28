@@ -12,7 +12,7 @@ object ApiConfig {
     private const val DEFAULT_HLS_PORT = 3000
     private const val DEFAULT_FFMPEG_HLS_PATH = "/Operaciones/runtime/ffmpeg-streams"
 
-    const val DEFAULT_BASE_URL = "http://192.168.202.103:3001"
+    const val DEFAULT_BASE_URL = "http://192.168.100.12:3001"
 
     var BASE_URL: String = DEFAULT_BASE_URL
         private set

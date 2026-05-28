@@ -40,6 +40,13 @@ function buildMilSidc(identity = "F", dimension = "G", icon = "U-----") {
   return `S${identity}${dimension}P${safeIcon}-----`;
 }
 
+function getFallbackMilSidc(tacticalType = "personal") {
+  if (tacticalType === "vehiculo") return buildMilSidc("F", "G", "EV----");
+  if (tacticalType === "equipo") return buildMilSidc("F", "G", "E-----");
+  if (tacticalType === "dispositivo") return buildMilSidc("F", "G", "UCS---");
+  return buildMilSidc("F", "G", "U-----");
+}
+
 function resolveTrackingMilSymbol(tacticalType, item = {}) {
   const providedSidc = item.sidc || item.codigo_sidc || item.mil_sidc;
   if (providedSidc) return String(providedSidc);
@@ -63,7 +70,7 @@ function resolveTrackingMilSymbol(tacticalType, item = {}) {
   if (tacticalType === "vehiculo") {
     if (textIncludes(text, "AMBULANC", "MEDIC")) return buildMilSidc("F", "G", "UCM---");
     if (textIncludes(text, "BLIND", "TANQUE", "ARMORED")) return buildMilSidc("F", "G", "UCD---");
-    if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCP---");
+    if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
     return buildMilSidc("F", "G", "EV----");
   }
 
@@ -84,11 +91,13 @@ function resolveTrackingMilSymbol(tacticalType, item = {}) {
   }
 
   if (tacticalType === "personal") {
-    if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "U-----");
-    return buildMilSidc("F", "G", "UCP---");
+    if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "UH----");
+    if (textIncludes(text, "CELL", "CELULA")) return buildMilSidc("F", "G", "UCI---");
+    if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+    return buildMilSidc("F", "G", "U-----");
   }
 
-  return buildMilSidc("F", "G", "U-----");
+  return getFallbackMilSidc(tacticalType);
 }
 
 function renderMilSymbol(sidc) {
@@ -133,26 +142,23 @@ function makeTrackingBillboard(image) {
   });
 }
 
-function makeTrackingPoint(color) {
-  return new Cesium.PointGraphics({
-    pixelSize: 10,
-    color: color.withAlpha(0.18),
-    outlineColor: Cesium.Color.BLACK,
-    outlineWidth: 3,
-    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-    disableDepthTestDistance: Number.POSITIVE_INFINITY,
-    scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-  });
-}
+function getTrackingMarker(meta) {
+  const tacticalType = meta.tacticalType || "personal";
+  const sidc = resolveTrackingMilSymbol(tacticalType, meta.liveData || {});
+  const fallbackSidc = getFallbackMilSidc(tacticalType);
+  let image = renderMilSymbol(sidc);
+  let renderedSidc = sidc;
 
-function getTrackingMarker(meta, color) {
-  const sidc = resolveTrackingMilSymbol(meta.tacticalType || "personal", meta.liveData || {});
-  const image = renderMilSymbol(sidc);
+  if (!image && sidc !== fallbackSidc) {
+    image = renderMilSymbol(fallbackSidc);
+    if (image) renderedSidc = fallbackSidc;
+  }
+
   return {
-    sidc,
+    sidc: renderedSidc,
     billboard: image ? makeTrackingBillboard(image) : undefined,
-    point: image ? undefined : makeTrackingPoint(color),
-    labelOffset: image ? new Cesium.Cartesian2(0, 17) : new Cesium.Cartesian2(0, -18)
+    point: undefined,
+    labelOffset: new Cesium.Cartesian2(0, 17)
   };
 }
 
@@ -253,7 +259,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
   if (!viewer) return;
 
   const position = Cesium.Cartesian3.fromDegrees(Number(lng), Number(lat));
-  const marker = getTrackingMarker(meta, color);
+  const marker = getTrackingMarker(meta);
 
   if (dashboardState.trackingEntities.has(key)) {
     // Mover y refrescar estilo/etiqueta si ya existe
@@ -344,7 +350,8 @@ export async function loadTrackingFromBackend() {
       const label = makePersonalLabel(p);
       upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_PERSONAL, {
         tacticalType: "personal",
-        trackingRole: p.rol_en_operacion || p.rol || ""
+        trackingRole: p.rol_en_operacion || p.rol || "",
+        liveData: p
       });
     });
 
@@ -355,7 +362,9 @@ export async function loadTrackingFromBackend() {
       const key = `V:${v.id_vehiculo}`;
       const label = makeVehiculoLabel(v);
       upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_VEHICULO, {
-        tacticalType: "vehiculo"
+        tacticalType: "vehiculo",
+        trackingRole: v.tipo || "",
+        liveData: v
       });
     });
 

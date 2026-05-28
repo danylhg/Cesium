@@ -1,6 +1,8 @@
 package com.operaciones.operaciones_android.ui
 import com.operaciones.operaciones_android.config.ApiConfig
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
@@ -19,6 +21,8 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -32,6 +36,9 @@ import com.operaciones.operaciones_android.model.UserRole
 import com.operaciones.operaciones_android.R
 
 class LoginActivity : AppCompatActivity() {
+    companion object {
+        private const val PHONE_STATE_PERMISSION_REQUEST = 202
+    }
 
     private lateinit var inputUsername: EditText
     private lateinit var inputPassword: EditText
@@ -47,6 +54,7 @@ class LoginActivity : AppCompatActivity() {
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var loadingTextRunnable: Runnable? = null
     private var dotCount = 0
+    private var requestedPhoneStatePermission = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -90,6 +98,16 @@ class LoginActivity : AppCompatActivity() {
 
         if (username.isEmpty() || password.isEmpty()) {
             showError("Ingresa tu usuario y contraseña.")
+            return
+        }
+
+        if (shouldRequestPhoneStatePermission()) {
+            requestedPhoneStatePermission = true
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.READ_PHONE_STATE),
+                PHONE_STATE_PERMISSION_REQUEST
+            )
             return
         }
 
@@ -149,18 +167,62 @@ class LoginActivity : AppCompatActivity() {
         })
     }
 
+    private fun shouldRequestPhoneStatePermission(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !requestedPhoneStatePermission &&
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_PHONE_STATE
+            ) != PackageManager.PERMISSION_GRANTED
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PHONE_STATE_PERMISSION_REQUEST) {
+            attemptLogin()
+        }
+    }
+
     private fun buildDevicePayload(): JSONObject {
         val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID).orEmpty()
+        val serialNumber = readDeviceSerial()
         return JSONObject().apply {
             put("plataforma", "ANDROID")
             put("identificador_app", androidId)
             put("android_id", androidId)
+            put("numero_serie", serialNumber)
+            put("serial", serialNumber)
             put("fabricante", Build.MANUFACTURER.orEmpty())
             put("marca", Build.BRAND.orEmpty())
             put("modelo", Build.MODEL.orEmpty())
             put("dispositivo", Build.DEVICE.orEmpty())
             put("producto", Build.PRODUCT.orEmpty())
             put("sdk_int", Build.VERSION.SDK_INT)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readDeviceSerial(): String {
+        return try {
+            val serial = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val phoneStateGranted = ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.READ_PHONE_STATE
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (phoneStateGranted) Build.getSerial() else ""
+            } else {
+                Build.SERIAL
+            }
+
+            serial.takeUnless { it.isNullOrBlank() || it.equals("unknown", ignoreCase = true) }.orEmpty()
+        } catch (_: SecurityException) {
+            ""
+        } catch (_: Exception) {
+            ""
         }
     }
 

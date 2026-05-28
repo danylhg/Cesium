@@ -72,6 +72,28 @@ async function ensureLoginDeviceSchema() {
   loginDeviceSchemaReady = true;
 }
 
+async function findAssignedLoginDevices(idPersonal) {
+  const { rows } = await pool.query(
+    `SELECT d.id_dispositivo, d.tipo, d.marca, d.modelo, d.numero_telefono,
+            d.imei, d.numero_serie, d.identificador_app, d.estado,
+            od.id_operacion, od.id_personal,
+            o.nombre AS operacion_nombre, o.estado AS operacion_estado
+       FROM operacion_dispositivo od
+       JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
+       JOIN operacion o ON o.id_operacion = od.id_operacion
+      WHERE od.id_personal = $1
+        AND od.estado_asignacion = 'ASIGNADO'
+        AND od.fecha_devolucion IS NULL
+        AND o.estado IN ('ACTIVA', 'PLANIFICADA')
+        AND d.estado NOT IN ('BAJA', 'MANTENIMIENTO')
+      ORDER BY
+        CASE o.estado WHEN 'ACTIVA' THEN 1 WHEN 'PLANIFICADA' THEN 2 ELSE 3 END,
+        od.fecha_asignacion DESC`,
+    [idPersonal]
+  );
+  return rows;
+}
+
 async function validatePersonalDeviceAccess(row, req) {
   const rol = String(row.rol || "").trim().toUpperCase();
   if (!MOBILE_LOGIN_ROLES.has(rol)) return null;
@@ -118,6 +140,40 @@ async function validatePersonalDeviceAccess(row, req) {
 
   const dispositivo = deviceRows[0];
   if (!dispositivo) {
+    const assigned = await findAssignedLoginDevices(row.id);
+    if (assigned.length === 1 && identifiers.length > 0 && !cleanDeviceIdentifier(assigned[0].identificador_app)) {
+      const identificadorApp = identifiers[0];
+      const { rows: updatedRows } = await pool.query(
+        `UPDATE dispositivo
+            SET identificador_app = $1
+          WHERE id_dispositivo = $2
+          RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono,
+                    imei, numero_serie, identificador_app, estado`,
+        [identificadorApp, assigned[0].id_dispositivo]
+      );
+
+      return {
+        ok: true,
+        dispositivo: updatedRows[0],
+        asignacion: {
+          id_operacion: assigned[0].id_operacion,
+          id_personal: assigned[0].id_personal,
+          operacion_nombre: assigned[0].operacion_nombre,
+          operacion_estado: assigned[0].operacion_estado,
+        },
+      };
+    }
+
+    if (assigned.length > 1) {
+      return {
+        ok: false,
+        status: 403,
+        codigo: "DISPOSITIVO_AMBIGUO",
+        mensaje: "Este usuario tiene varios dispositivos asignados. Captura el ID app en el dispositivo correcto desde Control de dispositivos.",
+        identificador_app: identifiers[0] || null,
+      };
+    }
+
     return {
       ok: false,
       status: 403,

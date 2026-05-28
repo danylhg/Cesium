@@ -61,6 +61,7 @@
     let tacticalRoutes = new Map();
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
+    const trackingEquipoEntities = new Map();
     const emergencyPulseEntities = new Map();
     let selectedTrackingPersonalId = null;
     let followedTrackingPersonalId = null;
@@ -70,7 +71,13 @@
     const FOLLOW_TRACKING_ZOOM = 500;
     const TRACKING_PERSONAL_COLOR = Cesium.Color.fromCssColorString("#00BFFF");
     const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
+    const TRACKING_VEHICULO_COLOR = Cesium.Color.fromCssColorString("#FFD700");
+    const TRACKING_EQUIPO_COLOR = Cesium.Color.fromCssColorString("#B4FF39");
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
+    const TRACKING_SYMBOL_SIZE = 42;
+    const TRACKING_SYMBOL_RENDER_SIZE = 160;
+    const TRACKING_SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
+    const trackingSymbolImageCache = new Map();
     const EMERGENCY_PULSE_COLORS = [
       Cesium.Color.fromCssColorString("#FF1D25"),
       Cesium.Color.fromCssColorString("#FFD400"),
@@ -541,15 +548,15 @@
         if (!viewer) return;
         if (userMarker) viewer.entities.remove(userMarker);
 
+        const marker = getTrackingMilMarker({ kind: "personal", tacticalType: "personal" }, "Mi ubicacion");
         userMarker = viewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(lon, lat),
-          point: {
-            pixelSize: 10,
-            color: Cesium.Color.LIME.withAlpha(0.15),
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 3,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
+          billboard: marker.billboard,
+          properties: {
+            trackingKind: "personal",
+            trackingKey: "SELF",
+            tacticalType: "personal",
+            trackingSidc: marker.sidc || ""
           }
         });
 
@@ -561,14 +568,139 @@
       }
     };
 
+    function normalizeTrackingText(value) {
+      return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toUpperCase();
+    }
+
+    function textIncludes(text) {
+      const needles = Array.prototype.slice.call(arguments, 1);
+      return needles.some(function (needle) { return text.indexOf(needle) >= 0; });
+    }
+
+    function buildMilSidc(identity, dimension, icon) {
+      const safeIdentity = String(identity || "F").slice(0, 1);
+      const safeDimension = String(dimension || "G").slice(0, 1);
+      const safeIcon = String(icon || "U-----").padEnd(6, "-").slice(0, 6);
+      return "S" + safeIdentity + safeDimension + "P" + safeIcon + "-----";
+    }
+
+    function getFallbackTrackingSidc(kind) {
+      if (kind === "vehiculo") return buildMilSidc("F", "G", "EV----");
+      if (kind === "equipo") return buildMilSidc("F", "G", "E-----");
+      return buildMilSidc("F", "G", "U-----");
+    }
+
+    function resolveTrackingMilSymbol(options, label) {
+      options = options || {};
+      const kind = options.tacticalType || options.kind || "personal";
+      const providedSidc = options.sidc || options.codigo_sidc || options.mil_sidc;
+      if (providedSidc) return String(providedSidc);
+
+      const text = normalizeTrackingText([
+        kind,
+        label,
+        options.rol,
+        options.rol_en_operacion,
+        options.role,
+        options.tipo,
+        options.tipo_equipo,
+        options.categoria,
+        options.nombre,
+        options.alias,
+        options.codigo_interno,
+        options.modelo,
+        options.marca
+      ].filter(Boolean).join(" "));
+
+      if (kind === "vehiculo") {
+        if (textIncludes(text, "AMBULANC", "MEDIC")) return buildMilSidc("F", "G", "UCM---");
+        if (textIncludes(text, "BLIND", "TANQUE", "ARMORED")) return buildMilSidc("F", "G", "UCD---");
+        if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+        return buildMilSidc("F", "G", "EV----");
+      }
+
+      if (kind === "equipo") {
+        if (textIncludes(text, "DRON", "DRONE", "UAV", "MATRICE")) return buildMilSidc("F", "A", "MFQ---");
+        if (textIncludes(text, "RADIO", "COMUNIC", "SENAL", "SIGNAL")) return buildMilSidc("F", "G", "UCS---");
+        if (textIncludes(text, "ARMA", "RIFLE", "PISTOLA", "FUSIL")) return buildMilSidc("F", "G", "EW----");
+        if (textIncludes(text, "CAMARA", "SENSOR", "TACTICO")) return buildMilSidc("F", "G", "EX----");
+        return buildMilSidc("F", "G", "E-----");
+      }
+
+      if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "UH----");
+      if (textIncludes(text, "CELL", "CELULA")) return buildMilSidc("F", "G", "UCI---");
+      if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+      return buildMilSidc("F", "G", "U-----");
+    }
+
+    function renderTrackingMilSymbol(sidc) {
+      if (!sidc || typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
+      if (trackingSymbolImageCache.has(sidc)) return trackingSymbolImageCache.get(sidc);
+
+      try {
+        const symbol = new ms.Symbol(sidc, {
+          size: TRACKING_SYMBOL_RENDER_SIZE,
+          colorMode: "Light"
+        });
+
+        if (typeof symbol.isValid === "function" && symbol.isValid() === false) {
+          trackingSymbolImageCache.set(sidc, null);
+          return null;
+        }
+
+        if (typeof symbol.asSVG === "function" && />\s*\?\s*</.test(symbol.asSVG())) {
+          trackingSymbolImageCache.set(sidc, null);
+          return null;
+        }
+
+        const image = symbol.asCanvas();
+        trackingSymbolImageCache.set(sidc, image);
+        return image;
+      } catch (e) {
+        console.warn("[TRACKING] No se pudo generar simbolo MIL:", sidc, e);
+        trackingSymbolImageCache.set(sidc, null);
+        return null;
+      }
+    }
+
+    function getTrackingMilMarker(options, label) {
+      const kind = (options && (options.tacticalType || options.kind)) || "personal";
+      const sidc = resolveTrackingMilSymbol(options, label);
+      const fallbackSidc = getFallbackTrackingSidc(kind);
+      let image = renderTrackingMilSymbol(sidc);
+      let renderedSidc = sidc;
+
+      if (!image && sidc !== fallbackSidc) {
+        image = renderTrackingMilSymbol(fallbackSidc);
+        if (image) renderedSidc = fallbackSidc;
+      }
+
+      return {
+        sidc: renderedSidc,
+        billboard: image ? {
+          image,
+          width: TRACKING_SYMBOL_SIZE,
+          height: TRACKING_SYMBOL_SIZE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: TRACKING_SYMBOL_SCALE_BY_DIST
+        } : undefined,
+        labelOffset: new Cesium.Cartesian2(0, 17)
+      };
+    }
+
     function applyPersonalTrackingStyle(entity, selected) {
-      if (!entity || !entity.point) return;
+      if (!entity) return;
 
       const markerColor = selected ? TRACKING_PERSONAL_SELECTED_COLOR : TRACKING_PERSONAL_COLOR;
-      entity.point.pixelSize = selected ? 16 : 12;
-      entity.point.color = markerColor.withAlpha(selected ? 0.9 : 0.35);
-      entity.point.outlineColor = TRACKING_ACTIVE_COLOR;
-      entity.point.outlineWidth = selected ? 6 : 4;
+      if (entity.billboard) {
+        entity.billboard.width = selected ? TRACKING_SYMBOL_SIZE + 8 : TRACKING_SYMBOL_SIZE;
+        entity.billboard.height = selected ? TRACKING_SYMBOL_SIZE + 8 : TRACKING_SYMBOL_SIZE;
+      }
 
       if (entity.label) {
         entity.label.showBackground = true;
@@ -724,20 +856,14 @@
       if (!viewer || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
       const options = meta || {};
+      const marker = getTrackingMilMarker(options, label);
       const current = store.get(key);
       if (current) viewer.entities.remove(current);
 
       const entity = viewer.entities.add({
         name: label,
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
-        point: {
-          pixelSize: options.kind === "personal" ? 12 : 10,
-          color: color.withAlpha(0.18),
-          outlineColor: options.kind === "personal" ? TRACKING_ACTIVE_COLOR : Cesium.Color.BLACK,
-          outlineWidth: options.kind === "personal" ? 4 : 3,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-        },
+        billboard: marker.billboard,
         label: label ? {
           text: label,
           font: "bold 12px sans-serif",
@@ -745,7 +871,7 @@
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, -22),
+          pixelOffset: marker.labelOffset,
           distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000),
           showBackground: options.kind === "personal",
           backgroundColor: color.withAlpha(0.68),
@@ -756,6 +882,7 @@
           trackingId: String(key),
           trackingKey: options.trackingKey || "",
           tacticalType: options.tacticalType || "",
+          trackingSidc: marker.sidc || "",
           active: options.active === true
         }
       });
@@ -767,11 +894,17 @@
       }
     }
 
-    window.updateTrackingPersonal = function (idPersonal, lat, lon, label) {
+    window.updateTrackingPersonal = function (idPersonal, lat, lon, label, meta) {
       try {
         const id = String(idPersonal || "");
         const nextLat = Number(lat);
         const nextLon = Number(lon);
+        const options = Object.assign({}, meta || {}, {
+          kind: "personal",
+          trackingKey: "P:" + id,
+          tacticalType: "personal",
+          active: true
+        });
         upsertTrackingEntity(
           trackingPersonalEntities,
           id,
@@ -779,12 +912,7 @@
           nextLon,
           label || ("P-" + id),
           TRACKING_PERSONAL_COLOR,
-          {
-            kind: "personal",
-            trackingKey: "P:" + id,
-            tacticalType: "personal",
-            active: true
-          }
+          options
         );
         if (followedTrackingPersonalId === id && Number.isFinite(nextLat) && Number.isFinite(nextLon)) {
           flyToLocation(nextLat, nextLon, FOLLOW_TRACKING_ZOOM, 0.3);
@@ -794,25 +922,49 @@
       }
     };
 
-    window.updateTrackingVehiculo = function (idVehiculo, lat, lon, label) {
+    window.updateTrackingVehiculo = function (idVehiculo, lat, lon, label, meta) {
       try {
         const id = String(idVehiculo || "");
+        const options = Object.assign({}, meta || {}, {
+          kind: "vehiculo",
+          trackingKey: "V:" + id,
+          tacticalType: "vehiculo",
+          active: true
+        });
         upsertTrackingEntity(
           trackingVehiculoEntities,
           id,
           Number(lat),
           Number(lon),
           label || ("V-" + id),
-          Cesium.Color.ORANGE,
-          {
-            kind: "vehiculo",
-            trackingKey: "V:" + id,
-            tacticalType: "vehiculo",
-            active: true
-          }
+          TRACKING_VEHICULO_COLOR,
+          options
         );
       } catch (e) {
         console.error("Error en updateTrackingVehiculo: " + e.message);
+      }
+    };
+
+    window.updateTrackingEquipo = function (idEquipo, lat, lon, label, meta) {
+      try {
+        const id = String(idEquipo || "");
+        const options = Object.assign({}, meta || {}, {
+          kind: "equipo",
+          trackingKey: "E:" + id,
+          tacticalType: "equipo",
+          active: true
+        });
+        upsertTrackingEntity(
+          trackingEquipoEntities,
+          id,
+          Number(lat),
+          Number(lon),
+          label || ("E-" + id),
+          TRACKING_EQUIPO_COLOR,
+          options
+        );
+      } catch (e) {
+        console.error("Error en updateTrackingEquipo: " + e.message);
       }
     };
 

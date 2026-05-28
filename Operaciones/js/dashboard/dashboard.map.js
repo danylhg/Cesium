@@ -155,6 +155,24 @@ function getEntityProperty(entity, key) {
   return value?.getValue?.(Cesium.JulianDate.now()) ?? value ?? "";
 }
 
+function isSelectableEntity(entity) {
+  if (!entity) return false;
+  return String(getEntityProperty(entity, "tacticalType")) !== "grid-part";
+}
+
+function getSelectablePickedEntity(position) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return null;
+
+  const pickedItems = viewer.scene.drillPick?.(position, 12) || [];
+  for (const picked of pickedItems) {
+    if (picked?.id && isSelectableEntity(picked.id)) return picked.id;
+  }
+
+  const picked = viewer.scene.pick(position);
+  return picked?.id && isSelectableEntity(picked.id) ? picked.id : null;
+}
+
 function getQuickMenuContext(entity) {
   const trackingKey = String(getEntityProperty(entity, "trackingKey") || "");
   if (!trackingKey) return null;
@@ -287,7 +305,7 @@ function handleEntitySelection(clickPosition) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
-  const picked = viewer.scene.pick(clickPosition);
+  const pickedEntity = getSelectablePickedEntity(clickPosition);
 
   const isDraw = (dashboardState.toolMode === "pencil" || dashboardState.toolMode === "eraser");
   if (isDraw) {
@@ -296,9 +314,9 @@ function handleEntitySelection(clickPosition) {
     return;
   }
 
-  if (picked && picked.id) {
+  if (pickedEntity) {
     // Si es el radar, no lo seleccionamos para no mostrar el popup "Eliminar" en todo el centro
-    if (picked.id.name === "Radar Estereográfico") {
+    if (pickedEntity.name === "Radar Estereográfico") {
       dashboardState.selectedEntity = null;
       updateSelectionInfo(null);
       if (dom.entityPopup) dom.entityPopup.style.display = "none";
@@ -306,13 +324,13 @@ function handleEntitySelection(clickPosition) {
       return;
     }
 
-    const routeId = getRouteIdForEntity(picked.id);
+    const routeId = getRouteIdForEntity(pickedEntity);
     if (routeId) {
       selectRemoteRoute(routeId);
       return;
     }
 
-    if (dashboardState.selectedEntity === picked.id) {
+    if (dashboardState.selectedEntity === pickedEntity) {
       dashboardState.selectedEntity = null;
       updateSelectionInfo(null);
       if (dom.entityPopup) dom.entityPopup.style.display = "none";
@@ -320,7 +338,7 @@ function handleEntitySelection(clickPosition) {
       return;
     }
 
-    dashboardState.selectedEntity = picked.id;
+    dashboardState.selectedEntity = pickedEntity;
     updateSelectionInfo(dashboardState.selectedEntity);
     const quickMenuShown = showQuickMenuForEntity(dashboardState.selectedEntity, clickPosition);
 
@@ -484,14 +502,14 @@ function bindCesiumPointerEvents(handler) {
       return;
     }
 
-    const picked = viewer.scene.pick(click.position);
-    if (!picked || !picked.id) return;
+    const pickedEntity = getSelectablePickedEntity(click.position);
+    if (!pickedEntity) return;
 
-    if (isDraggableEntity(picked.id)) {
-      dashboardState.draggingEntity = picked.id;
+    if (isDraggableEntity(pickedEntity)) {
+      dashboardState.draggingEntity = pickedEntity;
       dashboardState.dragStartPosition =
-        picked.id.position?.getValue?.(Cesium.JulianDate.now()) ?? picked.id.position ?? null;
-      dashboardState.selectedEntity = picked.id;
+        pickedEntity.position?.getValue?.(Cesium.JulianDate.now()) ?? pickedEntity.position ?? null;
+      dashboardState.selectedEntity = pickedEntity;
       dashboardState.isDragging = true;
       updateSelectionInfo(dashboardState.selectedEntity);
       viewer.scene.screenSpaceCameraController.enableRotate = false;

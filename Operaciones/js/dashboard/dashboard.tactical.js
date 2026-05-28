@@ -2084,36 +2084,24 @@ export function handleTacticalPlacement(lat, lng) {
 
   if (dashboardState.toolMode === "poi") {
     createPoi(lat, lng);
-    dashboardState.placingMode = false;
-    dashboardState.toolMode = "none";
-    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
 
   if (dashboardState.toolMode === "building") {
     createPoi(lat, lng, "img/estructuras/casa.png");
-    dashboardState.placingMode = false;
-    dashboardState.toolMode = "none";
-    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
 
   if (dashboardState.toolMode === "label") {
     createLabel(lat, lng);
-    dashboardState.placingMode = false;
-    dashboardState.toolMode = "none";
-    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
 
   if (dashboardState.toolMode === "circle") {
     createCircle(lat, lng);
-    dashboardState.placingMode = false;
-    dashboardState.toolMode = "none";
-    if (dom.toolSelect) dom.toolSelect.value = "none";
     setTacticalUI();
     return true;
   }
@@ -2507,6 +2495,14 @@ export async function deleteSelectedEntity() {
     selected.properties?.tacticalType?.getValue?.() ||
     selected.properties?.tacticalType ||
     "";
+
+  if (String(tacticalType) === "grid-part") {
+    dashboardState.selectedEntity = null;
+    updateSelectionInfo(null);
+    if (dom.entityPopup) dom.entityPopup.style.display = "none";
+    return;
+  }
+
   const idPoi = selected.properties?.id_poi?.getValue?.() ?? selected.properties?.id_poi;
   const idArea = selected.properties?.id_area?.getValue?.() ?? selected.properties?.id_area;
   const idMarca = selected.properties?.id_marca?.getValue?.() ?? selected.properties?.id_marca;

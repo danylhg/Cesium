@@ -30,12 +30,23 @@ class LocationHelper(
 
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
+    private var lastEmittedLocation: Location? = null
 
     private fun speedKmh(location: Location): Double? =
         if (location.hasSpeed()) (location.speed * 3.6).toDouble() else null
 
     private fun bearingDegrees(location: Location): Double? =
         if (location.hasBearing()) location.bearing.toDouble() else null
+
+    private fun inferredBearingDegrees(location: Location): Double? {
+        bearingDegrees(location)?.let { return it }
+
+        val previous = lastEmittedLocation ?: return null
+        if (previous.distanceTo(location) < 2f) return null
+        return previous.bearingTo(location).let { bearing ->
+            ((bearing % 360f) + 360f) % 360f
+        }.toDouble()
+    }
 
     @SuppressLint("MissingPermission")
     private fun emitLastKnownLocation() {
@@ -139,8 +150,8 @@ class LocationHelper(
     }
 
     private fun emitLocation(loc: Location) {
-        val speedKmh = if (loc.hasSpeed()) loc.speed.toDouble() * 3.6 else null
-        val headingDegrees = if (loc.hasBearing()) loc.bearing.toDouble() else null
+        val speedKmh = speedKmh(loc)
+        val headingDegrees = inferredBearingDegrees(loc)
         val accuracyMeters = if (loc.hasAccuracy()) loc.accuracy else null
         onEmitLocation?.invoke(
             loc.latitude,
@@ -149,6 +160,7 @@ class LocationHelper(
             headingDegrees,
             accuracyMeters
         )
+        lastEmittedLocation = Location(loc)
     }
 
     fun stopLocationUpdates() {
