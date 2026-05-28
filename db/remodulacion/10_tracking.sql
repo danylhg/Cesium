@@ -13,12 +13,17 @@ CREATE TABLE IF NOT EXISTS tracking_personal (
   latitud NUMERIC(8,5) NOT NULL,
   longitud NUMERIC(9,5) NOT NULL,
   altitud NUMERIC(7,2),
+  velocidad_kmh NUMERIC(6,2),
+  rumbo_grados NUMERIC(5,2),
   precision_m NUMERIC(6,2),
 
   "timestamp" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
   CONSTRAINT chk_tp_latitud CHECK (latitud BETWEEN -90 AND 90),
-  CONSTRAINT chk_tp_longitud CHECK (longitud BETWEEN -180 AND 180)
+  CONSTRAINT chk_tp_longitud CHECK (longitud BETWEEN -180 AND 180),
+  CONSTRAINT chk_tp_rumbo CHECK (
+    rumbo_grados IS NULL OR rumbo_grados BETWEEN 0 AND 360
+  )
 );
 
 CREATE INDEX IF NOT EXISTS idx_tracking_personal_op_per_ts

@@ -19,6 +19,7 @@ internal class PersonalPanelRenderer(
     )
 
     private val liveLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val locatedPersonalIds = mutableSetOf<Int>()
     private val activeRows = mutableMapOf<Int, View>()
     private var currentUserId: Int? = null
     private var selectedPersonalId: Int? = null
@@ -30,6 +31,7 @@ internal class PersonalPanelRenderer(
 
     fun updatePersonalLocation(id: Int, lat: Double, lon: Double) {
         liveLocations[id] = lat to lon
+        locatedPersonalIds.add(id)
         val row = activeRows[id]
         if (row == null) {
             host.refreshPersonalPanelIfActive()
@@ -62,6 +64,7 @@ internal class PersonalPanelRenderer(
         val list = view.findViewById<LinearLayout>(R.id.personalList)
         currentUserId = currentUser.id
         activeRows.clear()
+        locatedPersonalIds.clear()
 
         if (personalList.isEmpty()) {
             addEmptyState(list, "Cargando personal...")
@@ -160,6 +163,7 @@ internal class PersonalPanelRenderer(
         val effectiveLat = live?.first ?: person.lat
         val effectiveLon = live?.second ?: person.lon
         val hasLocation = effectiveLat != null && effectiveLon != null
+        if (hasLocation) locatedPersonalIds.add(person.idPersonal)
 
         row.findViewById<View>(R.id.personalStatus).setBackgroundColor(
             Color.parseColor(if (hasLocation) "#22c55e" else "#475569")
@@ -203,7 +207,8 @@ internal class PersonalPanelRenderer(
     private fun applyPersonalRowStyle(row: View, idPersonal: Int) {
         val selected = selectedPersonalId == idPersonal
         val isCurrentUser = currentUserId == idPersonal
-        val highlighted = selected || isCurrentUser
+        val hasLocation = locatedPersonalIds.contains(idPersonal)
+        val highlighted = hasLocation && (selected || isCurrentUser)
 
         row.setBackgroundColor(Color.parseColor(if (highlighted) "#0d1f3c" else "#0d1526"))
         row.findViewById<TextView>(R.id.personalNombre).setTextColor(

@@ -28,14 +28,35 @@ const logAlert = (message) => {
 };
 
 const providers = {
-  osm: () => new Cesium.OpenStreetMapImageryProvider({
-    url: "https://a.tile.openstreetmap.org/"
+  osm: () => new Cesium.UrlTemplateImageryProvider({
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 19,
+    credit: "Esri World Street Map"
   }),
   satellite: () => new Cesium.UrlTemplateImageryProvider({
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     credit: "Esri World Imagery"
+  }),
+  reference: () => new Cesium.UrlTemplateImageryProvider({
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    maximumLevel: 19,
+    credit: "Esri Reference"
   })
 };
+
+const BASE_LAYER_LABELS = {
+  osm: "Normal",
+  satellite: "Satélite",
+  hybrid: "Híbrida"
+};
+
+function updateLayerControl(key) {
+  const layerKey = BASE_LAYER_LABELS[key] ? key : "satellite";
+
+  document.querySelectorAll("[data-map-layer]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.mapLayer === layerKey);
+  });
+}
 
 export class OpenStreetMapNominatimGeocoder {
   constructor() {
@@ -102,6 +123,8 @@ export function setBaseLayer(key) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
+  dashboardState.baseLayerKey = key;
+  updateLayerControl(key);
   viewer.imageryLayers.removeAll();
 
   if (key === "hybrid") {
@@ -111,10 +134,8 @@ export function setBaseLayer(key) {
     satelliteLayer.saturation = 1.15;
     satelliteLayer.gamma = 0.9;
 
-    const osmOverlay = viewer.imageryLayers.addImageryProvider(providers.osm());
-    osmOverlay.alpha = 0.28;
-    osmOverlay.brightness = 0.95;
-    osmOverlay.contrast = 1.2;
+    const referenceOverlay = viewer.imageryLayers.addImageryProvider(providers.reference());
+    referenceOverlay.alpha = 0.78;
     return;
   }
 
@@ -131,6 +152,24 @@ export function setBaseLayer(key) {
 function getEntityProperty(entity, key) {
   const value = entity?.properties?.[key];
   return value?.getValue?.(Cesium.JulianDate.now()) ?? value ?? "";
+}
+
+function isSelectableEntity(entity) {
+  if (!entity) return false;
+  return String(getEntityProperty(entity, "tacticalType")) !== "grid-part";
+}
+
+function getSelectablePickedEntity(position) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return null;
+
+  const pickedItems = viewer.scene.drillPick?.(position, 12) || [];
+  for (const picked of pickedItems) {
+    if (picked?.id && isSelectableEntity(picked.id)) return picked.id;
+  }
+
+  const picked = viewer.scene.pick(position);
+  return picked?.id && isSelectableEntity(picked.id) ? picked.id : null;
 }
 
 function getQuickMenuContext(entity) {
@@ -278,7 +317,7 @@ function handleEntitySelection(clickPosition) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
-  const picked = viewer.scene.pick(clickPosition);
+  const pickedEntity = getSelectablePickedEntity(clickPosition);
 
   const isDraw = (dashboardState.toolMode === "pencil" || dashboardState.toolMode === "eraser");
   if (isDraw) {
@@ -288,9 +327,9 @@ function handleEntitySelection(clickPosition) {
     return;
   }
 
-  if (picked && picked.id) {
+  if (pickedEntity) {
     // Si es el radar, no lo seleccionamos para no mostrar el popup "Eliminar" en todo el centro
-    if (picked.id.name === "Radar Estereográfico") {
+    if (pickedEntity.name === "Radar Estereográfico") {
       dashboardState.selectedEntity = null;
       updateSelectionInfo(null);
       if (dom.entityPopup) dom.entityPopup.style.display = "none";
@@ -299,13 +338,13 @@ function handleEntitySelection(clickPosition) {
       return;
     }
 
-    const routeId = getRouteIdForEntity(picked.id);
+    const routeId = getRouteIdForEntity(pickedEntity);
     if (routeId) {
       selectRemoteRoute(routeId);
       return;
     }
 
-    if (dashboardState.selectedEntity === picked.id) {
+    if (dashboardState.selectedEntity === pickedEntity) {
       dashboardState.selectedEntity = null;
       updateSelectionInfo(null);
       if (dom.entityPopup) dom.entityPopup.style.display = "none";
@@ -314,7 +353,7 @@ function handleEntitySelection(clickPosition) {
       return;
     }
 
-    dashboardState.selectedEntity = picked.id;
+    dashboardState.selectedEntity = pickedEntity;
     updateSelectionInfo(dashboardState.selectedEntity);
 
     const trackingKey = String(getEntityProperty(dashboardState.selectedEntity, "trackingKey") || "");
@@ -499,9 +538,10 @@ function bindCesiumPointerEvents(handler) {
   handler.setInputAction((click) => {
     const cartesian = getMapClickPosition(click.position);
 
-    handleEntitySelection(click.position);
-
-    if (!cartesian) return;
+    if (!cartesian) {
+      handleEntitySelection(click.position);
+      return;
+    }
 
     const pos = cartesianToLatLng(cartesian);
     const lat = pos.lat;
@@ -513,18 +553,24 @@ function bindCesiumPointerEvents(handler) {
     }
 
     if (handleTacticalPlacement(lat, lng)) return;
-    handleRoutePick(lat, lng);
+    if (handleRoutePick(lat, lng)) return;
+
+    handleEntitySelection(click.position);
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
   handler.setInputAction((click) => {
-    const picked = viewer.scene.pick(click.position);
-    if (!picked || !picked.id) return;
+    if (dashboardState.toolMode === "pencil" || dashboardState.drawingMode === "pencil" || dashboardState.drawingMode === "eraser") {
+      return;
+    }
 
-    if (isDraggableEntity(picked.id)) {
-      dashboardState.draggingEntity = picked.id;
+    const pickedEntity = getSelectablePickedEntity(click.position);
+    if (!pickedEntity) return;
+
+    if (isDraggableEntity(pickedEntity)) {
+      dashboardState.draggingEntity = pickedEntity;
       dashboardState.dragStartPosition =
-        picked.id.position?.getValue?.(Cesium.JulianDate.now()) ?? picked.id.position ?? null;
-      dashboardState.selectedEntity = picked.id;
+        pickedEntity.position?.getValue?.(Cesium.JulianDate.now()) ?? pickedEntity.position ?? null;
+      dashboardState.selectedEntity = pickedEntity;
       dashboardState.isDragging = true;
       updateSelectionInfo(dashboardState.selectedEntity);
       viewer.scene.screenSpaceCameraController.enableRotate = false;
@@ -657,10 +703,27 @@ function bindMapUiEvents() {
     };
   }
 
-  const layerSelect = document.getElementById("layerSelect");
-  if (layerSelect) {
-    layerSelect.addEventListener("change", (e) => {
-      setBaseLayer(e.target.value);
+  if (dom.mapLayerButton && dom.mapLayerControl) {
+    dom.mapLayerButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const isOpen = dom.mapLayerControl.classList.toggle("open");
+      dom.mapLayerButton.setAttribute("aria-expanded", String(isOpen));
+    });
+
+    dom.mapLayerControl.querySelectorAll("[data-map-layer]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        setBaseLayer(button.dataset.mapLayer || "hybrid");
+        dom.mapLayerControl.classList.remove("open");
+        dom.mapLayerButton.setAttribute("aria-expanded", "false");
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!dom.mapLayerControl.contains(event.target)) {
+        dom.mapLayerControl.classList.remove("open");
+        dom.mapLayerButton.setAttribute("aria-expanded", "false");
+      }
     });
   }
 

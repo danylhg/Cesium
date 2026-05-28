@@ -8,120 +8,7 @@ import {
 } from "./dashboard.storage.js";
 import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
-import { pushUndoAction } from "./dashboard.drawing.js";
-
-let suppressUiHistory = false;
-
-function snapshotPanelUi() {
-  return {
-    openPanels: [...document.querySelectorAll(".glassPanel.open")].map(el => el.id).filter(Boolean),
-    activeTools: [...document.querySelectorAll(".toolFab.active")].map(el => el.id).filter(Boolean)
-  };
-}
-
-function applyPanelUiSnapshot(snapshot) {
-  suppressUiHistory = true;
-  document.querySelectorAll(".glassPanel").forEach(panel => {
-    panel.classList.toggle("open", snapshot.openPanels.includes(panel.id));
-  });
-  document.querySelectorAll(".toolFab").forEach(btn => {
-    btn.classList.toggle("active", snapshot.activeTools.includes(btn.id));
-  });
-  suppressUiHistory = false;
-}
-
-function setControlValue(el, value, eventName = "change") {
-  suppressUiHistory = true;
-  el.value = value;
-  updateRangeFill(el);
-  el.dispatchEvent(new Event(eventName, { bubbles: true }));
-  suppressUiHistory = false;
-}
-
-function updateRangeFill(el) {
-  if (!el || el.type !== "range") return;
-  const min = Number(el.min || 0);
-  const max = Number(el.max || 100);
-  const value = Number(el.value || min);
-  const percent = max > min ? ((value - min) / (max - min)) * 100 : 0;
-  el.style.setProperty("--range-fill", `${Math.min(100, Math.max(0, percent))}%`);
-}
-
-function bindControlHistory(el, eventName = "change") {
-  if (!el) return;
-  updateRangeFill(el);
-  el.dataset.undoPrevValue = el.value;
-
-  const remember = () => {
-    if (!suppressUiHistory) el.dataset.undoPrevValue = el.value;
-  };
-
-  el.addEventListener("focusin", remember);
-  el.addEventListener("pointerdown", remember);
-  el.addEventListener("keydown", remember);
-
-  el.addEventListener(eventName, () => {
-    if (suppressUiHistory) return;
-    updateRangeFill(el);
-    const before = el.dataset.undoPrevValue ?? "";
-    const after = el.value;
-    if (before === after) return;
-
-    pushUndoAction({
-      type: "ui",
-      undo: () => setControlValue(el, before, eventName),
-      redo: () => setControlValue(el, after, eventName)
-    });
-
-    el.dataset.undoPrevValue = after;
-  });
-
-  if (el.type === "range") {
-    el.addEventListener("input", () => updateRangeFill(el));
-  }
-}
-
-function bindUiHistoryEvents() {
-  [
-    document.getElementById("layerSelect"),
-    dom.routeVehicleSelect,
-    dom.zoneColorSelect,
-    dom.zoneWidthRange,
-    dom.colorSelect,
-    dom.widthRange,
-    dom.opacityRange,
-    dom.radiusInput,
-    dom.gridSizeSelect,
-    dom.milIdentity,
-    dom.milDimension,
-    dom.milIcon,
-    dom.symLabel
-  ].forEach(el => bindControlHistory(el));
-
-  document.addEventListener("pointerdown", (e) => {
-    const tool = e.target.closest(".toolFab");
-    if (!tool || suppressUiHistory) return;
-    tool.dataset.uiBefore = JSON.stringify(snapshotPanelUi());
-  });
-
-  document.addEventListener("click", (e) => {
-    const tool = e.target.closest(".toolFab");
-    if (!tool || suppressUiHistory) return;
-
-    const before = JSON.parse(tool.dataset.uiBefore || "null");
-    if (!before) return;
-
-    setTimeout(() => {
-      const after = snapshotPanelUi();
-      if (JSON.stringify(before) === JSON.stringify(after)) return;
-      pushUndoAction({
-        type: "ui",
-        undo: () => applyPanelUiSnapshot(before),
-        redo: () => applyPanelUiSnapshot(after)
-      });
-    }, 0);
-  });
-}
+import { clearPersonnelLiveCamera } from "./dashboard.camera.js";
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -151,33 +38,30 @@ function bindPanelEvents() {
         alert("El chat táctico solo está disponible cuando la operación está activa automáticamente por fecha y hora.");
         return;
       }
-      const wasOpen = dom.chatPanel?.classList.contains("open")
-        || dom.chatAudiencePanel?.classList.contains("open");
-      closeAllPanels();
-
-      if (!wasOpen) {
-        dom.chatAudiencePanel?.classList.add("open");
-        dom.chatPanel?.classList.add("open");
-        dom.toggleChatPanel.classList.add("active");
+      const isOpen = dom.chatPanel?.classList.contains("open") || dom.chatAudiencePanel?.classList.contains("open");
+      if (isOpen) {
+        dom.chatPanel?.classList.remove("open");
+        dom.chatAudiencePanel?.classList.remove("open");
+        dom.toggleChatPanel?.classList.remove("active");
+        return;
       }
+      closeAllPanels();
+      dom.chatAudiencePanel?.classList.add("open");
+      dom.chatPanel?.classList.add("open");
+      dom.toggleChatPanel?.classList.add("active");
     });
   }
 
   if (dom.toggleCameraPanel) {
     dom.toggleCameraPanel.addEventListener("click", () => {
-
-
-
-
-      // Independent toggle: doesn't close others, and others don't close it
-      const isOpen = dom.cameraPanel.classList.contains("open");
-      if (isOpen) {
-        dom.cameraPanel.classList.remove("open");
-        dom.toggleCameraPanel.classList.remove("active");
-      } else {
-        dom.cameraPanel.classList.add("open");
-        dom.toggleCameraPanel.classList.add("active");
+      if (!isOperationActive()) {
+        alert("El panel de cámaras solo está disponible cuando la operación está activa.");
+        return;
       }
+
+      const isOpen = dom.cameraPanel?.classList.contains("open");
+      dom.cameraPanel?.classList.toggle("open", !isOpen);
+      dom.toggleCameraPanel?.classList.toggle("active", !isOpen);
     });
   }
 }
@@ -214,16 +98,15 @@ async function apiFetchEstado(opId, nuevoEstado) {
   return res;
 }
 
-/**
- * Muestra un modal de confirmación premium.
- */
 function showConfirmationModal({ title, message, confirmText = "Confirmar", onConfirm }) {
-  if (!dom.confirmationModal) return;
+  if (!dom.confirmationModal) {
+    onConfirm?.();
+    return;
+  }
 
   dom.confirmationTitle.textContent = title;
   dom.confirmationMessage.textContent = message;
   dom.confirmationConfirmBtn.textContent = confirmText;
-
   dom.confirmationModal.classList.remove("hidden");
 
   const close = () => {
@@ -233,7 +116,7 @@ function showConfirmationModal({ title, message, confirmText = "Confirmar", onCo
   };
 
   const handleConfirm = () => {
-    onConfirm();
+    onConfirm?.();
     close();
   };
 
@@ -283,6 +166,8 @@ function bindOperationActionEvents() {
         alert("No se encontró la operación activa.");
         return;
       }
+
+
 
       showConfirmationModal({
         title: "¿Cancelar operación?",
@@ -353,6 +238,8 @@ function bindOperationActionEvents() {
         return;
       }
 
+
+
       showConfirmationModal({
         title: "¿Terminar operación?",
         message: `¿Estás seguro de que quieres terminar la operación "${opName}"?`,
@@ -384,49 +271,25 @@ export function bindDashboardEvents() {
   bindGlobalClickEvents();
   bindOperationActionEvents();
   bindPersonnelDetailEvents();
-  bindUiHistoryEvents();
 }
 
 function bindPersonnelDetailEvents() {
-  // Delegate clicks on .person-link inside infoPanel
   if (dom.infoPanel) {
-    dom.infoPanel.addEventListener('click', (e) => {
-      const link = e.target.closest('.person-link');
-      if (link) {
-        const personId = link.getAttribute('data-person-id');
-        showPersonnelDetail(personId, {
-          x: e.clientX,
-          y: e.clientY,
-          name: link.getAttribute('data-person-name') || link.textContent || ""
-        });
-      }
+    dom.infoPanel.addEventListener("click", (event) => {
+      const link = event.target.closest(".person-link");
+      if (!link) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      showPersonnelDetail(link.dataset.personId || link.dataset.pid);
     });
   }
 
-  // Close modal
-  if (dom.btnClosePersonnelDetail) {
-    dom.btnClosePersonnelDetail.onclick = () => {
-      dom.personnelDetailModal.classList.add('hidden');
-    };
-  }
+  const closeDetail = () => {
+    dom.personnelDetailModal?.classList.add("hidden");
+    dom.personnelDetailModal?.setAttribute("aria-hidden", "true");
+    clearPersonnelLiveCamera();
+  };
 
-  if (dom.personnelDetailBackdrop) {
-    dom.personnelDetailBackdrop.onclick = () => {
-      dom.personnelDetailModal.classList.add('hidden');
-    };
-  }
-
-  if (dom.personInfoPopup) {
-    dom.personInfoPopup.addEventListener('click', (e) => {
-      e.stopPropagation();
-    });
-  }
-
-  if (dom.btnClosePersonInfoPopup) {
-    dom.btnClosePersonInfoPopup.onclick = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      dom.personInfoPopup?.classList.add('hidden');
-    };
-  }
+  dom.btnClosePersonnelDetail?.addEventListener("click", closeDetail);
+  dom.personnelDetailBackdrop?.addEventListener("click", closeDetail);
 }

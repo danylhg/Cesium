@@ -1,16 +1,16 @@
 import { btnBack, btnVolver, btnDashboardGo, btnDownloadList } from "../../core/dom.js";
 import { state } from "../../core/state.js";
-import { 
-  saveOperacionActual, 
-  collectOperacionActual, 
-  guardarOperacionBaseDatos, 
-  syncOperacionCompleta 
+import {
+  flushPersistOperacionActualEnBackend,
+  saveOperacionActual,
+  syncOperacionCompleta
 } from "../operacion/operacion.service.js";
 import { saveOperacionYAsignacion } from "../asignacion/asignacion.service.js";
 import { removeStorage, readObjectStorage } from "../../core/storage.js";
 import { STORAGE_OPERACION_ACTUAL, STORAGE_ASIGNACION_ACTUAL } from "../../core/constants.js";
 import { renderHome } from "../../views/home.view.js";
 import { renderCUT, renderCET, renderCelulas } from "../personal/personal.views.js";
+import { releaseAsignacionPresence } from "../operacion/operacion.presence.js";
 import { downloadAssignmentList } from "../asignacion/asignacion.download.js";
 
 export function bindNavigation() {
@@ -46,7 +46,8 @@ export function bindNavigation() {
     }
   });
 
-  btnVolver.addEventListener("click", () => {
+  btnVolver.addEventListener("click", async () => {
+    await releaseAsignacionPresence();
     removeStorage(STORAGE_OPERACION_ACTUAL);
     removeStorage(STORAGE_ASIGNACION_ACTUAL);
     window.location.href = "menu_inicial.html";
@@ -57,27 +58,27 @@ export function bindNavigation() {
   });
 
   btnDashboardGo?.addEventListener("click", async () => {
-    // 1. Guardar cambios en local
-    saveOperacionActual();
-    
-    // 2. Sincronizar con el backend
-    const fromForm = collectOperacionActual();
-    const storedOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
-    const estadoActual = {
-      id_operacion: storedOp.id,
-      estado_operacion: storedOp.estado
-    };
+    btnDashboardGo.disabled = true;
 
     try {
-      if (storedOp.id) {
-        await guardarOperacionBaseDatos(fromForm, estadoActual);
-        await syncOperacionCompleta(storedOp.id);
-      }
-      await saveOperacionYAsignacion();
-    } catch (err) {
-      console.error("Error al sincronizar cambios antes de ir al dashboard:", err);
-    }
+      await flushPersistOperacionActualEnBackend();
+      await saveOperacionYAsignacion(saveOperacionActual);
+      const storedOp = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
+      const opId = storedOp.id || storedOp.id_operacion || localStorage.getItem("active_operation_id");
 
-    window.location.href = "dashboard.html";
+      if (opId) {
+        const syncResult = await syncOperacionCompleta(opId);
+        if (syncResult?.ok === false) {
+          throw new Error(syncResult.error || "No se pudo sincronizar la asignación.");
+        }
+      }
+
+      await releaseAsignacionPresence(opId);
+      window.location.href = "dashboard.html";
+    } catch (error) {
+      console.error("No se pudo guardar la operacion antes de volver al dashboard:", error);
+      alert("No se pudo guardar la operacion. Revisa los datos e intenta de nuevo.");
+      btnDashboardGo.disabled = false;
+    }
   });
 }

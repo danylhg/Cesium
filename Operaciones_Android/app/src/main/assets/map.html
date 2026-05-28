@@ -61,6 +61,7 @@
     let tacticalRoutes = new Map();
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
+    const trackingEquipoEntities = new Map();
     const emergencyPulseEntities = new Map();
     let selectedTrackingPersonalId = null;
     let followedTrackingPersonalId = null;
@@ -70,22 +71,13 @@
     const FOLLOW_TRACKING_ZOOM = 500;
     const TRACKING_PERSONAL_COLOR = Cesium.Color.fromCssColorString("#00BFFF");
     const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
+    const TRACKING_VEHICULO_COLOR = Cesium.Color.fromCssColorString("#FFD700");
+    const TRACKING_EQUIPO_COLOR = Cesium.Color.fromCssColorString("#B4FF39");
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
     const TRACKING_SYMBOL_SIZE = 42;
-    const TRACKING_PERSONAL_SIDC = "SFGPUCI--------";
-    const TRACKING_VEHICULO_SIDC = "SFGPUCD--------";
-    const TRACKING_SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.22);
-    const ROUTE_COLORS = [
-      Cesium.Color.MAGENTA,
-      Cesium.Color.ORANGE,
-      Cesium.Color.LIMEGREEN,
-      Cesium.Color.PINK,
-      Cesium.Color.DEEPSKYBLUE,
-      Cesium.Color.HOTPINK,
-      Cesium.Color.GOLD,
-      Cesium.Color.VIOLET,
-      Cesium.Color.SPRINGGREEN
-    ];
+    const TRACKING_SYMBOL_RENDER_SIZE = 160;
+    const TRACKING_SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
+    const trackingSymbolImageCache = new Map();
     const EMERGENCY_PULSE_COLORS = [
       Cesium.Color.fromCssColorString("#FF1D25"),
       Cesium.Color.fromCssColorString("#FFD400"),
@@ -256,56 +248,6 @@
         duration: duration === undefined ? 0.55 : duration
       });
     }
-
-    const baseLayerProviders = {
-      osm: function () {
-        return new Cesium.OpenStreetMapImageryProvider({
-          url: "https://a.tile.openstreetmap.org/"
-        });
-      },
-      satellite: function () {
-        return new Cesium.UrlTemplateImageryProvider({
-          url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-          credit: "Esri World Imagery"
-        });
-      }
-    };
-
-    function tuneSatelliteLayer(layer) {
-      layer.brightness = 0.78;
-      layer.contrast = 1.35;
-      layer.saturation = 1.15;
-      layer.gamma = 0.9;
-    }
-
-    window.setBaseLayer = function (key) {
-      try {
-        if (!viewer) return;
-        viewer.imageryLayers.removeAll();
-
-        if (key === "hybrid") {
-          const satelliteLayer = viewer.imageryLayers.addImageryProvider(baseLayerProviders.satellite());
-          tuneSatelliteLayer(satelliteLayer);
-
-          const osmOverlay = viewer.imageryLayers.addImageryProvider(baseLayerProviders.osm());
-          osmOverlay.alpha = 0.28;
-          osmOverlay.brightness = 0.95;
-          osmOverlay.contrast = 1.2;
-          viewer.scene.requestRender();
-          return;
-        }
-
-        const provider = baseLayerProviders[key] || baseLayerProviders.satellite;
-        const layer = viewer.imageryLayers.addImageryProvider(provider());
-        if (key === "satellite" || !baseLayerProviders[key]) {
-          tuneSatelliteLayer(layer);
-        }
-        viewer.scene.requestRender();
-      } catch (e) {
-        console.error("Error cambiando capa base: " + e.message);
-        notifyAndroid("No se pudo cambiar el tipo de mapa.");
-      }
-    };
 
     function notifyMapTap(lat, lon) {
       try {
@@ -494,35 +436,16 @@
         }
       });
 
-      let lastHandledTap = null;
-
-      function getMapCartesian(screenPosition) {
-        let cartesian = null;
-        if (viewer.scene.pickPositionSupported) {
-          cartesian = viewer.scene.pickPosition(screenPosition);
-        }
-        return cartesian || viewer.camera.pickEllipsoid(
-          screenPosition,
-          viewer.scene.globe.ellipsoid
-        );
-      }
-
-      function handleMapTap(screenPosition) {
+      // Handler de clicks
+      const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+      handler.setInputAction((movement) => {
         try {
-          if (!viewer || !screenPosition) return;
+          if (!viewer) return;
 
-          const now = Date.now();
-          if (
-            lastHandledTap &&
-            now - lastHandledTap.at < 320 &&
-            Math.abs(lastHandledTap.x - screenPosition.x) < 12 &&
-            Math.abs(lastHandledTap.y - screenPosition.y) < 12
-          ) {
-            return;
-          }
-          lastHandledTap = { at: now, x: screenPosition.x, y: screenPosition.y };
-
-          const cartesian = getMapCartesian(screenPosition);
+          const cartesian = viewer.camera.pickEllipsoid(
+            movement.position,
+            viewer.scene.globe.ellipsoid
+          );
 
           if (!cartesian) return;
 
@@ -549,7 +472,7 @@
           }
 
           if (!_drawMode) {
-            const selectedObject = getSelectableObjectAt(screenPosition);
+            const selectedObject = getSelectableObjectAt(movement.position);
             if (selectedObject) {
               if (selectedObject.kind === "personal") {
                 setSelectedTrackingPersonal(selectedObject.id);
@@ -570,53 +493,7 @@
           console.error("Error en click del mapa: " + e.message);
           notifyAndroid("Error en el click del mapa: " + e.message);
         }
-      }
-
-      window.tapMapAtViewportRatio = function (xRatio, yRatio) {
-        const canvas = viewer && viewer.scene && viewer.scene.canvas;
-        if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
-        handleMapTap(new Cesium.Cartesian2(
-          rect.width * Number(xRatio),
-          rect.height * Number(yRatio)
-        ));
-      };
-
-      // Cesium normalmente traduce el tap a LEFT_CLICK. El respaldo touch
-      // mantiene la colocacion activa dentro del WebView Android.
-      const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-      handler.setInputAction((movement) => {
-        handleMapTap(movement.position);
       }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
-
-      let touchStart = null;
-      viewer.scene.canvas.addEventListener("touchstart", function (event) {
-        if (!event.touches || event.touches.length !== 1) {
-          touchStart = null;
-          return;
-        }
-        const touch = event.touches[0];
-        touchStart = { x: touch.clientX, y: touch.clientY };
-      }, { passive: true });
-      viewer.scene.canvas.addEventListener("touchend", function (event) {
-        if (!touchStart || !event.changedTouches || event.changedTouches.length !== 1) {
-          touchStart = null;
-          return;
-        }
-        const touch = event.changedTouches[0];
-        const dx = touch.clientX - touchStart.x;
-        const dy = touch.clientY - touchStart.y;
-        touchStart = null;
-        if (Math.sqrt(dx * dx + dy * dy) > 12) return;
-
-        const rect = viewer.scene.canvas.getBoundingClientRect();
-        handleMapTap(new Cesium.Cartesian2(
-          touch.clientX - rect.left,
-          touch.clientY - rect.top
-        ));
-      }, { passive: true });
-
-      setBaseLayer("hybrid");
 
       if (window.Android && typeof Android.sendTrafficAlert === 'function') {
         Android.sendTrafficAlert("Mapa listo");
@@ -670,26 +547,16 @@
       try {
         if (!viewer) return;
         if (userMarker) viewer.entities.remove(userMarker);
-        const userSymbolCanvas = getMilSymbolCanvas(TRACKING_PERSONAL_SIDC);
 
+        const marker = getTrackingMilMarker({ kind: "personal", tacticalType: "personal" }, "Mi ubicacion");
         userMarker = viewer.entities.add({
           position: Cesium.Cartesian3.fromDegrees(lon, lat),
-          billboard: userSymbolCanvas ? {
-            image: userSymbolCanvas,
-            verticalOrigin: Cesium.VerticalOrigin.CENTER,
-            width: TRACKING_SYMBOL_SIZE,
-            height: TRACKING_SYMBOL_SIZE,
-            heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            scaleByDistance: TRACKING_SYMBOL_SCALE_BY_DIST
-          } : undefined,
-          point: userSymbolCanvas ? undefined : {
-            pixelSize: 10,
-            color: Cesium.Color.LIME.withAlpha(0.15),
-            outlineColor: Cesium.Color.BLACK,
-            outlineWidth: 3,
-            disableDepthTestDistance: Number.POSITIVE_INFINITY,
-            scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
+          billboard: marker.billboard,
+          properties: {
+            trackingKind: "personal",
+            trackingKey: "SELF",
+            tacticalType: "personal",
+            trackingSidc: marker.sidc || ""
           }
         });
 
@@ -701,14 +568,139 @@
       }
     };
 
+    function normalizeTrackingText(value) {
+      return String(value || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toUpperCase();
+    }
+
+    function textIncludes(text) {
+      const needles = Array.prototype.slice.call(arguments, 1);
+      return needles.some(function (needle) { return text.indexOf(needle) >= 0; });
+    }
+
+    function buildMilSidc(identity, dimension, icon) {
+      const safeIdentity = String(identity || "F").slice(0, 1);
+      const safeDimension = String(dimension || "G").slice(0, 1);
+      const safeIcon = String(icon || "U-----").padEnd(6, "-").slice(0, 6);
+      return "S" + safeIdentity + safeDimension + "P" + safeIcon + "-----";
+    }
+
+    function getFallbackTrackingSidc(kind) {
+      if (kind === "vehiculo") return buildMilSidc("F", "G", "EV----");
+      if (kind === "equipo") return buildMilSidc("F", "G", "E-----");
+      return buildMilSidc("F", "G", "U-----");
+    }
+
+    function resolveTrackingMilSymbol(options, label) {
+      options = options || {};
+      const kind = options.tacticalType || options.kind || "personal";
+      const providedSidc = options.sidc || options.codigo_sidc || options.mil_sidc;
+      if (providedSidc) return String(providedSidc);
+
+      const text = normalizeTrackingText([
+        kind,
+        label,
+        options.rol,
+        options.rol_en_operacion,
+        options.role,
+        options.tipo,
+        options.tipo_equipo,
+        options.categoria,
+        options.nombre,
+        options.alias,
+        options.codigo_interno,
+        options.modelo,
+        options.marca
+      ].filter(Boolean).join(" "));
+
+      if (kind === "vehiculo") {
+        if (textIncludes(text, "AMBULANC", "MEDIC")) return buildMilSidc("F", "G", "UCM---");
+        if (textIncludes(text, "BLIND", "TANQUE", "ARMORED")) return buildMilSidc("F", "G", "UCD---");
+        if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+        return buildMilSidc("F", "G", "EV----");
+      }
+
+      if (kind === "equipo") {
+        if (textIncludes(text, "DRON", "DRONE", "UAV", "MATRICE")) return buildMilSidc("F", "A", "MFQ---");
+        if (textIncludes(text, "RADIO", "COMUNIC", "SENAL", "SIGNAL")) return buildMilSidc("F", "G", "UCS---");
+        if (textIncludes(text, "ARMA", "RIFLE", "PISTOLA", "FUSIL")) return buildMilSidc("F", "G", "EW----");
+        if (textIncludes(text, "CAMARA", "SENSOR", "TACTICO")) return buildMilSidc("F", "G", "EX----");
+        return buildMilSidc("F", "G", "E-----");
+      }
+
+      if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "UH----");
+      if (textIncludes(text, "CELL", "CELULA")) return buildMilSidc("F", "G", "UCI---");
+      if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+      return buildMilSidc("F", "G", "U-----");
+    }
+
+    function renderTrackingMilSymbol(sidc) {
+      if (!sidc || typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
+      if (trackingSymbolImageCache.has(sidc)) return trackingSymbolImageCache.get(sidc);
+
+      try {
+        const symbol = new ms.Symbol(sidc, {
+          size: TRACKING_SYMBOL_RENDER_SIZE,
+          colorMode: "Light"
+        });
+
+        if (typeof symbol.isValid === "function" && symbol.isValid() === false) {
+          trackingSymbolImageCache.set(sidc, null);
+          return null;
+        }
+
+        if (typeof symbol.asSVG === "function" && />\s*\?\s*</.test(symbol.asSVG())) {
+          trackingSymbolImageCache.set(sidc, null);
+          return null;
+        }
+
+        const image = symbol.asCanvas();
+        trackingSymbolImageCache.set(sidc, image);
+        return image;
+      } catch (e) {
+        console.warn("[TRACKING] No se pudo generar simbolo MIL:", sidc, e);
+        trackingSymbolImageCache.set(sidc, null);
+        return null;
+      }
+    }
+
+    function getTrackingMilMarker(options, label) {
+      const kind = (options && (options.tacticalType || options.kind)) || "personal";
+      const sidc = resolveTrackingMilSymbol(options, label);
+      const fallbackSidc = getFallbackTrackingSidc(kind);
+      let image = renderTrackingMilSymbol(sidc);
+      let renderedSidc = sidc;
+
+      if (!image && sidc !== fallbackSidc) {
+        image = renderTrackingMilSymbol(fallbackSidc);
+        if (image) renderedSidc = fallbackSidc;
+      }
+
+      return {
+        sidc: renderedSidc,
+        billboard: image ? {
+          image,
+          width: TRACKING_SYMBOL_SIZE,
+          height: TRACKING_SYMBOL_SIZE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: TRACKING_SYMBOL_SCALE_BY_DIST
+        } : undefined,
+        labelOffset: new Cesium.Cartesian2(0, 17)
+      };
+    }
+
     function applyPersonalTrackingStyle(entity, selected) {
-      if (!entity || !entity.point) return;
+      if (!entity) return;
 
       const markerColor = selected ? TRACKING_PERSONAL_SELECTED_COLOR : TRACKING_PERSONAL_COLOR;
-      entity.point.pixelSize = selected ? 16 : 12;
-      entity.point.color = markerColor.withAlpha(selected ? 0.9 : 0.35);
-      entity.point.outlineColor = TRACKING_ACTIVE_COLOR;
-      entity.point.outlineWidth = selected ? 6 : 4;
+      if (entity.billboard) {
+        entity.billboard.width = selected ? TRACKING_SYMBOL_SIZE + 8 : TRACKING_SYMBOL_SIZE;
+        entity.billboard.height = selected ? TRACKING_SYMBOL_SIZE + 8 : TRACKING_SYMBOL_SIZE;
+      }
 
       if (entity.label) {
         entity.label.showBackground = true;
@@ -860,39 +852,18 @@
       }
     };
 
-    function getTrackingSymbolCanvas(kind) {
-      if (kind !== "vehiculo") return null;
-      return getMilSymbolCanvas(TRACKING_VEHICULO_SIDC);
-    }
-
     function upsertTrackingEntity(store, key, lat, lon, label, color, meta) {
       if (!viewer || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
       const options = meta || {};
+      const marker = getTrackingMilMarker(options, label);
       const current = store.get(key);
       if (current) viewer.entities.remove(current);
-      const symbolCanvas = getTrackingSymbolCanvas(options.kind);
 
       const entity = viewer.entities.add({
         name: label,
         position: Cesium.Cartesian3.fromDegrees(lon, lat),
-        billboard: symbolCanvas ? {
-          image: symbolCanvas,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          width: TRACKING_SYMBOL_SIZE,
-          height: TRACKING_SYMBOL_SIZE,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scaleByDistance: TRACKING_SYMBOL_SCALE_BY_DIST
-        } : undefined,
-        point: symbolCanvas ? undefined : {
-          pixelSize: options.kind === "personal" ? 12 : 10,
-          color: color.withAlpha(0.18),
-          outlineColor: options.kind === "personal" ? TRACKING_ACTIVE_COLOR : Cesium.Color.BLACK,
-          outlineWidth: options.kind === "personal" ? 4 : 3,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-        },
+        billboard: marker.billboard,
         label: label ? {
           text: label,
           font: "bold 12px sans-serif",
@@ -900,7 +871,7 @@
           outlineColor: Cesium.Color.BLACK,
           outlineWidth: 3,
           style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          pixelOffset: new Cesium.Cartesian2(0, symbolCanvas ? -32 : -22),
+          pixelOffset: marker.labelOffset,
           distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 50000),
           showBackground: options.kind === "personal",
           backgroundColor: color.withAlpha(0.68),
@@ -911,6 +882,7 @@
           trackingId: String(key),
           trackingKey: options.trackingKey || "",
           tacticalType: options.tacticalType || "",
+          trackingSidc: marker.sidc || "",
           active: options.active === true
         }
       });
@@ -922,11 +894,17 @@
       }
     }
 
-    window.updateTrackingPersonal = function (idPersonal, lat, lon, label) {
+    window.updateTrackingPersonal = function (idPersonal, lat, lon, label, meta) {
       try {
         const id = String(idPersonal || "");
         const nextLat = Number(lat);
         const nextLon = Number(lon);
+        const options = Object.assign({}, meta || {}, {
+          kind: "personal",
+          trackingKey: "P:" + id,
+          tacticalType: "personal",
+          active: true
+        });
         upsertTrackingEntity(
           trackingPersonalEntities,
           id,
@@ -934,12 +912,7 @@
           nextLon,
           label || ("P-" + id),
           TRACKING_PERSONAL_COLOR,
-          {
-            kind: "personal",
-            trackingKey: "P:" + id,
-            tacticalType: "personal",
-            active: true
-          }
+          options
         );
         if (followedTrackingPersonalId === id && Number.isFinite(nextLat) && Number.isFinite(nextLon)) {
           flyToLocation(nextLat, nextLon, FOLLOW_TRACKING_ZOOM, 0.3);
@@ -949,25 +922,49 @@
       }
     };
 
-    window.updateTrackingVehiculo = function (idVehiculo, lat, lon, label) {
+    window.updateTrackingVehiculo = function (idVehiculo, lat, lon, label, meta) {
       try {
         const id = String(idVehiculo || "");
+        const options = Object.assign({}, meta || {}, {
+          kind: "vehiculo",
+          trackingKey: "V:" + id,
+          tacticalType: "vehiculo",
+          active: true
+        });
         upsertTrackingEntity(
           trackingVehiculoEntities,
           id,
           Number(lat),
           Number(lon),
           label || ("V-" + id),
-          Cesium.Color.ORANGE,
-          {
-            kind: "vehiculo",
-            trackingKey: "V:" + id,
-            tacticalType: "vehiculo",
-            active: true
-          }
+          TRACKING_VEHICULO_COLOR,
+          options
         );
       } catch (e) {
         console.error("Error en updateTrackingVehiculo: " + e.message);
+      }
+    };
+
+    window.updateTrackingEquipo = function (idEquipo, lat, lon, label, meta) {
+      try {
+        const id = String(idEquipo || "");
+        const options = Object.assign({}, meta || {}, {
+          kind: "equipo",
+          trackingKey: "E:" + id,
+          tacticalType: "equipo",
+          active: true
+        });
+        upsertTrackingEntity(
+          trackingEquipoEntities,
+          id,
+          Number(lat),
+          Number(lon),
+          label || ("E-" + id),
+          TRACKING_EQUIPO_COLOR,
+          options
+        );
+      } catch (e) {
+        console.error("Error en updateTrackingEquipo: " + e.message);
       }
     };
 
@@ -1258,6 +1255,7 @@
 
       const geojson = typeof rutaObj.geojson === 'string' ? JSON.parse(rutaObj.geojson) : rutaObj.geojson;
       const id = rutaObj.id_ruta;
+      const rol = (rutaObj.rol_creador || "").toUpperCase();
       if (!id) return;
 
       if (remoteRoutes.has(id)) {
@@ -1265,7 +1263,11 @@
         remoteRoutes.delete(id);
       }
 
-      const routeColor = routeColorFromPayload(rutaObj);
+      // Color logic: ADMIN/CUT = rojo, CET = naranja, CELL = azul, resto = violeta
+      let colorCesium = Cesium.Color.PURPLE;
+      if (rol === "ADMIN" || rol === "CUT") colorCesium = Cesium.Color.RED;
+      else if (rol === "CET") colorCesium = Cesium.Color.ORANGE;
+      else if (rol === "CELL") colorCesium = Cesium.Color.DODGERBLUE;
 
       let coords = [];
       if (geojson.coordinates && geojson.coordinates.length > 0) {
@@ -1280,7 +1282,7 @@
             width: 5,
             material: new Cesium.PolylineGlowMaterialProperty({
               glowPower: 0.1,
-              color: routeColor
+              color: colorCesium
             }),
             clampToGround: true
           }
@@ -1296,25 +1298,6 @@
         remoteRoutes.delete(id_ruta);
       }
     };
-
-    function getStableRouteColor(id) {
-      if (!id || id === "global") return Cesium.Color.CYAN;
-
-      let hash = 0;
-      const value = String(id);
-      for (let i = 0; i < value.length; i++) {
-        hash = value.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      return ROUTE_COLORS[Math.abs(hash) % ROUTE_COLORS.length];
-    }
-
-    function routeColorFromPayload(rutaObj) {
-      const color = rutaObj && rutaObj.color ? String(rutaObj.color) : "";
-      if (color && color.toUpperCase() !== "#1E90FF") {
-        return Cesium.Color.fromCssColorString(color);
-      }
-      return getStableRouteColor(rutaObj && rutaObj.id_vehiculo);
-    }
 
     // =========================
     // Puntos de Interés (POI)
@@ -2038,46 +2021,6 @@
     let _drawHandler = null;
     let _drawCounter = 0;
     let _drawDomHandlers = null;
-    let _drawCameraLocked = false;
-
-    function _applyDrawCameraLock(locked) {
-      if (!viewer || !viewer.scene || !viewer.scene.screenSpaceCameraController) return;
-      const controller = viewer.scene.screenSpaceCameraController;
-      controller.enableRotate    = !locked;
-      controller.enableTranslate = !locked;
-      controller.enableLook      = !locked;
-      controller.enableZoom      = true;
-      controller.enableTilt      = true;
-    }
-
-    function _bindDrawTouchCameraOverride() {
-      const canvas = viewer && viewer.scene && viewer.scene.canvas;
-      if (!canvas || canvas.dataset.drawTouchOverride === '1') return;
-      const activeTouchPointers = new Set();
-
-      const syncTouchCamera = function (event) {
-        if (!_drawCameraLocked) return;
-        _applyDrawCameraLock(!(event.touches && event.touches.length >= 2));
-      };
-      const restoreSingleTouchLock = function () {
-        if (_drawCameraLocked) _applyDrawCameraLock(true);
-      };
-      const syncPointerCamera = function (event) {
-        if (event.pointerType !== 'touch' || !_drawCameraLocked) return;
-        if (event.type === 'pointerdown') activeTouchPointers.add(event.pointerId);
-        if (event.type === 'pointerup' || event.type === 'pointercancel') activeTouchPointers.delete(event.pointerId);
-        _applyDrawCameraLock(activeTouchPointers.size < 2);
-      };
-
-      canvas.addEventListener('touchstart', syncTouchCamera, { passive: true });
-      canvas.addEventListener('touchmove', syncTouchCamera, { passive: true });
-      canvas.addEventListener('touchend', restoreSingleTouchLock, { passive: true });
-      canvas.addEventListener('touchcancel', restoreSingleTouchLock, { passive: true });
-      canvas.addEventListener('pointerdown', syncPointerCamera, { passive: true });
-      canvas.addEventListener('pointerup', syncPointerCamera, { passive: true });
-      canvas.addEventListener('pointercancel', syncPointerCamera, { passive: true });
-      canvas.dataset.drawTouchOverride = '1';
-    }
 
     function _destroyDrawHandler() {
       if (_drawHandler) { _drawHandler.destroy(); _drawHandler = null; }
@@ -2086,9 +2029,9 @@
 
     function _setDrawCameraEnabled(enabled) {
       if (!viewer || !viewer.scene || !viewer.scene.screenSpaceCameraController) return;
-      _drawCameraLocked = !enabled;
-      _bindDrawTouchCameraOverride();
-      _applyDrawCameraLock(!enabled);
+      viewer.scene.screenSpaceCameraController.enableRotate    = enabled;
+      viewer.scene.screenSpaceCameraController.enableTranslate = enabled;
+      viewer.scene.screenSpaceCameraController.enableZoom      = enabled;
     }
 
     function _canvasPositionFromClient(clientX, clientY) {
@@ -2145,9 +2088,7 @@
     function _finishPencilStroke() {
       if (!_isDrawing) return;
       _isDrawing = false;
-      if (_drawMode !== 'pencil') {
-        _setDrawCameraEnabled(true);
-      }
+      _setDrawCameraEnabled(true);
 
       if (_previewEnt) { viewer.entities.remove(_previewEnt); _previewEnt = null; }
 
@@ -2183,22 +2124,11 @@
       _unbindPencilDomEvents();
 
       if (window.PointerEvent) {
-        const activeTouchPointers = new Set();
-
         const onPointerDown = function (ev) {
           if (_drawMode !== 'pencil') return;
           if (ev.button !== undefined && ev.button !== 0) return;
-          if (ev.pointerType === 'touch') {
-            activeTouchPointers.add(ev.pointerId);
-            if (activeTouchPointers.size >= 2) {
-              _finishPencilStroke();
-              _applyDrawCameraLock(false);
-              return;
-            }
-          }
           ev.preventDefault();
           ev.stopPropagation();
-          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
           if (canvas.setPointerCapture && ev.pointerId !== undefined) {
             try { canvas.setPointerCapture(ev.pointerId); } catch (_) {}
           }
@@ -2206,35 +2136,24 @@
         };
         const onPointerMove = function (ev) {
           if (_drawMode !== 'pencil' || !_isDrawing) return;
-          if (ev.pointerType === 'touch' && activeTouchPointers.size >= 2) return;
           ev.preventDefault();
           ev.stopPropagation();
-          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
           _appendPencilPoint(_canvasPositionFromClient(ev.clientX, ev.clientY));
         };
         const onPointerUp = function (ev) {
           if (_drawMode !== 'pencil') return;
-          if (ev.pointerType === 'touch') {
-            const wasMultiTouch = activeTouchPointers.size >= 2;
-            activeTouchPointers.delete(ev.pointerId);
-            if (wasMultiTouch) {
-              if (activeTouchPointers.size < 2 && _drawCameraLocked) _applyDrawCameraLock(true);
-              return;
-            }
-          }
           ev.preventDefault();
           ev.stopPropagation();
-          if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
           if (canvas.releasePointerCapture && ev.pointerId !== undefined) {
             try { canvas.releasePointerCapture(ev.pointerId); } catch (_) {}
           }
           _finishPencilStroke();
         };
 
-        canvas.addEventListener('pointerdown', onPointerDown, { passive: false, capture: true });
-        canvas.addEventListener('pointermove', onPointerMove, { passive: false, capture: true });
-        canvas.addEventListener('pointerup', onPointerUp, { passive: false, capture: true });
-        canvas.addEventListener('pointercancel', onPointerUp, { passive: false, capture: true });
+        canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+        canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+        canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+        canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
         _drawDomHandlers = { type: 'pointer', canvas, onPointerDown, onPointerMove, onPointerUp };
         return;
       }
@@ -2248,7 +2167,6 @@
         if (!touch) return;
         ev.preventDefault();
         ev.stopPropagation();
-        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
         _startPencilStroke(_canvasPositionFromClient(touch.clientX, touch.clientY));
       };
       const onTouchMove = function (ev) {
@@ -2257,21 +2175,19 @@
         if (!touch) return;
         ev.preventDefault();
         ev.stopPropagation();
-        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
         _appendPencilPoint(_canvasPositionFromClient(touch.clientX, touch.clientY));
       };
       const onTouchEnd = function (ev) {
         if (_drawMode !== 'pencil') return;
         ev.preventDefault();
         ev.stopPropagation();
-        if (ev.stopImmediatePropagation) ev.stopImmediatePropagation();
         _finishPencilStroke();
       };
 
-      canvas.addEventListener('touchstart', onTouchStart, { passive: false, capture: true });
-      canvas.addEventListener('touchmove', onTouchMove, { passive: false, capture: true });
-      canvas.addEventListener('touchend', onTouchEnd, { passive: false, capture: true });
-      canvas.addEventListener('touchcancel', onTouchEnd, { passive: false, capture: true });
+      canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+      canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+      canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+      canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
       _drawDomHandlers = { type: 'touch', canvas, onTouchStart, onTouchMove, onTouchEnd };
     }
 
@@ -2279,15 +2195,15 @@
       if (!_drawDomHandlers) return;
       const h = _drawDomHandlers;
       if (h.type === 'pointer') {
-        h.canvas.removeEventListener('pointerdown', h.onPointerDown, true);
-        h.canvas.removeEventListener('pointermove', h.onPointerMove, true);
-        h.canvas.removeEventListener('pointerup', h.onPointerUp, true);
-        h.canvas.removeEventListener('pointercancel', h.onPointerUp, true);
+        h.canvas.removeEventListener('pointerdown', h.onPointerDown);
+        h.canvas.removeEventListener('pointermove', h.onPointerMove);
+        h.canvas.removeEventListener('pointerup', h.onPointerUp);
+        h.canvas.removeEventListener('pointercancel', h.onPointerUp);
       } else {
-        h.canvas.removeEventListener('touchstart', h.onTouchStart, true);
-        h.canvas.removeEventListener('touchmove', h.onTouchMove, true);
-        h.canvas.removeEventListener('touchend', h.onTouchEnd, true);
-        h.canvas.removeEventListener('touchcancel', h.onTouchEnd, true);
+        h.canvas.removeEventListener('touchstart', h.onTouchStart);
+        h.canvas.removeEventListener('touchmove', h.onTouchMove);
+        h.canvas.removeEventListener('touchend', h.onTouchEnd);
+        h.canvas.removeEventListener('touchcancel', h.onTouchEnd);
       }
       _drawDomHandlers = null;
     }
@@ -2295,7 +2211,6 @@
     window.startPencilMode = function () {
       _drawMode = 'pencil';
       _destroyDrawHandler();
-      _setDrawCameraEnabled(false);
       _bindPencilDomEvents();
     };
 

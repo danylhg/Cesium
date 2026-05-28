@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Control de Equipos</title>
+  <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
   <link rel="stylesheet" href="css/control_personal.css" />
 </head>
@@ -30,7 +31,7 @@
       <div class="panelHead">
         <div>
           <h1 class="title">Control de Equipos</h1>
-          <p class="subtitle">Administra equipos registrados (localStorage)</p>
+          <p class="subtitle">Administra equipos tacticos y de comunicacion registrados</p>
         </div>
 
         <div class="headBtns">
@@ -122,7 +123,7 @@
                 <option value="MANTENIMIENTO">Mantenimiento</option>
               </select>
             </div>
-            <div class="field full"><label>Detalles</label><textarea id="fDetalles"></textarea></div>
+            <div class="field full"><label>Detalles</label><textarea id="fDetalles" class="detailsTextarea" rows="4"></textarea></div>
           </div>
 
           <div class="modalActions">

@@ -1,20 +1,36 @@
 import http from "http";
+import os from "os";
 import { app } from "./app.js";
 import { initSocket } from "./sockets/index.js";
 import { PORT } from "./config/env.js";
-import { initJobs } from "./jobs/operations.job.js";
+import { startOperacionAutoActivator } from "./services/operacionesScheduler.service.js";
+
+const getLocalIp = () => {
+  const interfaces = os.networkInterfaces();
+
+  for (const networkInterface of Object.values(interfaces)) {
+    const networkAddress = networkInterface?.find(
+      ({ family, internal, address }) =>
+        (family === "IPv4" || family === 4) &&
+        !internal &&
+        !address.startsWith("169.254.")
+    );
+
+    if (networkAddress) {
+      return networkAddress.address;
+    }
+  }
+
+  return "localhost";
+};
 
 const server = http.createServer(app);
 const io = initSocket(server);
 
 app.set("io", io);
 
-// Inicializar tareas programadas (activación y limpieza)
-initJobs(io);
-
 server.listen(PORT, "0.0.0.0", () => {
-  console.log(`API + WS en http://192.168.100.12:${PORT}`);
-  // http://192.168.202.103 SEDAM
-  // http://192.168.100.12:3001 mi casa de vera
-  // http://192.168.1.83:3001 mi casa de lerdo
+  const localIp = getLocalIp();
+  console.log(`API + WS en http://${localIp}:${PORT}`);
+  startOperacionAutoActivator({ io });
 });

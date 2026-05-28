@@ -368,11 +368,24 @@ END $$;
 -- Triggers de destinos flexibles (PATCH 06b)
 -- Conectan las funciones validadoras de 12_validaciones
 -- con las tablas parcheadas. Garantizan que:
---   • el tipo_destino sea coherente con la FK usada
+--   • el contexto de vehículo/grupo sea coherente con las FK usadas
 --   • cuando el destino es GRUPO, sea subgrupo (no padre/flotilla)
 -- =========================================================
 DO $$
 BEGIN
+  DROP TRIGGER IF EXISTS tr_validar_destino_vehiculo_operacion ON vehiculo_operacion;
+  DROP TRIGGER IF EXISTS tr_validar_destino_uso_equipo_operacion ON uso_equipo_operacion;
+
+  CREATE TRIGGER tr_validar_destino_vehiculo_operacion
+  BEFORE INSERT OR UPDATE ON vehiculo_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_destino_vehiculo_operacion();
+
+  CREATE TRIGGER tr_validar_destino_uso_equipo_operacion
+  BEFORE INSERT OR UPDATE ON uso_equipo_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_destino_uso_equipo_operacion();
+
   -- uso_equipo_operacion: bloquear cambios en operaciones cerradas/canceladas
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger WHERE tgname = 'tr_ueo_operacion_modificable'
@@ -385,12 +398,47 @@ BEGIN
 END $$;
 
 -- =========================================================
--- Bloqueo de chat en operaciones cerradas
+-- Bloqueos faltantes en operaciones cerradas/canceladas
 -- =========================================================
-DROP TRIGGER IF EXISTS tr_participante_chat_operacion_modificable ON participante_chat;
-
 DO $$
 BEGIN
+  DROP TRIGGER IF EXISTS tr_go_operacion_modificable ON grupo_operacion;
+  DROP TRIGGER IF EXISTS tr_mando_operacion_modificable ON mando_operacion;
+  DROP TRIGGER IF EXISTS tr_chat_operacion_modificable ON chat_operacion;
+  DROP TRIGGER IF EXISTS tr_participante_chat_operacion_modificable ON participante_chat;
+  DROP TRIGGER IF EXISTS tr_dibujo_operacion_modificable ON dibujo_libre_operacion;
+  DROP TRIGGER IF EXISTS tr_ruta_nav_operacion_modificable ON ruta_navegacion;
+
+  CREATE TRIGGER tr_go_operacion_modificable
+  BEFORE INSERT OR UPDATE ON grupo_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_operacion_modificable();
+
+  CREATE TRIGGER tr_mando_operacion_modificable
+  BEFORE INSERT OR UPDATE ON mando_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_operacion_modificable();
+
+  CREATE TRIGGER tr_chat_operacion_modificable
+  BEFORE INSERT OR UPDATE OR DELETE ON chat_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_operacion_modificable();
+
+  CREATE TRIGGER tr_participante_chat_operacion_modificable
+  BEFORE INSERT OR UPDATE OR DELETE ON participante_chat
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_operacion_modificable();
+
+  CREATE TRIGGER tr_dibujo_operacion_modificable
+  BEFORE INSERT OR UPDATE ON dibujo_libre_operacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_operacion_modificable();
+
+  CREATE TRIGGER tr_ruta_nav_operacion_modificable
+  BEFORE INSERT OR UPDATE ON ruta_navegacion
+  FOR EACH ROW
+  EXECUTE FUNCTION fn_validar_operacion_modificable();
+
   IF NOT EXISTS (
     SELECT 1 FROM pg_trigger WHERE tgname = 'tr_mensaje_chat_operacion_modificable'
   ) THEN

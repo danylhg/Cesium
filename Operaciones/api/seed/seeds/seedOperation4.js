@@ -1,6 +1,7 @@
 import { getAdminId, getPersonalByUsername, getPersonalIdStrict } from "../helpers/personal.js";
 import { getGrupoId } from "../helpers/lookup.js";
 import { ensureChatParticipantUsuario, ensureChatParticipantPersonal } from "../helpers/chat.js";
+import { seedOperationGrid } from "../helpers/grid.js";
 
 export async function seedOperation4(client) {
   const creadoPor = await getAdminId(client);
@@ -219,6 +220,16 @@ export async function seedOperation4(client) {
     ]
   );
 
+  const grid = await seedOperationGrid(client, {
+    idOperacion: idOp4,
+    size: "2x2",
+    names: [
+      "Planeacion NW", "Planeacion NE",
+      "Reserva SW", "Reserva SE",
+    ],
+    idUsuario: creadoPor,
+  });
+
   // =========================================================
   // CANCELACIÓN — liberar recursos y cancelar operación
   // =========================================================
@@ -253,6 +264,9 @@ export async function seedOperation4(client) {
     estado: "CANCELADA",
     idOp: idOp4,
     personalAsignado: personalAsignado4.length,
+    vehiculosFijos: 0,
+    equiposFijos: 0,
+    cuadricula: grid.size,
   };
 }
 

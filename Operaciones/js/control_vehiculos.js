@@ -128,7 +128,6 @@
   const modal = document.getElementById("modal");
   const modalTitle = document.getElementById("modalTitle");
   const btnCloseModal = document.getElementById("btnCloseModal");
-  const btnCancel = document.getElementById("btnCancel");
   const btnDeleteModal = document.getElementById("btnDeleteModal");
   const form = document.getElementById("form");
 
@@ -432,7 +431,6 @@
   }
 
   btnCloseModal?.addEventListener("click", closeModal);
-  btnCancel?.addEventListener("click", closeModal);
   btnDeleteModal?.addEventListener("click", () => btnDelete?.click());
 
   modal?.addEventListener("click", (e) => {
@@ -492,28 +490,6 @@
   });
 
   btnSearch?.addEventListener("click", renderTable);
-
-  // Make magnifier open the collapsed input on first click
-  (function attachSearchIconFocus() {
-    const icon = document.getElementById("btnSearch");
-    if (!icon || !searchInput) return;
-
-    icon.addEventListener(
-      "click",
-      (ev) => {
-        try {
-          const style = window.getComputedStyle(searchInput);
-          const collapsed = style.opacity === "0" || searchInput.offsetWidth === 0;
-          if (collapsed) {
-            ev.preventDefault();
-            ev.stopImmediatePropagation();
-            searchInput.focus();
-          }
-        } catch (e) {}
-      },
-      true
-    );
-  })();
   searchInput?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();

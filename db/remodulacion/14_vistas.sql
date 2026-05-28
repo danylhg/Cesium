@@ -298,6 +298,8 @@ SELECT DISTINCT ON (tp.id_operacion, tp.id_personal)
   tp.latitud,
   tp.longitud,
   tp.altitud,
+  tp.velocidad_kmh,
+  tp.rumbo_grados,
   tp.precision_m,
   tp."timestamp" AS ultima_actualizacion
 FROM tracking_personal tp

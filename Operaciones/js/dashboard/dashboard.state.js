@@ -2,6 +2,7 @@
 
 export const dashboardState = {
   viewer: null,
+  baseLayerKey: "hybrid",
 
   pickMode: null,
   startPoint: null,

@@ -9,7 +9,7 @@ import {
 import {
   renderInfoPanel,
   updateChatAvailability,
-  togglePanel
+  openPanel
 } from "./dashboard.ui.js";
 import { bindDashboardEvents } from "./dashboard.events.js";
 import { initChat, bindChatEvents } from "./dashboard.chat.js";
@@ -20,10 +20,11 @@ import {
   loadPoisFromBackend,
   loadAreasFromBackend,
   loadStructuresFromBackend,
+  loadRoutesFromBackend,
   loadOperationZoneFromBackend,
-  restoreGridFromStorage
-} from "./dashboard.tactical.js";
-import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js";
+  restoreGridFromBackend
+} from "./dashboard.tactical.js?v=20260520-windrose";
+import { initCesium, centerMapOnOperationZone } from "./dashboard.map.js?v=20260520-osmfix";
 import { bindAreaEvents } from "./dashboard.area.js";
 import { restoreTacticalData } from "./dashboard.persistence.js";
 import {
@@ -34,8 +35,6 @@ import {
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
 import { initCameraFeeds } from "./dashboard.camera.js";
-
-Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMjQ3NDAzYi1mNDYyLTQzYTgtOTNiOC02MGE1YmJhOGYwYjQiLCJpZCI6NDAwOTM3LCJpYXQiOjE3NzQ1NDYwNjZ9.Phla8axJI8tGCSQwfvmvykzxW2tHXcuc0q1D5n01BmU";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";
@@ -73,6 +72,20 @@ function setServerConnectionState(isConnected, message = CONNECTION_LOST_MESSAGE
   const banner = ensureConnectionBanner();
   banner.textContent = message;
   banner.style.display = isConnected ? "none" : "block";
+}
+
+async function loadCesiumToken() {
+  const data = await apiFetch("/config/cesium-token");
+
+  if (data?.token) {
+    Cesium.Ion.defaultAccessToken = data.token;
+    localStorage.setItem("CESIUM_TOKEN", data.token);
+    return true;
+  }
+
+  localStorage.removeItem("CESIUM_TOKEN");
+  setServerConnectionState(false, "Token de Cesium no configurado en el servidor.");
+  return false;
 }
 
 async function apiFetchEstado(opId, nuevoEstado) {
@@ -137,27 +150,15 @@ function showPlanningExitModal() {
 }
 
 function handleClosedOperation(operacion) {
-  if (operationClosedHandled || !operacion) return;
+  if (operationClosedHandled || !operacion) return false;
 
   const estado = String(operacion.estado || operacion.phase || "").toLowerCase();
-  if (!["cerrada", "cancelada"].includes(estado)) return;
+  if (!["cerrada", "cancelada"].includes(estado)) return false;
 
   operationClosedHandled = true;
   alert(`La operacion "${operacion.nombre || operacion.titulo || "actual"}" ya fue ${estado}.`);
   window.location.href = "menu_inicial.html";
-}
-
-function updateOperationZonePlanningVisibility(operacion = getCurrentOperation()) {
-  const zoneSection = dom.markZoneBtn?.closest?.(".routeSection");
-  if (!zoneSection) return;
-
-  const phase = String(operacion?.phase || operacion?.estado || "").toLowerCase();
-  const isPlanning = phase === "planificada";
-  zoneSection.style.display = isPlanning ? "" : "none";
-
-  if (!isPlanning && dom.zoneActionBtns) {
-    dom.zoneActionBtns.style.display = "none";
-  }
+  return true;
 }
 
 async function apiFetch(path) {
@@ -192,6 +193,9 @@ async function loadDashboardFromBD() {
       personal: data.personal || [],
       vehiculos: data.vehiculos || [],
       equipos: data.equipos || [],
+      dispositivos: data.dispositivos || [],
+      grid: data.grid || data.cuadricula_operacion || null,
+      cuadricula_operacion: data.cuadricula_operacion || data.grid || null,
       _mapaData: data   // para tracking
     };
   } catch {
@@ -227,22 +231,10 @@ if (dom.logout) {
 function loadCurrentOperationOnMap() {
   const op = getCurrentOperation();
   dashboardState.currentOperation = op;
-  updateOperationZonePlanningVisibility(op);
   if (!op || !dashboardState.viewer) return;
   populateRouteVehicleSelect(op?.vehiculos || []);
   loadRouteForSelectedVehicle();
   restoreTacticalData();
-}
-
-function recenterMapOnKnownZone() {
-  const storedOperation = getCurrentOperation();
-  const zona = dashboardState.currentOperationZone
-    || dashboardState.currentOperation?.zona_operacion
-    || storedOperation?.zona_operacion;
-
-  if (zona) {
-    centerMapOnOperationZone(zona);
-  }
 }
 
 // ── Socket.io connection ─────────────────────────────────────
@@ -282,6 +274,23 @@ async function connectSocket(opId) {
     setServerConnectionState(false);
   });
 
+  socket.on("operacion_estado_actualizado", ({ operacion }) => {
+    const activeId = localStorage.getItem("active_operation_id");
+    if (!operacion || String(operacion.id_operacion) !== String(activeId)) return;
+
+    const current = getCurrentOperation();
+    saveCurrentOperation({
+      ...current,
+      ...operacion,
+      id: operacion.id_operacion
+    });
+    dashboardState.currentOperation = getCurrentOperation();
+    if (handleClosedOperation(dashboardState.currentOperation)) return;
+    renderInfoPanel();
+    updateChatAvailability();
+    setTacticalUI();
+  });
+
   return socket;
 }
 
@@ -307,64 +316,112 @@ function bindPlanningLogoutChoice() {
   };
 }
 
+function updateRangeVisual(range) {
+  if (!range) return;
+
+  const min = Number(range.min || 0);
+  const max = Number(range.max || 100);
+  const value = Number(range.value || min);
+  const progress = max > min ? ((value - min) / (max - min)) * 100 : 0;
+  const clamped = Math.max(0, Math.min(100, progress));
+  range.style.setProperty("--range-fill", `${clamped}%`);
+
+  const outputId = range.dataset?.output;
+  const output = outputId ? document.getElementById(outputId) : null;
+  if (output) output.textContent = formatRangeValue(range);
+}
+
+function formatRangeValue(range) {
+  const value = Number(range.value || 0);
+
+  if (range.id === "opacityRange") {
+    return `${Math.round(value * 100)}%`;
+  }
+
+  if (range.id === "widthRange" || range.id === "zoneWidthRange") {
+    return `${value} px`;
+  }
+
+  return String(range.value || "");
+}
+
+function bindDashboardRangeVisuals() {
+  [dom.zoneWidthRange, dom.opacityRange, dom.widthRange]
+    .filter(Boolean)
+    .forEach((range) => {
+      updateRangeVisual(range);
+      range.addEventListener("input", () => updateRangeVisual(range));
+      range.addEventListener("change", () => updateRangeVisual(range));
+    });
+}
+
 window.addEventListener("load", async () => {
   ensureConnectionBanner();
   bindPlanningLogoutChoice();
+  await loadCesiumToken();
   initCesium();
+  bindDashboardRangeVisuals();
   bindChatEvents();
   bindTacticalEvents();
   bindAreaEvents();
   bindDashboardEvents();
   bindDrawingEvents();
-  initCameraFeeds();
   setTacticalUI();
   loadCurrentOperationOnMap();
 
   if (dom.recenterMapBtn) {
     dom.recenterMapBtn.onclick = () => {
-      // 1. Si hay puntos de un área que se está marcando o se acaba de marcar
+      const currentOperation = getCurrentOperation();
+      const operationZone =
+        dashboardState.currentOperationZone ||
+        currentOperation?.zona_operacion ||
+        dashboardState.currentOperation?.zona_operacion;
+
+      if (operationZone) {
+        centerMapOnOperationZone(operationZone);
+        return;
+      }
+
       if (dashboardState.areaPoints && dashboardState.areaPoints.length > 0) {
         const lats = dashboardState.areaPoints.map(p => p.lat);
         const lngs = dashboardState.areaPoints.map(p => p.lng);
         const centerLat = lats.reduce((a, b) => a + b, 0) / lats.length;
         const centerLng = lngs.reduce((a, b) => a + b, 0) / lngs.length;
-        
-        // Calculamos un zoom aproximado basado en la dispersión (o 5000 por defecto)
+
         dashboardState.viewer.camera.flyTo({
           destination: Cesium.Cartesian3.fromDegrees(centerLng, centerLat, 4500)
         });
         return;
       }
-
-      // 2. Fallback: Zona de operación guardada en la BD
-      recenterMapOnKnownZone();
     };
   }
 
   // Abrir panel de info al cargar
-  togglePanel(dom.infoPanel, dom.toggleInfoPanel);
+  openPanel(dom.infoPanel, dom.toggleInfoPanel);
 
   // Cargar datos de la operación desde BD
   const bdData = await loadDashboardFromBD();
   if (bdData) {
-    handleClosedOperation(bdData.operacion);
-    const currentOperation = {
+    if (handleClosedOperation(bdData.operacion)) return;
+    saveCurrentOperation({
       ...bdData.operacion,
       id: bdData.operacion.id_operacion,
-      zona_operacion: bdData.zona_operacion || null
-    };
-    dashboardState.currentOperation = currentOperation;
-    dashboardState.currentOperationZone = bdData.zona_operacion || dashboardState.currentOperationZone;
-    saveCurrentOperation(currentOperation);
-    updateOperationZonePlanningVisibility(currentOperation);
+      zona_operacion: bdData.zona_operacion || null,
+      personal: bdData.personal || [],
+      vehiculos: bdData.vehiculos || [],
+      equipos: bdData.equipos || [],
+      dispositivos: bdData.dispositivos || []
+    });
+    dashboardState.currentOperation = getCurrentOperation();
     renderInfoPanel(bdData);
+    initCameraFeeds();
     setTacticalUI();
     if (bdData.zona_operacion) {
       centerMapOnOperationZone(bdData.zona_operacion);
     }
   } else {
-    updateOperationZonePlanningVisibility();
     renderInfoPanel();
+    initCameraFeeds();
   }
   updateChatAvailability();
 
@@ -372,8 +429,9 @@ window.addEventListener("load", async () => {
   await loadPoisFromBackend();
   await loadAreasFromBackend();
   await loadStructuresFromBackend();
+  await loadRoutesFromBackend();
   await loadOperationZoneFromBackend();
-  restoreGridFromStorage();
+  await restoreGridFromBackend(bdData?.grid || bdData?.cuadricula_operacion);
   await loadDrawingsFromBackend();
 
   // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)
@@ -394,6 +452,7 @@ window.addEventListener("load", async () => {
       initPoiSocket(socket);
       initTrackingSocket(socket);
       initDrawingSocket(socket);
+      initCameraFeeds(opId, socket);
     }
   }
 
@@ -406,18 +465,19 @@ window.addEventListener("load", async () => {
   setInterval(async () => {
     const fresh = await loadDashboardFromBD();
     if (fresh) {
-      handleClosedOperation(fresh.operacion);
+      if (handleClosedOperation(fresh.operacion)) return;
       saveCurrentOperation({
         ...fresh.operacion,
         id: fresh.operacion.id_operacion,
-        zona_operacion: fresh.zona_operacion || null
+        zona_operacion: fresh.zona_operacion || null,
+        personal: fresh.personal || [],
+        vehiculos: fresh.vehiculos || [],
+        equipos: fresh.equipos || [],
+        dispositivos: fresh.dispositivos || []
       });
-      updateOperationZonePlanningVisibility({
-        ...fresh.operacion,
-        id: fresh.operacion.id_operacion,
-        zona_operacion: fresh.zona_operacion || null
-      });
+      dashboardState.currentOperation = getCurrentOperation();
       renderInfoPanel(fresh);
+      initCameraFeeds();
       setTacticalUI();
     }
     updateChatAvailability();

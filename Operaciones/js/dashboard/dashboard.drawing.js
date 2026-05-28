@@ -10,8 +10,8 @@ import { getCesiumColor, getCurrentColorName, getLineWidth } from "./dashboard.t
 
 function getApiContext() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token = localStorage.getItem("token");
-  const opId = localStorage.getItem("active_operation_id");
+  const token    = localStorage.getItem("token");
+  const opId     = localStorage.getItem("active_operation_id");
   return { API_BASE, token, opId };
 }
 
@@ -19,11 +19,11 @@ async function saveDrawingToBackend(coords, color, grosor) {
   const { API_BASE, token, opId } = getApiContext();
   if (!token || !opId) return null;
 
-  const userData = JSON.parse(localStorage.getItem("userData") || "{}");
-  const tabla = userData.tabla || "usuario";
+  const userData    = JSON.parse(localStorage.getItem("userData") || "{}");
+  const tabla       = userData.tabla || "usuario";
   const tipo_creador = tabla === "personal" ? "PERSONAL" : "USUARIO";
-  const idKey = tabla === "personal" ? "id_personal" : "id_usuario";
-  const idVal = tabla === "personal" ? userData.id_personal : userData.id_usuario;
+  const idKey       = tabla === "personal" ? "id_personal" : "id_usuario";
+  const idVal       = tabla === "personal" ? userData.id_personal : userData.id_usuario;
 
   try {
     const res = await fetch(`${API_BASE}/ops/${opId}/dibujos`, {
@@ -55,6 +55,29 @@ async function deleteDrawingFromBackend(id_dibujo) {
 
 // Map: cesium entity id → id_dibujo del backend
 const _drawingBackendIds = new Map();
+const _drawingPendingDeletes = new Set();
+const _drawingPendingSaves = new Map();
+
+function sameCoord(a, b) {
+  return Math.abs(Number(a?.lat) - Number(b?.lat)) < 0.000001 &&
+    Math.abs(Number(a?.lng) - Number(b?.lng)) < 0.000001;
+}
+
+function isSameDrawingPayload(localData, dibujo) {
+  const puntos = dibujo?.puntos;
+  if (!localData || !Array.isArray(localData.coords) || !Array.isArray(puntos)) return false;
+  if (localData.coords.length !== puntos.length) return false;
+  if (String(localData.color || "").toLowerCase() !== String(dibujo.color || "").toLowerCase()) return false;
+  if (Number(localData.width || 3) !== Number(dibujo.grosor || 3)) return false;
+  return localData.coords.every((coord, index) => sameCoord(coord, puntos[index]));
+}
+
+function findPendingDrawingEntityId(dibujo) {
+  for (const [entityId, data] of _drawingPendingSaves.entries()) {
+    if (isSameDrawingPayload(data, dibujo)) return entityId;
+  }
+  return null;
+}
 
 /* ─── Backend sync helpers for undo/redo ────────────────────── */
 
@@ -70,10 +93,13 @@ function getTacticalBackendIds(entityRef) {
   const idMarca = get("id_marca");
   if (idMarca != null && !String(idMarca).startsWith("local_"))
     return { kind: "structure", id: Number(idMarca) };
+  const idRuta = get("id_ruta");
+  if (idRuta != null && !String(idRuta).startsWith("local_"))
+    return { kind: "route", id: Number(idRuta) };
   return null;
 }
 
-const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios" };
+const _kindToSeg = { poi: "pois", area: "areas", structure: "edificios", route: "rutas" };
 
 async function deleteTacticalFromBackend(kind, id) {
   const { API_BASE, token, opId } = getApiContext();
@@ -172,16 +198,10 @@ export function pushUndoAction(action) {
 export function undo() {
   if (undoStack.length === 0) return;
   const action = undoStack.pop();
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
 
-  if (action.type === "ui") {
-    action.undo?.();
-    redoStack.push(action);
-  } else if (action.type === "add") {
-    const viewer = dashboardState.viewer;
-    if (!viewer) {
-      undoStack.push(action);
-      return;
-    }
+  if (action.type === "add") {
     // Undo an add → hide the entity
     const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
@@ -200,11 +220,6 @@ export function undo() {
     }
     redoStack.push(action);
   } else if (action.type === "remove") {
-    const viewer = dashboardState.viewer;
-    if (!viewer) {
-      undoStack.push(action);
-      return;
-    }
     // Undo a remove → show the entity again or rebuild
     if (action.entityRef && viewer.entities.contains(action.entityRef)) {
       action.entityRef.show = true;
@@ -217,6 +232,9 @@ export function undo() {
 
     // Re-add to appropriate list
     if (action.entityRef) {
+      if (action.source === "drawing") {
+        _drawingPendingDeletes.delete(action.entityId);
+      }
       if (action.source === "tactical") {
         dashboardState.tacticalEntities = dashboardState.tacticalEntities || [];
         if (!dashboardState.tacticalEntities.includes(action.entityRef)) {
@@ -237,16 +255,10 @@ export function undo() {
 export function redo() {
   if (redoStack.length === 0) return;
   const action = redoStack.pop();
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
 
-  if (action.type === "ui") {
-    action.redo?.();
-    undoStack.push(action);
-  } else if (action.type === "add") {
-    const viewer = dashboardState.viewer;
-    if (!viewer) {
-      redoStack.push(action);
-      return;
-    }
+  if (action.type === "add") {
     // Redo an add → show the entity again or rebuild
     if (action.entityRef && viewer.entities.contains(action.entityRef)) {
       action.entityRef.show = true;
@@ -272,11 +284,6 @@ export function redo() {
     }
     undoStack.push(action);
   } else if (action.type === "remove") {
-    const viewer = dashboardState.viewer;
-    if (!viewer) {
-      redoStack.push(action);
-      return;
-    }
     // Redo a remove → hide the entity again
     const ent = action.entityRef || viewer.entities.getById(action.entityId);
     if (ent) {
@@ -307,6 +314,49 @@ function refreshUndoRedoButtons() {
 /* ─── Serialize / Rebuild helpers ───────────────────────────── */
 
 let _drawIdCounter = 0;
+let _drawingCameraLock = null;
+
+function getCameraController(viewer = dashboardState.viewer) {
+  return viewer?.scene?.screenSpaceCameraController || null;
+}
+
+function lockMapMovement(viewer = dashboardState.viewer) {
+  const controller = getCameraController(viewer);
+  if (!controller) return;
+
+  if (!_drawingCameraLock) {
+    _drawingCameraLock = {
+      enableRotate: controller.enableRotate,
+      enableTranslate: controller.enableTranslate,
+      enableZoom: controller.enableZoom,
+      enableTilt: controller.enableTilt,
+      enableLook: controller.enableLook,
+    };
+  }
+
+  controller.enableRotate = false;
+  controller.enableTranslate = false;
+  controller.enableZoom = false;
+  controller.enableTilt = false;
+  controller.enableLook = false;
+}
+
+function unlockMapMovement(viewer = dashboardState.viewer) {
+  const controller = getCameraController(viewer);
+  if (!controller) return;
+
+  if (_drawingCameraLock) {
+    Object.assign(controller, _drawingCameraLock);
+    _drawingCameraLock = null;
+    return;
+  }
+
+  controller.enableRotate = true;
+  controller.enableTranslate = true;
+  controller.enableZoom = true;
+  controller.enableTilt = true;
+  controller.enableLook = true;
+}
 
 function serializePolyline(entity) {
   if (!entity?.polyline) return null;
@@ -365,86 +415,22 @@ let _isDrawing = false;
 let _currentDrawCoords = [];
 let _currentPreviewEntity = null;
 let _pencilHandler = null;
-let _previousCanvasTouchAction = "";
-let _drawCameraLocked = false;
-let _drawTouchOverrideBound = false;
-
-function applyDrawCameraLock(locked) {
-  const viewer = dashboardState.viewer;
-  if (!viewer?.scene?.screenSpaceCameraController) return;
-
-  const controller = viewer.scene.screenSpaceCameraController;
-  controller.enableRotate = !locked;
-  controller.enableTranslate = !locked;
-  controller.enableLook = !locked;
-  controller.enableZoom = true;
-  controller.enableTilt = true;
-}
-
-function bindDrawTouchCameraOverride() {
-  const canvas = dashboardState.viewer?.scene?.canvas;
-  if (!canvas || _drawTouchOverrideBound) return;
-  const activeTouchPointers = new Set();
-
-  const syncTouchCamera = (event) => {
-    if (!_drawCameraLocked) return;
-    applyDrawCameraLock(!(event.touches && event.touches.length >= 2));
-  };
-
-  const restoreSingleTouchLock = () => {
-    if (_drawCameraLocked) applyDrawCameraLock(true);
-  };
-
-  const syncPointerCamera = (event) => {
-    if (event.pointerType !== "touch" || !_drawCameraLocked) return;
-    if (event.type === "pointerdown") activeTouchPointers.add(event.pointerId);
-    if (event.type === "pointerup" || event.type === "pointercancel") activeTouchPointers.delete(event.pointerId);
-    applyDrawCameraLock(activeTouchPointers.size < 2);
-  };
-
-  canvas.addEventListener("touchstart", syncTouchCamera, { passive: true });
-  canvas.addEventListener("touchmove", syncTouchCamera, { passive: true });
-  canvas.addEventListener("touchend", restoreSingleTouchLock, { passive: true });
-  canvas.addEventListener("touchcancel", restoreSingleTouchLock, { passive: true });
-  canvas.addEventListener("pointerdown", syncPointerCamera, { passive: true });
-  canvas.addEventListener("pointerup", syncPointerCamera, { passive: true });
-  canvas.addEventListener("pointercancel", syncPointerCamera, { passive: true });
-  _drawTouchOverrideBound = true;
-}
-
-function setDrawCameraEnabled(enabled) {
-  const viewer = dashboardState.viewer;
-  if (!viewer?.scene?.screenSpaceCameraController) return;
-
-  _drawCameraLocked = !enabled;
-  bindDrawTouchCameraOverride();
-  applyDrawCameraLock(!enabled);
-
-  const canvas = viewer.scene.canvas;
-  if (!canvas) return;
-
-  if (!enabled) {
-    _previousCanvasTouchAction = canvas.style.touchAction || "";
-    canvas.style.touchAction = "none";
-  } else {
-    canvas.style.touchAction = _previousCanvasTouchAction;
-  }
-}
 
 export function startPencilMode() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
   dashboardState.drawingMode = "pencil";
-  stopEraserMode();
+  stopEraserMode({ keepMapLocked: true });
+  lockMapMovement(viewer);
 
   if (_pencilHandler) _pencilHandler.destroy();
   _pencilHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
-  setDrawCameraEnabled(false);
 
   _pencilHandler.setInputAction((click) => {
     _isDrawing = true;
     _currentDrawCoords = [];
+    lockMapMovement(viewer);
 
     const cartesian = viewer.camera.pickEllipsoid(
       click.position, viewer.scene.globe.ellipsoid
@@ -453,6 +439,26 @@ export function startPencilMode() {
       const pos = cartesianToLatLng(cartesian);
       _currentDrawCoords.push(pos);
     }
+
+    const colorName = getCurrentColorName();
+    const cesiumColor = getCesiumColor(colorName, 1);
+    _currentPreviewEntity = viewer.entities.add({
+      polyline: {
+        positions: new Cesium.CallbackProperty(() => {
+          if (_currentDrawCoords.length < 2) return [];
+          return _currentDrawCoords.map(c =>
+            Cesium.Cartesian3.fromDegrees(c.lng, c.lat)
+          );
+        }, false),
+        width: getLineWidth(),
+        material: cesiumColor,
+        clampToGround: true
+      },
+      properties: {
+        tacticalType: "freehand-drawing-preview",
+        draggable: false
+      }
+    });
   }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
 
   _pencilHandler.setInputAction((movement) => {
@@ -466,31 +472,13 @@ export function startPencilMode() {
     const pos = cartesianToLatLng(cartesian);
     _currentDrawCoords.push(pos);
 
-    // Update live preview
-    if (_currentDrawCoords.length >= 2) {
-      if (_currentPreviewEntity) viewer.entities.remove(_currentPreviewEntity);
-
-      const positions = _currentDrawCoords.map(c =>
-        Cesium.Cartesian3.fromDegrees(c.lng, c.lat)
-      );
-
-      const colorName = getCurrentColorName();
-      const cesiumColor = getCesiumColor(colorName, 1);
-
-      _currentPreviewEntity = viewer.entities.add({
-        polyline: {
-          positions,
-          width: getLineWidth(),
-          material: cesiumColor,
-          clampToGround: true
-        }
-      });
-    }
+    viewer.scene.requestRender?.();
   }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
   _pencilHandler.setInputAction(() => {
     if (!_isDrawing) return;
     _isDrawing = false;
+    lockMapMovement(viewer);
 
     // Remove preview
     if (_currentPreviewEntity) {
@@ -526,16 +514,29 @@ export function startPencilMode() {
           source: "drawing"
         });
 
+        _drawingPendingSaves.set(ent.id, data);
+
         // Guardar en backend y registrar el id_dibujo devuelto.
         // Si el usuario hizo undo antes de que la respuesta llegara,
         // la entidad ya no está visible → borramos del backend en lugar de registrar.
         saveDrawingToBackend(data.coords, colorCss, width).then(dibujo => {
           if (dibujo?.id_dibujo) {
-            if (ent.show === false) {
+            const currentEntity = viewer.entities.getById(ent.id);
+            const wasRemovedBeforeSave =
+              _drawingPendingDeletes.has(ent.id) ||
+              ent.show === false ||
+              !currentEntity;
+
+            _drawingPendingSaves.delete(ent.id);
+
+            if (wasRemovedBeforeSave) {
               deleteDrawingFromBackend(dibujo.id_dibujo);
+              _drawingPendingDeletes.delete(ent.id);
             } else {
-              _drawingBackendIds.set(ent.id, dibujo.id_dibujo);
+              _drawingBackendIds.set(currentEntity.id, dibujo.id_dibujo);
             }
+          } else {
+            _drawingPendingSaves.delete(ent.id);
           }
         });
       }
@@ -547,7 +548,7 @@ export function startPencilMode() {
 
 }
 
-export function stopPencilMode() {
+export function stopPencilMode({ keepMapLocked = false } = {}) {
   if (_pencilHandler) {
     _pencilHandler.destroy();
     _pencilHandler = null;
@@ -561,7 +562,7 @@ export function stopPencilMode() {
       viewer.entities.remove(_currentPreviewEntity);
       _currentPreviewEntity = null;
     }
-    setDrawCameraEnabled(true);
+    if (!keepMapLocked) unlockMapMovement(viewer);
   }
 
   if (dashboardState.drawingMode === "pencil") {
@@ -571,63 +572,196 @@ export function stopPencilMode() {
 
 /* ─── Eraser mode ───────────────────────────────────────────── */
 
+const ERASER_RADIUS_PX = 18;
+
+function getTacticalType(entity) {
+  return entity?.properties?.tacticalType?.getValue?.() ??
+    entity?.properties?.tacticalType ??
+    "";
+}
+
+function isFreehandDrawingEntity(entity) {
+  return getTacticalType(entity) === "freehand-drawing";
+}
+
+function getPolylinePositions(entity) {
+  return entity?.polyline?.positions?.getValue?.(Cesium.JulianDate.now()) ??
+    entity?.polyline?.positions ??
+    [];
+}
+
+function distanceToSegmentSquared(point, start, end) {
+  const vx = end.x - start.x;
+  const vy = end.y - start.y;
+  const wx = point.x - start.x;
+  const wy = point.y - start.y;
+  const segmentLengthSquared = vx * vx + vy * vy;
+
+  if (segmentLengthSquared === 0) {
+    const dx = point.x - start.x;
+    const dy = point.y - start.y;
+    return dx * dx + dy * dy;
+  }
+
+  const t = Math.max(0, Math.min(1, (wx * vx + wy * vy) / segmentLengthSquared));
+  const projection = {
+    x: start.x + t * vx,
+    y: start.y + t * vy,
+  };
+  const dx = point.x - projection.x;
+  const dy = point.y - projection.y;
+  return dx * dx + dy * dy;
+}
+
+function cursorTouchesDrawing(viewer, entity, position) {
+  if (!viewer || !isFreehandDrawingEntity(entity) || entity.show === false) return false;
+
+  const points = getPolylinePositions(entity);
+  if (!Array.isArray(points) || points.length < 2) return false;
+
+  const width = Number(entity.polyline?.width?.getValue?.(Cesium.JulianDate.now()) ??
+    entity.polyline?.width ??
+    3);
+  const radius = Math.max(ERASER_RADIUS_PX, width / 2 + 10);
+  const radiusSquared = radius * radius;
+  const cursor = { x: Number(position?.x), y: Number(position?.y) };
+
+  if (!Number.isFinite(cursor.x) || !Number.isFinite(cursor.y)) return false;
+
+  for (let i = 1; i < points.length; i += 1) {
+    const start = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, points[i - 1]);
+    const end = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, points[i]);
+    if (!start || !end) continue;
+
+    if (distanceToSegmentSquared(cursor, start, end) <= radiusSquared) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function getDrawingsAtPosition(viewer, position) {
+  const entities = new Set();
+  const picks = viewer.scene.drillPick?.(position, 12) || [viewer.scene.pick(position)];
+
+  picks.forEach(pick => {
+    if (isFreehandDrawingEntity(pick?.id)) {
+      entities.add(pick.id);
+    }
+  });
+
+  (dashboardState.drawingEntities || []).forEach(entity => {
+    if (cursorTouchesDrawing(viewer, entity, position)) {
+      entities.add(entity);
+    }
+  });
+
+  return [...entities];
+}
+
+function eraseDrawingEntity(entity) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !entity || !isFreehandDrawingEntity(entity)) return false;
+
+  const data = serializePolyline(entity);
+  const id_dibujo = _drawingBackendIds.get(entity.id);
+
+  if (id_dibujo) {
+    deleteDrawingFromBackend(id_dibujo);
+    _drawingBackendIds.delete(entity.id);
+  } else {
+    _drawingPendingDeletes.add(entity.id);
+  }
+
+  const removed = viewer.entities.remove(entity);
+  if (!removed) return false;
+
+  dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+    .filter(e => e !== entity);
+
+  if (data) {
+    pushUndoAction({
+      type: "remove",
+      entityId: data.id,
+      entityRef: entity,
+      entityData: data,
+      source: "drawing",
+      backendId: id_dibujo ?? null
+    });
+  }
+
+  return true;
+}
+
 let _eraserHandler = null;
+let _isErasing = false;
+let _erasedThisStroke = new Set();
+
+function eraseAtScreenPosition(position) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !position) return 0;
+
+  let erased = 0;
+  getDrawingsAtPosition(viewer, position).forEach(entity => {
+    if (!entity?.id || _erasedThisStroke.has(entity.id)) return;
+    if (eraseDrawingEntity(entity)) {
+      _erasedThisStroke.add(entity.id);
+      erased += 1;
+    }
+  });
+
+  if (erased) viewer.scene.requestRender?.();
+  return erased;
+}
 
 export function startEraserMode() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
   dashboardState.drawingMode = "eraser";
-  stopPencilMode();
+  stopPencilMode({ keepMapLocked: true });
+  lockMapMovement(viewer);
 
   if (_eraserHandler) _eraserHandler.destroy();
   _eraserHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
 
   _eraserHandler.setInputAction((click) => {
-    const picked = viewer.scene.pick(click.position);
-    if (!picked || !picked.id) return;
+    _isErasing = true;
+    _erasedThisStroke = new Set();
+    lockMapMovement(viewer);
+    eraseAtScreenPosition(click.position);
+  }, Cesium.ScreenSpaceEventType.LEFT_DOWN);
 
-    const entity = picked.id;
-    const tacticalType =
-      entity.properties?.tacticalType?.getValue?.() ??
-      entity.properties?.tacticalType ?? "";
+  _eraserHandler.setInputAction((movement) => {
+    if (!_isErasing) return;
+    eraseAtScreenPosition(movement.endPosition);
+  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE);
 
-    if (tacticalType === "freehand-drawing") {
-      // Serialize before removing (for undo)
-      const data = serializePolyline(entity);
+  _eraserHandler.setInputAction(() => {
+    _isErasing = false;
+    _erasedThisStroke.clear();
+    lockMapMovement(viewer);
+  }, Cesium.ScreenSpaceEventType.LEFT_UP);
 
-      // Borrar del backend si tenemos el id_dibujo
-      const id_dibujo = _drawingBackendIds.get(entity.id);
-      if (id_dibujo) {
-        deleteDrawingFromBackend(id_dibujo);
-        _drawingBackendIds.delete(entity.id);
-      }
-
-      viewer.entities.remove(entity);
-      dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
-        .filter(e => e !== entity);
-
-      if (data) {
-        pushUndoAction({
-          type: "remove",
-          entityId: data.id,
-          entityRef: entity,
-          entityData: data,
-          source: "drawing",
-          backendId: id_dibujo ?? null
-        });
-      }
-    }
+  _eraserHandler.setInputAction((click) => {
+    if (_isErasing) return;
+    _erasedThisStroke = new Set();
+    eraseAtScreenPosition(click.position);
+    _erasedThisStroke.clear();
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
 
 }
 
-export function stopEraserMode() {
+export function stopEraserMode({ keepMapLocked = false } = {}) {
   if (_eraserHandler) {
     _eraserHandler.destroy();
     _eraserHandler = null;
   }
+  _isErasing = false;
+  _erasedThisStroke.clear();
+  if (!keepMapLocked) unlockMapMovement();
   if (dashboardState.drawingMode === "eraser") {
     dashboardState.drawingMode = null;
   }
@@ -662,8 +796,8 @@ export async function loadDrawingsFromBackend() {
 
       const ent = rebuildDrawingEntity({
         coords: item.puntos,
-        color: item.color || "#FFFFFF",
-        width: item.grosor || 3
+        color:  item.color  || "#FFFFFF",
+        width:  item.grosor || 3
       });
 
       if (ent) {
@@ -682,6 +816,23 @@ export async function loadDrawingsFromBackend() {
 export function initDrawingSocket(socket) {
   socket.on("dibujo_creado", ({ dibujo }) => {
     if (!dibujo?.id_dibujo) return;
+
+    const pendingEntityId = findPendingDrawingEntityId(dibujo);
+    if (pendingEntityId) {
+      _drawingPendingSaves.delete(pendingEntityId);
+
+      if (_drawingPendingDeletes.has(pendingEntityId)) {
+        deleteDrawingFromBackend(dibujo.id_dibujo);
+        return;
+      }
+
+      const viewer = dashboardState.viewer;
+      if (viewer?.entities?.getById(pendingEntityId)) {
+        _drawingBackendIds.set(pendingEntityId, dibujo.id_dibujo);
+        return;
+      }
+    }
+
     // Ignorar eco: si yo ya tengo ese id_dibujo mapeado, no lo redibujamos
     if ([..._drawingBackendIds.values()].includes(dibujo.id_dibujo)) return;
 
@@ -693,8 +844,8 @@ export function initDrawingSocket(socket) {
 
     const ent = rebuildDrawingEntity({
       coords: puntos,
-      color: dibujo.color || "#FFFFFF",
-      width: dibujo.grosor || 3
+      color:  dibujo.color  || "#FFFFFF",
+      width:  dibujo.grosor || 3
     });
 
     if (ent) {
@@ -778,14 +929,16 @@ export async function clearAllDrawings() {
         _drawingBackendIds.delete(entity.id);
       } catch (err) {
         failures.push(`Dibujo ${id_dibujo}`);
-        continue; // Fallo al borrar, lo saltamos
+        continue;
       }
+    } else {
+      _drawingPendingDeletes.add(entity.id);
     }
     viewer.entities.remove(entity);
   }
 
-  dashboardState.drawingEntities = (dashboardState.drawingEntities || []).filter(e => viewer.entities.contains(e));
+  dashboardState.drawingEntities = (dashboardState.drawingEntities || [])
+    .filter(entity => viewer.entities.contains(entity));
 
   return failures;
 }
-

@@ -60,7 +60,8 @@ VALUES
   ('DRN-004', 'Dron VANT 04',      'TACTICO',      'DISPONIBLE'),
   ('DRN-005', 'Dron VANT 05',      'TACTICO',      'DISPONIBLE'),
   ('DRN-006', 'Dron VANT 06',      'TACTICO',      'DISPONIBLE'),
-  ('DRN-007', 'Dron VANT 07',      'TACTICO',      'DISPONIBLE')
+  ('DRN-007', 'Dron VANT 07',      'TACTICO',      'DISPONIBLE'),
+  ('1581F7K3C25CD00DYNZD', 'DJI MATRICE 4T', 'TACTICO', 'DISPONIBLE')
 ON CONFLICT (numero_serie) DO NOTHING;
 
 -- -------------------------
@@ -104,3 +105,28 @@ SELECT
 FROM equipo e
 WHERE e.numero_serie IN ('HFC-001', 'HFC-002', 'HFC-003', 'HFC-004', 'HFC-005', 'HFC-006', 'HFC-007')
 ON CONFLICT (id_equipo) DO NOTHING;
+
+-- DJI MATRICE 4T
+INSERT INTO equipo_tactico (
+  id_equipo,
+  imagen_eqtac,
+  tipo_tactico,
+  calibre,
+  nivel,
+  notas
+)
+SELECT
+  e.id_equipo,
+  './uploads/equipo/tactico/dji-matrice-4t.png',
+  'DRON',
+  NULL,
+  'DJI MATRICE 4T',
+  'Dron tactico DJI Matrice 4T. Serial: 1581F7K3C25CD00DYNZD'
+FROM equipo e
+WHERE e.numero_serie = '1581F7K3C25CD00DYNZD'
+ON CONFLICT (id_equipo) DO UPDATE SET
+  imagen_eqtac = EXCLUDED.imagen_eqtac,
+  tipo_tactico = EXCLUDED.tipo_tactico,
+  calibre = EXCLUDED.calibre,
+  nivel = EXCLUDED.nivel,
+  notas = EXCLUDED.notas;

@@ -58,7 +58,6 @@ export function abrirModalCrearGrupo(cetActivo) {
   inpNum.min = "1";
   inpNum.className = "inp";
   inpNum.style.width = "120px";
-  // Pre-llenar con la cantidad actual de grupos
   inpNum.value = info.names.length || "";
 
   row1.append(lbl, inpNum);
@@ -88,8 +87,16 @@ export function abrirModalCrearGrupo(cetActivo) {
   btnCreate.style.width = "180px";
 
   let nameInputs = [];
+  let draftNames = [...info.names];
+
+  function syncDraftNamesFromInputs() {
+    nameInputs.forEach((input, index) => {
+      draftNames[index] = input.value;
+    });
+  }
 
   function buildFields() {
+    syncDraftNamesFromInputs();
     formWrap.innerHTML = "";
     nameInputs = [];
 
@@ -109,8 +116,10 @@ export function abrirModalCrearGrupo(cetActivo) {
 
       const inp = document.createElement("input");
       inp.className = "inp";
-      // Pre-llenar con el nombre existente si lo hay
-      inp.value = info.names[i] || "";
+      inp.value = draftNames[i] || "";
+      inp.addEventListener("input", () => {
+        draftNames[i] = inp.value;
+      });
       nameInputs.push(inp);
 
       line.append(l, inp);
@@ -119,7 +128,6 @@ export function abrirModalCrearGrupo(cetActivo) {
   }
 
   inpNum.addEventListener("input", buildFields);
-  // Llamar inicialmente para construir campos si ya hay grupos
   if (info.names.length > 0) buildFields();
 
   btnCreate.addEventListener("click", () => {
@@ -136,7 +144,6 @@ export function abrirModalCrearGrupo(cetActivo) {
       return;
     }
 
-    // Validar duplicados en los nuevos nombres
     const normalizedNewNames = names.map(name => name.toLowerCase());
     const hasDuplicateInModal = normalizedNewNames.some((name, index) => normalizedNewNames.indexOf(name) !== index);
     if (hasDuplicateInModal) {
@@ -144,46 +151,39 @@ export function abrirModalCrearGrupo(cetActivo) {
       return;
     }
 
-    // Validar nombres reservados
     const reservedNames = new Set(["mando operativo", "sin grupo"]);
     if (normalizedNewNames.some(name => reservedNames.has(name))) {
       logAlert("Ese nombre está reservado.");
       return;
     }
 
-    // Validar contra flotillas
     const flotillaNames = Object.values(state.flotillaByCet || {})
       .map(name => String(name || "").trim().toLowerCase())
       .filter(Boolean);
+
     if (normalizedNewNames.some(name => flotillaNames.includes(name))) {
       logAlert("Un grupo no puede llamarse igual que una flotilla.");
       return;
     }
 
-    // Lógica de guardado que soporta renombrado y eliminación
     const oldNames = info.names;
     const oldMap = info.map;
     const newMap = {};
 
     names.forEach((name, i) => {
-      const originalName = oldNames[i]; // El nombre que estaba en esta posición
+      const originalName = oldNames[i];
       if (originalName) {
-        // Mantenemos el personal si existía algo en este índice
         newMap[name] = oldMap[originalName] || new Set();
       } else {
-        // Nuevo grupo
         newMap[name] = new Set();
       }
     });
 
-    // Actualizar punteros (active, vehActive)
     if (info.active) {
       const activeIdx = oldNames.indexOf(info.active);
       if (activeIdx !== -1 && activeIdx < names.length) {
-        // El grupo activo sigue existiendo (quizás renombrado)
         info.active = names[activeIdx];
       } else {
-        // El grupo activo fue eliminado
         info.active = names.length > 0 ? names[0] : null;
       }
     } else if (names.length > 0) {

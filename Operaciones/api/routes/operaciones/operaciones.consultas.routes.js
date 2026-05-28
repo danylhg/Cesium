@@ -12,6 +12,7 @@ import { sendDbError } from "../../utils/dbErrors.js";
 
 // Helper para validar enteros
 import { isInt } from "../../utils/validators.js";
+import { ensureExtendedTrackingSchema } from "../../utils/trackingSchema.js";
 
 // Crea el router que se exportará al final
 const router = Router();
@@ -129,6 +130,8 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureExtendedTrackingSchema();
+
     // Query principal:
     // Parte de asignacion_operacion_personal y le va colgando
     // personal, grupos, mando y tracking.
@@ -218,7 +221,31 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
         -- Última posición conocida del personal
         t.latitud,
         t.longitud,
-        t.ultima_actualizacion
+        t.ultima_actualizacion,
+        t.velocidad_kmh,
+        t.rumbo_grados,
+        t.rumbo_grados AS curso,
+        t.rumbo_grados AS heading,
+        COALESCE(t.frecuencia_cardiaca_bpm, sv.frecuencia_cardiaca_bpm) AS frecuencia_cardiaca_bpm,
+        COALESCE(t.frecuencia_cardiaca, sv.frecuencia_cardiaca) AS frecuencia_cardiaca,
+        COALESCE(t.fc, sv.fc) AS fc,
+        COALESCE(t.heart_rate, sv.heart_rate) AS heart_rate,
+        COALESCE(t.oxigenacion_spo2, sv.oxigenacion_spo2) AS oxigenacion_spo2,
+        COALESCE(t.spo2, sv.spo2) AS spo2,
+        COALESCE(t.temperatura_c, sv.temperatura_c) AS temperatura_c,
+        COALESCE(t.frecuencia_respiratoria_rpm, sv.frecuencia_respiratoria_rpm) AS frecuencia_respiratoria_rpm,
+        COALESCE(t.presion_sistolica_mmhg, sv.presion_sistolica_mmhg) AS presion_sistolica_mmhg,
+        COALESCE(t.presion_diastolica_mmhg, sv.presion_diastolica_mmhg) AS presion_diastolica_mmhg,
+        COALESCE(t.pasos, sv.pasos) AS pasos,
+        COALESCE(t.presion_barometrica_hpa, sv.presion_barometrica_hpa) AS presion_barometrica_hpa,
+        COALESCE(t.barometro, sv.barometro) AS barometro,
+        COALESCE(t.baro, sv.baro) AS baro,
+        COALESCE(t.bateria_pct, sv.bateria_pct) AS bateria_pct,
+        COALESCE(t.bateria, sv.bateria) AS bateria,
+        COALESCE(t.signos_actualizacion, sv.signos_actualizacion) AS signos_actualizacion,
+        sv.dispositivo_id AS signos_dispositivo_id,
+        sv.origen AS signos_origen,
+        sv.metadata AS signos_metadata
       FROM asignacion_operacion_personal a
 
       -- Datos base del personal asignado
@@ -266,6 +293,10 @@ router.get("/ops/:id/personal", requireAuth, async (req, res) => {
       LEFT JOIN v_ultima_posicion_personal t
         ON t.id_personal = a.id_personal
        AND t.id_operacion = a.id_operacion
+
+      LEFT JOIN v_ultimos_signos_vitales_personal sv
+        ON sv.id_personal = a.id_personal
+       AND sv.id_operacion = a.id_operacion
 
       -- Solo personal de esta operación y no liberado
       WHERE a.id_operacion = $1
@@ -478,6 +509,8 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
   }
 
   try {
+    await ensureExtendedTrackingSchema();
+
     const { rows } = await pool.query(
       `WITH personal_ctx AS (
          SELECT DISTINCT ON (p.id_personal)
@@ -548,7 +581,14 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
          per_ctx.grupo_nombre AS personal_grupo_nombre,
          per_ctx.grupo_padre_nombre AS personal_flotilla_nombre,
          veh_ctx.flotillas_vinculadas,
-         veh_ctx.grupos_vinculados
+         veh_ctx.grupos_vinculados,
+         te.latitud,
+         te.longitud,
+         te.altitud,
+         te.velocidad_kmh,
+         te.rumbo_grados,
+         te.precision_m,
+         te.ultima_actualizacion
        FROM operacion_equipo oe
        JOIN equipo e ON e.id_equipo = oe.id_equipo
        LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
@@ -606,6 +646,9 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
            AND vo2.id_vehiculo = ueo.id_vehiculo_contexto
            AND vo2.estado_asignacion NOT IN ('LIBERADO')
        ) veh_ctx ON TRUE
+       LEFT JOIN v_ultima_posicion_equipo te
+         ON te.id_operacion = oe.id_operacion
+        AND te.id_equipo = oe.id_equipo
        WHERE oe.id_operacion = $1
          AND oe.estado_asignacion != 'LIBERADO'
        ORDER BY
@@ -622,6 +665,74 @@ router.get("/ops/:id/equipos-asignados", requireAuth, async (req, res) => {
     return res.json({ ok: true, items: rows });
   } catch (err) {
     return sendDbError(res, err, "Error obteniendo equipos");
+  }
+});
+
+
+// =========================================================
+// GET /ops/:id/dispositivos-asignados
+// Que hace:
+//   Devuelve los dispositivos asignados a una operacion y su custodio.
+// Uso:
+//   hidratar el flujo de asignacion y mostrar responsables.
+// =========================================================
+router.get("/ops/:id/dispositivos-asignados", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+
+  if (!isInt(id_operacion)) {
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  }
+
+  try {
+    await ensureExtendedTrackingSchema();
+
+    const { rows } = await pool.query(
+      `SELECT
+         od.id_operacion,
+         od.id_dispositivo,
+         d.imagen_disp,
+         d.tipo,
+         d.marca,
+         d.modelo,
+         d.numero_telefono,
+         d.imei,
+         d.numero_serie,
+         d.sistema_operativo,
+         d.identificador_app,
+         d.estado AS dispositivo_estado,
+         od.id_personal,
+         p.apodo AS personal_apodo,
+         p.nombre AS personal_nombre,
+         p.apellido AS personal_apellido,
+         p.puesto AS personal_puesto,
+         od.estado_asignacion,
+         od.fecha_asignacion,
+         od.fecha_devolucion,
+         od.estado_operacion_creacion,
+         td.latitud,
+         td.longitud,
+         td.altitud,
+         td.velocidad_kmh,
+         td.rumbo_grados,
+         td.precision_m,
+         td.bateria_pct,
+         td.ultima_actualizacion
+       FROM operacion_dispositivo od
+       JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
+       JOIN personal p ON p.id_personal = od.id_personal
+       LEFT JOIN v_ultima_posicion_dispositivo td
+         ON td.id_operacion = od.id_operacion
+        AND td.id_dispositivo = od.id_dispositivo
+       WHERE od.id_operacion = $1
+         AND od.estado_asignacion = 'ASIGNADO'
+         AND od.fecha_devolucion IS NULL
+       ORDER BY d.tipo, d.marca, d.modelo, d.numero_serie NULLS LAST`,
+      [id_operacion]
+    );
+
+    return res.json({ ok: true, items: rows });
+  } catch (err) {
+    return sendDbError(res, err, "Error obteniendo dispositivos");
   }
 });
 

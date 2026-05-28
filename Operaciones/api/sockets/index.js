@@ -1,5 +1,72 @@
 import { Server } from "socket.io";
 import { pool } from "../db.js";
+import { ensureExtendedTrackingSchema, ensurePersonalMotionTrackingSchema } from "../utils/trackingSchema.js";
+
+function streamRoomName(idStream) {
+  return `media_stream_${idStream}`;
+}
+
+function normalizeStreamRole(value) {
+  const role = String(value || "viewer").trim().toLowerCase();
+  return ["publisher", "viewer"].includes(role) ? role : null;
+}
+
+function publicSocketStream(row) {
+  return {
+    id_stream: Number(row.id_stream),
+    id_operacion: row.id_operacion,
+    id_usuario: row.id_usuario,
+    id_personal: row.id_personal,
+    id_equipo: row.id_equipo,
+    id_dispositivo: row.id_dispositivo,
+    kind: row.kind,
+    status: row.status,
+    label: row.label,
+    protocol: row.protocol || "HYBRID",
+    source_type: row.source_type || "ANDROID",
+    stream_key: row.stream_key,
+    rtmp_publish_url: row.rtmp_publish_url,
+    rtmp_playback_url: row.rtmp_playback_url,
+    playback_url: row.playback_url,
+    external_device_id: row.external_device_id,
+    publisher_socket_id: row.publisher_socket_id,
+    viewer_count: row.viewer_count,
+    consent_ack: row.consent_ack,
+    foreground_notice: row.foreground_notice,
+    started_at: row.started_at,
+    last_seen_at: row.last_seen_at,
+    ended_at: row.ended_at,
+    signaling_room: streamRoomName(row.id_stream),
+  };
+}
+
+function optionalNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function validCoords(latitud, longitud) {
+  const lat = Number(latitud);
+  const lon = Number(longitud);
+  return Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180;
+}
+
+async function getActiveStream(idOperacion, idStream) {
+  const { rows } = await pool.query(
+    `SELECT *
+     FROM media_stream_session
+     WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+     LIMIT 1`,
+    [idOperacion, idStream]
+  );
+  return rows[0] || null;
+}
 
 export function initSocket(server) {
   const io = new Server(server, {
@@ -45,7 +112,7 @@ export function initSocket(server) {
         return;
       }
 
-      const { id_personal, latitud, longitud, altitud, precision_m } = data ?? {};
+      const { id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados } = data ?? {};
       if (!id_personal || latitud == null || longitud == null) {
         console.warn("[SOCKET] tracking_personal ignorado: payload incompleto", data);
         return;
@@ -55,20 +122,40 @@ export function initSocket(server) {
         `📍 tracking_personal op=${opId} personal=${id_personal} lat=${latitud} lon=${longitud}`
       );
 
+      let savedTracking = null;
       try {
-        await pool.query(
-          `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
+        await ensurePersonalMotionTrackingSchema();
+        const { rows } = await pool.query(
+          `INSERT INTO tracking_personal (
+             id_operacion, id_personal, latitud, longitud, altitud,
+             precision_m, velocidad_kmh, rumbo_grados
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp, estado_operacion_creacion`,
           [opId, Number(id_personal), Number(latitud), Number(longitud),
-            altitud != null ? Number(altitud) : null,
-            precision_m != null ? Number(precision_m) : null]
+            optionalNumber(altitud),
+            optionalNumber(precision_m),
+            optionalNumber(velocidad_kmh),
+            optionalNumber(rumbo_grados)]
         );
+        savedTracking = rows[0];
       } catch (err) {
         console.error("[SOCKET] Error guardando tracking_personal:", err.message);
+        socket.emit("tracking_personal_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_personal",
+        });
+        return;
       }
 
       // Retransmite a todos los demás en el room (incluye web y otros Android)
-      socket.to(`op_${opId}`).emit("tracking_personal", { ...data, id_operacion: opId });
+      socket.to(`op_${opId}`).emit("tracking_personal", {
+        ...data,
+        ...savedTracking,
+        apodo: data.apodo,
+        nombre: data.nombre,
+        rol: data.rol,
+      });
     });
 
     // Persiste en BD y retransmite al room
@@ -89,25 +176,401 @@ export function initSocket(server) {
         `📍 tracking_vehiculo op=${opId} vehiculo=${id_vehiculo} lat=${latitud} lon=${longitud}`
       );
 
+      let savedTracking = null;
       try {
-        await pool.query(
+        const { rows } = await pool.query(
           `INSERT INTO tracking_vehiculo (id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING id_tracking, id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp, estado_operacion_creacion`,
           [opId, Number(id_vehiculo), Number(latitud), Number(longitud),
             altitud != null ? Number(altitud) : null,
             velocidad_kmh != null ? Number(velocidad_kmh) : null,
             rumbo_grados != null ? Number(rumbo_grados) : null,
             precision_m != null ? Number(precision_m) : null]
         );
+        savedTracking = rows[0];
       } catch (err) {
         console.error("[SOCKET] Error guardando tracking_vehiculo:", err.message);
+        socket.emit("tracking_vehiculo_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_vehiculo",
+        });
+        return;
       }
 
       // Retransmite a todos los demás en el room
-      socket.to(`op_${opId}`).emit("tracking_vehiculo", { ...data, id_operacion: opId });
+      socket.to(`op_${opId}`).emit("tracking_vehiculo", {
+        ...data,
+        ...savedTracking,
+        alias: data.alias,
+        nombre: data.nombre,
+      });
     });
 
-    socket.on("disconnect", () => {
+    socket.on("tracking_equipo", async (data) => {
+      const opId = socket.operationId;
+      if (!opId) {
+        console.warn("[SOCKET] tracking_equipo ignorado: socket sin operacion", data);
+        return;
+      }
+
+      const { id_equipo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m } = data ?? {};
+      if (!id_equipo || !validCoords(latitud, longitud)) {
+        console.warn("[SOCKET] tracking_equipo ignorado: payload incompleto", data);
+        return;
+      }
+
+      let savedTracking = null;
+      try {
+        await ensureExtendedTrackingSchema();
+        const { rows } = await pool.query(
+          `INSERT INTO tracking_equipo (
+             id_operacion, id_equipo, latitud, longitud, altitud,
+             velocidad_kmh, rumbo_grados, precision_m
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           RETURNING id_tracking, id_operacion, id_equipo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp, estado_operacion_creacion`,
+          [
+            opId,
+            Number(id_equipo),
+            Number(latitud),
+            Number(longitud),
+            optionalNumber(altitud),
+            optionalNumber(velocidad_kmh),
+            optionalNumber(rumbo_grados),
+            optionalNumber(precision_m)
+          ]
+        );
+        savedTracking = rows[0];
+      } catch (err) {
+        console.error("[SOCKET] Error guardando tracking_equipo:", err.message);
+        socket.emit("tracking_equipo_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_equipo",
+        });
+        return;
+      }
+
+      socket.to(`op_${opId}`).emit("tracking_equipo", {
+        ...data,
+        ...savedTracking,
+        nombre: data.nombre,
+        categoria: data.categoria,
+        tipo_equipo: data.tipo_equipo,
+      });
+    });
+
+    socket.on("tracking_dispositivo", async (data) => {
+      const opId = socket.operationId;
+      if (!opId) {
+        console.warn("[SOCKET] tracking_dispositivo ignorado: socket sin operacion", data);
+        return;
+      }
+
+      const {
+        id_dispositivo,
+        latitud,
+        longitud,
+        altitud,
+        velocidad_kmh,
+        rumbo_grados,
+        precision_m,
+        bateria_pct
+      } = data ?? {};
+      if (!id_dispositivo || !validCoords(latitud, longitud)) {
+        console.warn("[SOCKET] tracking_dispositivo ignorado: payload incompleto", data);
+        return;
+      }
+
+      let savedTracking = null;
+      try {
+        await ensureExtendedTrackingSchema();
+        const { rows } = await pool.query(
+          `INSERT INTO tracking_dispositivo (
+             id_operacion, id_dispositivo, latitud, longitud, altitud,
+             velocidad_kmh, rumbo_grados, precision_m, bateria_pct
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING id_tracking, id_operacion, id_dispositivo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, bateria_pct, timestamp, estado_operacion_creacion`,
+          [
+            opId,
+            Number(id_dispositivo),
+            Number(latitud),
+            Number(longitud),
+            optionalNumber(altitud),
+            optionalNumber(velocidad_kmh),
+            optionalNumber(rumbo_grados),
+            optionalNumber(precision_m),
+            optionalNumber(bateria_pct)
+          ]
+        );
+        savedTracking = rows[0];
+      } catch (err) {
+        console.error("[SOCKET] Error guardando tracking_dispositivo:", err.message);
+        socket.emit("tracking_dispositivo_error", {
+          ok: false,
+          mensaje: "No se pudo guardar tracking_dispositivo",
+        });
+        return;
+      }
+
+      socket.to(`op_${opId}`).emit("tracking_dispositivo", {
+        ...data,
+        ...savedTracking,
+        tipo: data.tipo,
+        marca: data.marca,
+        modelo: data.modelo,
+      });
+    });
+
+    socket.on("stream_join", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const role = normalizeStreamRole(payload?.role);
+
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0 || !role) {
+        const error = { ok: false, mensaje: "stream_join invalido" };
+        if (typeof ack === "function") ack(error);
+        return;
+      }
+
+      try {
+        const streamRow = await getActiveStream(idOperacion, idStream);
+        if (!streamRow) {
+          const error = { ok: false, mensaje: "Transmision no existe o no esta activa" };
+          if (typeof ack === "function") ack(error);
+          return;
+        }
+
+        const room = streamRoomName(idStream);
+        socket.join(`op_${idOperacion}`);
+        socket.join(room);
+        socket.operationId = idOperacion;
+        socket.mediaStreamMemberships ||= new Map();
+        const membershipKey = `${idStream}:${role}`;
+        const alreadyJoined = socket.mediaStreamMemberships.has(membershipKey);
+        const refreshJoin = payload?.refresh === true || payload?.refresh === "true";
+        socket.mediaStreamMemberships.set(membershipKey, { idOperacion, idStream, role });
+
+        let updatedRow = streamRow;
+        if (role === "publisher") {
+          const { rows } = await pool.query(
+            `UPDATE media_stream_session
+             SET publisher_socket_id = $3, last_seen_at = NOW()
+             WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+             RETURNING *`,
+            [idOperacion, idStream, socket.id]
+          );
+          updatedRow = rows[0] || streamRow;
+          socket.to(`op_${idOperacion}`).emit("media_stream_publisher_ready", publicSocketStream(updatedRow));
+          socket.to(room).emit("webrtc_publisher_joined", {
+            id_operacion: idOperacion,
+            id_stream: idStream,
+            publisher_socket_id: socket.id,
+          });
+        } else {
+          const { rows } = alreadyJoined
+            ? await pool.query(
+                `UPDATE media_stream_session
+                 SET last_seen_at = NOW()
+                 WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+                 RETURNING *`,
+                [idOperacion, idStream]
+              )
+            : await pool.query(
+                `UPDATE media_stream_session
+                 SET viewer_count = viewer_count + 1, last_seen_at = NOW()
+                 WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'
+                 RETURNING *`,
+                [idOperacion, idStream]
+              );
+          updatedRow = rows[0] || streamRow;
+
+          if (updatedRow.publisher_socket_id) {
+            const shouldRequestOffer = !alreadyJoined || refreshJoin;
+            if (shouldRequestOffer) socket.to(updatedRow.publisher_socket_id).emit("webrtc_viewer_joined", {
+              id_operacion: idOperacion,
+              id_stream: idStream,
+              viewer_socket_id: socket.id,
+              viewer: socket.userData || {},
+            });
+          } else {
+            socket.emit("media_stream_waiting_for_publisher", {
+              id_operacion: idOperacion,
+              id_stream: idStream,
+            });
+          }
+        }
+
+        const stream = publicSocketStream(updatedRow);
+        socket.to(`op_${idOperacion}`).emit("media_stream_viewer_count", stream);
+        if (typeof ack === "function") ack({ ok: true, socket_id: socket.id, stream });
+      } catch (err) {
+        console.error("[SOCKET] stream_join:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error uniendo stream" });
+      }
+    });
+
+    async function leaveStreamMembership(idOperacion, idStream, role, notify = true) {
+      const room = streamRoomName(idStream);
+      const membershipKey = `${idStream}:${role}`;
+      const hadMembership = socket.mediaStreamMemberships?.has(membershipKey);
+      if (!hadMembership) return;
+
+      socket.leave(room);
+      socket.mediaStreamMemberships?.delete(membershipKey);
+
+      if (role === "viewer") {
+        const { rows } = await pool.query(
+          `UPDATE media_stream_session
+           SET viewer_count = GREATEST(viewer_count - 1, 0), last_seen_at = NOW()
+           WHERE id_operacion = $1 AND id_stream = $2
+           RETURNING *`,
+          [idOperacion, idStream]
+        );
+        const stream = rows[0] ? publicSocketStream(rows[0]) : null;
+        if (notify) {
+          socket.to(room).emit("webrtc_viewer_left", {
+            id_operacion: idOperacion,
+            id_stream: idStream,
+            viewer_socket_id: socket.id,
+          });
+          if (stream) socket.to(`op_${idOperacion}`).emit("media_stream_viewer_count", stream);
+        }
+        return;
+      }
+
+      if (role === "publisher") {
+        const { rows } = await pool.query(
+          `UPDATE media_stream_session
+           SET publisher_socket_id = NULL,
+               last_seen_at = NOW()
+           WHERE id_operacion = $1
+             AND id_stream = $2
+             AND publisher_socket_id = $3
+             AND status = 'ACTIVE'
+           RETURNING *`,
+          [idOperacion, idStream, socket.id]
+        );
+        const stream = rows[0] ? publicSocketStream(rows[0]) : null;
+        if (notify && stream) {
+          socket.to(room).to(`op_${idOperacion}`).emit("media_stream_publisher_offline", stream);
+        }
+      }
+    }
+
+    socket.on("stream_leave", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const role = normalizeStreamRole(payload?.role);
+
+      try {
+        if (Number.isFinite(idStream) && idStream > 0 && role) {
+          await leaveStreamMembership(idOperacion, idStream, role);
+        } else {
+          const memberships = Array.from(socket.mediaStreamMemberships?.values() || []);
+          for (const membership of memberships) {
+            await leaveStreamMembership(membership.idOperacion, membership.idStream, membership.role);
+          }
+        }
+        if (typeof ack === "function") ack({ ok: true });
+      } catch (err) {
+        console.error("[SOCKET] stream_leave:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error saliendo del stream" });
+      }
+    });
+
+    socket.on("stream_stop", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const status = String(payload?.status || "STOPPED").trim().toUpperCase();
+
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0) {
+        if (typeof ack === "function") ack({ ok: false, mensaje: "stream_stop invalido" });
+        return;
+      }
+
+      try {
+        const { rows } = await pool.query(
+          `UPDATE media_stream_session
+           SET status = $3,
+               ended_at = COALESCE(ended_at, NOW()),
+               publisher_socket_id = NULL,
+               viewer_count = 0,
+               last_seen_at = NOW()
+           WHERE id_operacion = $1 AND id_stream = $2
+           RETURNING *`,
+          [idOperacion, idStream, status === "ERROR" ? "ERROR" : "STOPPED"]
+        );
+        const stream = rows[0] ? publicSocketStream(rows[0]) : null;
+        if (!stream) {
+          if (typeof ack === "function") ack({ ok: false, mensaje: "Transmision no existe" });
+          return;
+        }
+        io.to(stream.signaling_room).to(`op_${idOperacion}`).emit("media_stream_stopped", stream);
+        if (typeof ack === "function") ack({ ok: true, stream });
+      } catch (err) {
+        console.error("[SOCKET] stream_stop:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error cerrando stream" });
+      }
+    });
+
+    socket.on("stream_ping", async (payload, ack) => {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0) {
+        if (typeof ack === "function") ack({ ok: false, mensaje: "stream_ping invalido" });
+        return;
+      }
+
+      try {
+        await pool.query(
+          `UPDATE media_stream_session
+           SET last_seen_at = NOW()
+           WHERE id_operacion = $1 AND id_stream = $2 AND status = 'ACTIVE'`,
+          [idOperacion, idStream]
+        );
+        if (typeof ack === "function") ack({ ok: true });
+      } catch (err) {
+        console.error("[SOCKET] stream_ping:", err.message);
+        if (typeof ack === "function") ack({ ok: false, mensaje: "Error actualizando stream" });
+      }
+    });
+
+    function relayWebRtc(eventName, payload, ack) {
+      const idOperacion = Number(payload?.id_operacion || socket.operationId);
+      const idStream = Number(payload?.id_stream);
+      const to = String(payload?.to || payload?.to_socket_id || "").trim();
+
+      if (!Number.isFinite(idOperacion) || idOperacion <= 0 || !Number.isFinite(idStream) || idStream <= 0 || !to) {
+        if (typeof ack === "function") ack({ ok: false, mensaje: `${eventName} invalido` });
+        return;
+      }
+
+      socket.to(to).emit(eventName, {
+        ...payload,
+        id_operacion: idOperacion,
+        id_stream: idStream,
+        from: socket.id,
+        from_socket_id: socket.id,
+      });
+
+      if (typeof ack === "function") ack({ ok: true });
+    }
+
+    socket.on("webrtc_offer", (payload, ack) => relayWebRtc("webrtc_offer", payload, ack));
+    socket.on("webrtc_answer", (payload, ack) => relayWebRtc("webrtc_answer", payload, ack));
+    socket.on("webrtc_ice_candidate", (payload, ack) => relayWebRtc("webrtc_ice_candidate", payload, ack));
+
+    socket.on("disconnect", async () => {
+      const memberships = Array.from(socket.mediaStreamMemberships?.values() || []);
+      for (const membership of memberships) {
+        try {
+          await leaveStreamMembership(membership.idOperacion, membership.idStream, membership.role);
+        } catch (err) {
+          console.error("[SOCKET] stream disconnect cleanup:", err.message);
+        }
+      }
       console.log("🔴 Cliente desconectado:", socket.id);
     });
   });
@@ -165,6 +628,16 @@ export function emitDibujoEliminado(io, idOperacion, idDibujo) {
   io.to(`op_${idOperacion}`).emit("dibujo_eliminado", { id_dibujo: idDibujo });
 }
 
+export function emitCuadriculaActualizada(io, idOperacion, grid) {
+  io.to(`op_${idOperacion}`).emit("cuadricula_actualizada", { grid });
+  io.to(`op_${idOperacion}`).emit("grid_updated", { grid });
+}
+
+export function emitCuadriculaEliminada(io, idOperacion) {
+  io.to(`op_${idOperacion}`).emit("cuadricula_eliminada", { id_operacion: idOperacion });
+  io.to(`op_${idOperacion}`).emit("grid_deleted", { id_operacion: idOperacion });
+}
+
 export function emitRutaOperacionCreada(io, idOperacion, ruta) {
   io.to(`op_${idOperacion}`).emit("ruta_operacion_creada", { ruta });
 }
@@ -219,15 +692,6 @@ async function canReceiveChatMessage(sock, msg, idOperacion) {
         }
       }
       return false;
-    }
-
-    case 'CELL_LIST': {
-      if (!id_personal || !destId) return false;
-      return destId
-        .split(',')
-        .map((id) => id.trim())
-        .filter(Boolean)
-        .includes(String(id_personal));
     }
 
     case 'FLOTILLA':

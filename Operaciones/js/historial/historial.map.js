@@ -1,26 +1,21 @@
 import { dom } from "./historial.dom.js";
-import { replayState } from "./historial.state.js";
 import { configureGoogleLikeCamera } from "../map.camera.js";
+import { replayState } from "./historial.state.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.04);
-const DEFAULT_CAMERA_HEIGHT = 1800000;
-const HISTORY_CAMERA_OPTIONS = {
-  minimumZoomDistance: 120,
-  maximumZoomDistance: 5000000,
-  inertiaSpin: 0,
-  inertiaTranslate: 0,
-  inertiaZoom: 0,
-  maximumMovementRatio: 0.12,
-  zoomFactor: 5,
-};
+const DEFAULT_CAMERA_HEIGHT = 2500000;
+const DEFAULT_ZONE_CAMERA_HEIGHT = 1000;
+const MIN_CAMERA_DISTANCE = 500;
+const MAX_CAMERA_DISTANCE = 5000000;
+const USER_CAMERA_GRACE_MS = 700;
 
 // Entidades con control de tiempo: { entity, showAt, hideAt (ms epoch) }
 const mapRegistry = [];
 
 // ── Init ──────────────────────────────────────────────────
 
-export function initHistoryMap() {
+export function initHistoryMap(initialZone = null) {
   if (!dom.map || !window.Cesium || replayState.viewer) return;
 
   Cesium.Ion.defaultAccessToken = localStorage.getItem("CESIUM_TOKEN") || "";
@@ -33,19 +28,42 @@ export function initHistoryMap() {
     geocoder: false,
     infoBox: false,
     selectionIndicator: false,
+    homeButton: false,
+    navigationHelpButton: false,
     fullscreenButton: false,
     imageryProvider: false,
+    requestRenderMode: true,
+    maximumRenderTimeChange: Infinity,
   });
 
   const viewer = replayState.viewer;
+  viewer.clock.shouldAnimate = false;
+  viewer.trackedEntity = undefined;
   viewer.imageryLayers.removeAll();
   addHybridLayer(viewer);
-  configureGoogleLikeCamera(viewer, HISTORY_CAMERA_OPTIONS);
+  enableHistoryCameraControls(viewer);
   window.addEventListener("resize", resizeHistoryMap);
 
+  const initialTarget = getZoneCameraTarget(initialZone);
+  viewer.camera.cancelFlight?.();
+  viewer.scene?.tweens?.removeAll?.();
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, DEFAULT_CAMERA_HEIGHT),
+    destination: initialTarget
+      ? Cesium.Cartesian3.fromDegrees(initialTarget.lng, initialTarget.lat, initialTarget.height)
+      : Cesium.Cartesian3.fromDegrees(-99.1332, 19.4326, DEFAULT_CAMERA_HEIGHT),
+    orientation: {
+      heading: 0,
+      pitch: Cesium.Math.toRadians(-90),
+      roll: 0,
+    },
   });
+  viewer.trackedEntity = undefined;
+  viewer.selectedEntity = undefined;
+  viewer.camera.cancelFlight?.();
+  viewer.scene?.tweens?.removeAll?.();
+  logInitialCameraTarget(initialTarget);
+  enableHistoryCameraControls(viewer);
+  bindUserOnlyCameraGuard(viewer);
   resizeHistoryMap();
 }
 
@@ -59,6 +77,7 @@ export function buildMapEntities(replay) {
   viewer.entities.removeAll();
 
   const snapshots = replay?.snapshots || {};
+  const operationZone = getReplayOperationZone(replay);
   const events = replay?.timeline?.eventos || [];
 
   // Timestamps de eliminación por "tipo:id"
@@ -74,8 +93,8 @@ export function buildMapEntities(replay) {
   }
 
   // Zona de operación (siempre visible, sin time-gate)
-  if (replay?.zona_operacion) {
-    buildZonaEntity(replay.zona_operacion, viewer);
+  if (operationZone) {
+    buildZonaEntity(operationZone, viewer);
   }
 
   // POIs
@@ -141,7 +160,8 @@ export function buildMapEntities(replay) {
 // ── Zona de operación (igual que dashboard) ──────────────
 
 function buildZonaEntity(zona, viewer) {
-  const ring = zona?.geometria?.coordinates?.[0];
+  const geometry = parseGeoJsonObject(zona?.geometria ?? zona?.geometry);
+  const ring = getPolygonRing(geometry);
   if (!Array.isArray(ring) || ring.length < 4) return;
 
   const points = ring
@@ -161,6 +181,11 @@ function buildZonaEntity(zona, viewer) {
   viewer.entities.add({
     id: `zona_${zona.id_zona}`,
     name: zona.nombre || "Zona de operación",
+    polygon: {
+      hierarchy: new Cesium.PolygonHierarchy(toCartesianArray(points)),
+      material: color.withAlpha(0.08),
+      outline: false,
+    },
     polyline: {
       positions: toCartesianArray(closedPoints),
       width: 3,
@@ -184,22 +209,6 @@ function renderWindRose(zona, viewer, points) {
 
   const boxCenterLat = (minLat + maxLat) / 2;
   const boxCenterLng = (minLng + maxLng) / 2;
-  const lineColor = Cesium.Color.fromCssColorString("rgba(0,0,0,0.75)");
-
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([minLng, boxCenterLat, maxLng, boxCenterLat]),
-      width: 3, material: lineColor, clampToGround: true,
-    },
-  });
-  viewer.entities.add({
-    name: "Radar Estereográfico",
-    polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArray([boxCenterLng, minLat, boxCenterLng, maxLat]),
-      width: 3, material: lineColor, clampToGround: true,
-    },
-  });
 
   const cardinals = [
     { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },
@@ -550,6 +559,7 @@ export function updateMapToTime(currentMs) {
   for (const { entity, showAt, hideAt } of mapRegistry) {
     entity.show = currentMs >= showAt && currentMs < hideAt;
   }
+  replayState.viewer?.scene?.requestRender?.();
 }
 
 export function resizeHistoryMap() {
@@ -561,44 +571,169 @@ export function resizeHistoryMap() {
   }, 80);
 }
 
-// ── Focus camera ──────────────────────────────────────────
-
-export function focusOnReplay(replay) {
-  const viewer = replayState.viewer;
-  if (!viewer || !window.Cesium) return;
-
-  // Primero intentar centroide de la zona
-  const zona = replay?.zona_operacion;
-  if (zona?.centroide_lat && zona?.centroide_lon) {
-    const lat = Number(zona.centroide_lat);
-    const lng = Number(zona.centroide_lon);
-    if (isFinite(lat) && isFinite(lng)) {
-      setHistoryCamera(viewer, lng, lat, zona.zoom_inicial);
-      return;
-    }
-  }
-
-  // Fallback: primer coordenada disponible
-  const point = findFirstCoordinate(replay);
-  if (point) {
-    setHistoryCamera(viewer, point.lon, point.lat, 12000);
-  }
+function enableHistoryCameraControls(viewer) {
+  configureGoogleLikeCamera(viewer, {
+    minimumZoomDistance: MIN_CAMERA_DISTANCE,
+    maximumZoomDistance: MAX_CAMERA_DISTANCE,
+    inertiaSpin: 0,
+    inertiaTranslate: 0,
+    inertiaZoom: 0,
+    maximumMovementRatio: 0.08,
+    zoomFactor: 2.2,
+  });
 }
 
-// ── Helpers ───────────────────────────────────────────────
+function bindUserOnlyCameraGuard(viewer) {
+  const canvas = viewer?.canvas;
+  if (!canvas || viewer.__historyCameraGuardBound) return;
 
-function setHistoryCamera(viewer, lng, lat, height) {
-  viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(lng, lat, clampCameraHeight(height)),
+  viewer.__historyCameraGuardBound = true;
+
+  let applyingGuard = false;
+  let userCameraUntil = performance.now() + USER_CAMERA_GRACE_MS;
+  let lastUserCameraView = captureCameraView(viewer.camera);
+
+  const markUserCameraInput = () => {
+    userCameraUntil = performance.now() + USER_CAMERA_GRACE_MS;
+  };
+
+  const markPointerMove = (event) => {
+    if (event.buttons) markUserCameraInput();
+  };
+
+  canvas.addEventListener("pointerdown", markUserCameraInput, { passive: true });
+  canvas.addEventListener("pointermove", markPointerMove, { passive: true });
+  canvas.addEventListener("wheel", markUserCameraInput, { passive: true });
+  canvas.addEventListener("touchstart", markUserCameraInput, { passive: true });
+  canvas.addEventListener("touchmove", markUserCameraInput, { passive: true });
+
+  viewer.camera.changed.addEventListener(() => {
+    if (applyingGuard) return;
+
+    if (performance.now() <= userCameraUntil) {
+      lastUserCameraView = captureCameraView(viewer.camera);
+      return;
+    }
+
+    if (!lastUserCameraView) {
+      lastUserCameraView = captureCameraView(viewer.camera);
+      return;
+    }
+
+    applyingGuard = true;
+    viewer.camera.cancelFlight?.();
+    viewer.scene?.tweens?.removeAll?.();
+    viewer.camera.setView(lastUserCameraView);
+    viewer.scene?.requestRender?.();
+    window.requestAnimationFrame(() => {
+      applyingGuard = false;
+    });
   });
-  resizeHistoryMap();
+}
+
+function captureCameraView(camera) {
+  if (!camera || !window.Cesium) return null;
+
+  return {
+    destination: Cesium.Cartesian3.clone(camera.position),
+    orientation: {
+      direction: Cesium.Cartesian3.clone(camera.direction),
+      up: Cesium.Cartesian3.clone(camera.up),
+    },
+  };
+}
+
+function getReplayOperationZone(replay) {
+  return replay?.zona_operacion || replay?.snapshots?.zonas?.[0] || null;
+}
+
+function getZoneCameraTarget(zona) {
+  let geometria = zona?.geometria ?? zona?.geometry;
+  if (typeof geometria === "string") {
+    try { geometria = JSON.parse(geometria); } catch { geometria = null; }
+  }
+
+  const lat = finiteNumber(zona?.centroide_lat, zona?.center_lat, zona?.latitud, zona?.lat);
+  const lng = finiteNumber(zona?.centroide_lon, zona?.centroide_lng, zona?.center_lon, zona?.center_lng, zona?.longitud, zona?.lng, zona?.lon);
+  const backendZoom = finiteNumber(zona?.zoom_inicial, zona?.zoom);
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    return {
+      lat,
+      lng,
+      height: clampCameraHeight(Number.isFinite(backendZoom) ? backendZoom : DEFAULT_ZONE_CAMERA_HEIGHT),
+      source: "backend",
+    };
+  }
+
+  return getGeometryCameraTarget(geometria, backendZoom);
+}
+
+function getGeometryCameraTarget(geometria, backendZoom = NaN) {
+  const ring = getPolygonRing(parseGeoJsonObject(geometria));
+  if (!Array.isArray(ring) || ring.length < 3) return null;
+
+  const points = ring
+    .map(([pointLng, pointLat]) => ({ lng: Number(pointLng), lat: Number(pointLat) }))
+    .filter(point => Number.isFinite(point.lng) && Number.isFinite(point.lat));
+
+  if (!points.length) return null;
+
+  const bounds = points.reduce((acc, point) => ({
+    minLat: Math.min(acc.minLat, point.lat),
+    maxLat: Math.max(acc.maxLat, point.lat),
+    minLng: Math.min(acc.minLng, point.lng),
+    maxLng: Math.max(acc.maxLng, point.lng),
+  }), {
+    minLat: Infinity,
+    maxLat: -Infinity,
+    minLng: Infinity,
+    maxLng: -Infinity,
+  });
+
+  if (![bounds.minLat, bounds.maxLat, bounds.minLng, bounds.maxLng].every(Number.isFinite)) return null;
+
+  const span = Math.max(bounds.maxLat - bounds.minLat, bounds.maxLng - bounds.minLng);
+  const fittedHeight = Math.max(DEFAULT_ZONE_CAMERA_HEIGHT, Math.min(MAX_CAMERA_DISTANCE, span * 140000));
+
+  return {
+    lat: (bounds.minLat + bounds.maxLat) / 2,
+    lng: (bounds.minLng + bounds.maxLng) / 2,
+    height: clampCameraHeight(Number.isFinite(backendZoom) ? backendZoom : fittedHeight),
+    source: "geometry",
+  };
 }
 
 function clampCameraHeight(value) {
   const height = Number(value);
-  if (!Number.isFinite(height)) return 12000;
-  return Math.min(Math.max(height, 800), DEFAULT_CAMERA_HEIGHT);
+  if (!Number.isFinite(height)) return DEFAULT_ZONE_CAMERA_HEIGHT;
+  return Math.min(Math.max(height, MIN_CAMERA_DISTANCE), MAX_CAMERA_DISTANCE);
 }
+
+function logInitialCameraTarget(target) {
+  if (!target) {
+    console.info("[historial] camara inicial sin zona backend; usando vista default");
+    return;
+  }
+
+  console.info("[historial] camara inicial zona", {
+    source: target.source,
+    lat: target.lat,
+    lng: target.lng,
+    height: target.height,
+  });
+}
+
+function finiteNumber(...values) {
+  for (const value of values) {
+    if (value == null || String(value).trim() === "") continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return NaN;
+}
+
+// ── Helpers ───────────────────────────────────────────────
 
 function addHybridLayer(viewer) {
   const satellite = viewer.imageryLayers.addImageryProvider(
@@ -612,14 +747,14 @@ function addHybridLayer(viewer) {
   satellite.saturation = 1.15;
   satellite.gamma = 0.9;
 
-  const labels = viewer.imageryLayers.addImageryProvider(
+  const reference = viewer.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
-      url: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+      url: "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
       maximumLevel: 19,
-      credit: "© OpenStreetMap contributors",
+      credit: "Esri Reference",
     })
   );
-  labels.alpha = 0.28;
+  reference.alpha = 0.78;
 }
 
 function toCartesianArray(points) {
@@ -646,6 +781,25 @@ function safeCesiumColor(cssColor, fallback) {
   }
 }
 
+function parseGeoJsonObject(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      return parseGeoJsonObject(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  if (value?.type === "Feature") return parseGeoJsonObject(value.geometry);
+  return value && typeof value === "object" ? value : null;
+}
+
+function getPolygonRing(geometry) {
+  if (geometry?.type === "Polygon") return geometry.coordinates?.[0];
+  if (geometry?.type === "MultiPolygon") return geometry.coordinates?.[0]?.[0];
+  return null;
+}
+
 function resolveImage(src) {
   if (!src) return null;
   if (/^(https?:)?\/\//i.test(src) || src.startsWith("data:")) return src;
@@ -665,25 +819,4 @@ function polygonCentroid(points) {
   if (!points.length) return null;
   const sum = points.reduce((acc, p) => ({ lat: acc.lat + p.lat, lng: acc.lng + p.lng }), { lat: 0, lng: 0 });
   return { lat: sum.lat / points.length, lng: sum.lng / points.length };
-}
-
-function findFirstCoordinate(replay) {
-  for (const item of (replay?.snapshots?.pois || [])) {
-    const lat = Number(item.latitud);
-    const lon = Number(item.longitud);
-    if (isFinite(lat) && isFinite(lon)) return { lat, lon };
-  }
-  for (const item of (replay?.snapshots?.estructuras || [])) {
-    const lat = Number(item.latitud);
-    const lon = Number(item.longitud);
-    if (isFinite(lat) && isFinite(lon)) return { lat, lon };
-  }
-  for (const ev of (replay?.timeline?.eventos || [])) {
-    if (ev.tipo_evento !== "tracking_personal" && ev.tipo_evento !== "tracking_vehiculo") continue;
-    const p = ev.payload || {};
-    const lat = Number(p.latitud);
-    const lon = Number(p.longitud);
-    if (isFinite(lat) && isFinite(lon)) return { lat, lon };
-  }
-  return null;
 }

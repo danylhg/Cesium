@@ -4,6 +4,7 @@ import crudRoutes from "./operaciones/operaciones.crud.routes.js";
 import consultasRoutes from "./operaciones/operaciones.consultas.routes.js";
 import asignacionesRoutes from "./operaciones/operaciones.asignaciones.routes.js";
 import estadoRoutes from "./operaciones/operaciones.estado.routes.js";
+import presenceRoutes from "./operaciones/operaciones.presence.routes.js";
 
 const router = Router();
 
@@ -15,6 +16,7 @@ const router = Router();
 // no choque con /ops/:id
 router.use(consultasRoutes);
 router.use(crudRoutes);
+router.use(presenceRoutes);
 router.use(asignacionesRoutes);
 router.use(estadoRoutes);
 

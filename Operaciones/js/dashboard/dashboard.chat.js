@@ -7,12 +7,12 @@ import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
-let _opId = null;
-let _socket = null;
+let _opId      = null;
+let _socket    = null;
 let _activeTab = "global";
 let _channelType = "global";
 let _channelTarget = "";
-let _allMsgs = [];             // todos los mensajes en memoria
+let _allMsgs   = [];             // todos los mensajes en memoria
 let _chatDirectory = {
   cets: [],
   cells: [],
@@ -27,7 +27,7 @@ let _isRecordingAudio = false;
 
 const ATTACHMENT_PREFIX = "CHAT_ATTACHMENT:";
 
-
+// ── JWT helper ──────────────────────────────────────────────
 function getMyInfo() {
   const token = localStorage.getItem("token");
   if (!token) return {};
@@ -40,8 +40,8 @@ function getMyInfo() {
 function isMine(msg) {
   const { sub, tabla } = getMyInfo();
   if (!sub) return false;
-  if (tabla === "usuario") return String(msg.id_usuario) === String(sub);
-  if (tabla === "personal") return String(msg.id_personal) === String(sub);
+  if (tabla === "usuario")   return String(msg.id_usuario)  === String(sub);
+  if (tabla === "personal")  return String(msg.id_personal) === String(sub);
   return false;
 }
 
@@ -124,9 +124,9 @@ function personBelongsToFlotilla(personId, flotillaId) {
   );
 }
 
-// â”€â”€ Visibilidad segÃºn tab activo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Tab CET  â†’ solo mensajes de ADMIN, CUT y CET
-// Tab Global â†’ todos
+// ── Visibilidad según tab activo ────────────────────────────
+// Tab CET  → solo mensajes de ADMIN, CUT y CET
+// Tab Global → todos
 function isVisibleInTab(msg) {
   const destinatario = (msg.destinatario_rol || "GLOBAL").toUpperCase();
   const destinoTipo = String(msg.destino_tipo || "").toUpperCase();
@@ -345,13 +345,14 @@ function syncAudienceUi() {
     btn.classList.toggle("active", btn.dataset.chatChannel === _channelType);
   });
 
-  const needsTarget = getTargetsForType().length > 0;
+  const targets = getTargetsForType();
+  const needsTarget = targets.length > 0;
   if (dom.chatTargetBox) dom.chatTargetBox.classList.toggle("hidden", !needsTarget);
   if (dom.chatTargetEmpty) dom.chatTargetEmpty.classList.toggle("hidden", needsTarget);
 
   if (dom.chatTargetPicker) {
     dom.chatTargetPicker.innerHTML = "";
-    getTargetsForType().forEach((target) => {
+    targets.forEach((target) => {
       const opt = document.createElement("option");
       opt.value = target.id;
       opt.textContent = target.label;
@@ -362,18 +363,19 @@ function syncAudienceUi() {
 
   const targetLabel = getTargetLabel();
   const title = targetLabel || channelLabel();
-  if (dom.chatAudienceSummary) {
-    dom.chatAudienceSummary.textContent = title;
-  }
+  if (dom.chatAudienceSummary) dom.chatAudienceSummary.textContent = title;
   if (dom.chatConversationTitle) dom.chatConversationTitle.textContent = title;
-  if (dom.chatConversationSubtitle) dom.chatConversationSubtitle.textContent = targetLabel
-    ? channelLabel()
-    : channelSubtitle();
+  if (dom.chatConversationSubtitle) {
+    dom.chatConversationSubtitle.textContent = targetLabel ? channelLabel() : channelSubtitle();
+  }
   if (dom.chatConversationAvatar) dom.chatConversationAvatar.textContent = channelAvatar();
 }
 
 function updateTargetSelect(preferredValue = "") {
-  if (!dom.chatChannelTarget) return;
+  if (!dom.chatChannelTarget) {
+    syncAudienceUi();
+    return;
+  }
 
   const targets = getTargetsForType();
   dom.chatChannelTarget.innerHTML = "";
@@ -491,6 +493,25 @@ function parseAttachmentContent(content = "") {
   }
 }
 
+function normalizeAttachmentUrl(url = "") {
+  const raw = String(url || "").trim();
+  if (!raw) return "";
+  if (/^data:/i.test(raw)) return raw;
+
+  try {
+    const parsed = new URL(raw, API_BASE);
+    if (parsed.pathname.startsWith("/api/storage/")) {
+      const base = new URL(API_BASE);
+      return `${base.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.href;
+  } catch {
+    return /^https?:\/\//i.test(raw)
+      ? raw
+      : `${API_BASE}${raw.startsWith("/") ? "" : "/"}${raw}`;
+  }
+}
+
 function renderMessageContent(msg) {
   const content = msg.contenido || "";
   const attachment = parseAttachmentContent(content);
@@ -530,6 +551,51 @@ function fileToDataUrl(file) {
   });
 }
 
+function dataUrlToBlob(dataUrl) {
+  const text = String(dataUrl || "");
+  const comma = text.indexOf(",");
+  const meta = text.slice(0, comma);
+  const payload = text.slice(comma + 1);
+  if (!meta.startsWith("data:") || comma === -1) {
+    throw new Error("Adjunto invalido");
+  }
+
+  const mime = meta.match(/^data:([^;,]+)/i)?.[1] || "application/octet-stream";
+  const isBase64 = /;base64/i.test(meta);
+  const binary = isBase64 ? atob(payload) : decodeURIComponent(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mime });
+}
+
+function apiAttachmentKind(kind = "") {
+  const raw = String(kind || "").trim().toLowerCase();
+  const normalized = String(kind || "").trim().toUpperCase();
+  if (["IMAGE", "VIDEO", "AUDIO", "FILE"].includes(normalized)) return normalized;
+  if (normalized === "VOICE") return "AUDIO";
+  if (raw === "image") return "IMAGE";
+  if (raw === "audio") return "AUDIO";
+  if (raw === "video") return "VIDEO";
+  return "FILE";
+}
+
+function defaultAttachmentName(kind = "", mime = "") {
+  const upper = apiAttachmentKind(kind);
+  const lowerMime = String(mime || "").toLowerCase();
+  if (upper === "IMAGE") return lowerMime.includes("png") ? "imagen.png" : "imagen.jpg";
+  if (upper === "AUDIO") return lowerMime.includes("mp4") ? "audio.m4a" : "audio.webm";
+  if (upper === "VIDEO") return lowerMime.includes("webm") ? "video.webm" : "video.mp4";
+  return "adjunto.bin";
+}
+
+function attachmentSourceToBlob(source) {
+  if (source instanceof Blob) return source;
+  if (typeof source === "string") return dataUrlToBlob(source);
+  throw new Error("Adjunto invalido");
+}
+
 async function imageFileToDataUrl(file) {
   const originalDataUrl = await fileToDataUrl(file);
   return new Promise((resolve) => {
@@ -549,7 +615,6 @@ async function imageFileToDataUrl(file) {
   });
 }
 
-// â”€â”€ Build a single chat bubble â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function formatDestino(msg) {
   const tipo = String(msg.destino_tipo || "").toUpperCase();
   const label = String(msg.destino_label || "").trim();
@@ -567,43 +632,81 @@ function formatDestino(msg) {
   return `para ${label}`;
 }
 
+function shouldHideChatMessage(msg) {
+  const tipo = String(msg?.tipo_mensaje || "").toUpperCase();
+  const contenido = String(msg?.contenido || "").toLowerCase();
+  if (tipo !== "SISTEMA") return false;
+  return (
+    contenido.includes("trigger de bd") ||
+    contenido.includes("operacion activada autom") ||
+    contenido.includes("operación activada autom")
+  );
+}
+
 function buildBubble(msg) {
-  const mine = isMine(msg);
+  if (shouldHideChatMessage(msg)) return "";
+  const mine  = isMine(msg);
   const autor = escapeHtml(msg.autor_nombre || "Sistema");
-  const hora = escapeHtml(formatTime(msg.fecha_envio));
-  const tipo = (msg.tipo_mensaje || "NORMAL").toUpperCase();
-  const rol = (msg.autor_rol || "").toLowerCase();    // admin | cut | cet | cell
+  const hora  = escapeHtml(formatTime(msg.fecha_envio));
+  const tipo  = (msg.tipo_mensaje || "NORMAL").toUpperCase();
+  const rol   = (msg.autor_rol   || "").toLowerCase();    // admin | cut | cet | cell
   const destinoText = formatDestino(msg);
   const destino = destinoText
     ? `${escapeHtml(destinoText)} - ${hora}`
     : hora;
 
   const typeExtra = tipo === "URGENTE" ? " urgente" : tipo === "SISTEMA" ? " sistema" : "";
-  const rolClass = rol ? ` rol-${rol}` : "";
+  const rolClass  = rol ? ` rol-${rol}` : "";
 
   const header = tipo !== "SISTEMA"
     ? `<div class="chatBubbleHeader"><span>${autor}</span><span>${destino}</span></div>`
     : `<div class="chatBubbleTime">${hora}</div>`;
+  const attachment = buildAttachmentMarkup(msg);
 
   return `
     <div class="chatBubble${mine ? " mine" : ""}${typeExtra}${rolClass}" data-id="${msg.id_mensaje ?? ""}">
       ${header}
       ${renderMessageContent(msg)}
+      ${attachment}
     </div>
   `;
 }
 
-// â”€â”€ Re-renderiza todos los mensajes visibles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function buildAttachmentMarkup(msg) {
+  const url = msg.attachment_url;
+  if (!url) return "";
+
+  const absolute = normalizeAttachmentUrl(url);
+  const kind = String(msg.attachment_kind || "").toUpperCase();
+  const name = escapeHtml(msg.attachment_name || "Adjunto");
+  const safeUrl = escapeHtml(absolute);
+
+  if (kind === "IMAGE") {
+    return `<a class="chatAttachment" href="${safeUrl}" target="_blank" rel="noopener"><img src="${safeUrl}" alt="${name}"></a>`;
+  }
+
+  if (kind === "VIDEO") {
+    return `<video class="chatAttachmentMedia" src="${safeUrl}" controls playsinline></video>`;
+  }
+
+  if (kind === "AUDIO") {
+    return `<audio class="chatAttachmentMedia" src="${safeUrl}" controls></audio>`;
+  }
+
+  return `<a class="chatAttachmentFile" href="${safeUrl}" target="_blank" rel="noopener">${name}</a>`;
+}
+
+// ── Re-renderiza todos los mensajes visibles ────────────────
 function renderMessages() {
   if (!dom.chatMessages) return;
   dom.chatMessages.innerHTML = "";
-  _allMsgs.filter((msg) => isVisibleInTab(msg)).forEach(msg => {
+  _allMsgs.filter(msg => !shouldHideChatMessage(msg) && isVisibleInTab(msg)).forEach(msg => {
     dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
   });
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 }
 
-// â”€â”€ Agrega un mensaje (guard de duplicados) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Agrega un mensaje (guard de duplicados) ─────────────────
 function appendMessage(msg) {
   if (!dom.chatMessages) return;
 
@@ -611,6 +714,7 @@ function appendMessage(msg) {
   if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return;
   _allMsgs.push(msg);
 
+  if (shouldHideChatMessage(msg)) return;
   if (!isVisibleInTab(msg)) return;
 
   const atBottom =
@@ -622,12 +726,12 @@ function appendMessage(msg) {
   if (atBottom) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 }
 
-// â”€â”€ Carga historial desde backend â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Carga historial desde backend ──────────────────────────
 async function loadMessages() {
   if (!_opId) return;
   try {
     const token = localStorage.getItem("token");
-    const res = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
+    const res   = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
       headers: { "Authorization": `Bearer ${token}` }
     });
     if (!res.ok) return;
@@ -642,24 +746,24 @@ async function loadMessages() {
   }
 }
 
-// â”€â”€ EnvÃ­a un mensaje (POST â†’ socket lo devuelve) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Envía un mensaje (POST → socket lo devuelve) ────────────
 async function sendChatContent(content, { clearText = false, restoreText = "" } = {}) {
   if (!_opId) return;
   const text = String(content || "").trim();
   if (!text) return;
 
+  const destinoPayload = getDestinoPayload();
+  if (destinoPayload === null) {
+    if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+    return;
+  }
+
   if (clearText && dom.chatInput) dom.chatInput.value = "";
   if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
 
   try {
-    const destinoPayload = getDestinoPayload();
-    if (destinoPayload === null) {
-      if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
-      return;
-    }
-
     const token = localStorage.getItem("token");
-    const res = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
+    const res   = await fetch(`${API_BASE}/ops/${_opId}/chat/messages`, {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${token}`,
@@ -672,33 +776,100 @@ async function sendChatContent(content, { clearText = false, restoreText = "" } 
         ...destinoPayload
       })
     });
-    if (!res.ok) {
-      console.error("[CHAT] Error al enviar:", res.status);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      console.error("[CHAT] Error al enviar:", res.status, data);
       if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+      alert(data?.mensaje || "No se pudo enviar el mensaje.");
+      return;
     }
-    // El mensaje llega vÃ­a socket â€” no se agrega localmente aquÃ­
+
+    const savedMessage = data?.item || data?.mensaje;
+    if (savedMessage) appendMessage(savedMessage);
   } catch (err) {
     console.error("[CHAT] Error enviando mensaje:", err);
     if (restoreText && dom.chatInput) dom.chatInput.value = restoreText;
+    alert("No se pudo enviar el mensaje.");
   } finally {
     if (dom.sendChatBtn) dom.sendChatBtn.disabled = false;
     dom.chatInput?.focus();
   }
 }
 
-// â”€â”€ PÃºblico: inicializa chat con socket â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function sendMessage() {
   const text = dom.chatInput?.value.trim();
   await sendChatContent(text, { clearText: true, restoreText: text });
 }
 
-async function sendAttachment(kind, dataUrl, name = "") {
+async function sendAttachment(kind, source, name = "") {
   const caption = dom.chatInput?.value.trim() || "";
-  if (dom.chatInput) dom.chatInput.value = "";
-  await sendChatContent(attachmentToContent({ kind, dataUrl, name, caption }), {
-    clearText: false,
-    restoreText: caption
+  if (!_opId) return;
+
+  const destinoPayload = getDestinoPayload();
+  if (destinoPayload === null) return;
+
+  const blob = attachmentSourceToBlob(source);
+  const attachmentKind = apiAttachmentKind(kind);
+  const fileName = name || defaultAttachmentName(attachmentKind, blob.type);
+  const params = new URLSearchParams({
+    tipo_mensaje: "NORMAL",
+    destinatario_rol: getDestinatarioRol()
   });
+
+  if (caption) params.set("contenido", caption);
+  Object.entries(destinoPayload).forEach(([key, value]) => {
+    if (value != null && String(value).trim()) params.set(key, String(value));
+  });
+
+  if (dom.chatInput) dom.chatInput.value = "";
+  if (dom.sendChatBtn) dom.sendChatBtn.disabled = true;
+
+  try {
+    const token = localStorage.getItem("token");
+    const res = await fetch(`${API_BASE}/ops/${_opId}/chat/attachments?${params.toString()}`, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": blob.type || "application/octet-stream",
+        "X-File-Name": fileName,
+        "X-Attachment-Kind": attachmentKind
+      },
+      body: blob
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      console.error("[CHAT] Error al enviar adjunto:", res.status, data);
+      if (dom.chatInput) dom.chatInput.value = caption;
+      alert(data?.mensaje || "No se pudo enviar el adjunto.");
+      return;
+    }
+
+    const savedMessage = data?.item || data?.mensaje;
+    if (savedMessage) appendMessage(savedMessage);
+  } catch (err) {
+    console.error("[CHAT] Error enviando adjunto:", err);
+    if (dom.chatInput) dom.chatInput.value = caption;
+    alert("No se pudo enviar el adjunto.");
+  } finally {
+    if (dom.sendChatBtn) dom.sendChatBtn.disabled = false;
+    dom.chatInput?.focus();
+  }
+}
+
+async function sendVideoFromInput(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  try {
+    setAttachStatus("Enviando video...");
+    await sendAttachment("video", file, file.name || "video.mp4");
+  } catch (err) {
+    console.error("[CHAT] Error enviando video:", err);
+    alert("No se pudo enviar el video.");
+  } finally {
+    if (input) input.value = "";
+    setAttachStatus("");
+  }
 }
 
 async function sendImageFromInput(input) {
@@ -715,6 +886,24 @@ async function sendImageFromInput(input) {
     if (input) input.value = "";
     setAttachStatus("");
   }
+}
+
+async function sendAttachmentFromInput(input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+
+  const type = String(file.type || "").toLowerCase();
+  if (type.startsWith("image/")) {
+    await sendImageFromInput(input);
+    return;
+  }
+  if (type.startsWith("video/")) {
+    await sendVideoFromInput(input);
+    return;
+  }
+
+  input.value = "";
+  alert("Selecciona una foto o un video.");
 }
 
 async function toggleAudioRecording() {
@@ -746,8 +935,7 @@ async function toggleAudioRecording() {
       }
       setAttachStatus("Enviando audio...");
       const blob = new Blob(_audioChunks, { type: _mediaRecorder.mimeType || "audio/webm" });
-      const dataUrl = await fileToDataUrl(blob);
-      await sendAttachment("audio", dataUrl, "audio.webm");
+      await sendAttachment("audio", blob, "audio.webm");
       setAttachStatus("");
     };
     _mediaRecorder.start();
@@ -766,8 +954,9 @@ async function toggleAudioRecording() {
   }
 }
 
+// ── Público: inicializa chat con socket ─────────────────────
 export function initChat(opId, socket) {
-  _opId = opId;
+  _opId   = opId;
   _socket = socket;
 
   socket.on("chat_message", (msg) => {
@@ -778,7 +967,7 @@ export function initChat(opId, socket) {
   loadMessages();
 }
 
-// â”€â”€ PÃºblico: enlaza eventos de UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ── Público: enlaza eventos de UI ───────────────────────────
 export function bindChatEvents() {
   if (dom.chatChannelType) {
     dom.chatChannelType.addEventListener("change", () => {
@@ -861,16 +1050,16 @@ export function bindChatEvents() {
     dom.sendChatBtn.addEventListener("click", sendMessage);
   }
 
-  if (dom.chatCameraBtn) {
-    dom.chatCameraBtn.addEventListener("click", () => dom.chatCameraInput?.click());
+  if (dom.chatAttachmentBtn) {
+    dom.chatAttachmentBtn.addEventListener("click", () => dom.chatAttachmentInput?.click());
   }
 
   if (dom.chatAudioBtn) {
     dom.chatAudioBtn.addEventListener("click", toggleAudioRecording);
   }
 
-  if (dom.chatCameraInput) {
-    dom.chatCameraInput.addEventListener("change", () => sendImageFromInput(dom.chatCameraInput));
+  if (dom.chatAttachmentInput) {
+    dom.chatAttachmentInput.addEventListener("change", () => sendAttachmentFromInput(dom.chatAttachmentInput));
   }
 
   if (dom.chatInput) {

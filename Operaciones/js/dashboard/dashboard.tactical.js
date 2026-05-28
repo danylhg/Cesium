@@ -21,72 +21,6 @@ const COLOR_HEX_MAP = {
   white: '#FFFFFF'
 };
 
-let tacticalPreviousCanvasTouchAction = "";
-let tacticalCameraLocked = false;
-let tacticalTouchOverrideBound = false;
-
-function applyTacticalCameraLock(locked) {
-  const viewer = dashboardState.viewer;
-  if (!viewer?.scene?.screenSpaceCameraController) return;
-
-  const controller = viewer.scene.screenSpaceCameraController;
-  controller.enableRotate = !locked;
-  controller.enableTranslate = !locked;
-  controller.enableLook = !locked;
-  controller.enableZoom = true;
-  controller.enableTilt = true;
-}
-
-function bindTacticalTouchCameraOverride() {
-  const canvas = dashboardState.viewer?.scene?.canvas;
-  if (!canvas || tacticalTouchOverrideBound) return;
-  const activeTouchPointers = new Set();
-
-  const syncTouchCamera = (event) => {
-    if (!tacticalCameraLocked) return;
-    applyTacticalCameraLock(!(event.touches && event.touches.length >= 2));
-  };
-
-  const restoreSingleTouchLock = () => {
-    if (tacticalCameraLocked) applyTacticalCameraLock(true);
-  };
-
-  const syncPointerCamera = (event) => {
-    if (event.pointerType !== "touch" || !tacticalCameraLocked) return;
-    if (event.type === "pointerdown") activeTouchPointers.add(event.pointerId);
-    if (event.type === "pointerup" || event.type === "pointercancel") activeTouchPointers.delete(event.pointerId);
-    applyTacticalCameraLock(activeTouchPointers.size < 2);
-  };
-
-  canvas.addEventListener("touchstart", syncTouchCamera, { passive: true });
-  canvas.addEventListener("touchmove", syncTouchCamera, { passive: true });
-  canvas.addEventListener("touchend", restoreSingleTouchLock, { passive: true });
-  canvas.addEventListener("touchcancel", restoreSingleTouchLock, { passive: true });
-  canvas.addEventListener("pointerdown", syncPointerCamera, { passive: true });
-  canvas.addEventListener("pointerup", syncPointerCamera, { passive: true });
-  canvas.addEventListener("pointercancel", syncPointerCamera, { passive: true });
-  tacticalTouchOverrideBound = true;
-}
-
-function setTacticalDrawingCameraEnabled(enabled) {
-  const viewer = dashboardState.viewer;
-  if (!viewer?.scene?.screenSpaceCameraController) return;
-
-  tacticalCameraLocked = !enabled;
-  bindTacticalTouchCameraOverride();
-  applyTacticalCameraLock(!enabled);
-
-  const canvas = viewer.scene.canvas;
-  if (!canvas) return;
-
-  if (!enabled) {
-    tacticalPreviousCanvasTouchAction = canvas.style.touchAction || "";
-    canvas.style.touchAction = "none";
-  } else {
-    canvas.style.touchAction = tacticalPreviousCanvasTouchAction;
-  }
-}
-
 export function getCesiumColor(name, alpha = 1) {
   const map = {
     red: Cesium.Color.RED,
@@ -104,6 +38,9 @@ export function getCesiumColor(name, alpha = 1) {
 
 // IDs de POIs que acabo de enviar yo (evita redibujar lo que ya dibujé localmente)
 const _mySentPoiIds = new Set();
+const _mySentRouteIds = new Set();
+let gridSaveTimer = null;
+let lastLocalGridSaveAt = 0;
 
 function getAreaCreatorPayload() {
   const userData = JSON.parse(localStorage.getItem("userData") || "{}");
@@ -162,6 +99,17 @@ function pointsToPolygonCoordinates(points) {
   return [ring];
 }
 
+function pointsToLineString(points) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+
+  const coordinates = points
+    .map(point => [Number(point.lng), Number(point.lat)])
+    .filter(([lng, lat]) => Number.isFinite(lng) && Number.isFinite(lat));
+
+  if (coordinates.length < 2) return null;
+  return { type: "LineString", coordinates };
+}
+
 function getPolygonLabelPosition(points) {
   if (!Array.isArray(points) || points.length === 0) return null;
 
@@ -201,6 +149,8 @@ function getOperationZonePoints(zona) {
 function clearOperationZoneEntities() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
+
+  clearGrid({ persist: false });
 
   // Remove the main zone border
   if (dashboardState.operationZoneBorder) {
@@ -271,7 +221,6 @@ function buildOperationZoneEntity(zona) {
   dashboardState.operationZoneBorder = entity;
   dashboardState.currentOperationZone = zona;
 
-  // Integrated Wind Rose (Radar) inside the zone
   renderIntegratedWindRose(zona, closedPoints);
 
   return entity;
@@ -301,45 +250,46 @@ function getHullRadius(center, points) {
 
 export function renderIntegratedWindRose(zona, points) {
   const viewer = dashboardState.viewer;
-  if (!viewer) return;
+  if (!viewer || !Array.isArray(points) || points.length < 3) return;
 
-  const center = calculateCentroid(points);
-  if (!center) return;
-  const idZona = zona.id_zona;
-  const zoneProps = { tacticalType: "operation-zone-part", id_zona: idZona };
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
 
-  // ── Bounding box of the zone polygon ──
-  let minLat = Infinity, maxLat = -Infinity;
-  let minLng = Infinity, maxLng = -Infinity;
-  points.forEach(p => {
-    if (p.lat < minLat) minLat = p.lat;
-    if (p.lat > maxLat) maxLat = p.lat;
-    if (p.lng < minLng) minLng = p.lng;
-    if (p.lng > maxLng) maxLng = p.lng;
+  points.forEach((point) => {
+    const lat = Number(point.lat);
+    const lng = Number(point.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+    minLng = Math.min(minLng, lng);
+    maxLng = Math.max(maxLng, lng);
   });
 
-  const boxCenterLat = (minLat + maxLat) / 2;
-  const boxCenterLng = (minLng + maxLng) / 2;
+  if (![minLat, maxLat, minLng, maxLng].every(Number.isFinite)) return;
 
-  const lineColor = Cesium.Color.fromCssColorString("rgba(0,0,0,0.75)");
-  const lineWidth = 3;
+  const centerLat = (minLat + maxLat) / 2;
+  const centerLng = (minLng + maxLng) / 2;
+  const zoneProps = { tacticalType: "operation-zone-part", id_zona: zona.id_zona };
 
-  const labels = [
-    { text: "N", lat: maxLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, -15) },
-    { text: "S", lat: minLat, lng: boxCenterLng, offset: new Cesium.Cartesian2(0, 15) },
-    { text: "E", lat: boxCenterLat, lng: maxLng, offset: new Cesium.Cartesian2(15, 0) },
-    { text: "O", lat: boxCenterLat, lng: minLng, offset: new Cesium.Cartesian2(-15, 0) }
-  ];
-
-  labels.forEach(lbl => {
+  [
+    { text: "N", lat: maxLat, lng: centerLng, offset: new Cesium.Cartesian2(0, -16) },
+    { text: "S", lat: minLat, lng: centerLng, offset: new Cesium.Cartesian2(0, 16) },
+    { text: "E", lat: centerLat, lng: maxLng, offset: new Cesium.Cartesian2(18, 0) },
+    { text: "W", lat: centerLat, lng: minLng, offset: new Cesium.Cartesian2(-18, 0) }
+  ].forEach((label) => {
     viewer.entities.add({
-      name: "Radar Estereográfico",
-      position: Cesium.Cartesian3.fromDegrees(lbl.lng, lbl.lat),
+      name: "Rosa de viento zona",
+      position: Cesium.Cartesian3.fromDegrees(label.lng, label.lat),
       label: {
-        text: lbl.text,
+        text: label.text,
         font: "bold 24px monospace",
-        fillColor: Cesium.Color.fromCssColorString("rgba(0,0,0,0.90)"),
-        pixelOffset: lbl.offset,
+        fillColor: Cesium.Color.fromCssColorString("rgba(0,0,0,0.92)"),
+        outlineColor: Cesium.Color.WHITE.withAlpha(0.82),
+        outlineWidth: 3,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: label.offset,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
       },
       properties: zoneProps
@@ -365,9 +315,9 @@ function generateRadarCanvas(size, _unused, colorHex, radiusMeters) {
   // Line/label colors: black-based, stronger for visibility
   const lineStrong = "rgba(0,0,0,0.75)";
   const lineMedium = "rgba(0,0,0,0.45)";
-  const lineLight = "rgba(0,0,0,0.20)";
-  const labelDark = "rgba(0,0,0,0.90)";
-  const labelMid = "rgba(0,0,0,0.60)";
+  const lineLight  = "rgba(0,0,0,0.20)";
+  const labelDark  = "rgba(0,0,0,0.90)";
+  const labelMid   = "rgba(0,0,0,0.60)";
 
   // ── 1. Outer border ring (REMOVED) ──
 
@@ -385,8 +335,8 @@ function generateRadarCanvas(size, _unused, colorHex, radiusMeters) {
 
   // ── 3. Bearing labels (N, E, S, W) ──
   const cardinalLabels = [
-    { deg: 0, sub: "N" },
-    { deg: 90, sub: "E" },
+    { deg: 0,   sub: "N"  },
+    { deg: 90,  sub: "E"  },
     { deg: 180, sub: "S" },
     { deg: 270, sub: "W" }
   ];
@@ -528,11 +478,7 @@ function getMilSymbolInstance(sidc, size = 200) {
   try {
     return new ms.Symbol(sidc, {
       size,
-      outlineWidth: 4,      // Estilo Map.Army: contorno blanco marcado
-      outlineColor: "white",
-      strokeWidth: 3,       // Líneas más gruesas para visibilidad
-      fill: true,
-      colorMode: "Light"    // Colores vibrantes y nítidos
+      colorMode: "Light"
     });
   } catch (err) {
     console.warn("[MIL] SIDC invalido para milsymbol:", sidc, err);
@@ -540,22 +486,167 @@ function getMilSymbolInstance(sidc, size = 200) {
   }
 }
 
-export function renderMilSymbolImage(sidc, size = 200) {
+function renderMilSymbolImage(sidc, size = 200) {
   const symbol = getMilSymbolInstance(sidc, size);
-  // Devolvemos el DataURL para que sea compatible con <img> y Billboards de Cesium
-  return symbol ? symbol.toDataURL() : null;
+  return symbol ? symbol.asCanvas() : null;
 }
 
 function getMilBillboardSize() {
   return 42;
 }
 
-function buildMilSidc() {
+const MIL_SYMBOL_CATALOG = [
+  { dimension: "G", group: "Tierra - Unidades", code: "U-----", label: "Unidad genérica" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCI---", label: "Infantería" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCD---", label: "Blindada / Tanques" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCA---", label: "Artillería" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCF---", label: "Defensa aérea" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCR---", label: "Reconocimiento / Exploración" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCJ---", label: "Ingenieros" },
+  { dimension: "G", group: "Tierra - Unidades", code: "UCO---", label: "Aviación" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCS---", label: "Comunicaciones / Señales" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCM---", label: "Médica" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCL---", label: "Logística / Abastecimiento" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCP---", label: "Policía / Seguridad" },
+  { dimension: "G", group: "Tierra - Apoyo", code: "UCK---", label: "CBRN / Química" },
+  { dimension: "G", group: "Instalaciones", code: "IB----", label: "Base / Cuartel" },
+  { dimension: "G", group: "Instalaciones", code: "IP----", label: "Punto de control" },
+  { dimension: "G", group: "Instalaciones", code: "IR----", label: "Radar" },
+  { dimension: "A", group: "Aire", code: "MF----", label: "Aeronave militar" },
+  { dimension: "A", group: "Aire", code: "MFF---", label: "Ala fija" },
+  { dimension: "A", group: "Aire", code: "MFR---", label: "Ala rotatoria" },
+  { dimension: "A", group: "Aire", code: "MFQ---", label: "UAV / Drone" },
+  { dimension: "A", group: "Aire", code: "MFB---", label: "Bombardero" },
+  { dimension: "A", group: "Aire", code: "MFI---", label: "Caza" },
+  { dimension: "S", group: "Mar superficie", code: "C-----", label: "Combatiente" },
+  { dimension: "S", group: "Mar superficie", code: "CL----", label: "Buque de línea" },
+  { dimension: "S", group: "Mar superficie", code: "CLCV--", label: "Portaaviones" },
+  { dimension: "S", group: "Mar superficie", code: "CLDD--", label: "Destructor" },
+  { dimension: "S", group: "Mar superficie", code: "CLFF--", label: "Fragata / Corbeta" },
+  { dimension: "U", group: "Subsuperficie", code: "S-----", label: "Submarino" },
+  { dimension: "U", group: "Subsuperficie", code: "SC----", label: "Submarino convencional" },
+  { dimension: "U", group: "Subsuperficie", code: "SU----", label: "UUV / Vehículo submarino no tripulado" },
+  { dimension: "U", group: "Subsuperficie", code: "W-----", label: "Arma submarina" },
+  { dimension: "G", group: "Tierra - Equipo", code: "E-----", label: "Equipo genérico" },
+  { dimension: "G", group: "Tierra - Equipo", code: "EW----", label: "Arma" },
+  { dimension: "G", group: "Tierra - Equipo", code: "EV----", label: "Vehículo" },
+  { dimension: "G", group: "Tierra - Equipo", code: "EX----", label: "Equipo especial" }
+];
+
+const milSidcValidityCache = new Map();
+
+function buildMilSidcFromParts(identity, dimension, icon) {
+  const safeIdentity = identity || "F";
+  const safeDimension = dimension || "G";
+  const safeIcon = String(icon || "UCI---").padEnd(6, "-").slice(0, 6);
+
+  return `S${safeIdentity}${safeDimension}P${safeIcon}-----`;
+}
+
+function isMilSidcRenderable(sidc) {
+  if (milSidcValidityCache.has(sidc)) {
+    return milSidcValidityCache.get(sidc);
+  }
+
+  const symbol = getMilSymbolInstance(sidc, 64);
+  let isRenderable = !!symbol;
+
+  if (isRenderable && typeof symbol.isValid === "function") {
+    isRenderable = symbol.isValid() !== false;
+  }
+
+  if (isRenderable && typeof symbol.getMetadata === "function") {
+    const metadata = (() => {
+      try {
+        return symbol.getMetadata() || {};
+      } catch {
+        return {};
+      }
+    })();
+
+    if (metadata.valid === false || metadata.validIcon === false || metadata.validSIDC === false) {
+      isRenderable = false;
+    }
+  }
+
+  if (isRenderable && typeof symbol.asSVG === "function") {
+    const svg = (() => {
+      try {
+        return symbol.asSVG();
+      } catch {
+        return "";
+      }
+    })();
+
+    if (typeof svg === "string" && />\s*\?\s*</.test(svg)) {
+      isRenderable = false;
+    }
+  }
+
+  milSidcValidityCache.set(sidc, isRenderable);
+  return isRenderable;
+}
+
+function getMilOptionsForCurrentDimension() {
   const identity = dom.milIdentity?.value || "F";
   const dimension = dom.milDimension?.value || "G";
-  const icon = String(dom.milIcon?.value || "UCI---").padEnd(6, "-").slice(0, 6);
 
-  return `S${identity}${dimension}P${icon}-----`;
+  return MIL_SYMBOL_CATALOG
+    .filter(item => item.dimension === dimension)
+    .filter(item => isMilSidcRenderable(buildMilSidcFromParts(identity, item.dimension, item.code)));
+}
+
+function populateMilIconOptions() {
+  if (!dom.milIcon) return;
+
+  const previousValue = dom.milIcon.value;
+  const validOptions = getMilOptionsForCurrentDimension();
+  dom.milIcon.innerHTML = "";
+
+  if (!validOptions.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Sin símbolos válidos para esta dimensión";
+    option.disabled = true;
+    option.selected = true;
+    dom.milIcon.appendChild(option);
+    return;
+  }
+
+  const byGroup = new Map();
+  validOptions.forEach((item) => {
+    if (!byGroup.has(item.group)) byGroup.set(item.group, []);
+    byGroup.get(item.group).push(item);
+  });
+
+  byGroup.forEach((items, groupName) => {
+    const optgroup = document.createElement("optgroup");
+    optgroup.label = groupName;
+
+    items.forEach((item) => {
+      const option = document.createElement("option");
+      option.value = item.code;
+      option.textContent = item.label;
+      option.dataset.dimension = item.dimension;
+      optgroup.appendChild(option);
+    });
+
+    dom.milIcon.appendChild(optgroup);
+  });
+
+  const stillExists = validOptions.some(item => item.code === previousValue);
+  dom.milIcon.value = stillExists ? previousValue : validOptions[0].code;
+}
+
+function buildMilSidc() {
+  const identity = dom.milIdentity?.value || "F";
+  const selectedOption = dom.milIcon?.selectedOptions?.[0];
+  const dimension = selectedOption?.dataset.dimension || dom.milDimension?.value || "G";
+  const icon = dom.milIcon?.value || "";
+
+  if (!icon) return "";
+
+  return buildMilSidcFromParts(identity, dimension, icon);
 }
 
 function buildPoiEntity(poi, tacticalType = "poi") {
@@ -718,12 +809,79 @@ async function saveStructureToBackend(lat, lng, nombre, tipoEstructura) {
   }
 }
 
+function parseJsonObject(value) {
+  if (!value) return null;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return null;
+    }
+  }
+  return typeof value === "object" ? value : null;
+}
+
+function normalizeAreaGeometry(area) {
+  return parseJsonObject(area?.geometria ?? area?.geometry);
+}
+
+function normalizeAreaMeta(area, geometry) {
+  return parseJsonObject(geometry?.meta)
+    || parseJsonObject(geometry?.metadata)
+    || parseJsonObject(geometry?.properties)
+    || parseJsonObject(area?.meta)
+    || parseJsonObject(area?.metadata)
+    || {};
+}
+
+function getCircleCenter(area, meta) {
+  const center = Array.isArray(meta.center) ? meta.center : null;
+  if (center && center.length >= 2) {
+    return {
+      lng: Number(center[0]),
+      lat: Number(center[1])
+    };
+  }
+
+  return {
+    lng: Number(area?.center_lon ?? area?.centroide_lon ?? area?.longitud ?? area?.lon ?? area?.lng),
+    lat: Number(area?.center_lat ?? area?.centroide_lat ?? area?.latitud ?? area?.lat)
+  };
+}
+
+function makeCircleAreaData(idArea, lat, lng, radius, nombre, colorName) {
+  return {
+    id_area: idArea,
+    nombre: nombre || "Círculo de cobertura",
+    color: COLOR_HEX_MAP[colorName] || "#FF4500",
+    geometria: {
+      type: "Polygon",
+      coordinates: circleToPolygonCoordinates(lat, lng, radius),
+      meta: {
+        shape: "circle",
+        center: [lng, lat],
+        radius_m: radius,
+        opacity: getOpacity(),
+        outline_width: getLineWidth()
+      }
+    }
+  };
+}
+
+function removeTacticalEntity(entity) {
+  const viewer = dashboardState.viewer;
+  if (!viewer || !entity) return;
+  viewer.entities.remove(entity);
+  dashboardState.tacticalEntities = (dashboardState.tacticalEntities || [])
+    .filter(ent => ent !== entity);
+}
+
 function buildAreaEntity(area) {
   const viewer = dashboardState.viewer;
   if (!viewer) return null;
 
-  const geometry = area?.geometria;
-  const meta = geometry?.meta || {};
+  const geometry = normalizeAreaGeometry(area);
+  const meta = normalizeAreaMeta(area, geometry);
   if (geometry?.type !== "Polygon") return null;
 
   const opacity = Number(meta.opacity ?? 0.35);
@@ -735,20 +893,20 @@ function buildAreaEntity(area) {
 
   if (entityId && viewer.entities.getById(entityId)) return null;
 
-  if (meta?.shape === "circle") {
-    const center = Array.isArray(meta.center) ? meta.center : null;
-    const radius = Number(meta.radius_m);
+  if (String(meta?.shape || "").toLowerCase() === "circle") {
+    const center = getCircleCenter(area, meta);
+    const radius = Number(meta.radius_m ?? area?.radius_m ?? area?.radio_m);
 
-    if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) {
+    if (!Number.isFinite(radius) || radius <= 0) {
       return null;
     }
 
-    const [lng, lat] = center;
+    const { lng, lat } = center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
 
     return viewer.entities.add({
       id: entityId,
-      name: area.nombre || "CÃ­rculo de cobertura",
+      name: area.nombre || "Círculo de cobertura",
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
       ellipse: {
         semiMajorAxis: radius,
@@ -776,7 +934,7 @@ function buildAreaEntity(area) {
     });
   }
 
-  if (meta?.shape !== "polygon") return null;
+  if (String(meta?.shape || "polygon").toLowerCase() !== "polygon") return null;
 
   const coordinates = Array.isArray(geometry?.coordinates?.[0]) ? geometry.coordinates[0] : null;
   if (!coordinates || coordinates.length < 4) return null;
@@ -795,7 +953,7 @@ function buildAreaEntity(area) {
 
   return viewer.entities.add({
     id: entityId,
-    name: area.nombre || "PolÃ­gono / Zona",
+    name: area.nombre || "Polígono / Zona",
     position: labelPosition
       ? Cesium.Cartesian3.fromDegrees(labelPosition.lng, labelPosition.lat)
       : undefined,
@@ -906,6 +1064,46 @@ function buildStructureEntity(estructura) {
   });
 }
 
+function buildRouteEntity(ruta) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return null;
+
+  let geometry = ruta?.geometria;
+  if (typeof geometry === "string") {
+    try { geometry = JSON.parse(geometry); } catch { return null; }
+  }
+  if (geometry?.type !== "LineString" || !Array.isArray(geometry.coordinates)) return null;
+
+  const points = geometry.coordinates
+    .map(coord => ({
+      lng: Number(coord?.[0]),
+      lat: Number(coord?.[1])
+    }))
+    .filter(point => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+  if (points.length < 2) return null;
+
+  const entityId = ruta.id_ruta ? `ruta_operacion_${ruta.id_ruta}` : undefined;
+  if (entityId && viewer.entities.getById(entityId)) return null;
+
+  const color = Cesium.Color.fromCssColorString(ruta.color || "#1E90FF");
+
+  return viewer.entities.add({
+    id: entityId,
+    name: ruta.nombre || "Linea tactica",
+    polyline: {
+      positions: toCartesianArray(points),
+      width: Number(ruta.grosor || ruta.width || getLineWidth()),
+      material: color,
+      clampToGround: true
+    },
+    properties: {
+      tacticalType: "polyline",
+      draggable: false,
+      id_ruta: ruta.id_ruta ?? null
+    }
+  });
+}
+
 async function saveCircleAreaToBackend(lat, lng, radius, nombre, colorName) {
   try {
     const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
@@ -970,7 +1168,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     if (!token || !opId) return null;
 
     const body = {
-      nombre: nombre || "PolÃ­gono / Zona",
+      nombre: nombre || "Polígono / Zona",
       descripcion: "Poligono o zona",
       color: COLOR_HEX_MAP[colorName] || "#FFD700",
       geometria: {
@@ -996,7 +1194,7 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
     const data = await res.json();
 
     if (!res.ok || !data?.ok) {
-      const mensaje = data?.mensaje || "No se pudo guardar el polÃ­gono.";
+      const mensaje = data?.mensaje || "No se pudo guardar el polígono.";
       if (dom.tbHint) dom.tbHint.textContent = mensaje;
       alert(mensaje);
       return null;
@@ -1004,11 +1202,57 @@ async function savePolygonAreaToBackend(points, nombre, colorName) {
 
     return data.area || null;
   } catch (err) {
-    console.error("Error guardando Ã¡rea poligonal en backend:", err);
+    console.error("Error guardando área poligonal en backend:", err);
     if (dom.tbHint) {
-      dom.tbHint.textContent = "Error de conexiÃ³n al guardar el polÃ­gono.";
+      dom.tbHint.textContent = "Error de conexión al guardar el polígono.";
     }
-    alert("Error de conexiÃ³n al guardar el polÃ­gono.");
+    alert("Error de conexión al guardar el polígono.");
+    return null;
+  }
+}
+
+async function saveTacticalRouteToBackend(points, nombre, colorName) {
+  const geometria = pointsToLineString(points);
+  if (!geometria) return null;
+
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId) return null;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/rutas`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        nombre: nombre || "Linea tactica",
+        descripcion: "Linea tactica dibujada en dashboard",
+        geometria,
+        color: COLOR_HEX_MAP[colorName] || "#1E90FF",
+        ...getAreaCreatorPayload()
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.ok) {
+      const mensaje = data?.mensaje || "No se pudo guardar la linea tactica.";
+      if (dom.tbHint) dom.tbHint.textContent = mensaje;
+      alert(mensaje);
+      return null;
+    }
+
+    if (data.ruta?.id_ruta) {
+      _mySentRouteIds.add(data.ruta.id_ruta);
+      setTimeout(() => _mySentRouteIds.delete(data.ruta.id_ruta), 5000);
+    }
+
+    return data.ruta || null;
+  } catch (err) {
+    console.error("[RUTA] Error guardando linea tactica:", err);
+    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al guardar la linea tactica.";
     return null;
   }
 }
@@ -1056,35 +1300,6 @@ async function saveOperationZoneToBackend(points, nombre, colorName) {
   } catch (err) {
     console.warn("[ZONA] Error guardando zona de operación:", err);
     if (dom.tbHint) dom.tbHint.textContent = "Sin conexión — zona creada localmente.";
-    return null;
-  }
-}
-
-async function restoreOperationZoneToBackend(zona) {
-  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
-  const token = localStorage.getItem("token");
-  const opId = localStorage.getItem("active_operation_id");
-  if (!token || !opId || !zona?.geometria) return null;
-
-  try {
-    const res = await fetch(`${API_BASE}/ops/${opId}/zona`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`
-      },
-      body: JSON.stringify({
-        nombre: zona.nombre || "Zona de operacion",
-        geometria: zona.geometria,
-        color: zona.color || COLOR_HEX_MAP.blue
-      })
-    });
-
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) return null;
-    return data.zona || null;
-  } catch (err) {
-    console.warn("[ZONA] Error restaurando zona de operacion:", err);
     return null;
   }
 }
@@ -1144,6 +1359,17 @@ export function getCurrentColorName() {
   return dom.colorSelect?.value || "red";
 }
 
+function updateTacticalControlReadouts() {
+  if (dom.opacityValue && dom.opacityRange) {
+    const opacity = Number(dom.opacityRange.value || 0);
+    dom.opacityValue.textContent = `${Math.round(opacity * 100)}%`;
+  }
+
+  if (dom.widthValue && dom.widthRange) {
+    dom.widthValue.textContent = `${Number(dom.widthRange.value || 0)} px`;
+  }
+}
+
 export function toCartesianArray(points) {
   return points.map(p => Cesium.Cartesian3.fromDegrees(p.lng, p.lat));
 }
@@ -1168,9 +1394,6 @@ export function addTacticalEntity(entity) {
 export function resetDrawingState() {
   dashboardState.placingMode = false;
   dashboardState.drawingPoints = [];
-  if (dashboardState.drawingMode !== "pencil") {
-    setTacticalDrawingCameraEnabled(true);
-  }
 
   const viewer = dashboardState.viewer;
   if (viewer) {
@@ -1216,7 +1439,7 @@ export function updateTacticalPreview(currentLat, currentLng) {
 
   const dashColor =
     dashboardState.toolMode === "perimeter"
-      ? getCesiumColor(getCurrentColorName(), 1)
+      ? Cesium.Color.RED
       : Cesium.Color.YELLOW;
 
   dashboardState.tacticalPreviewLine = viewer.entities.add({
@@ -1265,14 +1488,11 @@ function syncTacticalToolAvailability(currentOperation = getCurrentOperation()) 
     perimeterOption.disabled = !isPlanningOperation;
   }
 
-  // Se permite marcar zona de operación en cualquier fase si el usuario lo activa manualmente
-  /*
   if (!isPlanningOperation && dashboardState.toolMode === "perimeter") {
     dashboardState.toolMode = "none";
     if (dom.toolSelect) dom.toolSelect.value = "none";
     resetDrawingState();
   }
-  */
 
   return { isActiveOperation };
 }
@@ -1281,48 +1501,50 @@ export function setTacticalUI() {
   const currentOperation = getCurrentOperation();
   const { isActiveOperation } = syncTacticalToolAvailability(currentOperation);
   const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
-  const isCerrada = ["cerrada", "cancelada"].includes(phase);
   const isPlanningOperation = !isActiveOperation && phase === "planificada";
   const isToolActive = dashboardState.toolMode !== "none";
   const isMil = dashboardState.toolMode === "mil";
   const isPoi = dashboardState.toolMode === "poi";
   const isPencil = dashboardState.toolMode === "pencil";
   const isEraser = dashboardState.drawingMode === "eraser";
-  const isDrawingTool = isPencil; 
+  const isDrawingTool = isPencil;
   const isBuilding = dashboardState.toolMode === "building";
-  const isPolyline = dashboardState.toolMode === "polyline";
-  const isPerimeter = dashboardState.toolMode === "perimeter";
+  const isLabel = dashboardState.toolMode === "label";
   const isGrid = dashboardState.toolMode === "grid";
-  const usesPlaceOnly = ["poi", "mil", "circle", "label", "building"].includes(dashboardState.toolMode);
-  const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "building"].includes(dashboardState.toolMode);
+  const isCircle = dashboardState.toolMode === "circle";
+  const needsLabel = ["mil", "poi", "label", "circle", "polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
   const needsRadius = dashboardState.toolMode === "circle";
-  const isMultiPoint = ["polygon", "polyline"].includes(dashboardState.toolMode);
-  const showCancelButton = isToolActive && !isMil && !isDrawingTool && !isBuilding && !isPerimeter && !["poi", "circle", "label"].includes(dashboardState.toolMode);
-  const showFinishButton = isToolActive && !isBuilding && !isPerimeter && (isMultiPoint || dashboardState.areaDrawing);
-  const showLabelInput = isToolActive && needsLabel && !isMil && !isDrawingTool && !isPerimeter && !isGrid;
-  const showColorInput = isToolActive && !isMil && !isEraser && !isBuilding && !isPerimeter && !isGrid;
-  const showOpacityInput = isToolActive && !isMil && !isPoi && !isDrawingTool && !isPolyline && !isBuilding && !isPerimeter && !isGrid;
-  const showWidthInput = isToolActive && !isMil && !isPoi && !isEraser && !isBuilding && !isPerimeter && !isGrid && dashboardState.toolMode !== "circle";
+  const isMultiPoint = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode);
+  const showsFinishShapeAction = ["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode) || dashboardState.areaDrawing;
+  const showCancelButton = !isGrid && !isMil && !isDrawingTool && !["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
+  const showLabelInput = !isGrid && needsLabel && !isMil && !isDrawingTool;
+  const showColorInput = !isBuilding && !isGrid && !isMil && !isEraser && dashboardState.toolMode !== "none";
+  const showOpacityInput = !isBuilding && !isLabel && isToolActive && !isGrid && !isMil && !isPoi && !isDrawingTool && dashboardState.toolMode !== "perimeter";
+  const showWidthInput = !isBuilding && !isLabel && !isGrid && !isMil && !isPoi && !isEraser && dashboardState.toolMode !== "none";
+
+  if (dom.tacticalPanel) {
+    dom.tacticalPanel.classList.toggle("has-active-tool", isToolActive);
+    dom.tacticalPanel.classList.toggle("is-circle-tool", isCircle);
+  }
 
   const milTitle = document.getElementById("milSymbolTitle");
-  if (milTitle) milTitle.style.display = (isMil || isPolyline) ? "block" : "none";
+  if (milTitle) milTitle.style.display = isMil ? "block" : "none";
 
-  if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = (isMil || isPolyline) ? "block" : "none";
+  if (dom.milSymbolGenerator) dom.milSymbolGenerator.style.display = isMil ? "block" : "none";
 
   const buildingPreview = document.getElementById("buildingPreview");
   if (buildingPreview) buildingPreview.style.display = isBuilding ? "block" : "none";
-
   if (dom.gridSubmenu) dom.gridSubmenu.style.display = isGrid ? "block" : "none";
 
   if (dom.pencilSubmenu) dom.pencilSubmenu.style.display = isPencil ? "block" : "none";
   if (isPencil) {
     if (dom.btnSelectPencil) {
-      dom.btnSelectPencil.style.background = isEraser ? "rgba(255,255,255,0.12)" : "#0284c7";
-      dom.btnSelectPencil.style.color = "#fff";
+      dom.btnSelectPencil.style.background = isEraser ? "rgba(255,255,255,0.1)" : "#00ffa6";
+      dom.btnSelectPencil.style.color = isEraser ? "#fff" : "#001b1b";
     }
     if (dom.btnSelectEraser) {
-      dom.btnSelectEraser.style.background = isEraser ? "#0284c7" : "rgba(255,255,255,0.12)";
-      dom.btnSelectEraser.style.color = "#fff";
+      dom.btnSelectEraser.style.background = isEraser ? "#00ffa6" : "rgba(255,255,255,0.1)";
+      dom.btnSelectEraser.style.color = isEraser ? "#001b1b" : "#fff";
     }
   }
 
@@ -1330,43 +1552,19 @@ export function setTacticalUI() {
   if (dom.colorContainer) dom.colorContainer.style.display = showColorInput ? "block" : "none";
   if (dom.opacityContainer) dom.opacityContainer.style.display = showOpacityInput ? "block" : "none";
   if (dom.widthContainer) dom.widthContainer.style.display = showWidthInput ? "block" : "none";
-  
+  updateTacticalControlReadouts();
   if (dom.tacticalActionButtons) {
-    dom.tacticalActionButtons.style.display = (isToolActive && !isMil && !isDrawingTool && !isBuilding && !isPerimeter && !isGrid) ? "grid" : "none";
+    dom.tacticalActionButtons.style.display =
+      isToolActive || dashboardState.areaDrawing ? "grid" : "none";
   }
-  
-  if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "block" : "none";
-  
-  if (dom.finishShape) {
-    dom.finishShape.style.display = showFinishButton ? "block" : "none";
-    dom.finishShape.disabled = !isMultiPoint && !dashboardState.areaDrawing;
-  }
-  
+  if (dom.cancelPlace) dom.cancelPlace.style.display = showCancelButton ? "" : "none";
   if (dom.clearTactical) {
-    dom.clearTactical.style.display = (isPlanningOperation || isActiveOperation) ? "block" : "none";
+    dom.clearTactical.style.display = "";
+    dom.clearTactical.disabled = !isPlanningOperation;
+    dom.clearTactical.title = isPlanningOperation
+      ? "Limpiar objetos tacticos"
+      : "Solo se puede limpiar en operaciones planificadas";
   }
-  
-  if (dom.placeBtn) {
-    dom.placeBtn.disabled = !isToolActive || isMil || isDrawingTool;
-    dom.placeBtn.style.display = (isToolActive && !isMil && !isDrawingTool && !isBuilding) ? "block" : "none";
-    dom.placeBtn.textContent = "Colocar";
-  }
-
-  // Manage Zone UI (Route Panel)
-  const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
-  if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
-  if (dom.markZoneBtn) {
-    const isModeZone = dashboardState.toolMode === "perimeter";
-    dom.markZoneBtn.style.background = isModeZone ? "#0284c7" : "";
-    dom.markZoneBtn.style.color = isModeZone ? "#ffffff" : "";
-    dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
-  }
-
-  if (dom.toggleChatPanel) dom.toggleChatPanel.style.display = isActiveOperation ? "flex" : "none";
-  if (dom.toggleCameraPanel) dom.toggleCameraPanel.style.display = isActiveOperation ? "flex" : "none";
-  
-  if (dom.activateOpBtn) dom.activateOpBtn.style.display = isPlanningOperation ? "inline-block" : "none";
-  if (dom.closeActiveOpBtn) dom.closeActiveOpBtn.style.display = (isActiveOperation && !isCerrada) ? "inline-block" : "none";
 
   if (dom.symLabel) dom.symLabel.disabled = !showLabelInput;
   if (dom.radiusInput) dom.radiusInput.disabled = !needsRadius;
@@ -1374,7 +1572,49 @@ export function setTacticalUI() {
     dom.radiusContainer.style.display = needsRadius ? "block" : "none";
   }
 
-  if (isMil) updateMilSymbolPreview();
+  if (isMil) {
+    populateMilIconOptions();
+    updateMilSymbolPreview();
+  }
+
+  const finishActionLabels = {
+    polygon: "Terminar polígono",
+    polyline: "Terminar ruta",
+    perimeter: "Terminar perímetro"
+  };
+
+  if (dom.finishShape) {
+    const minPoints = dashboardState.toolMode === "polygon" ? 3 : 2;
+    const canFinishShape = dashboardState.areaDrawing || (isMultiPoint && dashboardState.placingMode && dashboardState.drawingPoints.length >= minPoints);
+    dom.finishShape.style.display = showsFinishShapeAction ? "" : "none";
+    dom.finishShape.textContent = dashboardState.areaDrawing
+      ? "Terminar área"
+      : (finishActionLabels[dashboardState.toolMode] || "Terminar figura");
+    dom.finishShape.disabled = !canFinishShape;
+  }
+
+  const isDrawingZone = dashboardState.toolMode === "perimeter" && dashboardState.placingMode;
+  if (dom.operationZoneControls) dom.operationZoneControls.style.display = isPlanningOperation ? "" : "none";
+  if (dom.zoneActionBtns) dom.zoneActionBtns.style.display = isDrawingZone ? "block" : "none";
+  if (dom.finishZoneBtn) dom.finishZoneBtn.style.display = isDrawingZone ? "block" : "none";
+  if (dom.markZoneBtn) {
+    const isModeZone = dashboardState.toolMode === "perimeter";
+    dom.markZoneBtn.disabled = !isPlanningOperation;
+    dom.markZoneBtn.style.background = isModeZone ? "#00ffa6" : "";
+    dom.markZoneBtn.style.color = isModeZone ? "#001b1b" : "";
+    dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
+    dom.markZoneBtn.title = isPlanningOperation
+      ? "Delimitar zona de operacion"
+      : "La zona solo se puede editar en operaciones planificadas";
+  }
+  if (dom.clearZoneBtn) {
+    dom.clearZoneBtn.disabled = isActiveOperation || !dashboardState.currentOperationZone;
+    dom.clearZoneBtn.title = isActiveOperation
+      ? "La zona no se puede eliminar mientras la operacion esta activa"
+      : "Limpiar zona de operacion";
+  }
+  if (dom.zoneColorSelect) dom.zoneColorSelect.disabled = !isPlanningOperation;
+  if (dom.zoneWidthRange) dom.zoneWidthRange.disabled = !isPlanningOperation;
 
   // Manage cursor for draw modes
   const mapEl = document.getElementById("map");
@@ -1389,7 +1629,9 @@ export async function createPoi(lat, lng, iconPath = null) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
-  const label = getCurrentLabel() || (dashboardState.toolMode === "building" ? "Edificio" : "Punto de interés");
+  const label = dashboardState.toolMode === "building"
+    ? "Edificio"
+    : (getCurrentLabel() || "Punto de interés");
   const color = getCesiumColor(getCurrentColorName(), 1);
 
   if (dashboardState.toolMode === "poi") {
@@ -1496,6 +1738,18 @@ export async function createMilSymbol(lat, lng, nombre, iconPath, scale = 0.08, 
   }
 }
 
+function getCurrentMilPlacement() {
+  const sidc = buildMilSidc();
+  if (!sidc || !isMilSidcRenderable(sidc)) return null;
+
+  return {
+    sidc,
+    title: dom.milIcon?.selectedOptions?.[0]?.textContent
+      || dom.milPreviewContainer?.dataset.title
+      || "Simbolo MIL"
+  };
+}
+
 export async function createLabel(lat, lng) {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
@@ -1518,31 +1772,58 @@ export async function createLabel(lat, lng) {
 }
 
 export async function createCircle(lat, lng) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
+
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
   const radius = getRadius();
-  let savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
+  const localArea = makeCircleAreaData(`local_${Date.now()}`, lat, lng, radius, label, colorName);
+  const localEntity = buildAreaEntity(localArea);
+  if (localEntity) dashboardState.tacticalEntities.push(localEntity);
+  if (dom.tbHint) dom.tbHint.textContent = "Círculo de cobertura colocado.";
 
+  const savedArea = await saveCircleAreaToBackend(lat, lng, radius, label, colorName);
   if (!savedArea) {
+    if (localEntity?.id) {
+      saveTacticalData();
+      pushUndoAction({
+        type: "add",
+        entityId: localEntity.id,
+        entityRef: localEntity,
+        source: "tactical"
+      });
+    }
+    return;
+  }
+  
+  if (localEntity) removeTacticalEntity(localEntity);
+
+  const existing = viewer.entities.getById(`area_${savedArea.id_area}`);
+  if (existing) return;
+
+  /*
     // Fallback local
     const fallbackId = `local_${Date.now()}`;
     savedArea = {
-      id_area: fallbackId,
-      nombre: label || "Círculo de cobertura",
-      color: COLOR_HEX_MAP[colorName] || "#FF4500",
-      geometria: {
-        type: "Polygon",
-        coordinates: circleToPolygonCoordinates(lat, lng, radius),
-        meta: {
-          shape: "circle",
-          center: [lng, lat],
-          radius_m: radius,
-          opacity: getOpacity(),
-          outline_width: getLineWidth()
+        id_area: fallbackId,
+        nombre: label || "Círculo de cobertura",
+        color: COLOR_HEX_MAP[colorName] || "#FF4500",
+        geometria: {
+            type: "Polygon",
+            coordinates: circleToPolygonCoordinates(lat, lng, radius),
+            meta: {
+              shape: "circle",
+              center: [lng, lat],
+              radius_m: radius,
+              opacity: getOpacity(),
+              outline_width: getLineWidth()
+            }
         }
-      }
     };
   }
+
+  */
 
   const entFromBackend = buildAreaEntity(savedArea);
   if (!entFromBackend) return;
@@ -1563,31 +1844,31 @@ export async function finishPolygon() {
   const label = getCurrentLabel();
   const colorName = getCurrentColorName();
   let savedArea = await savePolygonAreaToBackend(dashboardState.drawingPoints, label, colorName);
-
+  
   if (!savedArea) {
-    // Fallback local
-    const coordinates = pointsToPolygonCoordinates(dashboardState.drawingPoints);
-    if (coordinates) {
-      savedArea = {
-        id_area: `local_${Date.now()}`,
-        nombre: label || "Polígono / Zona",
-        color: COLOR_HEX_MAP[colorName] || "#FFD700",
-        geometria: {
-          type: "Polygon",
-          coordinates,
-          meta: {
-            shape: "polygon",
-            opacity: getOpacity(),
-            outline_width: getLineWidth()
-          }
-        }
-      };
-    }
+      // Fallback local
+      const coordinates = pointsToPolygonCoordinates(dashboardState.drawingPoints);
+      if (coordinates) {
+          savedArea = {
+              id_area: `local_${Date.now()}`,
+              nombre: label || "Polígono / Zona",
+              color: COLOR_HEX_MAP[colorName] || "#FFD700",
+              geometria: {
+                type: "Polygon",
+                coordinates,
+                meta: {
+                  shape: "polygon",
+                  opacity: getOpacity(),
+                  outline_width: getLineWidth()
+                }
+              }
+          };
+      }
   }
 
   if (savedArea) {
-    const entFromBackend = buildAreaEntity(savedArea);
-    if (entFromBackend) addTacticalEntity(entFromBackend);
+      const entFromBackend = buildAreaEntity(savedArea);
+      if (entFromBackend) addTacticalEntity(entFromBackend);
   }
 
   resetDrawingState();
@@ -1595,7 +1876,7 @@ export async function finishPolygon() {
   setTacticalUI();
 }
 
-export function finishPolyline() {
+export async function finishPolyline() {
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
@@ -1607,8 +1888,18 @@ export function finishPolyline() {
   const positions = toCartesianArray(dashboardState.drawingPoints);
   const color = getCesiumColor(getCurrentColorName(), 1);
   const label = getCurrentLabel();
+  const colorName = getCurrentColorName();
+  let savedRoute = await saveTacticalRouteToBackend(dashboardState.drawingPoints, label, colorName);
 
-  const ent = viewer.entities.add({
+  if (savedRoute) {
+    const entFromBackend = buildRouteEntity(savedRoute);
+    if (entFromBackend) addTacticalEntity(entFromBackend);
+  } else {
+    savedRoute = { id_ruta: `local_${Date.now()}` };
+  }
+
+  if (String(savedRoute.id_ruta).startsWith("local_")) {
+    const ent = viewer.entities.add({
     name: label || "Línea táctica",
     polyline: {
       positions,
@@ -1618,11 +1909,13 @@ export function finishPolyline() {
     },
     properties: {
       tacticalType: "polyline",
-      draggable: false
+      draggable: false,
+      id_ruta: savedRoute.id_ruta
     }
   });
 
-  addTacticalEntity(ent);
+    addTacticalEntity(ent);
+  }
 
   if (label) {
     const last = dashboardState.drawingPoints[dashboardState.drawingPoints.length - 1];
@@ -1645,20 +1938,6 @@ export function finishPolyline() {
       }
     });
     addTacticalEntity(labelEnt);
-  }
-
-  // --- NUEVO: Si se dibujó una ruta (polyline) y hay un símbolo MIL configurado, lo agregamos al inicio ---
-  if (isPolyline) {
-    const sidc = buildMilSidc();
-    // No agregamos si es el genérico vacío (S-G-P-------) o similar, pero aquí lo dejamos libre para el usuario
-    if (sidc) {
-      const first = dashboardState.drawingPoints[0];
-      const canvas = renderMilSymbolImage(sidc, 150);
-      if (canvas) {
-        const iconPath = canvas.toDataURL();
-        createMilSymbol(first.lat, first.lng, label || "Unidad en ruta", iconPath, 0.1, sidc);
-      }
-    }
   }
 
   resetDrawingState();
@@ -1778,32 +2057,51 @@ export function handleTacticalPlacement(lat, lng) {
   if (!viewer) return false;
 
   if (!dashboardState.placingMode || dashboardState.toolMode === "none") return false;
-  if (dashboardState.toolMode === "mil") return false;
+
+  if (dashboardState.toolMode === "mil") {
+    const mil = getCurrentMilPlacement();
+    if (!mil) {
+      if (dom.tbHint) dom.tbHint.textContent = "Selecciona un simbolo MIL valido.";
+      return true;
+    }
+
+    createMilSymbol(lat, lng, mil.title, null, 1, mil.sidc);
+    dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
+    setTacticalUI();
+    return true;
+  }
+
+  if (dashboardState.toolMode === "grid") {
+    generateGrid();
+    dashboardState.placingMode = false;
+    dashboardState.toolMode = "none";
+    if (dom.toolSelect) dom.toolSelect.value = "none";
+    setTacticalUI();
+    return true;
+  }
 
   if (dashboardState.toolMode === "poi") {
     createPoi(lat, lng);
-    dashboardState.placingMode = false;
     setTacticalUI();
     return true;
   }
 
   if (dashboardState.toolMode === "building") {
     createPoi(lat, lng, "img/estructuras/casa.png");
-    dashboardState.placingMode = false;
     setTacticalUI();
     return true;
   }
 
   if (dashboardState.toolMode === "label") {
     createLabel(lat, lng);
-    dashboardState.placingMode = false;
     setTacticalUI();
     return true;
   }
 
   if (dashboardState.toolMode === "circle") {
     createCircle(lat, lng);
-    dashboardState.placingMode = false;
     setTacticalUI();
     return true;
   }
@@ -1815,9 +2113,7 @@ export function handleTacticalPlacement(lat, lng) {
       position: Cesium.Cartesian3.fromDegrees(lng, lat),
       point: {
         pixelSize: 8,
-        color: dashboardState.toolMode === "perimeter"
-          ? getCesiumColor(getCurrentColorName(), 1)
-          : Cesium.Color.RED,
+        color: Cesium.Color.RED,
         outlineColor: Cesium.Color.WHITE,
         outlineWidth: 2,
         heightReference: Cesium.HeightReference.CLAMP_TO_GROUND
@@ -1826,24 +2122,10 @@ export function handleTacticalPlacement(lat, lng) {
 
     dashboardState.drawingVertexEntities.push(ent);
 
-
     if (dom.tbHint) {
-      if (dashboardState.toolMode === "perimeter") {
-        const remaining = 4 - dashboardState.drawingPoints.length;
-        dom.tbHint.textContent = remaining > 0
-          ? `Punto ${dashboardState.drawingPoints.length}/4 agregado. Faltan ${remaining}.`
-          : "Finalizando zona...";
-      } else {
-        dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
-      }
+      dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
     }
-
-    // Auto-finish zone perimeter at exactly 4 points
-    if (dashboardState.toolMode === "perimeter" && dashboardState.drawingPoints.length >= 4) {
-      finishOperationZonePerimeter();
-      return true;
-    }
-
+    setTacticalUI();
     return true;
   }
 
@@ -1879,15 +2161,16 @@ function applyStructureUpdateToEntity(entity, estructura) {
 }
 
 function applyAreaUpdateToEntity(entity, area) {
-  const geometry = area?.geometria;
-  const meta = geometry?.meta || {};
-  if (meta?.shape !== "circle") return;
+  const geometry = normalizeAreaGeometry(area);
+  const meta = normalizeAreaMeta(area, geometry);
+  if (String(meta?.shape || "").toLowerCase() !== "circle") return;
 
-  const center = Array.isArray(meta.center) ? meta.center : null;
-  const radius = Number(meta.radius_m);
-  if (!center || center.length < 2 || !Number.isFinite(radius) || radius <= 0) return;
+  const center = getCircleCenter(area, meta);
+  const radius = Number(meta.radius_m ?? area?.radius_m ?? area?.radio_m);
+  if (!Number.isFinite(radius) || radius <= 0) return;
 
-  const [lng, lat] = center;
+  const { lng, lat } = center;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
   entity.position = Cesium.Cartesian3.fromDegrees(lng, lat);
 }
 
@@ -2046,6 +2329,35 @@ async function deleteStructureFromBackend(idMarca) {
   }
 }
 
+async function deleteRouteFromBackend(idRuta) {
+  if (String(idRuta).startsWith("local_")) return true;
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId || !idRuta) return false;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/rutas/${idRuta}`, {
+      method: "DELETE",
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const mensaje = data?.mensaje || "No se pudo eliminar la ruta tactica.";
+      if (dom.tbHint) dom.tbHint.textContent = mensaje;
+      alert(mensaje);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[RUTA] Error eliminando ruta tactica:", err);
+    if (dom.tbHint) dom.tbHint.textContent = "Error de conexion al eliminar la ruta tactica.";
+    return false;
+  }
+}
+
 async function deleteCurrentOperationZoneFromBackend(idZona) {
   if (idZona && String(idZona).startsWith("local_")) return true; // nunca llegó al backend
   const currentOperation = getCurrentOperation();
@@ -2092,19 +2404,10 @@ async function clearTacticalPersistedData() {
     const idArea = entity.properties?.id_area?.getValue?.() ?? entity.properties?.id_area;
     const idMarca = entity.properties?.id_marca?.getValue?.() ?? entity.properties?.id_marca;
     const idZona = entity.properties?.id_zona?.getValue?.() ?? entity.properties?.id_zona;
+    const idRuta = entity.properties?.id_ruta?.getValue?.() ?? entity.properties?.id_ruta;
 
-    if (idZona && String(tacticalType) === "operation-zone") {
-      const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
-      if (!deleted) {
-        failures.push(`Zona Operacion`);
-        continue;
-      }
-      clearOperationZoneEntities();
-      continue;
-    }
-
-    if (["operation-zone", "perimeter"].includes(String(tacticalType))) {
-      clearOperationZoneEntities();
+    // La zona de operacion/perimetro persistido no se toca desde este boton.
+    if (idZona || ["operation-zone", "perimeter"].includes(String(tacticalType))) {
       continue;
     }
 
@@ -2147,6 +2450,16 @@ async function clearTacticalPersistedData() {
       continue;
     }
 
+    if (idRuta && String(tacticalType) === "polyline") {
+      const deleted = await deleteRouteFromBackend(idRuta);
+      if (!deleted) {
+        failures.push(`Ruta ${idRuta}`);
+        continue;
+      }
+      removeTacticalEntityLocally(entity);
+      continue;
+    }
+
     // Todo lo no persistido en backend se limpia localmente.
     removeTacticalEntityLocally(entity);
   }
@@ -2158,8 +2471,10 @@ async function clearTacticalPersistedData() {
     dashboardState.selectedEntity = null;
   }
 
+  const gridDeleted = await deleteGridFromBackend();
+  if (!gridDeleted) failures.push("Cuadricula");
+  clearGrid({ persist: false });
   clearPlanningArea();
-  clearGrid();
   clearTacticalStorageSnapshot();
 
   const drawingFailures = await clearAllDrawings();
@@ -2180,10 +2495,19 @@ export async function deleteSelectedEntity() {
     selected.properties?.tacticalType?.getValue?.() ||
     selected.properties?.tacticalType ||
     "";
+
+  if (String(tacticalType) === "grid-part") {
+    dashboardState.selectedEntity = null;
+    updateSelectionInfo(null);
+    if (dom.entityPopup) dom.entityPopup.style.display = "none";
+    return;
+  }
+
   const idPoi = selected.properties?.id_poi?.getValue?.() ?? selected.properties?.id_poi;
   const idArea = selected.properties?.id_area?.getValue?.() ?? selected.properties?.id_area;
   const idMarca = selected.properties?.id_marca?.getValue?.() ?? selected.properties?.id_marca;
   const idZona = selected.properties?.id_zona?.getValue?.() ?? selected.properties?.id_zona;
+  const idRuta = selected.properties?.id_ruta?.getValue?.() ?? selected.properties?.id_ruta;
 
   if (idPoi && ["poi", "mil-dropped", "radar-part"].includes(String(tacticalType))) {
     const deleted = await deletePoiFromBackend(idPoi);
@@ -2201,6 +2525,11 @@ export async function deleteSelectedEntity() {
 
   if (idMarca && ["building", "label"].includes(String(tacticalType))) {
     const deleted = await deleteStructureFromBackend(idMarca);
+    if (!deleted) return;
+  }
+
+  if (idRuta && String(tacticalType) === "polyline") {
+    const deleted = await deleteRouteFromBackend(idRuta);
     if (!deleted) return;
   }
 
@@ -2314,6 +2643,31 @@ export async function loadStructuresFromBackend() {
   }
 }
 
+export async function loadRoutesFromBackend() {
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  const viewer = dashboardState.viewer;
+  if (!token || !opId || !viewer) return;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/rutas`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const items = data.items || [];
+
+    items.forEach(ruta => {
+      if (!ruta?.id_ruta) return;
+      const ent = buildRouteEntity(ruta);
+      if (ent) addTacticalEntity(ent);
+    });
+  } catch (err) {
+    console.error("[RUTA] Error cargando rutas tacticas desde backend:", err);
+  }
+}
+
 export async function loadOperationZoneFromBackend() {
   const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
   const token = localStorage.getItem("token");
@@ -2328,6 +2682,7 @@ export async function loadOperationZoneFromBackend() {
 
     if (res.status === 404) {
       clearOperationZoneEntities();
+      setTacticalUI();
       return null;
     }
 
@@ -2336,10 +2691,12 @@ export async function loadOperationZoneFromBackend() {
     const zona = data.zona || null;
     if (!zona) {
       clearOperationZoneEntities();
+      setTacticalUI();
       return null;
     }
 
     buildOperationZoneEntity(zona);
+    setTacticalUI();
     return zona;
   } catch (err) {
     console.error("[ZONA] Error cargando zona de operacion:", err);
@@ -2479,13 +2836,41 @@ export function initPoiSocket(socket) {
       return Number(entIdMarca) !== Number(id_marca);
     });
   });
-}
 
-function getGridStorageKey() {
-  const opId = dashboardState.currentOperation?.id
-    || dashboardState.currentOperation?.id_operacion
-    || localStorage.getItem("active_operation_id");
-  return opId ? `operation_grid_${opId}` : null;
+  socket.on("ruta_operacion_creada", ({ ruta }) => {
+    if (!ruta?.id_ruta) return;
+    if (_mySentRouteIds.has(ruta.id_ruta)) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const ent = buildRouteEntity(ruta);
+    if (ent) addTacticalEntity(ent);
+  });
+
+  socket.on("ruta_operacion_eliminada", ({ id_ruta }) => {
+    if (!id_ruta) return;
+
+    const viewer = dashboardState.viewer;
+    if (!viewer) return;
+
+    const entity = viewer.entities.getById(`ruta_operacion_${id_ruta}`);
+    if (entity) viewer.entities.remove(entity);
+
+    dashboardState.tacticalEntities = dashboardState.tacticalEntities.filter(ent => {
+      const entIdRuta = ent.properties?.id_ruta?.getValue?.() ?? ent.properties?.id_ruta;
+      return Number(entIdRuta) !== Number(id_ruta);
+    });
+  });
+
+  socket.on("cuadricula_actualizada", ({ grid }) => {
+    if (Date.now() - lastLocalGridSaveAt < 1500) return;
+    void restoreGridFromBackend(grid);
+  });
+
+  socket.on("cuadricula_eliminada", () => {
+    clearGrid({ persist: false });
+  });
 }
 
 function getGridNamesFromInputs() {
@@ -2494,129 +2879,178 @@ function getGridNamesFromInputs() {
     .map(input => input.value || "");
 }
 
-function normalizeGridSize(size) {
-  const [rawRows, rawCols] = String(size || "3x3").split("x").map(Number);
-  const rows = Math.min(Math.max(rawRows || 3, 2), 4);
-  const cols = Math.min(Math.max(rawCols || 3, 2), 4);
-  return { rows, cols, value: `${rows}x${cols}` };
-}
+async function saveGridToBackend() {
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId || !dom.gridSizeSelect) return null;
 
-function saveGridState() {
-  const key = getGridStorageKey();
-  if (!key || !dom.gridSizeSelect || !dashboardState.gridEntities?.length) return;
-  localStorage.setItem(key, JSON.stringify({
-    size: normalizeGridSize(dom.gridSizeSelect.value).value,
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const payload = {
+    size: dom.gridSizeSelect.value || "3x3",
     names: getGridNamesFromInputs()
-  }));
-}
+  };
 
-function removeGridState() {
-  const key = getGridStorageKey();
-  if (key) localStorage.removeItem(key);
-}
+  try {
+    lastLocalGridSaveAt = Date.now();
+    const res = await fetch(`${API_BASE}/ops/${opId}/grid`, {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify(payload)
+    });
 
-export function clearGrid({ persist = true } = {}) {
-  const viewer = dashboardState.viewer;
-  if (!viewer) return;
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.ok === false) {
+      throw new Error(data?.mensaje || "No se pudo guardar la cuadricula.");
+    }
 
-  if (dashboardState.gridEntities) {
-    dashboardState.gridEntities.forEach(ent => viewer.entities.remove(ent));
+    return data.grid || data.cuadricula || null;
+  } catch (err) {
+    console.error("[GRID] Error guardando cuadricula:", err);
+    setRouteInfo("No se pudo guardar la cuadricula en el servidor.");
+    return null;
   }
+}
+
+function scheduleSaveGridToBackend() {
+  if (gridSaveTimer) window.clearTimeout(gridSaveTimer);
+  gridSaveTimer = window.setTimeout(() => {
+    gridSaveTimer = null;
+    void saveGridToBackend();
+  }, 500);
+}
+
+async function deleteGridFromBackend() {
+  const token = localStorage.getItem("token");
+  const opId = localStorage.getItem("active_operation_id");
+  if (!token || !opId) return true;
+
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+
+  try {
+    const res = await fetch(`${API_BASE}/ops/${opId}/grid`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+
+    if (res.status === 404) return true;
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data?.mensaje || "No se pudo eliminar la cuadricula.");
+    }
+
+    return true;
+  } catch (err) {
+    console.error("[GRID] Error eliminando cuadricula:", err);
+    setRouteInfo("No se pudo eliminar la cuadricula del servidor.");
+    return false;
+  }
+}
+
+export function clearGrid({ persist = false } = {}) {
+  const viewer = dashboardState.viewer;
+  const gridEntities = dashboardState.gridEntities || [];
+
+  if (gridSaveTimer) {
+    window.clearTimeout(gridSaveTimer);
+    gridSaveTimer = null;
+  }
+
+  if (viewer) {
+    gridEntities.forEach((ent) => {
+      if (ent) viewer.entities.remove(ent);
+    });
+  }
+
+  if (dashboardState.selectedEntity && gridEntities.includes(dashboardState.selectedEntity)) {
+    dashboardState.selectedEntity = null;
+    updateSelectionInfo(null);
+    if (dom.entityPopup) dom.entityPopup.style.display = "none";
+  }
+
   dashboardState.gridEntities = [];
   dashboardState.gridQuadrants = [];
-  
+
   if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "none";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "none";
 
-  if (persist) removeGridState();
+  if (persist) void deleteGridFromBackend();
 }
 
-export function restoreGridFromStorage() {
-  const key = getGridStorageKey();
-  if (!key || !dashboardState.currentOperationZone) return;
-
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(key) || "null");
-  } catch {
-    return;
-  }
-  if (!saved) return;
-
-  if (dom.gridSizeSelect && saved.size) {
-    dom.gridSizeSelect.value = normalizeGridSize(saved.size).value;
-  }
-
-  generateGrid({ persist: false });
-
-  const inputs = dom.gridNamesContainer
-    ? Array.from(dom.gridNamesContainer.querySelectorAll("input"))
-    : [];
-  inputs.forEach((input, index) => {
-    const name = saved.names?.[index];
-    if (!name) return;
-    input.value = name;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
-}
-
-export function generateGrid({ persist = true } = {}) {
+export function generateGrid({ persist = true, names = null } = {}) {
   const viewer = dashboardState.viewer;
-  if (!viewer || !dashboardState.currentOperationZone) {
-    if (dom.tbHint) dom.tbHint.textContent = "Debes delimitar una zona de operación primero.";
-    alert("No hay una Zona de Operación activa. Por favor usa 'Marcar zona' en Rutas y mapa primero.");
+  const zona = dashboardState.currentOperationZone;
+
+  if (!viewer || !zona) {
+    setRouteInfo("Delimita una zona de operacion antes de generar la cuadricula.");
+    alert("No hay una zona de operacion activa. Usa Marcar zona primero.");
     return;
   }
 
-  const puntos = getOperationZonePoints(dashboardState.currentOperationZone);
-  if (!puntos || puntos.length < 3) return;
+  const points = getOperationZonePoints(zona);
+  if (!points || points.length < 3) {
+    setRouteInfo("La zona de operacion no tiene geometria suficiente para generar cuadricula.");
+    return;
+  }
 
   clearGrid({ persist: false });
 
-  let minLat = 90, maxLat = -90, minLng = 180, maxLng = -180;
-  puntos.forEach(p => {
-    if (p.lat < minLat) minLat = p.lat;
-    if (p.lat > maxLat) maxLat = p.lat;
-    if (p.lng < minLng) minLng = p.lng;
-    if (p.lng > maxLng) maxLng = p.lng;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  let minLng = Infinity;
+  let maxLng = -Infinity;
+
+  points.forEach((point) => {
+    minLat = Math.min(minLat, point.lat);
+    maxLat = Math.max(maxLat, point.lat);
+    minLng = Math.min(minLng, point.lng);
+    maxLng = Math.max(maxLng, point.lng);
   });
 
-  const { rows, cols, value: sizeStr } = normalizeGridSize(dom.gridSizeSelect ? dom.gridSizeSelect.value : "3x3");
-  if (dom.gridSizeSelect && dom.gridSizeSelect.value !== sizeStr) {
-    dom.gridSizeSelect.value = sizeStr;
-  }
+  const sizeStr = dom.gridSizeSelect?.value || "3x3";
+  const [rows, cols] = sizeStr.split("x").map(Number);
+  if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows < 1 || cols < 1) return;
 
   const latStep = (maxLat - minLat) / rows;
   const lngStep = (maxLng - minLng) / cols;
+  if (!Number.isFinite(latStep) || !Number.isFinite(lngStep) || latStep <= 0 || lngStep <= 0) return;
 
   const colors = [
-    Cesium.Color.fromCssColorString("#FFA000"), // Ambar/Naranja (Alfa)
-    Cesium.Color.fromCssColorString("#1E88E5"), // Azul (Bravo)
-    Cesium.Color.fromCssColorString("#E53935"), // Rojo (Charlie)
-    Cesium.Color.fromCssColorString("#00897B"), // Teal/Verde (Delta)
-    Cesium.Color.fromCssColorString("#8E24AA"), // Morado (Echo)
-    Cesium.Color.fromCssColorString("#FB8C00"), // Naranja Intenso
-    Cesium.Color.fromCssColorString("#D81B60"), // Rosa/Magenta
-    Cesium.Color.fromCssColorString("#039BE5"), // Celeste
-    Cesium.Color.fromCssColorString("#43A047"), // Verde bosque
-    Cesium.Color.fromCssColorString("#FDD835")  // Amarillo
+    Cesium.Color.fromCssColorString("#FFA000"),
+    Cesium.Color.fromCssColorString("#1E88E5"),
+    Cesium.Color.fromCssColorString("#E53935"),
+    Cesium.Color.fromCssColorString("#00897B"),
+    Cesium.Color.fromCssColorString("#8E24AA"),
+    Cesium.Color.fromCssColorString("#FB8C00"),
+    Cesium.Color.fromCssColorString("#D81B60"),
+    Cesium.Color.fromCssColorString("#039BE5"),
+    Cesium.Color.fromCssColorString("#43A047"),
+    Cesium.Color.fromCssColorString("#FDD835")
+  ];
+
+  const phonetic = [
+    "ALFA", "BRAVO", "CHARLIE", "DELTA", "ECHO", "FOXTROT", "GOLF", "HOTEL",
+    "INDIA", "JULIETT", "KILO", "LIMA", "MIKE", "NOVEMBER", "OSCAR", "PAPA",
+    "QUEBEC", "ROMEO", "SIERRA", "TANGO", "UNIFORM", "VICTOR", "WHISKEY", "X-RAY",
+    "YANKEE", "ZULU"
   ];
 
   let colorIdx = 0;
 
-  // 1. Líneas Verticales Internas (Divisores)
-  for (let c = 1; c < cols; c++) {
-    const lng = minLng + c * lngStep;
+  for (let col = 1; col < cols; col += 1) {
+    const lng = minLng + col * lngStep;
     const color = colors[colorIdx % colors.length];
-    colorIdx++;
+    colorIdx += 1;
     const line = viewer.entities.add({
       polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray([lng, minLat, lng, maxLat]),
         width: 3,
         material: new Cesium.PolylineDashMaterialProperty({
           color: color.withAlpha(0.7),
-          dashLength: 16.0
+          dashLength: 16
         }),
         clampToGround: true
       },
@@ -2625,18 +3059,17 @@ export function generateGrid({ persist = true } = {}) {
     dashboardState.gridEntities.push(line);
   }
 
-  // 2. Líneas Horizontales Internas (Divisores)
-  for (let r = 1; r < rows; r++) {
-    const lat = minLat + r * latStep;
+  for (let row = 1; row < rows; row += 1) {
+    const lat = minLat + row * latStep;
     const color = colors[colorIdx % colors.length];
-    colorIdx++;
+    colorIdx += 1;
     const line = viewer.entities.add({
       polyline: {
         positions: Cesium.Cartesian3.fromDegreesArray([minLng, lat, maxLng, lat]),
         width: 3,
         material: new Cesium.PolylineDashMaterialProperty({
           color: color.withAlpha(0.7),
-          dashLength: 16.0
+          dashLength: 16
         }),
         clampToGround: true
       },
@@ -2645,24 +3078,22 @@ export function generateGrid({ persist = true } = {}) {
     dashboardState.gridEntities.push(line);
   }
 
-  let count = 0;
   if (dom.gridNamesContainer) dom.gridNamesContainer.innerHTML = "";
 
-  for (let r = 0; r < rows; r++) {
-    const latTop = maxLat - (r * latStep);
-    const latBottom = maxLat - ((r + 1) * latStep);
-    
-    for (let c = 0; c < cols; c++) {
-      const lngLeft = minLng + (c * lngStep);
-      const lngRight = minLng + ((c + 1) * lngStep);
-      const centerLat = latTop - (latStep / 2);
-      const centerLng = lngLeft + (lngStep / 2);
-      
-      const color = colors[count % colors.length];
-      const defaultName = `Cuadrante ${count + 1}`;
+  let count = 0;
+  for (let row = 0; row < rows; row += 1) {
+    const latTop = maxLat - row * latStep;
+    const latBottom = maxLat - (row + 1) * latStep;
 
-      // 3. Relleno del cuadrante (Muy tenue: 0.08)
-      const polyEnt = viewer.entities.add({
+    for (let col = 0; col < cols; col += 1) {
+      const lngLeft = minLng + col * lngStep;
+      const lngRight = minLng + (col + 1) * lngStep;
+      const color = colors[count % colors.length];
+      const baseName = phonetic[count % phonetic.length] || `Q${count + 1}`;
+      const cycle = Math.floor(count / phonetic.length);
+      const defaultName = cycle > 0 ? `${baseName}-${cycle + 1}` : baseName;
+
+      const polygon = viewer.entities.add({
         polygon: {
           hierarchy: Cesium.Cartesian3.fromDegreesArray([
             lngLeft, latBottom,
@@ -2675,10 +3106,9 @@ export function generateGrid({ persist = true } = {}) {
         },
         properties: { tacticalType: "grid-part", quadrantId: count }
       });
-      dashboardState.gridEntities.push(polyEnt);
+      dashboardState.gridEntities.push(polygon);
 
-      // 4. Etiqueta en la esquina superior izquierda
-      const labelEnt = viewer.entities.add({
+      const label = viewer.entities.add({
         position: Cesium.Cartesian3.fromDegrees(lngLeft, latTop),
         label: {
           text: ` ${defaultName} `,
@@ -2694,43 +3124,92 @@ export function generateGrid({ persist = true } = {}) {
         },
         properties: { tacticalType: "grid-part", quadrantId: count }
       });
-      dashboardState.gridEntities.push(labelEnt);
-
-      dashboardState.gridQuadrants.push({ id: count, labelEnt, defaultName });
+      dashboardState.gridEntities.push(label);
+      dashboardState.gridQuadrants.push({ id: count, labelEnt: label, defaultName });
 
       if (dom.gridNamesContainer) {
         const wrapper = document.createElement("div");
-        wrapper.className = "gridNameRow";
+        wrapper.style.display = "flex";
+        wrapper.style.flexDirection = "column";
 
-        const lbl = document.createElement("label");
-        lbl.className = "gridNameLabel";
-        lbl.textContent = defaultName;
+        const nameLabel = document.createElement("label");
+        nameLabel.className = "fieldLabel";
+        nameLabel.style.fontSize = "10px";
+        nameLabel.textContent = `Cuadrante ${defaultName}`;
 
-        const inp = document.createElement("input");
-        inp.type = "text";
-        inp.className = "opsInput gridNameInput";
-        inp.value = defaultName;
-        inp.placeholder = `Nombre para ${defaultName}`;
-        
-        inp.addEventListener("input", (e) => {
-          labelEnt.label.text = ` ${e.target.value || defaultName} `;
-          saveGridState();
+        const input = document.createElement("input");
+        input.type = "text";
+        input.className = "opsInput";
+        const savedName = Array.isArray(names) ? names[count] : "";
+        input.value = savedName || defaultName;
+        input.style.padding = "4px";
+        input.addEventListener("input", (event) => {
+          const value = event.target.value || defaultName;
+          label.label.text = ` ${value} `;
+          scheduleSaveGridToBackend();
         });
+        if (savedName) label.label.text = ` ${savedName} `;
 
-        wrapper.appendChild(lbl);
-        wrapper.appendChild(inp);
+        wrapper.appendChild(nameLabel);
+        wrapper.appendChild(input);
         dom.gridNamesContainer.appendChild(wrapper);
       }
 
-      count++;
+      count += 1;
     }
   }
 
   if (dom.gridNamesWrapper) dom.gridNamesWrapper.style.display = "block";
   if (dom.clearGridBtn) dom.clearGridBtn.style.display = "block";
-  
-  if (dom.tbHint) dom.tbHint.textContent = `Cuadrantes ${rows}x${cols} generados.`;
-  if (persist) saveGridState();
+
+  if (persist) void saveGridToBackend();
+}
+
+export async function restoreGridFromBackend(initialGrid = null) {
+  const opId = localStorage.getItem("active_operation_id");
+  if (!opId || !dashboardState.currentOperationZone) return null;
+
+  let grid = initialGrid;
+
+  if (!grid) {
+    const token = localStorage.getItem("token");
+    if (!token) return null;
+
+    const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+
+    try {
+      const res = await fetch(`${API_BASE}/ops/${opId}/grid`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (res.status === 404) return null;
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.mensaje || "No se pudo cargar la cuadricula.");
+      }
+
+      grid = data.grid || data.cuadricula || null;
+    } catch (err) {
+      console.error("[GRID] Error cargando cuadricula:", err);
+      return null;
+    }
+  }
+
+  if (!grid?.size) return null;
+
+  if (dom.gridSizeSelect) {
+    dom.gridSizeSelect.value = grid.size;
+  }
+
+  const names = Array.isArray(grid.names)
+    ? grid.names
+    : Array.isArray(grid.nombres)
+      ? grid.nombres
+      : [];
+
+  generateGrid({ persist: false, names });
+  return grid;
 }
 
 export function bindTacticalEvents() {
@@ -2738,27 +3217,56 @@ export function bindTacticalEvents() {
     dom.toolSelect.addEventListener("change", (e) => {
       const newMode = e.target.value;
 
-      // Stop any active drawing/eraser mode when switching tools
+      // Stop any active drawing mode when switching tools.
       stopAllDrawingModes();
 
       dashboardState.toolMode = newMode;
       resetDrawingState();
 
-      // Activate pencil mode (eraser is now a sub-mode)
       if (newMode === "pencil") {
         startPencilMode();
       }
 
-      if (["polygon", "polyline", "perimeter"].includes(newMode)) {
+      if (newMode === "poi") {
         dashboardState.placingMode = true;
-        setTacticalDrawingCameraEnabled(false);
-        if (dom.tbHint) dom.tbHint.textContent = "Toca el mapa para dibujar sin moverlo.";
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar el punto de interes.";
       }
 
-      // Auto-enter placing mode for building and label (click map to place)
-      if (["building", "label", "poi"].includes(newMode)) {
+      if (newMode === "mil") {
         dashboardState.placingMode = true;
-        if (dom.tbHint) dom.tbHint.textContent = "Toca el mapa para colocar.";
+        populateMilIconOptions();
+        updateMilSymbolPreview();
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar el simbolo MIL.";
+      }
+
+      if (newMode === "circle") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar el circulo de cobertura.";
+      }
+
+      if (newMode === "label") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar la etiqueta.";
+      }
+
+      if (newMode === "building") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para colocar la estructura.";
+      }
+
+      if (newMode === "grid") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para generar la cuadricula.";
+      }
+
+      if (newMode === "polygon") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Marca puntos en el mapa y usa Terminar figura al finalizar.";
+      }
+
+      if (newMode === "polyline") {
+        dashboardState.placingMode = true;
+        if (dom.tbHint) dom.tbHint.textContent = "Marca la ruta en el mapa y usa Terminar figura al finalizar.";
       }
 
       setTacticalUI();
@@ -2770,7 +3278,7 @@ export function bindTacticalEvents() {
   }
 
   if (dom.clearGridBtn) {
-    dom.clearGridBtn.addEventListener("click", clearGrid);
+    dom.clearGridBtn.addEventListener("click", () => clearGrid({ persist: true }));
   }
 
   if (dom.btnSelectPencil) {
@@ -2781,10 +3289,11 @@ export function bindTacticalEvents() {
         if (dom.toolSelect) dom.toolSelect.value = "none";
       } else {
         stopAllDrawingModes();
-        startPencilMode();
         dashboardState.toolMode = "pencil";
         if (dom.toolSelect) dom.toolSelect.value = "pencil";
+        startPencilMode();
       }
+
       setTacticalUI();
     });
   }
@@ -2797,34 +3306,12 @@ export function bindTacticalEvents() {
         if (dom.toolSelect) dom.toolSelect.value = "none";
       } else {
         stopAllDrawingModes();
-        startEraserMode();
         dashboardState.toolMode = "pencil";
         if (dom.toolSelect) dom.toolSelect.value = "pencil";
+        startEraserMode();
       }
+
       setTacticalUI();
-    });
-  }
-
-  if (dom.placeBtn) {
-    dom.placeBtn.addEventListener("click", () => {
-      if (dashboardState.toolMode === "mil") return;
-
-      const canToggleCancelFromPlace = ["poi", "circle", "label", "building"].includes(dashboardState.toolMode);
-      if (dashboardState.placingMode && canToggleCancelFromPlace) {
-        resetDrawingState();
-        if (dom.tbHint) dom.tbHint.textContent = "Accion cancelada.";
-        setTacticalUI();
-        return;
-      }
-
-      dashboardState.placingMode = true;
-      dashboardState.drawingPoints = [];
-      if (["polygon", "polyline", "perimeter"].includes(dashboardState.toolMode)) {
-        setTacticalDrawingCameraEnabled(false);
-      }
-      if (dom.tbHint) {
-        dom.tbHint.textContent = "Modo activo. Usa el mapa para colocar elementos.";
-      }
     });
   }
 
@@ -2852,7 +3339,7 @@ export function bindTacticalEvents() {
       }
 
       if (result.ok) {
-        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos limpiados. Se ha vaciado todo el mapa.";
+        if (dom.tbHint) dom.tbHint.textContent = "Elementos tacticos y dibujos limpiados. La zona de operacion se conservo.";
       } else if (dom.tbHint) {
         dom.tbHint.textContent = `Se limpiaron elementos tacticos, pero fallaron algunos borrados: ${result.failures.join(", ")}.`;
       }
@@ -2901,21 +3388,30 @@ export function bindTacticalEvents() {
     });
   }
 
-  // Zone operation events (Route Panel)
   if (dom.markZoneBtn) {
     dom.markZoneBtn.addEventListener("click", () => {
+      const currentOperation = getCurrentOperation();
+      const phase = String(currentOperation?.phase || currentOperation?.estado || "").toLowerCase();
+      if (phase !== "planificada") {
+        alert("La zona de operacion solo se puede editar en operaciones planificadas.");
+        setTacticalUI();
+        return;
+      }
+
       if (dashboardState.toolMode === "perimeter") {
         stopAllDrawingModes();
         dashboardState.toolMode = "none";
+        if (dom.toolSelect) dom.toolSelect.value = "none";
         resetDrawingState();
       } else {
         stopAllDrawingModes();
         dashboardState.toolMode = "perimeter";
+        if (dom.toolSelect) dom.toolSelect.value = "perimeter";
         resetDrawingState();
         dashboardState.placingMode = true;
-        setTacticalDrawingCameraEnabled(false);
-        if (dom.tbHint) dom.tbHint.textContent = "Haz clic en el mapa para empezar a delimitar la zona de operacion.";
+        setRouteInfo("Haz clic en el mapa para delimitar la zona de operacion.");
       }
+
       setTacticalUI();
     });
   }
@@ -2923,42 +3419,13 @@ export function bindTacticalEvents() {
   if (dom.clearZoneBtn) {
     dom.clearZoneBtn.addEventListener("click", async () => {
       if (!dashboardState.currentOperationZone) return;
-      const zoneSnapshot = JSON.parse(JSON.stringify(dashboardState.currentOperationZone));
       const idZona = dashboardState.currentOperationZone.id_zona;
       const deleted = await deleteCurrentOperationZoneFromBackend(idZona);
-      if (deleted) {
-        clearOperationZoneEntities();
-        let restoredZonePromise = null;
-        let zoneVisible = false;
-        pushUndoAction({
-          type: "ui",
-          undo: () => {
-            zoneVisible = true;
-            buildOperationZoneEntity(zoneSnapshot);
-            restoredZonePromise = restoreOperationZoneToBackend(zoneSnapshot).then((restoredZone) => {
-              if (restoredZone && zoneVisible) buildOperationZoneEntity(restoredZone);
-              return restoredZone;
-            });
-            if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion restaurada.";
-          },
-          redo: () => {
-            zoneVisible = false;
-            const currentZoneId = dashboardState.currentOperationZone?.id_zona || zoneSnapshot.id_zona;
-            clearOperationZoneEntities();
-            const deleteRestoredZone = (restoredZone) => {
-              const idToDelete = restoredZone?.id_zona || currentZoneId;
-              if (idToDelete) deleteCurrentOperationZoneFromBackend(idToDelete);
-            };
-            if (restoredZonePromise) {
-              restoredZonePromise.then(deleteRestoredZone);
-            } else {
-              deleteRestoredZone(null);
-            }
-            if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion eliminada.";
-          }
-        });
-        if (dom.tbHint) dom.tbHint.textContent = "Zona de operacion eliminada.";
-      }
+      if (!deleted) return;
+
+      clearOperationZoneEntities();
+      setRouteInfo("Zona de operacion eliminada.");
+      setTacticalUI();
     });
   }
 
@@ -2970,8 +3437,28 @@ export function bindTacticalEvents() {
     });
   }
 
-  if (dom.milIdentity) dom.milIdentity.addEventListener("change", updateMilSymbolPreview);
-  if (dom.milDimension) dom.milDimension.addEventListener("change", updateMilSymbolPreview);
+  [dom.opacityRange, dom.widthRange]
+    .filter(Boolean)
+    .forEach((control) => {
+      control.addEventListener("input", updateTacticalControlReadouts);
+      control.addEventListener("change", updateTacticalControlReadouts);
+    });
+  updateTacticalControlReadouts();
+
+  populateMilIconOptions();
+
+  if (dom.milIdentity) {
+    dom.milIdentity.addEventListener("change", () => {
+      populateMilIconOptions();
+      updateMilSymbolPreview();
+    });
+  }
+  if (dom.milDimension) {
+    dom.milDimension.addEventListener("change", () => {
+      populateMilIconOptions();
+      updateMilSymbolPreview();
+    });
+  }
   if (dom.milIcon) dom.milIcon.addEventListener("change", updateMilSymbolPreview);
 
   if (dom.milPreviewContainer) {
@@ -3000,15 +3487,26 @@ export function bindTacticalEvents() {
 /* ── Generador MILSymbol ───────────────────────────── */
 
 export function updateMilSymbolPreview() {
+  if (!dom.milPreviewContainer) return;
   const sidc = buildMilSidc();
-  if (!sidc) return;
 
-  const src = renderMilSymbolImage(sidc, 130);
-  if (dom.milPreviewContainer) {
-    dom.milPreviewContainer.innerHTML = `<img src="${src}" alt="Preview" style="max-width:100%; max-height:100%;">`;
-    dom.milPreviewContainer.dataset.sidc = sidc;
-    if (dom.milIcon) {
-      dom.milPreviewContainer.dataset.title = dom.milIcon.options[dom.milIcon.selectedIndex].text;
-    }
+  if (!sidc) {
+    dom.milPreviewContainer.innerHTML = '<span style="font-size:11px;color:#a0c4ff;font-weight:700;text-align:center;">Sin símbolo válido</span>';
+    delete dom.milPreviewContainer.dataset.sidc;
+    delete dom.milPreviewContainer.dataset.title;
+    return;
   }
+
+  const canvas = renderMilSymbolImage(sidc, 130);
+  if (!canvas || !isMilSidcRenderable(sidc)) {
+    dom.milPreviewContainer.innerHTML = '<span style="font-size:11px;color:#a0c4ff;font-weight:700;text-align:center;">SIDC no soportado</span>';
+    delete dom.milPreviewContainer.dataset.sidc;
+    delete dom.milPreviewContainer.dataset.title;
+    return;
+  }
+
+  dom.milPreviewContainer.innerHTML = "";
+  dom.milPreviewContainer.appendChild(canvas);
+  dom.milPreviewContainer.dataset.sidc = sidc;
+  dom.milPreviewContainer.dataset.title = dom.milIcon?.selectedOptions?.[0]?.text || "Símbolo MIL";
 }

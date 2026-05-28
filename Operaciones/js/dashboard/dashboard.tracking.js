@@ -1,8 +1,12 @@
 // js/dashboard/dashboard.tracking.js
 
 import { dashboardState } from "./dashboard.state.js";
-import { getClusteredPersonKeys, processTrackingUpdate } from "./dashboard.tracking.clustering.js";
-import { renderMilSymbolImage } from "./dashboard.tactical.js";
+import { processTrackingUpdate } from "./dashboard.tracking.clustering.js";
+import {
+  activatePersonalLocation,
+  refreshPersonnelInfoPopup,
+  updateFollowedPersonalLocation
+} from "./dashboard.ui.js";
 
 const API_BASE = () => localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const token = () => localStorage.getItem("token");
@@ -11,40 +15,193 @@ const opId = () => localStorage.getItem("active_operation_id");
 // ── Iconos / colores ─────────────────────────────────────────
 const COLOR_PERSONAL = Cesium.Color.fromCssColorString("#00BFFF");
 const COLOR_VEHICULO = Cesium.Color.fromCssColorString("#FFD700");
-const SIDC_PERSONAL = "SFGPUCI--------";
-const SIDC_VEHICULO = "SFGPUCD--------";
-const TRACKING_SYMBOL_SIZE = 42;
+const COLOR_EQUIPO = Cesium.Color.fromCssColorString("#B4FF39");
+const COLOR_DISPOSITIVO = Cesium.Color.fromCssColorString("#FF8A3D");
 
 const SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.5, 2e6, 0.1);
-const SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.22);
+const SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
+const TRACKING_SYMBOL_SIZE = 42;
+const TRACKING_SYMBOL_RENDER_SIZE = 160;
+const trackingSymbolImageCache = new Map();
+
+function normalizeText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function textIncludes(text, ...needles) {
+  return needles.some(needle => text.includes(needle));
+}
+
+function buildMilSidc(identity = "F", dimension = "G", icon = "U-----") {
+  const safeIcon = String(icon || "U-----").padEnd(6, "-").slice(0, 6);
+  return `S${identity}${dimension}P${safeIcon}-----`;
+}
+
+function getFallbackMilSidc(tacticalType = "personal") {
+  if (tacticalType === "vehiculo") return buildMilSidc("F", "G", "EV----");
+  if (tacticalType === "equipo") return buildMilSidc("F", "G", "E-----");
+  if (tacticalType === "dispositivo") return buildMilSidc("F", "G", "UCS---");
+  return buildMilSidc("F", "G", "U-----");
+}
+
+function resolveTrackingMilSymbol(tacticalType, item = {}) {
+  const providedSidc = item.sidc || item.codigo_sidc || item.mil_sidc;
+  if (providedSidc) return String(providedSidc);
+
+  const text = normalizeText([
+    tacticalType,
+    item.rol_en_operacion,
+    item.rol,
+    item.tipo,
+    item.tipo_equipo,
+    item.tipo_tactico,
+    item.categoria,
+    item.nombre,
+    item.marca,
+    item.modelo,
+    item.sistema_operativo,
+    item.codigo_interno,
+    item.alias
+  ].filter(Boolean).join(" "));
+
+  if (tacticalType === "vehiculo") {
+    if (textIncludes(text, "AMBULANC", "MEDIC")) return buildMilSidc("F", "G", "UCM---");
+    if (textIncludes(text, "BLIND", "TANQUE", "ARMORED")) return buildMilSidc("F", "G", "UCD---");
+    if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+    return buildMilSidc("F", "G", "EV----");
+  }
+
+  if (tacticalType === "equipo") {
+    if (textIncludes(text, "DRON", "DRONE", "UAV", "MATRICE")) return buildMilSidc("F", "A", "MFQ---");
+    if (textIncludes(text, "RADIO", "COMUNIC", "SENAL", "SIGNAL")) return buildMilSidc("F", "G", "UCS---");
+    if (textIncludes(text, "ARMA", "RIFLE", "PISTOLA", "FUSIL")) return buildMilSidc("F", "G", "EW----");
+    if (textIncludes(text, "CAMARA", "SENSOR", "TACTICO")) return buildMilSidc("F", "G", "EX----");
+    return buildMilSidc("F", "G", "E-----");
+  }
+
+  if (tacticalType === "dispositivo") {
+    if (textIncludes(text, "TELEFONO", "CELULAR", "TABLET", "RADIO", "COMUNIC")) {
+      return buildMilSidc("F", "G", "UCS---");
+    }
+    if (textIncludes(text, "CAMARA", "SENSOR")) return buildMilSidc("F", "G", "EX----");
+    return buildMilSidc("F", "G", "E-----");
+  }
+
+  if (tacticalType === "personal") {
+    if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "UH----");
+    if (textIncludes(text, "CELL", "CELULA")) return buildMilSidc("F", "G", "UCI---");
+    if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
+    return buildMilSidc("F", "G", "U-----");
+  }
+
+  return getFallbackMilSidc(tacticalType);
+}
+
+function renderMilSymbol(sidc) {
+  if (!sidc || typeof ms === "undefined" || typeof ms.Symbol !== "function") return null;
+  if (trackingSymbolImageCache.has(sidc)) return trackingSymbolImageCache.get(sidc);
+
+  try {
+    const symbol = new ms.Symbol(sidc, {
+      size: TRACKING_SYMBOL_RENDER_SIZE,
+      colorMode: "Light"
+    });
+
+    if (typeof symbol.isValid === "function" && symbol.isValid() === false) {
+      trackingSymbolImageCache.set(sidc, null);
+      return null;
+    }
+
+    if (typeof symbol.asSVG === "function" && />\s*\?\s*</.test(symbol.asSVG())) {
+      trackingSymbolImageCache.set(sidc, null);
+      return null;
+    }
+
+    const image = symbol.asCanvas();
+    trackingSymbolImageCache.set(sidc, image);
+    return image;
+  } catch (err) {
+    console.warn("[TRACKING] No se pudo generar simbolo MIL:", sidc, err);
+    trackingSymbolImageCache.set(sidc, null);
+    return null;
+  }
+}
+
+function makeTrackingBillboard(image) {
+  return new Cesium.BillboardGraphics({
+    image,
+    width: TRACKING_SYMBOL_SIZE,
+    height: TRACKING_SYMBOL_SIZE,
+    verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+    heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+    disableDepthTestDistance: Number.POSITIVE_INFINITY,
+    scaleByDistance: SYMBOL_SCALE_BY_DIST
+  });
+}
+
+function getTrackingMarker(meta) {
+  const tacticalType = meta.tacticalType || "personal";
+  const sidc = resolveTrackingMilSymbol(tacticalType, meta.liveData || {});
+  const fallbackSidc = getFallbackMilSidc(tacticalType);
+  let image = renderMilSymbol(sidc);
+  let renderedSidc = sidc;
+
+  if (!image && sidc !== fallbackSidc) {
+    image = renderMilSymbol(fallbackSidc);
+    if (image) renderedSidc = fallbackSidc;
+  }
+
+  return {
+    sidc: renderedSidc,
+    billboard: image ? makeTrackingBillboard(image) : undefined,
+    point: undefined,
+    labelOffset: new Cesium.Cartesian2(0, 17)
+  };
+}
 
 function makePersonalLabel(item) {
-  return item.apodo || item.apodo_personal || `P-${item.id_personal}`;
+  const fullName = [item.nombre, item.apellido].filter(Boolean).join(" ").trim();
+  return fullName || item.apodo || item.nombre || item.apellido || `P-${item.id_personal}`;
 }
 
 function makeVehiculoLabel(item) {
-  return item.alias || `V-${item.id_vehiculo}`;
+  const codigo = item.codigo_interno || "";
+  const alias = item.alias || "";
+  if (codigo && alias) return `${codigo} - ${alias}`;
+  return codigo || alias || `V-${item.id_vehiculo}`;
+}
+
+function makeEquipoLabel(item) {
+  const serie = item.numero_serie || "";
+  const nombre = item.nombre || item.tipo_equipo || "";
+  if (serie && nombre) return `${serie} - ${nombre}`;
+  return nombre || serie || `E-${item.id_equipo}`;
+}
+
+function makeDispositivoLabel(item) {
+  const modelo = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
+  const tipo = item.tipo || "Dispositivo";
+  const serie = item.numero_serie || item.imei || item.numero_telefono || "";
+  if (modelo && serie) return `${tipo} ${modelo} - ${serie}`;
+  return modelo || serie || `${tipo}-${item.id_dispositivo}`;
+}
+
+function normalizeCoords(lat, lng) {
+  const nLat = Number(lat);
+  const nLng = Number(lng);
+  if (!Number.isFinite(nLat) || !Number.isFinite(nLng)) return null;
+  if (Math.abs(nLat) > 90 || Math.abs(nLng) > 180) return null;
+  return { lat: nLat, lng: nLng };
 }
 
 function getCoords(item) {
   const lat = item?.latitud ?? item?.lat;
   const lng = item?.longitud ?? item?.lng ?? item?.lon;
   if (lat == null || lng == null) return null;
-  return { lat, lng };
-}
-
-function getTrackingSymbolImage(key) {
-  const sidc = key.startsWith("V:") ? SIDC_VEHICULO : SIDC_PERSONAL;
-  return renderMilSymbolImage(sidc, 200);
-}
-
-function applyTrackingClusterVisibility() {
-  const clusteredPeople = getClusteredPersonKeys();
-
-  dashboardState.trackingEntities.forEach((entity, key) => {
-    if (!entity) return;
-    entity.show = !key.startsWith("P:") || !clusteredPeople.has(key);
-  });
+  return normalizeCoords(lat, lng);
 }
 
 function upsertPersonalTracking(item) {
@@ -53,8 +210,12 @@ function upsertPersonalTracking(item) {
 
   upsertTrackingEntity(`P:${item.id_personal}`, coords.lat, coords.lng, makePersonalLabel(item), COLOR_PERSONAL, {
     tacticalType: "personal",
-    trackingRole: item.rol_en_operacion || item.rol || ""
+    trackingRole: item.rol_en_operacion || item.rol || "",
+    liveData: item
   });
+  activatePersonalLocation(item.id_personal, coords.lat, coords.lng);
+  updateFollowedPersonalLocation(item.id_personal, coords.lat, coords.lng);
+  refreshPersonnelInfoPopup(item.id_personal, item);
 }
 
 function upsertVehiculoTracking(item) {
@@ -62,18 +223,43 @@ function upsertVehiculoTracking(item) {
   if (!coords || item?.id_vehiculo == null) return;
 
   upsertTrackingEntity(`V:${item.id_vehiculo}`, coords.lat, coords.lng, makeVehiculoLabel(item), COLOR_VEHICULO, {
-    tacticalType: "vehiculo"
+    tacticalType: "vehiculo",
+    trackingRole: item.tipo || "",
+    liveData: item
+  });
+}
+
+function upsertEquipoTracking(item) {
+  const coords = getCoords(item);
+  if (!coords || item?.id_equipo == null) return;
+
+  upsertTrackingEntity(`E:${item.id_equipo}`, coords.lat, coords.lng, makeEquipoLabel(item), COLOR_EQUIPO, {
+    tacticalType: "equipo",
+    trackingRole: item.categoria || item.tipo_equipo || "",
+    liveData: item
+  });
+}
+
+function upsertDispositivoTracking(item) {
+  const coords = getCoords(item);
+  if (!coords || item?.id_dispositivo == null) return;
+
+  upsertTrackingEntity(`D:${item.id_dispositivo}`, coords.lat, coords.lng, makeDispositivoLabel(item), COLOR_DISPOSITIVO, {
+    tacticalType: "dispositivo",
+    trackingRole: item.tipo || "",
+    liveData: item
   });
 }
 
 // ── Crear o mover una entidad de tracking ────────────────────
 function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
-  processTrackingUpdate(key, lat, lng);
+  processTrackingUpdate(key, lat, lng, meta.liveData ? { liveData: meta.liveData } : {});
 
   const viewer = dashboardState.viewer;
   if (!viewer) return;
 
   const position = Cesium.Cartesian3.fromDegrees(Number(lng), Number(lat));
+  const marker = getTrackingMarker(meta);
 
   if (dashboardState.trackingEntities.has(key)) {
     // Mover y refrescar estilo/etiqueta si ya existe
@@ -83,63 +269,28 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
     if (ent.label) {
       ent.label.text = label;
       ent.label.backgroundColor = color.withAlpha(0.7);
+      ent.label.pixelOffset = marker.labelOffset;
     }
-    if (ent.point) {
-      ent.point.color = color.withAlpha(0.18);
-      ent.point.outlineColor = Cesium.Color.BLACK;
-    }
-    if (!ent.billboard) {
-      const symbolImage = getTrackingSymbolImage(key);
-      if (symbolImage) {
-        ent.point = undefined;
-        ent.billboard = {
-          image: symbolImage,
-          verticalOrigin: Cesium.VerticalOrigin.CENTER,
-          width: TRACKING_SYMBOL_SIZE,
-          height: TRACKING_SYMBOL_SIZE,
-          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scaleByDistance: SYMBOL_SCALE_BY_DIST
-        };
-        if (ent.label) ent.label.pixelOffset = new Cesium.Cartesian2(0, -32);
-      }
-    }
+    ent.billboard = marker.billboard;
+    ent.point = marker.point;
     if (ent.properties) {
       ent.properties.trackingRole = meta.trackingRole || ent.properties.trackingRole;
       ent.properties.tacticalType = meta.tacticalType || ent.properties.tacticalType;
+      ent.properties.trackingSidc = marker.sidc || ent.properties.trackingSidc;
     }
-    applyTrackingClusterVisibility();
     return;
   }
-
-  const symbolImage = getTrackingSymbolImage(key);
 
   // Crear nueva entidad
   const ent = viewer.entities.add({
     name: label,
     position,
-    billboard: symbolImage ? {
-      image: symbolImage,
-      verticalOrigin: Cesium.VerticalOrigin.CENTER,
-      width: TRACKING_SYMBOL_SIZE,
-      height: TRACKING_SYMBOL_SIZE,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      scaleByDistance: SYMBOL_SCALE_BY_DIST
-    } : undefined,
-    point: !symbolImage ? {
-      pixelSize: 10,
-      color: color.withAlpha(0.18),
-      outlineColor: Cesium.Color.BLACK,
-      outlineWidth: 3,
-      heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
-      scaleByDistance: new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.8)
-    } : undefined,
+    billboard: marker.billboard,
+    point: marker.point,
     label: {
       text: label,
       font: "11px sans-serif",
-      pixelOffset: new Cesium.Cartesian2(0, symbolImage ? -32 : -18),
+      pixelOffset: marker.labelOffset,
       fillColor: Cesium.Color.WHITE,
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 2,
@@ -154,12 +305,12 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
       trackingKey: key,
       tacticalType: meta.tacticalType || (key.startsWith("V:") ? "vehiculo" : "personal"),
       trackingRole: meta.trackingRole || "",
+      trackingSidc: marker.sidc || "",
       draggable: false
     }
   });
 
   dashboardState.trackingEntities.set(key, ent);
-  applyTrackingClusterVisibility();
 }
 
 // ── Carga desde datos de mapa ya obtenidos (sin fetch extra) ─
@@ -169,6 +320,12 @@ export function loadTrackingFromMapaData(mapaData) {
   });
   (mapaData.vehiculos || []).forEach(v => {
     upsertVehiculoTracking(v);
+  });
+  (mapaData.equipos || []).forEach(e => {
+    upsertEquipoTracking(e);
+  });
+  (mapaData.dispositivos || []).forEach(d => {
+    upsertDispositivoTracking(d);
   });
 }
 
@@ -193,7 +350,8 @@ export async function loadTrackingFromBackend() {
       const label = makePersonalLabel(p);
       upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_PERSONAL, {
         tacticalType: "personal",
-        trackingRole: p.rol_en_operacion || p.rol || ""
+        trackingRole: p.rol_en_operacion || p.rol || "",
+        liveData: p
       });
     });
 
@@ -204,8 +362,18 @@ export async function loadTrackingFromBackend() {
       const key = `V:${v.id_vehiculo}`;
       const label = makeVehiculoLabel(v);
       upsertTrackingEntity(key, coords.lat, coords.lng, label, COLOR_VEHICULO, {
-        tacticalType: "vehiculo"
+        tacticalType: "vehiculo",
+        trackingRole: v.tipo || "",
+        liveData: v
       });
+    });
+
+    (data.equipos || []).forEach(e => {
+      upsertEquipoTracking(e);
+    });
+
+    (data.dispositivos || []).forEach(d => {
+      upsertDispositivoTracking(d);
     });
 
   } catch (err) {
@@ -232,17 +400,24 @@ async function fetchTrackingList(path) {
 }
 
 export async function refreshTrackingPositions() {
-  const [personal, vehiculos] = await Promise.all([
+  const [personal, vehiculos, equipos, dispositivos] = await Promise.all([
     fetchTrackingList("/tracking/personal"),
-    fetchTrackingList("/tracking/vehiculos")
+    fetchTrackingList("/tracking/vehiculos"),
+    fetchTrackingList("/tracking/equipos"),
+    fetchTrackingList("/tracking/dispositivos")
   ]);
 
-  if (personal.length || vehiculos.length) {
-    console.log(`[TRACKING] refresh personal=${personal.length} vehiculos=${vehiculos.length}`);
+  if (personal.length || vehiculos.length || equipos.length || dispositivos.length) {
+    console.log(
+      `[TRACKING] refresh personal=${personal.length} vehiculos=${vehiculos.length} ` +
+      `equipos=${equipos.length} dispositivos=${dispositivos.length}`
+    );
   }
 
   personal.forEach(upsertPersonalTracking);
   vehiculos.forEach(upsertVehiculoTracking);
+  equipos.forEach(upsertEquipoTracking);
+  dispositivos.forEach(upsertDispositivoTracking);
 }
 
 export function startTrackingPolling(intervalMs = 5000) {
@@ -256,7 +431,20 @@ export function initTrackingSocket(socket) {
     upsertPersonalTracking(data);
   });
 
+  socket.on("signos_vitales_personal", (data) => {
+    if (!data?.id_personal) return;
+    refreshPersonnelInfoPopup(data.id_personal, data);
+  });
+
   socket.on("tracking_vehiculo", (data) => {
     upsertVehiculoTracking(data);
+  });
+
+  socket.on("tracking_equipo", (data) => {
+    upsertEquipoTracking(data);
+  });
+
+  socket.on("tracking_dispositivo", (data) => {
+    upsertDispositivoTracking(data);
   });
 }

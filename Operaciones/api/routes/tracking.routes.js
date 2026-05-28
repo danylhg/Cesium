@@ -2,11 +2,19 @@ import { Router } from "express";
 import { pool } from "../db.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
+import { ensureExtendedTrackingSchema, ensurePersonalMotionTrackingSchema } from "../utils/trackingSchema.js";
 import { isInt } from "../utils/validators.js";
 
 const router = Router();
 
+function optionalNumber(value) {
+  if (value == null || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
 async function getLatestPersonalPosition(id_operacion, id_personal) {
+  await ensurePersonalMotionTrackingSchema();
   const { rows } = await pool.query(
     `SELECT * FROM v_ultima_posicion_personal
      WHERE id_operacion = $1 AND id_personal = $2
@@ -26,6 +34,220 @@ async function getLatestVehiculoPosition(id_operacion, id_vehiculo) {
   return rows[0] || null;
 }
 
+async function getLatestEquipoPosition(id_operacion, id_equipo) {
+  await ensureExtendedTrackingSchema();
+  const { rows } = await pool.query(
+    `SELECT * FROM v_ultima_posicion_equipo
+     WHERE id_operacion = $1 AND id_equipo = $2
+     LIMIT 1`,
+    [id_operacion, id_equipo]
+  );
+  return rows[0] || null;
+}
+
+async function getLatestDispositivoPosition(id_operacion, id_dispositivo) {
+  await ensureExtendedTrackingSchema();
+  const { rows } = await pool.query(
+    `SELECT * FROM v_ultima_posicion_dispositivo
+     WHERE id_operacion = $1 AND id_dispositivo = $2
+     LIMIT 1`,
+    [id_operacion, id_dispositivo]
+  );
+  return rows[0] || null;
+}
+
+function optionalBoolean(value) {
+  if (value == null || value === "") return null;
+  if (typeof value === "boolean") return value;
+  const text = String(value).trim().toLowerCase();
+  if (["true", "1", "si", "yes", "on"].includes(text)) return true;
+  if (["false", "0", "no", "off"].includes(text)) return false;
+  return null;
+}
+
+function optionalInteger(value) {
+  const number = optionalNumber(value);
+  return number == null ? null : Math.trunc(number);
+}
+
+function firstPayloadValue(payload, ...keys) {
+  for (const key of keys) {
+    const value = payload?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return null;
+}
+
+function validCoords(latitud, longitud) {
+  const lat = Number(latitud);
+  const lon = Number(longitud);
+  return Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180;
+}
+
+async function resolveDroneOperationId(payload) {
+  const requested = Number(firstPayloadValue(
+    payload,
+    "id_operacion",
+    "idOperacion",
+    "operation_id",
+    "operationId"
+  ));
+
+  if (isInt(requested)) return requested;
+
+  const { rows } = await pool.query(
+    `SELECT id_operacion
+     FROM operacion
+     WHERE estado = 'ACTIVA'
+     ORDER BY fecha_inicio DESC NULLS LAST, id_operacion DESC
+     LIMIT 1`
+  );
+  return rows[0]?.id_operacion || null;
+}
+
+async function resolveDroneEquipo({ id_operacion, id_equipo, serial }) {
+  const numericId = Number(id_equipo);
+  if (isInt(numericId)) {
+    const { rows } = await pool.query(
+      `SELECT e.id_equipo, e.numero_serie, e.nombre
+       FROM equipo e
+       WHERE e.id_equipo = $1
+       LIMIT 1`,
+      [numericId]
+    );
+    if (rows[0]) return rows[0];
+  }
+
+  if (serial) {
+    const { rows } = await pool.query(
+      `SELECT e.id_equipo, e.numero_serie, e.nombre
+       FROM equipo e
+       WHERE e.numero_serie = $1
+       LIMIT 1`,
+      [serial]
+    );
+    if (rows[0]) return rows[0];
+  }
+
+  const { rows } = await pool.query(
+    `SELECT e.id_equipo, e.numero_serie, e.nombre
+     FROM operacion_equipo oe
+     JOIN equipo e ON e.id_equipo = oe.id_equipo
+     LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+     WHERE oe.id_operacion = $1
+       AND oe.estado_asignacion != 'LIBERADO'
+       AND UPPER(COALESCE(et.tipo_tactico, e.categoria, '')) = 'DRON'
+     ORDER BY e.id_equipo
+     LIMIT 1`,
+    [id_operacion]
+  );
+  return rows[0] || null;
+}
+
+// ===============================
+// TRACKING PUBLICO DRON
+// ===============================
+
+// POST /external/drone/telemetry - telemetria de app externa sin token.
+router.post("/external/drone/telemetry", async (req, res) => {
+  const payload = req.body ?? {};
+  const latitud = firstPayloadValue(payload, "EXTRA_LAT", "latitud", "lat", "latitude");
+  const longitud = firstPayloadValue(payload, "EXTRA_LNG", "longitud", "lng", "lon", "longitude");
+
+  if (!validCoords(latitud, longitud)) {
+    return res.status(400).json({ ok: false, mensaje: "Latitud/longitud invalidas" });
+  }
+
+  try {
+    await ensureExtendedTrackingSchema();
+
+    const id_operacion = await resolveDroneOperationId(payload);
+    if (!id_operacion) {
+      return res.status(404).json({ ok: false, mensaje: "No hay operacion activa para registrar el dron" });
+    }
+
+    const serial = firstPayloadValue(payload, "EXTRA_SERIAL", "serial", "droneSerialNumber", "drone_serial");
+    const equipo = await resolveDroneEquipo({
+      id_operacion,
+      id_equipo: firstPayloadValue(payload, "id_equipo", "idEquipo", "equipment_id"),
+      serial
+    });
+
+    if (!equipo) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "No se encontro un equipo dron asignado a la operacion activa"
+      });
+    }
+
+    const altitud = firstPayloadValue(payload, "EXTRA_ALT", "altitud", "alt", "altitude");
+    const velocidad = firstPayloadValue(payload, "EXTRA_SPEED", "velocidad_kmh", "speed_kmh", "speed");
+    const rumbo = firstPayloadValue(payload, "EXTRA_HEADING", "rumbo_grados", "heading", "heading_deg");
+    const bateria = firstPayloadValue(payload, "EXTRA_BATTERY", "bateria_pct", "battery", "battery_pct");
+    const modoVuelo = firstPayloadValue(payload, "EXTRA_FLIGHT_MODE", "modo_vuelo", "flight_mode");
+    const tiempoVuelo = firstPayloadValue(payload, "EXTRA_FLIGHT_TIME", "tiempo_vuelo_s", "flight_time", "flight_time_s");
+
+    const { rows } = await pool.query(
+      `INSERT INTO tracking_equipo (
+         id_operacion, id_equipo, latitud, longitud, altitud,
+         velocidad_kmh, rumbo_grados, precision_m, bateria_pct,
+         conectado, dron_encendido, modo_vuelo, pitch_grados, roll_grados,
+         satelites, tiempo_vuelo_s, serial_dispositivo
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+       RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+      [
+        id_operacion,
+        equipo.id_equipo,
+        Number(latitud),
+        Number(longitud),
+        optionalNumber(altitud),
+        optionalNumber(velocidad),
+        optionalNumber(rumbo),
+        optionalNumber(firstPayloadValue(payload, "precision_m", "accuracy", "accuracy_m")),
+        optionalNumber(bateria),
+        optionalBoolean(firstPayloadValue(payload, "EXTRA_CONNECTED", "connected", "is_connected")),
+        optionalBoolean(firstPayloadValue(payload, "EXTRA_DRONE_ON", "drone_on", "dron_encendido")),
+        modoVuelo ? String(modoVuelo).trim() : null,
+        optionalNumber(firstPayloadValue(payload, "EXTRA_PITCH", "pitch", "pitch_grados")),
+        optionalNumber(firstPayloadValue(payload, "EXTRA_ROLL", "roll", "roll_grados")),
+        optionalInteger(firstPayloadValue(payload, "EXTRA_SATS", "sats", "satellites")),
+        optionalNumber(tiempoVuelo),
+        serial ? String(serial).trim() : null
+      ]
+    );
+
+    const latest = await getLatestEquipoPosition(id_operacion, equipo.id_equipo);
+    const io = req.app.get("io");
+    io?.to(`op_${id_operacion}`).emit("tracking_equipo", latest || {
+      id_operacion,
+      id_equipo: equipo.id_equipo,
+      latitud: Number(latitud),
+      longitud: Number(longitud),
+      altitud: optionalNumber(altitud),
+      velocidad_kmh: optionalNumber(velocidad),
+      rumbo_grados: optionalNumber(rumbo),
+      bateria_pct: optionalNumber(bateria),
+      serial_dispositivo: serial ? String(serial).trim() : null
+    });
+
+    return res.json({
+      ok: true,
+      id_operacion,
+      id_equipo: equipo.id_equipo,
+      numero_serie_equipo: equipo.numero_serie,
+      tracking: rows[0]
+    });
+  } catch (err) {
+    return sendDbError(res, err, "Error registrando telemetria del dron");
+  }
+});
+
 // ===============================
 // TRACKING PERSONAL
 // ===============================
@@ -35,16 +257,24 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
 
-  const { id_personal, latitud, longitud, altitud, precision_m } = req.body ?? {};
+  const { id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados } = req.body ?? {};
   if (!isInt(Number(id_personal))) return res.status(400).json({ ok: false, mensaje: "Falta id_personal" });
   if (latitud == null || longitud == null) return res.status(400).json({ ok: false, mensaje: "Falta latitud/longitud" });
 
   try {
+    await ensurePersonalMotionTrackingSchema();
     const { rows } = await pool.query(
-      `INSERT INTO tracking_personal (id_operacion, id_personal, latitud, longitud, altitud, precision_m)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id_tracking, timestamp`,
+      `INSERT INTO tracking_personal (
+         id_operacion, id_personal, latitud, longitud, altitud,
+         precision_m, velocidad_kmh, rumbo_grados
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id_tracking, timestamp, estado_operacion_creacion`,
       [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
-        altitud != null ? Number(altitud) : null, precision_m != null ? Number(precision_m) : null]
+        optionalNumber(altitud),
+        optionalNumber(precision_m),
+        optionalNumber(velocidad_kmh),
+        optionalNumber(rumbo_grados)]
     );
 
     const latest = await getLatestPersonalPosition(id_operacion, Number(id_personal));
@@ -54,8 +284,10 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
       id_personal: Number(id_personal),
       latitud: Number(latitud),
       longitud: Number(longitud),
-      altitud: altitud != null ? Number(altitud) : null,
-      precision_m: precision_m != null ? Number(precision_m) : null
+      altitud: optionalNumber(altitud),
+      precision_m: optionalNumber(precision_m),
+      velocidad_kmh: optionalNumber(velocidad_kmh),
+      rumbo_grados: optionalNumber(rumbo_grados)
     });
 
     res.json({ ok: true, tracking: rows[0] });
@@ -69,6 +301,7 @@ router.get("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
+    await ensurePersonalMotionTrackingSchema();
     const { rows } = await pool.query(
       `SELECT * FROM v_ultima_posicion_personal WHERE id_operacion=$1`, [id_operacion]);
     res.json({ ok: true, items: rows });
@@ -84,8 +317,10 @@ router.get("/ops/:id/tracking/personal/:id_personal/historial", requireAuth, asy
   if (!isInt(id_operacion) || !isInt(id_personal))
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
+    await ensurePersonalMotionTrackingSchema();
     const { rows } = await pool.query(
-      `SELECT id_tracking, latitud, longitud, altitud, precision_m, timestamp
+      `SELECT id_tracking, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp,
+              estado_operacion_creacion
        FROM tracking_personal
        WHERE id_operacion=$1 AND id_personal=$2
        ORDER BY timestamp ASC`,
@@ -113,7 +348,7 @@ router.post("/ops/:id/tracking/vehiculos", requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO tracking_vehiculo (id_operacion, id_vehiculo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_tracking, timestamp`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id_tracking, timestamp, estado_operacion_creacion`,
       [id_operacion, Number(id_vehiculo), Number(latitud), Number(longitud),
         altitud != null ? Number(altitud) : null,
         velocidad_kmh != null ? Number(velocidad_kmh) : null,
@@ -161,7 +396,8 @@ router.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, as
     return res.status(400).json({ ok: false, mensaje: "id invalido" });
   try {
     const { rows } = await pool.query(
-      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp
+      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp,
+              estado_operacion_creacion
        FROM tracking_vehiculo
        WHERE id_operacion=$1 AND id_vehiculo=$2
        ORDER BY timestamp ASC`,
@@ -170,6 +406,195 @@ router.get("/ops/:id/tracking/vehiculos/:id_vehiculo/historial", requireAuth, as
     res.json({ ok: true, items: rows });
   } catch (err) {
     sendDbError(res, err, "Error obteniendo historial vehiculo");
+  }
+});
+
+// ===============================
+// TRACKING EQUIPOS
+// ===============================
+
+// POST /ops/:id/tracking/equipos - registrar posicion GPS de equipo
+router.post("/ops/:id/tracking/equipos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const { id_equipo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m } = req.body ?? {};
+  if (!isInt(Number(id_equipo))) return res.status(400).json({ ok: false, mensaje: "Falta id_equipo" });
+  if (!validCoords(latitud, longitud)) return res.status(400).json({ ok: false, mensaje: "Latitud/longitud invalidas" });
+
+  try {
+    await ensureExtendedTrackingSchema();
+    const { rows } = await pool.query(
+      `INSERT INTO tracking_equipo (
+         id_operacion, id_equipo, latitud, longitud, altitud,
+         velocidad_kmh, rumbo_grados, precision_m
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+      [
+        id_operacion,
+        Number(id_equipo),
+        Number(latitud),
+        Number(longitud),
+        optionalNumber(altitud),
+        optionalNumber(velocidad_kmh),
+        optionalNumber(rumbo_grados),
+        optionalNumber(precision_m)
+      ]
+    );
+
+    const latest = await getLatestEquipoPosition(id_operacion, Number(id_equipo));
+    const io = req.app.get("io");
+    io?.to(`op_${id_operacion}`).emit("tracking_equipo", latest || {
+      id_operacion,
+      id_equipo: Number(id_equipo),
+      latitud: Number(latitud),
+      longitud: Number(longitud),
+      altitud: optionalNumber(altitud),
+      velocidad_kmh: optionalNumber(velocidad_kmh),
+      rumbo_grados: optionalNumber(rumbo_grados),
+      precision_m: optionalNumber(precision_m)
+    });
+
+    res.json({ ok: true, tracking: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error registrando tracking equipo");
+  }
+});
+
+// GET /ops/:id/tracking/equipos - ultima posicion de todos los equipos
+router.get("/ops/:id/tracking/equipos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    await ensureExtendedTrackingSchema();
+    const { rows } = await pool.query(
+      `SELECT * FROM v_ultima_posicion_equipo WHERE id_operacion=$1`, [id_operacion]);
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    sendDbError(res, err, "Error obteniendo posiciones equipos");
+  }
+});
+
+// GET /ops/:id/tracking/equipos/:id_equipo/historial - historial de posiciones
+router.get("/ops/:id/tracking/equipos/:id_equipo/historial", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_equipo = Number(req.params.id_equipo);
+  if (!isInt(id_operacion) || !isInt(id_equipo))
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    await ensureExtendedTrackingSchema();
+    const { rows } = await pool.query(
+      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, timestamp,
+              estado_operacion_creacion
+       FROM tracking_equipo
+       WHERE id_operacion=$1 AND id_equipo=$2
+       ORDER BY timestamp ASC`,
+      [id_operacion, id_equipo]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    sendDbError(res, err, "Error obteniendo historial equipo");
+  }
+});
+
+// ===============================
+// TRACKING DISPOSITIVOS
+// ===============================
+
+// POST /ops/:id/tracking/dispositivos - registrar posicion GPS de dispositivo
+router.post("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+
+  const {
+    id_dispositivo,
+    latitud,
+    longitud,
+    altitud,
+    velocidad_kmh,
+    rumbo_grados,
+    precision_m,
+    bateria_pct
+  } = req.body ?? {};
+  if (!isInt(Number(id_dispositivo))) return res.status(400).json({ ok: false, mensaje: "Falta id_dispositivo" });
+  if (!validCoords(latitud, longitud)) return res.status(400).json({ ok: false, mensaje: "Latitud/longitud invalidas" });
+
+  try {
+    await ensureExtendedTrackingSchema();
+    const { rows } = await pool.query(
+      `INSERT INTO tracking_dispositivo (
+         id_operacion, id_dispositivo, latitud, longitud, altitud,
+         velocidad_kmh, rumbo_grados, precision_m, bateria_pct
+       )
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       RETURNING id_tracking, timestamp, estado_operacion_creacion`,
+      [
+        id_operacion,
+        Number(id_dispositivo),
+        Number(latitud),
+        Number(longitud),
+        optionalNumber(altitud),
+        optionalNumber(velocidad_kmh),
+        optionalNumber(rumbo_grados),
+        optionalNumber(precision_m),
+        optionalNumber(bateria_pct)
+      ]
+    );
+
+    const latest = await getLatestDispositivoPosition(id_operacion, Number(id_dispositivo));
+    const io = req.app.get("io");
+    io?.to(`op_${id_operacion}`).emit("tracking_dispositivo", latest || {
+      id_operacion,
+      id_dispositivo: Number(id_dispositivo),
+      latitud: Number(latitud),
+      longitud: Number(longitud),
+      altitud: optionalNumber(altitud),
+      velocidad_kmh: optionalNumber(velocidad_kmh),
+      rumbo_grados: optionalNumber(rumbo_grados),
+      precision_m: optionalNumber(precision_m),
+      bateria_pct: optionalNumber(bateria_pct)
+    });
+
+    res.json({ ok: true, tracking: rows[0] });
+  } catch (err) {
+    sendDbError(res, err, "Error registrando tracking dispositivo");
+  }
+});
+
+// GET /ops/:id/tracking/dispositivos - ultima posicion de todos los dispositivos
+router.get("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    await ensureExtendedTrackingSchema();
+    const { rows } = await pool.query(
+      `SELECT * FROM v_ultima_posicion_dispositivo WHERE id_operacion=$1`, [id_operacion]);
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    sendDbError(res, err, "Error obteniendo posiciones dispositivos");
+  }
+});
+
+// GET /ops/:id/tracking/dispositivos/:id_dispositivo/historial - historial de posiciones
+router.get("/ops/:id/tracking/dispositivos/:id_dispositivo/historial", requireAuth, async (req, res) => {
+  const id_operacion = Number(req.params.id);
+  const id_dispositivo = Number(req.params.id_dispositivo);
+  if (!isInt(id_operacion) || !isInt(id_dispositivo))
+    return res.status(400).json({ ok: false, mensaje: "id invalido" });
+  try {
+    await ensureExtendedTrackingSchema();
+    const { rows } = await pool.query(
+      `SELECT id_tracking, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, bateria_pct, timestamp,
+              estado_operacion_creacion
+       FROM tracking_dispositivo
+       WHERE id_operacion=$1 AND id_dispositivo=$2
+       ORDER BY timestamp ASC`,
+      [id_operacion, id_dispositivo]
+    );
+    res.json({ ok: true, items: rows });
+  } catch (err) {
+    sendDbError(res, err, "Error obteniendo historial dispositivo");
   }
 });
 

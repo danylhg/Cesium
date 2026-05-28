@@ -12,7 +12,7 @@ object ApiConfig {
     private const val DEFAULT_HLS_PORT = 3000
     private const val DEFAULT_FFMPEG_HLS_PATH = "/Operaciones/runtime/ffmpeg-streams"
 
-    const val DEFAULT_BASE_URL = "http://192.168.202.103:3001"
+    const val DEFAULT_BASE_URL = "http://192.168.100.12:3001"
 
     var BASE_URL: String = DEFAULT_BASE_URL
         private set
@@ -89,11 +89,16 @@ object ApiConfig {
         }
 
         val path = uri.encodedPath.orEmpty()
-        if (uri.port == -1 && (path.isBlank() || path == "/")) {
+        if (uri.port == -1 && shouldAppendDefaultApiPort(uri) && (path.isBlank() || path == "/")) {
             value = "$value:$DEFAULT_API_PORT"
         }
 
         return value.trimEnd('/')
+    }
+
+    private fun shouldAppendDefaultApiPort(uri: Uri): Boolean {
+        val scheme = uri.scheme?.lowercase()
+        return scheme == "http"
     }
 
     fun defaultRtmpPublishBaseUrl(apiBaseUrl: String = BASE_URL): String {

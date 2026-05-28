@@ -334,6 +334,8 @@ class WearApiClient(
         latitude: Double,
         longitude: Double,
         accuracyMeters: Float?,
+        speedKmh: Double? = null,
+        headingDegrees: Double? = null,
         onDone: () -> Unit = {}
     ) {
         val body = JSONObject().apply {
@@ -341,6 +343,8 @@ class WearApiClient(
             put("latitud", latitude)
             put("longitud", longitude)
             accuracyMeters?.let { put("precision_m", it) }
+            speedKmh?.let { put("velocidad_kmh", it) }
+            headingDegrees?.let { put("rumbo_grados", it) }
         }.toString().toRequestBody("application/json".toMediaType())
 
         val req = Request.Builder()

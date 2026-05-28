@@ -133,37 +133,6 @@ Notas:
 - FINALIZADA no existe en el enum real.
 
 ============================================================
-ENDPOINTS REVISADOS QUE NO EXISTEN
-============================================================
-
-Estos endpoints se revisaron en el codigo y tambien contra la API local.
-Todos respondieron 404 con "Ruta no existe".
-
-GET /ops/:id/grupos
-Existe: no
-Nota: solo existe POST /ops/:id/grupos. Si se necesita leer jerarquia de flotillas/grupos/celulas sin reconstruirla, habria que implementar este GET.
-
-GET /ops/:id/mando
-Existe: no
-Nota: solo existe POST /ops/:id/mando. Si se necesita leer relaciones CET -> CELL directamente, habria que implementar este GET.
-
-PUT /ops/:id/rutas/:id_ruta
-Existe: no
-Nota: no hay endpoint para editar nombre, descripcion, geometria o color de ruta tactica.
-
-PUT /ops/:id/rutas/navegacion/:id_ruta
-Existe: no
-Nota: no hay endpoint para editar una ruta de navegacion guardada.
-
-PUT /ops/:id/dibujos/:id_dibujo
-Existe: no
-Nota: no hay endpoint para editar puntos, color o grosor de dibujo.
-
-DELETE /ops/:id/avisos/:id_aviso
-Existe: no
-Nota: no hay endpoint para borrar/cancelar avisos; solo GET, POST y PATCH de estado.
-
-============================================================
 SISTEMA Y AUTH
 ============================================================
 

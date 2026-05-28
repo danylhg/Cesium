@@ -69,10 +69,18 @@ ALTER TABLE uso_equipo_operacion
 ALTER TABLE uso_equipo_operacion DROP CONSTRAINT IF EXISTS chk_equipo_destino;
 
 -- 4. Índice para evitar duplicar la misma responsabilidad exacta
--- (Mismo equipo, misma persona, mismo contexto de grupo)
+-- (Mismo equipo, misma persona, mismo contexto de grupo).
+-- NULLS NOT DISTINCT evita duplicados cuando el contexto es NULL.
 DROP INDEX IF EXISTS uq_uso_equipo_personal;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_uso_equipo_responsable_contexto
-  ON uso_equipo_operacion (id_operacion, id_equipo, id_personal, id_grupo_operacion);
+DROP INDEX IF EXISTS uq_uso_equipo_responsable_contexto;
+CREATE UNIQUE INDEX uq_uso_equipo_responsable_contexto
+  ON uso_equipo_operacion (
+    id_operacion,
+    id_equipo,
+    id_personal,
+    id_grupo_operacion
+  )
+  NULLS NOT DISTINCT;
 
 -- 5. Nueva validación simple para equipos
 DO $$

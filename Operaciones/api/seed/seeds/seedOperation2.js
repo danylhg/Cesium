@@ -1,6 +1,7 @@
 import { getAdminId, getPersonalByUsername, getPersonalIdStrict } from "../helpers/personal.js";
 import { getVehiculoByCodigo, getEquipoBySerie, getGrupoId } from "../helpers/lookup.js";
 import { ensureChatParticipantUsuario, ensureChatParticipantPersonal } from "../helpers/chat.js";
+import { seedOperationGrid } from "../helpers/grid.js";
 
 export async function seedOperation2(client) {
   const creadoPor = await getAdminId(client);
@@ -21,10 +22,10 @@ export async function seedOperation2(client) {
   await client.query(
     `INSERT INTO operacion
        (codigo, nombre, descripcion, prioridad, estado, fecha_inicio, fecha_fin, creada_por, id_cut)
-     VALUES ($1,$2,$3,'ALTA','PLANIFICADA','2025-07-01 08:00:00-06','2025-09-30 23:59:59-06',$4,$5)
+     VALUES ($1,$2,$3,'ALTA','PLANIFICADA','2026-09-01 08:00:00-06','2026-09-30 23:59:59-06',$4,$5)
      ON CONFLICT (codigo) DO UPDATE SET
        nombre=$2, descripcion=$3, prioridad='ALTA', estado='PLANIFICADA',
-       fecha_inicio='2025-07-01 08:00:00-06', fecha_fin='2025-09-30 23:59:59-06',
+       fecha_inicio='2026-09-01 08:00:00-06', fecha_fin='2026-09-30 23:59:59-06',
        creada_por=$4, id_cut=$5`,
     [OP_CODIGO,
      "Operacion Norte 002",
@@ -264,13 +265,33 @@ export async function seedOperation2(client) {
      ON CONFLICT (id_operacion) DO UPDATE SET
        nombre=$2, geometria=$3, centroide_lat=$4, centroide_lon=$5,
        zoom_inicial=$6, color=$7, creado_por=$8, fecha_creacion=NOW()`,
-    [idOp, "Zona Puerto Veracruz",
+    [idOp, "Zona Operacion Norte 002",
      JSON.stringify({ type: "Polygon", coordinates: [[
-       [-96.93175,19.54125],[-96.92225,19.54125],[-96.92225,19.53675],
-       [-96.93175,19.53675],[-96.93175,19.54125]
+       [-96.9480,19.5660],[-96.9000,19.5660],[-96.9000,19.5150],
+       [-96.9480,19.5150],[-96.9480,19.5660]
      ]]}),
-     19.5390, -96.9270, 1000, "#f97316", creadoPor]
+     19.5405, -96.9240, 6500, "#f97316", creadoPor]
   );
 
-  return { codigo: OP_CODIGO, estado: "PLANIFICADA", idOp };
+  const grid = await seedOperationGrid(client, {
+    idOperacion: idOp,
+    size: "4x4",
+    names: [
+      "Norte A1", "Norte A2", "Norte A3", "Norte A4",
+      "Alfa Oeste", "Aguila 1", "Mando Norte", "Alfa Este",
+      "Bravo Oeste", "Aguila 2", "Flotilla Norte", "Bravo Este",
+      "Sur A1", "Sur A2", "Sur A3", "Sur A4",
+    ],
+    idUsuario: creadoPor,
+  });
+
+  return {
+    codigo: OP_CODIGO,
+    estado: "PLANIFICADA",
+    idOp,
+    personalAsignado: personalAsignado.length,
+    vehiculosFijos: 2,
+    equiposFijos: 2,
+    cuadricula: grid.size,
+  };
 }

@@ -152,10 +152,7 @@ class WearMainActivity : Activity(), SensorEventListener {
 
     override fun onResume() {
         super.onResume()
-        startLocationUpdates()
-        startMotionSensors()
-        startHeartRateIfPossible()
-        startEmergencyMonitorIfPossible()
+        if (WearSession.isLoggedIn(this)) startWearRuntime()
     }
 
     override fun onPause() {
@@ -165,10 +162,7 @@ class WearMainActivity : Activity(), SensorEventListener {
     }
 
     override fun onDestroy() {
-        heartRateMonitor?.stop()
-        stopLocationUpdates()
-        stopMotionSensors()
-        stopVoiceRecording(send = false)
+        stopWearRuntime()
         super.onDestroy()
     }
 
@@ -182,10 +176,7 @@ class WearMainActivity : Activity(), SensorEventListener {
             if (hasPermission(Manifest.permission.RECORD_AUDIO)) startVoiceRecording()
             return
         }
-        startLocationUpdates()
-        startMotionSensors()
-        startHeartRateIfPossible()
-        startEmergencyMonitorIfPossible()
+        if (WearSession.isLoggedIn(this)) startWearRuntime()
         if (activePanel == Panel.VITALES) renderActivePanel()
     }
 
@@ -256,6 +247,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                 }
             }
         ))
+        container.addView(proButton("SALIR", 176, C_RED, C_RED_DARK) { logout() })
     }
 
     private fun renderVitalsPanel(container: LinearLayout) {
@@ -354,6 +346,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                             toast("Sesion iniciada")
                             activePanel = Panel.OPERACION
                             renderHome()
+                            startWearRuntime()
                         }
                     },
                     onError = { error ->
@@ -362,6 +355,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                             toast(error)
                             activePanel = Panel.OPERACION
                             renderHome()
+                            startWearRuntime()
                         }
                     }
                 )
@@ -738,7 +732,9 @@ class WearMainActivity : Activity(), SensorEventListener {
             idPersonal = user.id,
             latitude = location.latitude,
             longitude = location.longitude,
-            accuracyMeters = location.accuracy
+            accuracyMeters = if (location.hasAccuracy()) location.accuracy else null,
+            speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
+            headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
         )
         maybeSendVitals()
     }
@@ -780,6 +776,30 @@ class WearMainActivity : Activity(), SensorEventListener {
         ) return
         val intent = Intent(this, WearEmergencyService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
+    }
+
+    private fun logout() {
+        setStatus("cerrando sesion")
+        stopWearRuntime()
+        stopService(Intent(this, WearEmergencyService::class.java))
+        WearSession.clear(this)
+        activePanel = Panel.OPERACION
+        resourceSummary = null
+        renderLogin()
+    }
+
+    private fun startWearRuntime() {
+        startLocationUpdates()
+        startMotionSensors()
+        startHeartRateIfPossible()
+        startEmergencyMonitorIfPossible()
+    }
+
+    private fun stopWearRuntime() {
+        heartRateMonitor?.stop()
+        stopLocationUpdates()
+        stopMotionSensors()
+        stopVoiceRecording(send = false)
     }
 
     private fun requestRuntimePermissions() {

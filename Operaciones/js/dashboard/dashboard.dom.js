@@ -26,7 +26,6 @@ export const dom = {
   iconPallet: document.getElementById("iconPallet"),
   symLabelContainer: document.getElementById("symLabelContainer"),
   symLabel: document.getElementById("symLabel"),
-  placeBtn: document.getElementById("placeBtn"),
   finishShape: document.getElementById("finishShape"),
   cancelPlace: document.getElementById("cancelPlace"),
   tacticalActionButtons: document.getElementById("tacticalActionButtons"),
@@ -35,40 +34,49 @@ export const dom = {
   colorSelect: document.getElementById("colorSelect"),
   opacityContainer: document.getElementById("opacityContainer"),
   opacityRange: document.getElementById("opacityRange"),
+  opacityValue: document.getElementById("opacityValue"),
   widthContainer: document.getElementById("widthContainer"),
   widthRange: document.getElementById("widthRange"),
+  widthValue: document.getElementById("widthValue"),
   radiusInput: document.getElementById("radiusInput"),
   radiusContainer: document.getElementById("radiusContainer"),
 
   // Chat
   chatAudiencePanel: document.getElementById("chatAudiencePanel"),
+  chatAudienceSummary: document.getElementById("chatAudienceSummary"),
+  chatAudienceToggle: document.getElementById("chatAudienceToggle"),
+  chatAudienceBody: document.getElementById("chatAudienceBody"),
   chatPanel: document.getElementById("chatPanel"),
   toggleChatPanel: document.getElementById("toggleChatPanel"),
   chatTabCet: document.getElementById("chatTabCet"),
   chatTabCells: document.getElementById("chatTabCells"),
   chatChannelType: document.getElementById("chatChannelType"),
   chatChannelTarget: document.getElementById("chatChannelTarget"),
-  chatAudienceSummary: document.getElementById("chatAudienceSummary"),
-  chatAudienceBody: document.getElementById("chatAudienceBody"),
-  chatAudienceToggle: document.getElementById("chatAudienceToggle"),
-  chatTargetBox: document.getElementById("chatTargetBox"),
-  chatTargetEmpty: document.getElementById("chatTargetEmpty"),
-  chatTargetPicker: document.getElementById("chatTargetPicker"),
   chatConversationAvatar: document.getElementById("chatConversationAvatar"),
   chatConversationTitle: document.getElementById("chatConversationTitle"),
   chatConversationSubtitle: document.getElementById("chatConversationSubtitle"),
+  chatTargetBox: document.getElementById("chatTargetBox"),
+  chatTargetPicker: document.getElementById("chatTargetPicker"),
+  chatTargetEmpty: document.getElementById("chatTargetEmpty"),
   chatMessages: document.getElementById("chatMessages"),
   chatInput: document.getElementById("chatInput"),
   sendChatBtn: document.getElementById("sendChatBtn"),
-  chatCameraBtn: document.getElementById("chatCameraBtn"),
+  chatImageBtn: document.getElementById("chatImageBtn"),
+  chatEmojiBtn: document.getElementById("chatEmojiBtn"),
+  chatAttachmentBtn: document.getElementById("chatAttachmentBtn"),
   chatAudioBtn: document.getElementById("chatAudioBtn"),
-  chatCameraInput: document.getElementById("chatCameraInput"),
+  chatImageInput: document.getElementById("chatImageInput"),
+  chatAttachmentInput: document.getElementById("chatAttachmentInput"),
   chatAttachStatus: document.getElementById("chatAttachStatus"),
-
   // Cámaras
   cameraFeeds: document.getElementById("cameraFeeds"),
+  cameraBackToGrid: document.getElementById("cameraBackToGrid"),
   cameraLayoutGrid: document.getElementById("cameraLayoutGrid"),
   cameraLayoutSpeaker: document.getElementById("cameraLayoutSpeaker"),
+  cameraDronesBtn: document.getElementById("cameraDronesBtn"),
+  obsStreamKey: document.getElementById("obsStreamKey"),
+  registerObsStreamBtn: document.getElementById("registerObsStreamBtn"),
+  obsStreamStatus: document.getElementById("obsStreamStatus"),
 
   // Panels
   infoPanel: document.getElementById("infoPanel"),
@@ -86,15 +94,15 @@ export const dom = {
   clearAreaBtn: document.getElementById("clearAreaBtn"),
   areaInfo: document.getElementById("areaInfo"),
 
-  // Zona de operación (Nuevos)
+  // Selección
   markZoneBtn: document.getElementById("markZoneBtn"),
   clearZoneBtn: document.getElementById("clearZoneBtn"),
+  operationZoneControls: document.getElementById("operationZoneControls"),
   zoneColorSelect: document.getElementById("zoneColorSelect"),
   zoneWidthRange: document.getElementById("zoneWidthRange"),
   finishZoneBtn: document.getElementById("finishZoneBtn"),
   zoneActionBtns: document.getElementById("zoneActionBtns"),
 
-  // Selección
   selectionInfo: document.getElementById("selectionInfo"),
   deleteSelectedBtn: document.getElementById("deleteSelectedBtn"),
   clearSelectionBtn: document.getElementById("clearSelectionBtn"),
@@ -107,10 +115,11 @@ export const dom = {
 
   // Mapa
   map: document.getElementById("map"),
+  mapLayerControl: document.getElementById("mapLayerControl"),
+  mapLayerButton: document.getElementById("mapLayerButton"),
+  mapLayerMenu: document.getElementById("mapLayerMenu"),
 
   // Botones operación
-  activateOpBtn: document.getElementById("activateOpBtn"),
-  closeActiveOpBtn: document.getElementById("closeActiveOpBtn"),
   saveOpMapBtn: document.getElementById("saveOpMapBtn"),
   cancelOpMapBtn: document.getElementById("cancelOpMapBtn"),
   recenterMapBtn: document.getElementById("recenterMapBtn"),
@@ -133,7 +142,7 @@ export const dom = {
   confirmationMessage: document.getElementById("confirmationMessage"),
   confirmationConfirmBtn: document.getElementById("confirmationConfirmBtn"),
   confirmationCancelBtn: document.getElementById("confirmationCancelBtn"),
-  
+
   // Modal Detalle Personal
   personnelDetailModal: document.getElementById("personnelDetailModal"),
   personnelDetailBackdrop: document.getElementById("personnelDetailBackdrop"),
