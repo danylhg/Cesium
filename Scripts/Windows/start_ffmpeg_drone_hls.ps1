@@ -30,7 +30,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
-  $ProjectRoot = Join-Path $PSScriptRoot ".."
+  $ProjectRoot = Join-Path $PSScriptRoot "..\.."
 }
 
 $ProjectRoot = (Resolve-Path -LiteralPath $ProjectRoot).Path
@@ -48,7 +48,7 @@ if ([string]::IsNullOrWhiteSpace($FfmpegPath)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($FfmpegPath) -or -not (Test-Path -LiteralPath $FfmpegPath)) {
-  throw "No se encontro ffmpeg.exe. Ejecuta uy\setup_proyecto.bat o uy\ensure_ffmpeg.ps1 primero."
+  throw "No se encontro ffmpeg.exe. Ejecuta Scripts\Windows\setup_proyecto.bat o Scripts\Windows\ensure_ffmpeg.ps1 primero."
 }
 
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {

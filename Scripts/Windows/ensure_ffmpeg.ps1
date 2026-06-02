@@ -1,5 +1,5 @@
 param(
-  [string]$InstallDir = (Join-Path (Split-Path -Parent $PSScriptRoot) "tools\ffmpeg")
+  [string]$InstallDir = (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "tools\ffmpeg")
 )
 
 $ErrorActionPreference = "Stop"
