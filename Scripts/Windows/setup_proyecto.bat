@@ -5,7 +5,7 @@ title Setup Cesium Proyecto
 ::  CONFIGURACION
 :: ============================================================
 set "SCRIPT_DIR=%~dp0"
-for %%I in ("%SCRIPT_DIR%..") do set "PROYECTO=%%~fI"
+for %%I in ("%SCRIPT_DIR%..\..") do set "PROYECTO=%%~fI"
 set "ENV_FILE=%PROYECTO%\Operaciones\api\.env"
 set "INIT_SQL=%PROYECTO%\db\remodulacion\00_init.sql"
 set "PSQL=C:\Program Files\PostgreSQL\18\bin\psql.exe"
@@ -149,7 +149,7 @@ echo.
 ::  PASO 4: Ejecutar seed modular EN ESTA MISMA VENTANA
 :: ============================================================
 echo [4/6] Ejecutando seed modular ...
-cd /d "%PROYECTO%\operaciones\api"
+cd /d "%PROYECTO%\Operaciones\api"
 node seed\index.js
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: El seed fallo. Revisa el mensaje de arriba.
@@ -163,7 +163,7 @@ echo.
 ::  PASO 5: Instalar/verificar FFmpeg
 :: ============================================================
 echo [5/6] Verificando FFmpeg ...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\ensure_ffmpeg.ps1" -InstallDir "%FFMPEG_DIR%"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%ensure_ffmpeg.ps1" -InstallDir "%FFMPEG_DIR%"
 if %ERRORLEVEL% NEQ 0 (
     echo ERROR: No se pudo instalar o verificar FFmpeg.
     echo        Puedes instalarlo manualmente y agregar ffmpeg.exe al PATH.
@@ -173,7 +173,7 @@ if %ERRORLEVEL% NEQ 0 (
 echo       FFmpeg listo.
 echo.
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\ensure_frontend_assets.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%ensure_frontend_assets.ps1"
 if %ERRORLEVEL% NEQ 0 (
     echo WARN: No se pudo descargar hls.js local. El visor intentara usar CDN.
 )
@@ -189,13 +189,13 @@ start "Frontend" cmd /k "cd /d ""%PROYECTO%"" && npx serve -l 3000"
 timeout /t 2 /nobreak >nul
 
 :: Ventana 2 - node server.js (API - lee Operaciones\api\.env)
-start "API Server" cmd /k "cd /d ""%PROYECTO%\operaciones\api"" && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
+start "API Server" cmd /k "cd /d ""%PROYECTO%\Operaciones\api"" && set MEDIA_STREAM_DEFAULT_PROTOCOL=WEBRTC&& node server.js"
 
 :: Ventana 3 - OBS RTMP a HLS (OBS publica a rtmp://LAN_IP:1935/live con key obs-01)
-start "OBS RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_obs_rtmp_hls.ps1" -StreamKey "obs-01" -Port 1935 -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%"
+start "OBS RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%start_obs_rtmp_hls.ps1" -StreamKey "obs-01" -Port 1935 -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%"
 
 :: Ventana 4 - Dron RTMP a HLS (el dron/controlador publica a rtmp://LAN_IP:1936/live/dron-01)
-start "Drone RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%PROYECTO%\uy\start_ffmpeg_drone_hls.ps1" -Listen -InputUrl "rtmp://0.0.0.0:%DRONE_RTMP_PORT%/live/%DRONE_STREAM_KEY%" -StreamKey "%DRONE_STREAM_KEY%" -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%" -PreserveExistingHls -RecordMp4Segments -RecordingOutputRoot "%PROYECTO%\Operaciones\runtime\ffmpeg-recordings" -RecordingSegmentSeconds 10 -VideoHeight 240 -VideoFps 15 -VideoBitrate "450k" -VideoMaxrate "550k" -VideoBufsize "900k" -AudioBitrate "64k"
+start "Drone RTMP HLS" powershell -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%start_ffmpeg_drone_hls.ps1" -Listen -InputUrl "rtmp://0.0.0.0:%DRONE_RTMP_PORT%/live/%DRONE_STREAM_KEY%" -StreamKey "%DRONE_STREAM_KEY%" -PublicBaseUrl "%HLS_PUBLIC_BASE_URL%" -PreserveExistingHls -RecordMp4Segments -RecordingOutputRoot "%PROYECTO%\Operaciones\runtime\ffmpeg-recordings" -RecordingSegmentSeconds 10 -VideoHeight 240 -VideoFps 15 -VideoBitrate "450k" -VideoMaxrate "550k" -VideoBufsize "900k" -AudioBitrate "64k"
 
 echo.
 echo ============================================================
