@@ -299,16 +299,28 @@ class MainActivity : AppCompatActivity(),
                 lastKnownLat = lat
                 lastKnownLon = lon
                 if (::currentUser.isInitialized) {
-                    chatSocketManager?.emitTracking(
-                        idPersonal = currentUser.id,
-                        lat = lat,
-                        lon = lon,
-                        apodo = currentUser.nombreCompleto,
-                        rol = currentUser.rol.name,
-                        speedKmh = speedKmh,
-                        headingDegrees = headingDegrees,
-                        accuracyMeters = accuracyMeters
-                    )
+                    val deviceId = currentUser.idDispositivo
+                    if (deviceId != null) {
+                        chatSocketManager?.emitTrackingDispositivo(
+                            idDispositivo = deviceId,
+                            lat = lat,
+                            lon = lon,
+                            speedKmh = speedKmh,
+                            headingDegrees = headingDegrees,
+                            accuracyMeters = accuracyMeters
+                        )
+                    } else {
+                        chatSocketManager?.emitTracking(
+                            idPersonal = currentUser.id,
+                            lat = lat,
+                            lon = lon,
+                            apodo = currentUser.nombreCompleto,
+                            rol = currentUser.rol.name,
+                            speedKmh = speedKmh,
+                            headingDegrees = headingDegrees,
+                            accuracyMeters = accuracyMeters
+                        )
+                    }
                 }
             }
         )
@@ -618,6 +630,8 @@ class MainActivity : AppCompatActivity(),
 
     override fun getSocketUserId(): Int = currentUser.id
 
+    override fun getSocketDeviceId(): Int? = currentUser.idDispositivo
+
     override fun getSocketUserRole(): String = currentUser.rol.name
 
     override fun getSocketUserName(): String = currentUser.nombreCompleto
@@ -683,6 +697,18 @@ class MainActivity : AppCompatActivity(),
             .put("detalle", vehiculo?.detalle ?: "")
         cesiumWebController.evaluate(
             "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon, '${jsString(label)}', ${meta})"
+        )
+    }
+
+    override fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String) {
+        val equipo = equiposList.firstOrNull { it.idEquipo == id }
+        val meta = JSONObject()
+            .put("categoria", equipo?.categoria ?: "")
+            .put("tipo_equipo", equipo?.tipoEquipo ?: "")
+            .put("nombre", equipo?.nombre ?: label)
+            .put("numero_serie", equipo?.numeroSerie ?: "")
+        cesiumWebController.evaluate(
+            "if(typeof updateTrackingEquipo === 'function') updateTrackingEquipo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
     }
 

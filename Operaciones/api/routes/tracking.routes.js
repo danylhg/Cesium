@@ -3,6 +3,7 @@ import { pool } from "../db.js";
 import { requireAuth } from "../middlewares/auth.js";
 import { sendDbError } from "../utils/dbErrors.js";
 import { ensureExtendedTrackingSchema, ensurePersonalMotionTrackingSchema } from "../utils/trackingSchema.js";
+import { derivePersonalTrackingFromDevice } from "../utils/personalTrackingFromDevices.js";
 import { isInt } from "../utils/validators.js";
 
 const router = Router();
@@ -11,6 +12,13 @@ function optionalNumber(value) {
   if (value == null || value === "") return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function optionalHeadingDegrees(value) {
+  const number = optionalNumber(value);
+  if (number == null) return null;
+  if (number === 360) return 360;
+  return ((number % 360) + 360) % 360;
 }
 
 async function getLatestPersonalPosition(id_operacion, id_personal) {
@@ -153,6 +161,62 @@ async function resolveDroneEquipo({ id_operacion, id_equipo, serial }) {
 // TRACKING PUBLICO DRON
 // ===============================
 
+// GET /external/drone/telemetry - ultima telemetria publica del dron.
+router.get("/external/drone/telemetry", async (req, res) => {
+  const payload = req.query ?? {};
+  const wantsInfo = ["1", "true", "si", "yes"].includes(
+    String(firstPayloadValue(payload, "info", "help", "health") || "").trim().toLowerCase()
+  );
+
+  const baseResponse = {
+    ok: true,
+    mensaje: "Endpoint de telemetria dron activo",
+    metodo_envio: "POST",
+    post_url: "/external/drone/telemetry",
+    campos_minimos: ["lat", "lng"],
+    timestamp: new Date().toISOString()
+  };
+
+  if (wantsInfo) {
+    return res.json(baseResponse);
+  }
+
+  try {
+    await ensureExtendedTrackingSchema();
+
+    const id_operacion = await resolveDroneOperationId(payload);
+    if (!id_operacion) {
+      return res.status(404).json({ ok: false, mensaje: "No hay operacion activa para consultar el dron" });
+    }
+
+    const serial = firstPayloadValue(payload, "EXTRA_SERIAL", "serial", "droneSerialNumber", "drone_serial");
+    const equipo = await resolveDroneEquipo({
+      id_operacion,
+      id_equipo: firstPayloadValue(payload, "id_equipo", "idEquipo", "equipment_id"),
+      serial
+    });
+
+    if (!equipo) {
+      return res.status(404).json({
+        ok: false,
+        mensaje: "No se encontro un equipo dron asignado a la operacion activa"
+      });
+    }
+
+    const latest = await getLatestEquipoPosition(id_operacion, equipo.id_equipo);
+
+    return res.json({
+      ...baseResponse,
+      id_operacion,
+      id_equipo: equipo.id_equipo,
+      numero_serie_equipo: equipo.numero_serie,
+      telemetry: latest || null
+    });
+  } catch (err) {
+    return sendDbError(res, err, "Error consultando telemetria del dron");
+  }
+});
+
 // POST /external/drone/telemetry - telemetria de app externa sin token.
 router.post("/external/drone/telemetry", async (req, res) => {
   const payload = req.body ?? {};
@@ -208,7 +272,7 @@ router.post("/external/drone/telemetry", async (req, res) => {
         Number(longitud),
         optionalNumber(altitud),
         optionalNumber(velocidad),
-        optionalNumber(rumbo),
+        optionalHeadingDegrees(rumbo),
         optionalNumber(firstPayloadValue(payload, "precision_m", "accuracy", "accuracy_m")),
         optionalNumber(bateria),
         optionalBoolean(firstPayloadValue(payload, "EXTRA_CONNECTED", "connected", "is_connected")),
@@ -231,7 +295,7 @@ router.post("/external/drone/telemetry", async (req, res) => {
       longitud: Number(longitud),
       altitud: optionalNumber(altitud),
       velocidad_kmh: optionalNumber(velocidad),
-      rumbo_grados: optionalNumber(rumbo),
+      rumbo_grados: optionalHeadingDegrees(rumbo),
       bateria_pct: optionalNumber(bateria),
       serial_dispositivo: serial ? String(serial).trim() : null
     });
@@ -266,15 +330,16 @@ router.post("/ops/:id/tracking/personal", requireAuth, async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO tracking_personal (
          id_operacion, id_personal, latitud, longitud, altitud,
-         precision_m, velocidad_kmh, rumbo_grados
+         precision_m, velocidad_kmh, rumbo_grados, fuente_tracking
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING id_tracking, timestamp, estado_operacion_creacion`,
       [id_operacion, Number(id_personal), Number(latitud), Number(longitud),
         optionalNumber(altitud),
         optionalNumber(precision_m),
         optionalNumber(velocidad_kmh),
-        optionalNumber(rumbo_grados)]
+        optionalNumber(rumbo_grados),
+        "GPS_DIRECTO"]
     );
 
     const latest = await getLatestPersonalPosition(id_operacion, Number(id_personal));
@@ -556,7 +621,17 @@ router.post("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
       bateria_pct: optionalNumber(bateria_pct)
     });
 
-    res.json({ ok: true, tracking: rows[0] });
+    let personalFromDevices = null;
+    try {
+      personalFromDevices = await derivePersonalTrackingFromDevice(id_operacion, Number(id_dispositivo));
+      if (personalFromDevices) {
+        io?.to(`op_${id_operacion}`).emit("tracking_personal", personalFromDevices);
+      }
+    } catch (aggregateErr) {
+      console.error("[TRACKING] Error calculando tracking_personal desde dispositivo:", aggregateErr.message);
+    }
+
+    res.json({ ok: true, tracking: rows[0], tracking_personal: personalFromDevices });
   } catch (err) {
     sendDbError(res, err, "Error registrando tracking dispositivo");
   }

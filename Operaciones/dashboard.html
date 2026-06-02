@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Panorama táctico</title>
 
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/dashboard.css?v=20260528-camera-layout" />
   <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
 
@@ -504,6 +504,7 @@
         <h2 id="chatConversationTitle" class="chatConversationTitle">Todos</h2>
         <div id="chatConversationSubtitle" class="chatConversationSubtitle">Operación completa</div>
       </div>
+      <button id="chatGroupMembersToggle" class="chatGroupMembersToggle" type="button" title="Integrantes" aria-label="Integrantes" aria-expanded="false" hidden>&gt;</button>
     </div>
 
     <div id="chatTargetBox" class="chatTargetBox hidden">
@@ -526,17 +527,19 @@
     </div>
   </aside>
 
+  <aside id="chatGroupMembersPanel" class="glassPanel chatGroupMembersPanel">
+    <div class="chatGroupMembersHeader">
+      <h2 class="chatGroupMembersTitle">Integrantes</h2>
+      <span id="chatGroupMembersCount" class="chatGroupMembersCount">0</span>
+    </div>
+    <div id="chatGroupMembersList" class="chatGroupMembersList"></div>
+  </aside>
+
   <aside id="cameraPanel" class="glassPanel cameraPanel">
-    <div class="panelHeader"
-      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: flex-end; gap: 8px; padding: 5px;">
-      <div class="cameraControls">
-        <button id="cameraBackToGrid" class="layoutBtn cameraBackBtn" title="Regresar a camaras"
-          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 7px;">Camaras</button>
-        <button id="cameraLayoutGrid" class="layoutBtn active" title="Vista en cuadrícula"
-          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">🔲</button>
-        <button id="cameraLayoutSpeaker" class="layoutBtn" title="Vista enfocada"
-          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">👤</button>
-      </div>
+    <div class="cameraLayoutControls" role="group" aria-label="Vista de camaras">
+      <button id="cameraLayoutGrid" class="layoutBtn active" type="button" title="Vista en cuadricula" aria-label="Vista en cuadricula" aria-pressed="true">&#9638;</button>
+      <button id="cameraLayoutSpeaker" class="layoutBtn" type="button" title="Vista personal" aria-label="Vista personal" aria-pressed="false">&#128100;</button>
+      <button id="cameraNextBtn" class="layoutBtn cameraNextBtn" type="button" title="Siguiente camara" aria-label="Siguiente camara" disabled>&#8250;</button>
     </div>
 
     <div id="cameraFeeds" class="cameraFeeds grid-layout">
@@ -544,16 +547,14 @@
     </div>
 
     <div class="cameraBottomControls">
-      <button id="cameraDronesBtn" class="cameraSourceBtn" type="button" title="Mostrar drones">Drones</button>
-      <div class="obsControls cameraObsControls">
-        <input id="obsStreamKey" type="text" value="obs-01" aria-label="Clave OBS" />
-        <button id="registerObsStreamBtn" class="cameraSourceBtn" type="button" title="Registrar OBS en esta operacion">OBS</button>
-        <span id="obsStreamStatus" aria-live="polite"></span>
+      <div class="cameraProtocolTabs" role="group" aria-label="Filtrar camaras por protocolo">
+        <button id="cameraWebRtcBtn" class="cameraSourceBtn" type="button" title="Mostrar WebRTC" aria-pressed="false">WebRTC</button>
+        <button id="cameraRtmpBtn" class="cameraSourceBtn" type="button" title="Mostrar RTMP" aria-pressed="false">RTMP</button>
       </div>
     </div>
   </aside>
 
-  <script type="module" src="js/dashboard/dashboard.js?v=20260520-windrose"></script>
+  <script type="module" src="js/dashboard/dashboard.js?v=20260528-camera-layout"></script>
 
 </body>
 

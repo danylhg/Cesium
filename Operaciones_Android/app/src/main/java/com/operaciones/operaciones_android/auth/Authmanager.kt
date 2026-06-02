@@ -16,6 +16,7 @@ object AuthManager {
     private const val KEY_ROL       = "rol"
     private const val KEY_JERARQUIA = "jerarquia"
     private const val KEY_TABLA     = "tabla"
+    private const val KEY_ID_DISPOSITIVO = "id_dispositivo"
 
     fun saveSession(context: Context, user: User, token: String = "") {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
@@ -28,6 +29,7 @@ object AuthManager {
             .putString(KEY_ROL,        user.rol.name)
             .putString(KEY_JERARQUIA,  user.jerarquia)
             .putString(KEY_TABLA,      user.tabla)
+            .putInt(KEY_ID_DISPOSITIVO, user.idDispositivo ?: -1)
             .apply()
     }
 
@@ -49,7 +51,8 @@ object AuthManager {
             username  = p.getString(KEY_USERNAME,  "") ?: "",
             rol       = rol,
             jerarquia = p.getString(KEY_JERARQUIA, "") ?: "",
-            tabla     = p.getString(KEY_TABLA,     "personal") ?: "personal"
+            tabla     = p.getString(KEY_TABLA,     "personal") ?: "personal",
+            idDispositivo = p.getInt(KEY_ID_DISPOSITIVO, -1).takeIf { it > 0 }
         )
     }
 

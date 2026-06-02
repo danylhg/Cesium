@@ -47,11 +47,17 @@ export function closeAllPanels() {
   dom.tacticalPanel?.classList.remove("open");
   dom.chatAudiencePanel?.classList.remove("open");
   dom.chatPanel?.classList.remove("open");
+  dom.chatGroupMembersPanel?.classList.remove("open");
 
   dom.toggleInfoPanel?.classList.remove("active");
   dom.toggleRoutePanel?.classList.remove("active");
   dom.toggleTacticalPanel?.classList.remove("active");
   dom.toggleChatPanel?.classList.remove("active");
+
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.textContent = ">";
+    dom.chatGroupMembersToggle.setAttribute("aria-expanded", "false");
+  }
 }
 
 export function openPanel(panel, button) {
@@ -92,7 +98,11 @@ function normalizePersonal(personal) {
       flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || ""),
       id_personal: p.id_personal ?? null,
       lat: p.latitud ?? p.lat ?? null,
-      lon: p.longitud ?? p.lon ?? p.lng ?? null
+      lon: p.longitud ?? p.lon ?? p.lng ?? null,
+      ultima_actualizacion: p.ultima_actualizacion ?? null,
+      timestamp: p.timestamp ?? null,
+      updated_at: p.updated_at ?? p.fecha_actualizacion ?? null,
+      signos_actualizacion: p.signos_actualizacion ?? null
     };
   });
 }
@@ -111,6 +121,44 @@ function formatPersonWithRole(nombre, rol) {
   return [roleLabel, String(nombre || "").trim()].filter(Boolean).join(" ");
 }
 
+function hasPersonalConnectionHistory(person = {}, id, lat, lon) {
+  if (lat != null && lon != null) return true;
+
+  const personId = String(id || person.id_personal || "").trim();
+  const stored = personId ? personalLiveData.get(personId) || {} : {};
+  const history = personId ? dashboardState.trackingHistory?.get(`P:${personId}`) || {} : {};
+
+  const timestamp = firstValue(
+    person.timestamp,
+    person.ultima_actualizacion,
+    person.updated_at,
+    person.fecha_actualizacion,
+    person.signos_actualizacion,
+    stored.timestamp,
+    stored.ultima_actualizacion,
+    stored.updated_at,
+    history.time
+  );
+
+  if (parseTimestamp(timestamp)) return true;
+
+  return firstValue(
+    person.lat,
+    person.latitud,
+    stored.lat,
+    stored.latitud,
+    history.lat
+  ) != null && firstValue(
+    person.lon,
+    person.lng,
+    person.longitud,
+    stored.lon,
+    stored.lng,
+    stored.longitud,
+    history.lng
+  ) != null;
+}
+
 // Evita duplicar prefijos como "Flotilla Flotilla Alfa" o "Grupo Grupo Alpha"
 function labelConPrefijo(prefijo, nombre) {
   if (!nombre) return prefijo;
@@ -118,14 +166,16 @@ function labelConPrefijo(prefijo, nombre) {
   return `${prefijo} ${nombre.trim()}`;
 }
 
-function personSpan(nombre, id, lat, lon) {
+function personSpan(nombre, id, lat, lon, person = {}) {
   const safe = escapeHtml(nombre);
   if (id == null) return safe;
   const personAttrs = `data-pid="${id}" data-person-id="${id}"`;
-  if (lat != null && lon != null) {
-    return `<span class="personal-locatable person-link" ${personAttrs} data-lat="${lat}" data-lon="${lon}" style="cursor:pointer;color:#00BFFF;border-bottom:1px dotted #00BFFF;" title="Ver detalle">${safe}</span>`;
-  }
-  return `<span class="person-link" ${personAttrs} style="cursor:pointer;color:#00ffa6;border-bottom:1px dotted #00ffa6;" title="Ver detalle">${safe}</span>`;
+  const hasCoords = lat != null && lon != null;
+  const classes = ["person-link"];
+  if (hasCoords) classes.push("personal-locatable");
+  if (hasPersonalConnectionHistory(person, id, lat, lon)) classes.push("has-connection-history");
+  const coordsAttrs = hasCoords ? ` data-lat="${lat}" data-lon="${lon}"` : "";
+  return `<span class="${classes.join(" ")}" ${personAttrs}${coordsAttrs} title="Ver detalle">${safe}</span>`;
 }
 
 export function activatePersonalLocation(id, lat, lon) {
@@ -134,11 +184,9 @@ export function activatePersonalLocation(id, lat, lon) {
     span.dataset.lon = lon;
     if (!span.classList.contains("personal-locatable")) {
       span.classList.add("personal-locatable");
-      span.style.cursor = "pointer";
-      span.style.color = "#00BFFF";
-      span.style.borderBottom = "1px dotted #00BFFF";
       span.title = "Ir a ubicacion";
     }
+    span.classList.add("has-connection-history");
   });
 }
 
@@ -158,8 +206,7 @@ function getPersonalEntityCoordinates(id) {
 function setFollowedPersonalStyle(id) {
   document.querySelectorAll(".personal-locatable").forEach(span => {
     const selected = String(span.dataset.pid || "") === String(id || "");
-    span.style.color = selected ? "#38bdf8" : "#00BFFF";
-    span.style.borderBottom = selected ? "1px solid #38bdf8" : "1px dotted #00BFFF";
+    span.classList.toggle("is-followed", selected);
     span.title = selected ? "Siguiendo ubicacion" : "Seguir ubicacion";
   });
 }
@@ -217,7 +264,7 @@ function renderPersonalHtml(personalNorm) {
   cuts.forEach((cut) => {
     html += `
       <div class="miniCard" style="border-left: 3px solid #10b981;">
-        <p><strong>CUT:</strong> ${personSpan(cut.nombre || cut.name, cut.id_personal, cut.lat, cut.lon)}</p>
+        <p><strong>CUT:</strong> ${personSpan(cut.nombre || cut.name, cut.id_personal, cut.lat, cut.lon, cut)}</p>
       </div>
     `;
   });
@@ -230,7 +277,7 @@ function renderPersonalHtml(personalNorm) {
     cells.forEach((cell) => {
       if (cell.flotilla !== flotillaNombre) return;
 
-      const nameHtml = personSpan(formatPersonWithRole(cell.nombre, cell.cargo), cell.id_personal, cell.lat, cell.lon);
+      const nameHtml = personSpan(formatPersonWithRole(cell.nombre, cell.cargo), cell.id_personal, cell.lat, cell.lon, cell);
       if (cell.grupo) {
         if (!grupos.has(cell.grupo)) grupos.set(cell.grupo, []);
         grupos.get(cell.grupo).push(nameHtml);
@@ -241,7 +288,7 @@ function renderPersonalHtml(personalNorm) {
 
     html += `
       <div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:8px;">
-        <p><strong>(CET) ${personSpan(cet.nombre, cet.id_personal, cet.lat, cet.lon)}</strong></p>
+        <p><strong>(CET)</strong> ${personSpan(cet.nombre, cet.id_personal, cet.lat, cet.lon, cet)}</p>
         <p style="margin-top:8px;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flotillaNombre))}</strong></p>
     `;
 
@@ -792,6 +839,11 @@ export function updateChatAvailability() {
   if (!active) {
     dom.chatAudiencePanel?.classList.remove("open");
     dom.chatPanel?.classList.remove("open");
+    dom.chatGroupMembersPanel?.classList.remove("open");
+    if (dom.chatGroupMembersToggle) {
+      dom.chatGroupMembersToggle.textContent = ">";
+      dom.chatGroupMembersToggle.setAttribute("aria-expanded", "false");
+    }
     dom.toggleChatPanel?.classList.remove("active");
     dom.cameraPanel?.classList.remove("open");
     dom.toggleCameraPanel?.classList.remove("active");
@@ -803,13 +855,13 @@ export function updateChatAvailability() {
   if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
   if (dom.chatAttachmentBtn) dom.chatAttachmentBtn.disabled = !active;
   if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
+  if (dom.chatGroupMembersToggle) dom.chatGroupMembersToggle.disabled = !active;
   if (dom.chatTargetPicker) dom.chatTargetPicker.disabled = !active;
   document.querySelectorAll("[data-chat-channel]").forEach((btn) => {
     btn.disabled = !active;
   });
-  if (dom.cameraDronesBtn) dom.cameraDronesBtn.disabled = !active;
-  if (dom.registerObsStreamBtn) dom.registerObsStreamBtn.disabled = !active;
-  if (dom.obsStreamKey) dom.obsStreamKey.disabled = !active;
+  if (dom.cameraWebRtcBtn) dom.cameraWebRtcBtn.disabled = !active;
+  if (dom.cameraRtmpBtn) dom.cameraRtmpBtn.disabled = !active;
   if (dom.chatTabCet) dom.chatTabCet.disabled = !active;
   if (dom.chatTabCells) dom.chatTabCells.disabled = !active;
 }
@@ -1261,19 +1313,30 @@ function getBiometricSourceLabel(live = {}, person = {}, assignedDevices = [], a
   return assignedDevice && Object.keys(assignedDevice).length ? getDeviceCompactName(assignedDevice) : "";
 }
 
-function getPersonCameraImage(personId) {
-  const images = [
-    "img/cameras/cam1.png",
-    "img/cameras/cam2.png",
-    "img/cameras/cam3.png"
-  ];
-  const text = String(personId || "");
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return images[Math.abs(hash) % images.length];
+function normalizeCameraProtocol(value) {
+  const protocol = String(value || "WEBRTC").trim().toUpperCase();
+  return protocol === "RTMP" ? "RTMP" : "WEBRTC";
+}
+
+function getPersonCameraProtocol(person = {}, live = {}) {
+  return normalizeCameraProtocol(firstValue(
+    live.camera_protocol,
+    live.protocolo_camara,
+    live.protocol,
+    person.camera_protocol,
+    person.protocolo_camara,
+    person.protocol
+  ));
+}
+
+function renderWaitingCameraSignal(protocol) {
+  const label = normalizeCameraProtocol(protocol);
+  return `
+    <div class="personCameraWaiting" data-protocol="${escapeHtml(label)}">
+      <span>Esperando señal</span>
+      <strong>${escapeHtml(label)}</strong>
+    </div>
+  `;
 }
 
 function placePersonInfoPopup(anchor = {}) {
@@ -1335,7 +1398,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const baro = firstValue(live.presion_barometrica_hpa, live.barometro, live.baro, live.presion, live.pressure, person.presion_barometrica_hpa, person.barometro, person.baro, person.presion, person.pressure, "-");
   const bateria = formatBattery(firstValue(live.bateria_pct, live.bateria, live.battery, live.battery_level, person.bateria_pct, person.bateria, person.battery, person.battery_level, assignedDevice.bateria_pct, assignedDevice.bateria, assignedDevice.battery, assignedDevice.battery_level, assignedDevice.nivel_bateria));
   const actualizado = firstValue(live.signos_actualizacion, live.timestamp, person.signos_actualizacion, person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
-  const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
+  const cameraProtocol = getPersonCameraProtocol(person, live);
   const dispositivosHtml = assignedDevices.length
     ? assignedDevices.map((device) => {
       const code = getDeviceCodeValue(device);
@@ -1375,7 +1438,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
       <div class="personInfoUpdated">${escapeHtml(actualizado ? `Actualizado ${formatTime(actualizado)}` : "Sin datos recientes")}</div>
     </div>
     <div class="personInfoCamera">
-      <img src="${escapeHtml(cameraImage)}" alt="Camara de ${escapeHtml(nombre)}">
+      ${renderWaitingCameraSignal(cameraProtocol)}
     </div>
   `;
 

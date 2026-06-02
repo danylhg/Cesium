@@ -10,6 +10,7 @@ class OperationSocketController(
     interface Host {
         fun getSocketOperationId(): Int
         fun getSocketUserId(): Int
+        fun getSocketDeviceId(): Int?
         fun getSocketUserRole(): String
         fun getSocketUserName(): String
         fun getSocketLastKnownLat(): Double?
@@ -23,6 +24,7 @@ class OperationSocketController(
         fun onSocketTacticalRouteDeleted(idRoute: Int)
         fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String)
         fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String)
+        fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String)
         fun onSocketPoiCreated(
             idPoi: Int,
             lat: Double,
@@ -107,7 +109,7 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("apodo", data.optString("nombre", "P-$id"))
-                    if (id > 0 && id != host.getSocketUserId() && !lat.isNaN() && !lon.isNaN()) {
+                    if (id > 0 && !lat.isNaN() && !lon.isNaN()) {
                         host.onSocketTrackingPersonal(id, lat, lon, label)
                     }
                 }
@@ -119,6 +121,15 @@ class OperationSocketController(
                     val lon = data.optDouble("longitud")
                     val label = data.optString("alias", data.optString("nombre", "V-$id"))
                     if (id > 0) host.onSocketTrackingVehicle(id, lat, lon, label)
+                }
+            },
+            onTrackingEquipo = { data ->
+                host.runSocketOnUi {
+                    val id = data.optInt("id_equipo")
+                    val lat = data.optDouble("latitud")
+                    val lon = data.optDouble("longitud")
+                    val label = data.optString("nombre", data.optString("tipo_equipo", "E-$id"))
+                    if (id > 0) host.onSocketTrackingEquipo(id, lat, lon, label)
                 }
             },
             onPoiCreado = { data ->
@@ -189,13 +200,22 @@ class OperationSocketController(
                 host.runSocketOnUi { host.onSocketConnected() }
                 val lat = host.getSocketLastKnownLat() ?: return@ChatSocketManager
                 val lon = host.getSocketLastKnownLon() ?: return@ChatSocketManager
-                manager?.emitTracking(
-                    idPersonal = host.getSocketUserId(),
-                    lat = lat,
-                    lon = lon,
-                    apodo = host.getSocketUserName(),
-                    rol = host.getSocketUserRole()
-                )
+                val deviceId = host.getSocketDeviceId()
+                if (deviceId != null) {
+                    manager?.emitTrackingDispositivo(
+                        idDispositivo = deviceId,
+                        lat = lat,
+                        lon = lon
+                    )
+                } else {
+                    manager?.emitTracking(
+                        idPersonal = host.getSocketUserId(),
+                        lat = lat,
+                        lon = lon,
+                        apodo = host.getSocketUserName(),
+                        rol = host.getSocketUserRole()
+                    )
+                }
             },
             onDisconnected = {
                 host.runSocketOnUi { host.onSocketDisconnected() }

@@ -244,6 +244,7 @@ class LoginActivity : AppCompatActivity() {
             u.optInt("id_personal", 0).takeIf { it > 0 } ?: u.optInt("id_usuario", 0)
         else
             u.optInt("id_usuario", 0)
+        val idDispositivo = u.optInt("id_dispositivo", 0).takeIf { it > 0 }
 
         val user = User(
             id        = id,
@@ -252,7 +253,8 @@ class LoginActivity : AppCompatActivity() {
             username  = u.getString("username"),
             rol       = rol,
             jerarquia = u.optString("puesto",   ""),
-            tabla     = tabla
+            tabla     = tabla,
+            idDispositivo = idDispositivo
         )
 
         AuthManager.saveSession(this, user, token)

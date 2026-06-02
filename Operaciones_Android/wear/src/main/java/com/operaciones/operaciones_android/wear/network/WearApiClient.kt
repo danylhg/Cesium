@@ -6,6 +6,7 @@ import com.operaciones.operaciones_android.wear.data.WearChatMessage
 import com.operaciones.operaciones_android.wear.data.WearOperation
 import com.operaciones.operaciones_android.wear.data.WearUser
 import com.operaciones.operaciones_android.wear.data.WearUserRole
+import com.operaciones.operaciones_android.wear.device.WearDeviceInfo
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -42,6 +43,7 @@ class WearApiClient(
         val body = JSONObject().apply {
             put("username", username)
             put("password", password)
+            put("device", WearDeviceInfo.toJson(context))
         }.toString().toRequestBody("application/json".toMediaType())
 
         val req = Request.Builder()
@@ -59,7 +61,11 @@ class WearApiClient(
                 try {
                     val json = JSONObject(bodyStr)
                     if (!response.isSuccessful || !json.optBoolean("ok")) {
-                        onError(json.optString("mensaje", "Login invalido"))
+                        val message = json.optString("mensaje", "Login invalido")
+                        val deviceId = json.optString("identificador_app", "")
+                        onError(
+                            if (deviceId.isNotBlank()) "$message ID app: $deviceId" else message
+                        )
                         return
                     }
                     val u = json.getJSONObject("usuario")

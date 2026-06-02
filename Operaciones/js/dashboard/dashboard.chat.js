@@ -26,6 +26,7 @@ let _audioChunks = [];
 let _isRecordingAudio = false;
 
 const ATTACHMENT_PREFIX = "CHAT_ATTACHMENT:";
+const GROUP_MEMBER_CHANNELS = new Set(["global", "cets", "flotilla", "grupo", "vehiculo"]);
 
 // ── JWT helper ──────────────────────────────────────────────
 function getMyInfo() {
@@ -260,16 +261,27 @@ function buildChatDirectory(mapaData = {}) {
     label: g.flotilla ? `${g.label} (${g.flotilla})` : g.label
   }));
 
-  const vehiculos = uniqueById(
-    vehiculosRaw.map((v) => {
-      const id = v.id_vehiculo ?? v.id ?? v.codigo_interno ?? v.alias;
+  const vehiculoMap = new Map();
+  vehiculosRaw.forEach((v) => {
+    const id = v.id_vehiculo ?? v.id ?? v.codigo_interno ?? v.alias;
+    if (id == null) return;
+    const key = String(id);
+    if (!vehiculoMap.has(key)) {
       const name = v.alias ||
         v.codigo_interno ||
         v.tipo ||
         `Vehiculo ${id}`;
-      return id == null ? null : { id: String(id), label: name };
-    }).filter(Boolean)
-  );
+      vehiculoMap.set(key, { id: key, label: name, personIds: new Set() });
+    }
+    if (v.id_personal != null) {
+      vehiculoMap.get(key).personIds.add(String(v.id_personal));
+    }
+  });
+
+  const vehiculos = Array.from(vehiculoMap.values()).map((v) => ({
+    ...v,
+    personIds: Array.from(v.personIds)
+  }));
 
   _chatDirectory = { cets, cells, flotillas, grupos, vehiculos, personalById };
 }
@@ -299,6 +311,138 @@ function getTargetsForType(type = _channelType) {
   if (type === "grupo") return _chatDirectory.grupos;
   if (type === "vehiculo") return _chatDirectory.vehiculos;
   return [];
+}
+
+function isGroupMemberChannel(type = _channelType) {
+  return GROUP_MEMBER_CHANNELS.has(type);
+}
+
+function getSpecificChannelForPerson(person) {
+  const role = normalizeRole(person);
+  if (role === "CET") return "cet_specific";
+  if (role === "CELL") return "cell_specific";
+  return "";
+}
+
+function getChatPeople() {
+  return Array.from(_chatDirectory.personalById.values())
+    .filter((person) => person?.id_personal != null && getSpecificChannelForPerson(person))
+    .sort((a, b) => fullName(a).localeCompare(fullName(b), "es", { sensitivity: "base" }));
+}
+
+function grupoAliasesForTarget(grupoId = _channelTarget) {
+  const aliases = new Set();
+  const add = (value) => {
+    const text = String(value || "").trim();
+    if (text) aliases.add(text);
+  };
+
+  const selected = _chatDirectory.grupos.find((grupo) =>
+    sameValue(grupo.id, grupoId) || sameValue(grupo.label, grupoId)
+  );
+
+  add(grupoId);
+  add(selected?.id);
+  add(selected?.label);
+  add(String(selected?.label || "").replace(/\s*\([^)]*\)\s*$/, ""));
+
+  return [...aliases];
+}
+
+function personBelongsToGrupo(person, grupoId = _channelTarget) {
+  const grupo = getGrupoForPerson(person);
+  if (!grupo) return false;
+
+  const labelWithFlotilla = grupo.flotilla ? `${grupo.label} (${grupo.flotilla})` : grupo.label;
+  return grupoAliasesForTarget(grupoId).some((alias) =>
+    sameValue(grupo.id, alias) ||
+    sameValue(grupo.label, alias) ||
+    sameValue(labelWithFlotilla, alias)
+  );
+}
+
+function getVehicleTarget(vehicleId = _channelTarget) {
+  return _chatDirectory.vehiculos.find((vehicle) =>
+    sameValue(vehicle.id, vehicleId) || sameValue(vehicle.label, vehicleId)
+  );
+}
+
+function getGroupChatMembers() {
+  const people = getChatPeople();
+
+  if (_channelType === "global") return people;
+  if (_channelType === "cets") return people.filter((person) => normalizeRole(person) === "CET");
+  if (_channelType === "flotilla") {
+    return people.filter((person) => personBelongsToFlotilla(person.id_personal, _channelTarget));
+  }
+  if (_channelType === "grupo") {
+    return people.filter((person) => personBelongsToGrupo(person, _channelTarget));
+  }
+  if (_channelType === "vehiculo") {
+    const vehicle = getVehicleTarget();
+    const memberIds = new Set([
+      ...(vehicle?.personIds || []),
+      ...getVehicleOccupants(`V:${_channelTarget}`).map((key) => String(key).replace(/^P:/, "").trim())
+    ].filter(Boolean));
+    return people.filter((person) => memberIds.has(String(person.id_personal)));
+  }
+
+  return [];
+}
+
+function getGroupMemberContext(person) {
+  if (_channelType === "vehiculo") return getTargetLabel();
+  const grupo = getGrupoForPerson(person);
+  const flotilla = getFlotillaForPerson(person);
+  if (_channelType === "flotilla") return grupo?.label || flotilla?.label || "";
+  if (_channelType === "grupo") return flotilla?.label || "";
+  return flotilla?.label || grupo?.label || "";
+}
+
+function setGroupMembersPanelOpen(open) {
+  const canShow = isGroupMemberChannel();
+  const shouldOpen = Boolean(open && canShow);
+  dom.chatGroupMembersPanel?.classList.toggle("open", shouldOpen);
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.textContent = shouldOpen ? "<" : ">";
+    dom.chatGroupMembersToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+  }
+}
+
+function renderGroupMembersPanel() {
+  const canShow = isGroupMemberChannel();
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.hidden = !canShow;
+  }
+
+  if (!canShow) {
+    setGroupMembersPanelOpen(false);
+    return;
+  }
+
+  const members = getGroupChatMembers();
+  if (dom.chatGroupMembersCount) {
+    dom.chatGroupMembersCount.textContent = String(members.length);
+  }
+
+  if (!dom.chatGroupMembersList) return;
+  if (!members.length) {
+    dom.chatGroupMembersList.innerHTML = `<div class="chatGroupMembersEmpty">Sin integrantes</div>`;
+    return;
+  }
+
+  dom.chatGroupMembersList.innerHTML = members.map((person) => {
+    const id = String(person.id_personal);
+    const role = normalizeRole(person) || "PERSONAL";
+    const context = getGroupMemberContext(person);
+    const meta = [role, context].filter(Boolean).join(" - ");
+    return `
+      <button class="chatGroupMemberItem" type="button" data-chat-member-id="${escapeHtml(id)}">
+        <span>${escapeHtml(fullName(person))}</span>
+        <small>${escapeHtml(meta)}</small>
+      </button>
+    `;
+  }).join("");
 }
 
 function channelLabel(type = _channelType) {
@@ -369,6 +513,7 @@ function syncAudienceUi() {
     dom.chatConversationSubtitle.textContent = targetLabel ? channelLabel() : channelSubtitle();
   }
   if (dom.chatConversationAvatar) dom.chatConversationAvatar.textContent = channelAvatar();
+  renderGroupMembersPanel();
 }
 
 function updateTargetSelect(preferredValue = "") {
@@ -990,6 +1135,29 @@ export function bindChatEvents() {
         "aria-label",
         collapsed ? "Expandir destinatarios" : "Minimizar destinatarios"
       );
+    });
+  }
+
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.addEventListener("click", () => {
+      const isOpen = dom.chatGroupMembersPanel?.classList.contains("open");
+      setGroupMembersPanelOpen(!isOpen);
+      renderGroupMembersPanel();
+    });
+  }
+
+  if (dom.chatGroupMembersList) {
+    dom.chatGroupMembersList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-chat-member-id]");
+      if (!item) return;
+      const id = String(item.dataset.chatMemberId || "").trim();
+      const person = _chatDirectory.personalById.get(id);
+      const channel = getSpecificChannelForPerson(person);
+      if (!channel) return;
+      setChannel(channel, id);
+      setGroupMembersPanelOpen(false);
+      openChatPanels();
+      dom.chatInput?.focus();
     });
   }
 

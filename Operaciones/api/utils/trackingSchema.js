@@ -9,7 +9,10 @@ export async function ensurePersonalMotionTrackingSchema() {
   await pool.query(`
     ALTER TABLE tracking_personal
       ADD COLUMN IF NOT EXISTS velocidad_kmh NUMERIC(6,2),
-      ADD COLUMN IF NOT EXISTS rumbo_grados NUMERIC(5,2);
+      ADD COLUMN IF NOT EXISTS rumbo_grados NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS fuente_tracking TEXT,
+      ADD COLUMN IF NOT EXISTS dispositivos_fuente JSONB,
+      ADD COLUMN IF NOT EXISTS confianza_tracking TEXT;
 
     DO $$
     BEGIN
@@ -38,6 +41,9 @@ export async function ensurePersonalMotionTrackingSchema() {
       tp.velocidad_kmh,
       tp.rumbo_grados,
       tp.precision_m,
+      tp.fuente_tracking,
+      tp.dispositivos_fuente,
+      tp.confianza_tracking,
       tp."timestamp" AS ultima_actualizacion,
       tp.estado_operacion_creacion,
       sv.frecuencia_cardiaca_bpm,
@@ -82,7 +88,10 @@ export async function ensureExtendedTrackingSchema() {
 
     ALTER TABLE tracking_personal
       ADD COLUMN IF NOT EXISTS velocidad_kmh NUMERIC(6,2),
-      ADD COLUMN IF NOT EXISTS rumbo_grados NUMERIC(5,2);
+      ADD COLUMN IF NOT EXISTS rumbo_grados NUMERIC(5,2),
+      ADD COLUMN IF NOT EXISTS fuente_tracking TEXT,
+      ADD COLUMN IF NOT EXISTS dispositivos_fuente JSONB,
+      ADD COLUMN IF NOT EXISTS confianza_tracking TEXT;
 
     CREATE TABLE IF NOT EXISTS tracking_equipo (
       id_tracking BIGSERIAL PRIMARY KEY,
@@ -172,6 +181,9 @@ export async function ensureExtendedTrackingSchema() {
             tp.velocidad_kmh,
             tp.rumbo_grados,
             tp.precision_m,
+            tp.fuente_tracking,
+            tp.dispositivos_fuente,
+            tp.confianza_tracking,
             tp."timestamp" AS ultima_actualizacion,
             tp.estado_operacion_creacion,
             sv.frecuencia_cardiaca_bpm,

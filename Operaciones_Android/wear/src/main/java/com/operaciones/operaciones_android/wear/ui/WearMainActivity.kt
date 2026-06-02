@@ -35,22 +35,28 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import com.google.android.gms.wearable.MessageClient
+import com.google.android.gms.wearable.MessageEvent
+import com.google.android.gms.wearable.Wearable
 import com.operaciones.operaciones_android.wear.auth.WearSession
 import com.operaciones.operaciones_android.wear.bridge.PhoneBridge
+import com.operaciones.operaciones_android.wear.bridge.WearPhoneSessionSync
 import com.operaciones.operaciones_android.wear.config.WearApiConfig
 import com.operaciones.operaciones_android.wear.data.WearChatMessage
 import com.operaciones.operaciones_android.wear.data.WearOperation
 import com.operaciones.operaciones_android.wear.data.WearOperationStatus
 import com.operaciones.operaciones_android.wear.data.WearUser
+import com.operaciones.operaciones_android.wear.device.WearDeviceInfo
 import com.operaciones.operaciones_android.wear.emergency.WearEmergencyService
 import com.operaciones.operaciones_android.wear.health.HeartRateMonitor
 import com.operaciones.operaciones_android.wear.network.WearApiClient
+import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-class WearMainActivity : Activity(), SensorEventListener {
+class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessageReceivedListener {
     companion object {
         private const val REQUEST_RUNTIME_PERMISSIONS = 7001
         private const val REQUEST_AUDIO_PERMISSION = 7002
@@ -150,6 +156,12 @@ class WearMainActivity : Activity(), SensorEventListener {
         if (WearSession.isLoggedIn(this)) renderHome() else renderLogin()
     }
 
+    override fun onStart() {
+        super.onStart()
+        Wearable.getMessageClient(this).addListener(this)
+        requestPhoneSessionSync()
+    }
+
     override fun onResume() {
         super.onResume()
         if (WearSession.isLoggedIn(this)) startWearRuntime()
@@ -161,9 +173,21 @@ class WearMainActivity : Activity(), SensorEventListener {
         super.onPause()
     }
 
+    override fun onStop() {
+        Wearable.getMessageClient(this).removeListener(this)
+        super.onStop()
+    }
+
     override fun onDestroy() {
         stopWearRuntime()
         super.onDestroy()
+    }
+
+    override fun onMessageReceived(messageEvent: MessageEvent) {
+        when (messageEvent.path) {
+            WearPhoneSessionSync.PATH_SESSION_SYNC -> applyPhoneSession(messageEvent)
+            WearPhoneSessionSync.PATH_SESSION_ERROR -> showPhoneSessionError(messageEvent)
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -178,6 +202,42 @@ class WearMainActivity : Activity(), SensorEventListener {
         }
         if (WearSession.isLoggedIn(this)) startWearRuntime()
         if (activePanel == Panel.VITALES) renderActivePanel()
+    }
+
+    private fun requestPhoneSessionSync() {
+        if (!::phoneBridge.isInitialized) return
+        phoneBridge.requestSessionSync(WearDeviceInfo.toJson(this)) { ok ->
+            if (!ok && !WearSession.isLoggedIn(this)) {
+                runOnUiThread { setStatus("telefono no conectado") }
+            }
+        }
+    }
+
+    private fun applyPhoneSession(messageEvent: MessageEvent) {
+        runCatching {
+            JSONObject(String(messageEvent.data, Charsets.UTF_8))
+        }.onSuccess { payload ->
+            val applied = WearPhoneSessionSync.apply(this, payload)
+            runOnUiThread {
+                if (applied) {
+                    setStatus("sincronizado telefono")
+                    activePanel = Panel.OPERACION
+                    renderHome()
+                    startWearRuntime()
+                } else {
+                    setStatus("sync invalida")
+                }
+            }
+        }.onFailure {
+            runOnUiThread { setStatus("sync invalida") }
+        }
+    }
+
+    private fun showPhoneSessionError(messageEvent: MessageEvent) {
+        val message = runCatching {
+            JSONObject(String(messageEvent.data, Charsets.UTF_8)).optString("mensaje", "smartwatch no autorizado")
+        }.getOrElse { "smartwatch no autorizado" }
+        runOnUiThread { setStatus(message); toast(message) }
     }
 
     private fun renderLogin() {
@@ -360,7 +420,7 @@ class WearMainActivity : Activity(), SensorEventListener {
                     }
                 )
             },
-            onError = { error -> runOnUiThread { setStatus(error) } }
+            onError = { error -> runOnUiThread { setStatus(error); toast(error) } }
         )
     }
 

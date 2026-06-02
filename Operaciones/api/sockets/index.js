@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { pool } from "../db.js";
 import { ensureExtendedTrackingSchema, ensurePersonalMotionTrackingSchema } from "../utils/trackingSchema.js";
+import { derivePersonalTrackingFromDevice, getLatestDevicePosition } from "../utils/personalTrackingFromDevices.js";
 
 function streamRoomName(idStream) {
   return `media_stream_${idStream}`;
@@ -128,15 +129,16 @@ export function initSocket(server) {
         const { rows } = await pool.query(
           `INSERT INTO tracking_personal (
              id_operacion, id_personal, latitud, longitud, altitud,
-             precision_m, velocidad_kmh, rumbo_grados
+             precision_m, velocidad_kmh, rumbo_grados, fuente_tracking
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
            RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp, estado_operacion_creacion`,
           [opId, Number(id_personal), Number(latitud), Number(longitud),
             optionalNumber(altitud),
             optionalNumber(precision_m),
             optionalNumber(velocidad_kmh),
-            optionalNumber(rumbo_grados)]
+            optionalNumber(rumbo_grados),
+            "GPS_DIRECTO"]
         );
         savedTracking = rows[0];
       } catch (err) {
@@ -314,13 +316,29 @@ export function initSocket(server) {
         return;
       }
 
-      socket.to(`op_${opId}`).emit("tracking_dispositivo", {
+      let latestDevice = null;
+      try {
+        latestDevice = await getLatestDevicePosition(opId, Number(id_dispositivo));
+      } catch (err) {
+        console.warn("[SOCKET] No se pudo obtener ultima posicion de dispositivo:", err.message);
+      }
+
+      io.to(`op_${opId}`).emit("tracking_dispositivo", latestDevice || {
         ...data,
         ...savedTracking,
         tipo: data.tipo,
         marca: data.marca,
         modelo: data.modelo,
       });
+
+      try {
+        const personalFromDevices = await derivePersonalTrackingFromDevice(opId, Number(id_dispositivo));
+        if (personalFromDevices) {
+          io.to(`op_${opId}`).emit("tracking_personal", personalFromDevices);
+        }
+      } catch (err) {
+        console.error("[SOCKET] Error calculando tracking_personal desde dispositivo:", err.message);
+      }
     });
 
     socket.on("stream_join", async (payload, ack) => {

@@ -204,6 +204,12 @@ function getCoords(item) {
   return normalizeCoords(lat, lng);
 }
 
+function assignedPersonalId(item) {
+  const value = item?.id_personal ?? item?.personal_id ?? item?.id_personal_asignado;
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
 function upsertPersonalTracking(item) {
   const coords = getCoords(item);
   if (!coords || item?.id_personal == null) return;
@@ -243,6 +249,11 @@ function upsertEquipoTracking(item) {
 function upsertDispositivoTracking(item) {
   const coords = getCoords(item);
   if (!coords || item?.id_dispositivo == null) return;
+
+  if (assignedPersonalId(item) != null) {
+    removeTrackingEntity(`D:${item.id_dispositivo}`);
+    return;
+  }
 
   upsertTrackingEntity(`D:${item.id_dispositivo}`, coords.lat, coords.lng, makeDispositivoLabel(item), COLOR_DISPOSITIVO, {
     tacticalType: "dispositivo",
@@ -311,6 +322,14 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
   });
 
   dashboardState.trackingEntities.set(key, ent);
+}
+
+function removeTrackingEntity(key) {
+  const ent = dashboardState.trackingEntities.get(key);
+  if (!ent) return;
+  const viewer = dashboardState.viewer;
+  if (viewer) viewer.entities.remove(ent);
+  dashboardState.trackingEntities.delete(key);
 }
 
 // ── Carga desde datos de mapa ya obtenidos (sin fetch extra) ─

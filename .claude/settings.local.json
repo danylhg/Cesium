@@ -51,7 +51,11 @@
       "Bash(curl -L \"https://unpkg.com/milsymbol@2.1.0/dist/milsymbol.js\" -o Operaciones/js/libs/milsymbol.min.js)",
       "Bash(./gradlew --stop)",
       "Bash(handle64 \"R.jar\")",
-      "Bash(handle \"R.jar\")"
+      "Bash(handle \"R.jar\")",
+      "Bash(mkdir -p \"c:\\\\Users\\\\PC\\\\Desktop\\\\cesium-proyecto\\\\.claude\\\\skills\\\\run-cesium\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\PC\\Desktop\\cesium-proyecto\\.claude\\skills"
     ]
   }
 }

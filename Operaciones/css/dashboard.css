@@ -417,6 +417,13 @@ body {
   border-color: rgba(0, 255, 170, 0.22);
 }
 
+.chatGroupMembersPanel {
+  left: 824px;
+  width: 270px;
+  background: rgba(20, 33, 39, 0.90);
+  border-color: rgba(0, 255, 170, 0.22);
+}
+
 .chatAudiencePanel .panelTitle {
   margin-bottom: 10px;
 }
@@ -676,6 +683,7 @@ body {
 .btnBeige:disabled,
 .chatActionBtn:disabled,
 .chatIconBtn:disabled,
+.chatGroupMembersToggle:disabled,
 .sendChatBtn:disabled,
 .quickMsgBtn:disabled,
 .chatTab:disabled {
@@ -937,6 +945,99 @@ body {
   margin: -12px -2px 10px;
   padding: 10px 6px 12px;
   border-bottom: 1px solid rgba(0, 255, 170, 0.14);
+}
+
+.chatGroupMembersToggle {
+  margin-left: auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(0, 255, 170, 0.22);
+  border-radius: 50%;
+  background: rgba(0, 255, 170, 0.12);
+  color: #00ffa6;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.chatGroupMembersToggle:hover {
+  background: rgba(0, 255, 170, 0.20);
+}
+
+.chatGroupMembersHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -10px 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(0, 255, 170, 0.14);
+}
+
+.chatGroupMembersTitle {
+  margin: 0;
+  color: #eafff8;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.chatGroupMembersCount {
+  min-width: 28px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(0, 255, 170, 0.14);
+  color: #00ffa6;
+  font-size: 12px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.chatGroupMembersList {
+  display: grid;
+  gap: 6px;
+}
+
+.chatGroupMemberItem {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px 10px;
+  border: 1px solid rgba(0, 255, 170, 0.14);
+  border-radius: 8px;
+  background: rgba(24, 43, 47, 0.52);
+  color: #eafff8;
+  cursor: pointer;
+  text-align: left;
+}
+
+.chatGroupMemberItem:hover {
+  border-color: rgba(0, 255, 170, 0.35);
+  background: rgba(0, 255, 170, 0.10);
+}
+
+.chatGroupMemberItem span {
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1.15;
+}
+
+.chatGroupMemberItem small {
+  color: #9fb3bf;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.chatGroupMembersEmpty {
+  padding: 16px 10px;
+  border: 1px dashed rgba(0, 255, 170, 0.22);
+  border-radius: 8px;
+  color: #9fb3bf;
+  font-size: 12px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .chatConversationAvatar {
@@ -1335,7 +1436,8 @@ body {
 
   .tacticalWide,
   .chatPanel,
-  .chatAudiencePanel {
+  .chatAudiencePanel,
+  .chatGroupMembersPanel {
     width: calc(100vw - 84px);
     left: 74px;
   }
@@ -1672,6 +1774,53 @@ body {
   display: flex !important;
 }
 
+.cameraLayoutControls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 8px;
+  background: rgba(2, 6, 12, 0.74);
+  border: 1px solid rgba(0, 255, 166, 0.20);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.layoutBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid rgba(0, 255, 166, 0.36);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.62);
+  color: #eafff8;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.34);
+}
+
+.layoutBtn:hover,
+.layoutBtn.active {
+  background: rgba(0, 255, 166, 0.88);
+  border-color: rgba(0, 255, 166, 0.95);
+  color: #001b1b;
+}
+
+.layoutBtn:disabled,
+.layoutBtn[aria-disabled="true"] {
+  opacity: 0.38;
+  cursor: default;
+  pointer-events: none;
+}
+
 .cameraPanel.is-dragging {
   cursor: grabbing;
 }
@@ -1692,6 +1841,7 @@ body {
 .cameraFeeds.speaker-layout {
   grid-template-columns: 1fr;
   grid-auto-rows: minmax(360px, 1fr);
+  overflow: hidden;
 }
 
 .cameraFeeds.speaker-layout .cameraFeed {
@@ -1700,6 +1850,10 @@ body {
 
 .cameraFeeds.speaker-layout .cameraFeed.focused {
   display: block;
+  height: 100%;
+  min-height: 360px;
+  outline: 2px solid rgba(0, 255, 166, 0.72);
+  outline-offset: -2px;
 }
 
 .cameraFeed {
@@ -1877,6 +2031,14 @@ body {
   text-decoration-color: rgba(0, 255, 166, 0.3);
 }
 
+.person-link.has-connection-history {
+  font-weight: 900;
+}
+
+.person-link.is-followed {
+  text-decoration-color: #38bdf8;
+}
+
 .person-link:hover {
   text-decoration-color: #00ffa6;
 }
@@ -2037,132 +2199,17 @@ body {
   object-fit: cover;
 }
 
+.personInfoCamera .personCameraWaiting {
+  height: 92px;
+  min-height: 92px;
+  padding: 12px;
+}
+
 .topbar {
   padding: 4px 8px;
 }
 
 /* Compatibilidad del proyecto: cámaras WebRTC, reproducción local y adjuntos */
-.panelHeader {
-  background: transparent;
-  padding: 4px 6px !important;
-  cursor: grab;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 0;
-  user-select: none;
-}
-
-.cameraPanel.is-dragging .panelHeader {
-  cursor: grabbing;
-}
-
-.dragHandle {
-  color: rgba(0, 255, 166, 0.8);
-  font-size: 20px;
-  line-height: 1;
-  text-shadow: 0 0 5px #000;
-}
-
-.cameraControls {
-  display: flex;
-  gap: 5px;
-  opacity: 0.38;
-  transition: opacity 0.18s ease;
-}
-
-.cameraBackBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 70px;
-}
-
-.cameraPanel.is-focused .cameraBackBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.obsControls {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  max-width: min(410px, calc(100% - 72px));
-  opacity: 0.42;
-  transition: opacity 0.18s ease;
-}
-
-.obsControls:focus-within,
-.panelHeader:hover .obsControls {
-  opacity: 1;
-}
-
-.obsControls input {
-  width: 86px;
-  min-width: 0;
-  height: 24px;
-  border: 1px solid rgba(0, 255, 166, 0.26);
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.52);
-  color: #e6edf3;
-  padding: 2px 7px;
-  font-size: 11px;
-  font-weight: 800;
-  outline: none;
-}
-
-.obsControls button {
-  height: 24px;
-  border: 1px solid rgba(0, 255, 166, 0.3);
-  border-radius: 5px;
-  background: rgba(0, 0, 0, 0.5);
-  color: #e6edf3;
-  padding: 1px 8px;
-  font-size: 11px;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.obsControls button:hover {
-  background: #00ffa6;
-  color: #001b1b;
-}
-
-.obsControls span {
-  min-width: 0;
-  color: #bfdbfe;
-  font-size: 10px;
-  font-weight: 800;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.panelHeader:hover .cameraControls,
-.cameraControls:focus-within {
-  opacity: 1;
-}
-
-.layoutBtn {
-  min-width: 24px;
-  height: 24px;
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  color: #e6edf3;
-  padding: 1px 5px;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.layoutBtn.active,
-.layoutBtn:hover {
-  background: #00ffa6;
-  color: #001b1b;
-  border-color: #00ffa6;
-}
-
 .cameraFeedName {
   position: absolute;
   bottom: 8px;
@@ -2222,6 +2269,36 @@ body {
   font-size: 9px;
 }
 
+.cameraSelectBtn {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 6;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(0, 255, 166, 0.34);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.68);
+  color: #eafff8;
+  padding: 0;
+  font-size: 14px;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.32);
+}
+
+.cameraSelectBtn:hover {
+  background: rgba(0, 255, 166, 0.88);
+  border-color: rgba(0, 255, 166, 0.9);
+  color: #001b1b;
+}
+
+.cameraFeeds.speaker-layout .cameraSelectBtn {
+  display: none;
+}
+
 .cameraAudioBtn {
   position: absolute;
   top: 10px;
@@ -2245,37 +2322,6 @@ body {
 .cameraAudioBtn.active {
   background: rgba(0, 255, 166, 0.88);
   border-color: rgba(0, 255, 166, 0.9);
-  color: #001b1b;
-}
-
-.cameraReturnBtn {
-  display: none;
-  position: absolute;
-  top: 42px;
-  right: 10px;
-  z-index: 6;
-  min-width: 86px;
-  height: 26px;
-  border: 1px solid rgba(0, 255, 166, 0.36);
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #e6edf3;
-  padding: 0 10px;
-  font-size: 10px;
-  font-weight: 900;
-  white-space: nowrap;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.38);
-}
-
-.cameraFeed.focused .cameraReturnBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.cameraReturnBtn:hover {
-  background: #00ffa6;
   color: #001b1b;
 }
 
@@ -2489,10 +2535,20 @@ body {
 
 .cameraFeeds.speaker-layout {
   grid-template-columns: 1fr;
+  grid-auto-rows: minmax(360px, 1fr);
+  overflow: hidden;
 }
 
 .cameraFeeds.speaker-layout .cameraFeed {
+  display: none;
+}
+
+.cameraFeeds.speaker-layout .cameraFeed.focused {
   display: block;
+  height: 100%;
+  min-height: 360px;
+  outline: 2px solid rgba(0, 255, 166, 0.72);
+  outline-offset: -2px;
 }
 
 .cameraFeed {
@@ -2510,6 +2566,61 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.cameraWaitingSignal,
+.personCameraWaiting {
+  width: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.20);
+  background:
+    linear-gradient(135deg, rgba(8, 16, 24, 0.96), rgba(3, 10, 17, 0.98)),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 14px),
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 1px, transparent 1px 14px);
+  color: #e5eefc;
+  text-align: center;
+}
+
+.cameraWaitingSignal span,
+.personCameraWaiting span {
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.cameraWaitingSignal strong,
+.personCameraWaiting strong {
+  min-width: 74px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(34, 211, 238, 0.42);
+  background: rgba(8, 47, 73, 0.42);
+  color: #67e8f9;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.cameraWaitingSignal[data-protocol="RTMP"] strong,
+.personCameraWaiting[data-protocol="RTMP"] strong {
+  border-color: rgba(251, 146, 60, 0.48);
+  background: rgba(67, 20, 7, 0.42);
+  color: #fdba74;
+}
+
+.cameraEmptyState {
+  min-height: 220px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #020617;
 }
 
 .cameraFeedName,
@@ -2534,6 +2645,10 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   z-index: 2;
+}
+
+.cameraFeed:not(.hasPlayback) .cameraFeedName {
+  bottom: 8px !important;
 }
 
 .cameraPlayback.camScrubberWrap,
@@ -2703,8 +2818,14 @@ body {
   box-shadow: 0 8px 18px rgba(0, 0, 0, 0.32);
 }
 
-.cameraSourceBtn,
-.cameraBottomControls .obsControls button {
+.cameraProtocolTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cameraSourceBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2717,80 +2838,15 @@ body {
   padding: 0 12px;
   font-size: 11px;
   font-weight: 900;
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
   cursor: pointer;
 }
 
 .cameraSourceBtn:hover,
-.cameraSourceBtn.active,
-.cameraBottomControls .obsControls button:hover {
+.cameraSourceBtn.active {
   background: rgba(255, 0, 0, 0.26);
   border-color: rgba(255, 0, 0, 0.45);
   color: #fff;
-}
-
-.cameraBottomControls .obsControls {
-  position: static;
-  inset: auto;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  opacity: 1;
-  pointer-events: auto;
-  margin-left: auto;
-}
-
-.cameraBottomControls .obsControls input {
-  width: 92px;
-  height: 30px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.48);
-  color: #eafff8;
-  padding: 0 8px;
-  font-size: 11px;
-  font-weight: 800;
-}
-
-.cameraBottomControls .obsControls span {
-  min-width: 92px;
-  color: #bfdbfe;
-  font-size: 10px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.cameraPanel .panelHeader {
-  justify-content: flex-end !important;
-}
-
-.obsControls {
-  position: absolute;
-  left: 5px;
-  top: 5px;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.panelHeader:hover .obsControls,
-.obsControls:focus-within {
-  opacity: 0.42;
-  pointer-events: auto;
-}
-
-.cameraBackBtn {
-  display: none;
-}
-
-.cameraPanel.is-focused .cameraBackBtn {
-  display: inline-flex;
-}
-
-.cameraBottomControls .obsControls,
-.cameraBottomControls .obsControls:focus-within {
-  opacity: 1;
-  pointer-events: auto;
 }
 
 .chatAttachment {
@@ -2968,7 +3024,8 @@ body {
 
 .glassPanel,
 .chatPanel,
-.chatAudiencePanel {
+.chatAudiencePanel,
+.chatGroupMembersPanel {
   background: var(--dash-surface-strong);
   border-color: var(--dash-border);
   box-shadow: var(--dash-shadow);
@@ -2986,8 +3043,7 @@ body {
 .glassPanel input,
 .glassPanel textarea,
 #routePanel #routeVehicleSelect,
-#routePanel #zoneColorSelect,
-.cameraBottomControls .obsControls input {
+#routePanel #zoneColorSelect {
   background: rgba(255, 255, 255, 0.14) !important;
   border-color: var(--dash-border) !important;
   color: var(--dash-text) !important;
@@ -3033,8 +3089,10 @@ body {
 .chatActionBtn,
 .sendChatBtn,
 .chatAudienceToggle,
+.chatGroupMembersToggle,
 .chatAudienceChip::before,
 .chatConversationAvatar,
+.chatGroupMembersCount,
 .chatTargetBox,
 .milPreviewBox {
   background: var(--dash-surface-soft);
@@ -3045,6 +3103,7 @@ body {
 .chatActionBtn,
 .sendChatBtn,
 .chatAudienceToggle,
+.chatGroupMembersToggle,
 .chatAudienceChip.active,
 .chatAudienceSummary,
 .person-link,
@@ -3082,6 +3141,7 @@ body {
 .chatTab,
 .chatMessages,
 .chatBubble,
+.chatGroupMemberItem,
 .chatInputBar,
 .chatAttachmentImage {
   border-color: rgba(96, 165, 250, 0.20);
@@ -3090,6 +3150,7 @@ body {
 .chatTab,
 .quickMsgBtn,
 .chatBubble.mine,
+.chatGroupMemberItem:hover,
 .sendChatBtn {
   background: rgba(96, 165, 250, 0.14);
 }
@@ -3113,11 +3174,11 @@ body {
 }
 
 .chatAudienceChip,
+.chatGroupMemberItem,
 .chatConversationTitle,
 .chatIconBtn,
 .chatActionBtn,
-.cameraSourceBtn,
-.cameraBottomControls .obsControls input {
+.cameraSourceBtn {
   color: #eafff8;
 }
 
@@ -3126,6 +3187,7 @@ body {
 }
 
 .chatConversationHeader,
+.chatGroupMembersHeader,
 .personInfoSubtitle,
 .personInfoBio,
 .personInfoCamera,

@@ -57,6 +57,15 @@ function collectDeviceIdentifiers(req) {
   };
 }
 
+function requestedDeviceType(req) {
+  const body = req.body ?? {};
+  const device = body.device && typeof body.device === "object" ? body.device : {};
+  const raw = device.tipo ?? device.plataforma ?? body.tipo ?? body.plataforma ?? body.device_type;
+  const text = (raw ?? "").toString().trim().toUpperCase();
+  if (["SMARTWATCH", "WEAR", "WEAR_OS", "WEAROS"].includes(text)) return "SMARTWATCH";
+  return null;
+}
+
 async function ensureLoginDeviceSchema() {
   if (loginDeviceSchemaReady) return;
 
@@ -101,6 +110,7 @@ async function validatePersonalDeviceAccess(row, req) {
   await ensureLoginDeviceSchema();
 
   const { id_dispositivo, identifiers } = collectDeviceIdentifiers(req);
+  const expectedDeviceType = requestedDeviceType(req);
   if (!id_dispositivo && identifiers.length === 0) {
     return {
       ok: false,
@@ -129,18 +139,27 @@ async function validatePersonalDeviceAccess(row, req) {
     `);
   }
 
+  const typeFilter = expectedDeviceType
+    ? `AND UPPER(COALESCE(d.tipo, '')) = $${params.length + 1}`
+    : "";
+  if (expectedDeviceType) params.push(expectedDeviceType);
+
   const { rows: deviceRows } = await pool.query(
     `SELECT d.id_dispositivo, d.tipo, d.marca, d.modelo, d.numero_telefono,
             d.imei, d.numero_serie, d.identificador_app, d.estado
        FROM dispositivo d
-      WHERE ${conditions.map(c => `(${c})`).join(" OR ")}
+      WHERE (${conditions.map(c => `(${c})`).join(" OR ")})
+      ${typeFilter}
       LIMIT 1`,
     params
   );
 
   const dispositivo = deviceRows[0];
   if (!dispositivo) {
-    const assigned = await findAssignedLoginDevices(row.id);
+    let assigned = await findAssignedLoginDevices(row.id);
+    if (expectedDeviceType) {
+      assigned = assigned.filter(d => String(d.tipo || "").toUpperCase() === expectedDeviceType);
+    }
     if (assigned.length === 1 && identifiers.length > 0 && !cleanDeviceIdentifier(assigned[0].identificador_app)) {
       const identificadorApp = identifiers[0];
       const { rows: updatedRows } = await pool.query(
@@ -221,6 +240,75 @@ async function validatePersonalDeviceAccess(row, req) {
   return { ok: true, dispositivo, asignacion };
 }
 
+function buildTokenPayload(row, tabla, deviceValidation = null) {
+  const tokenPayload = { sub: row.id, username: row.username, rol: row.rol, tabla };
+  if (deviceValidation?.ok) {
+    tokenPayload.id_dispositivo = deviceValidation.dispositivo.id_dispositivo;
+    tokenPayload.id_operacion = deviceValidation.asignacion.id_operacion;
+  }
+  return tokenPayload;
+}
+
+function publicUser(row, tabla, deviceValidation = null) {
+  return {
+    id_usuario: tabla === "usuario" ? row.id : null,
+    id_personal: tabla === "personal" ? row.id : null,
+    username: row.username,
+    rol: row.rol,
+    nombre: row.nombre,
+    apellido: row.apellido,
+    puesto: row.puesto ?? null,
+    tabla,
+    id_dispositivo: deviceValidation?.dispositivo?.id_dispositivo ?? null,
+    dispositivo: deviceValidation?.dispositivo
+      ? {
+        id_dispositivo: deviceValidation.dispositivo.id_dispositivo,
+        tipo: deviceValidation.dispositivo.tipo,
+        marca: deviceValidation.dispositivo.marca,
+        modelo: deviceValidation.dispositivo.modelo,
+        numero_serie: deviceValidation.dispositivo.numero_serie,
+        imei: deviceValidation.dispositivo.imei,
+        identificador_app: deviceValidation.dispositivo.identificador_app,
+      }
+      : null,
+  };
+}
+
+async function fetchAssignedOperationForPersonal(idPersonal) {
+  const { rows } = await pool.query(
+    `SELECT
+       o.id_operacion, o.codigo, o.nombre, o.descripcion,
+       o.prioridad, o.estado, o.fecha_inicio, o.fecha_fin,
+       a.rol_en_operacion, a.estado_asignacion,
+       a.estado_operacion_creacion
+     FROM asignacion_operacion_personal a
+     JOIN operacion o ON o.id_operacion = a.id_operacion
+     WHERE a.id_personal = $1
+       AND o.estado IN ('ACTIVA', 'PLANIFICADA')
+       AND a.estado_asignacion NOT IN ('LIBERADO')
+     ORDER BY
+       CASE o.estado WHEN 'ACTIVA' THEN 1 WHEN 'PLANIFICADA' THEN 2 ELSE 3 END,
+       o.fecha_inicio ASC
+     LIMIT 1`,
+    [idPersonal]
+  );
+
+  const operacion = rows[0];
+  if (!operacion) return null;
+
+  const zonaRes = await pool.query(
+    `SELECT centroide_lat, centroide_lon, zoom_inicial, color, geometria,
+            estado_operacion_creacion
+       FROM zona_operacion WHERE id_operacion = $1 LIMIT 1`,
+    [operacion.id_operacion]
+  );
+
+  return {
+    ...operacion,
+    zona: zonaRes.rows[0] ?? null,
+  };
+}
+
 // Inicia sesion para usuarios administrativos o personal operativo.
 export async function login(req, res) {
   try {
@@ -288,15 +376,8 @@ export async function login(req, res) {
       await pool.query(`UPDATE personal SET ultimo_acceso = NOW() WHERE id_personal = $1`, [row.id]);
     }
 
-    // El token conserva el id, rol y origen de tabla para aplicar permisos.
-    const tokenPayload = { sub: row.id, username: row.username, rol: row.rol, tabla };
-    if (deviceValidation?.ok) {
-      tokenPayload.id_dispositivo = deviceValidation.dispositivo.id_dispositivo;
-      tokenPayload.id_operacion = deviceValidation.asignacion.id_operacion;
-    }
-
     const token = jwt.sign(
-      tokenPayload,
+      buildTokenPayload(row, tabla, deviceValidation),
       JWT_SECRET,
       { expiresIn: "8h" }
     );
@@ -305,31 +386,80 @@ export async function login(req, res) {
     return res.json({
       ok: true,
       token,
-      usuario: {
-        id_usuario: tabla === "usuario" ? row.id : null,
-        id_personal: tabla === "personal" ? row.id : null,
-        username: row.username,
-        rol: row.rol,
-        nombre: row.nombre,
-        apellido: row.apellido,
-        puesto: row.puesto ?? null,
-        tabla,
-        id_dispositivo: deviceValidation?.dispositivo?.id_dispositivo ?? null,
-        dispositivo: deviceValidation?.dispositivo
-          ? {
-            id_dispositivo: deviceValidation.dispositivo.id_dispositivo,
-            tipo: deviceValidation.dispositivo.tipo,
-            marca: deviceValidation.dispositivo.marca,
-            modelo: deviceValidation.dispositivo.modelo,
-            numero_serie: deviceValidation.dispositivo.numero_serie,
-            imei: deviceValidation.dispositivo.imei,
-            identificador_app: deviceValidation.dispositivo.identificador_app,
-          }
-          : null,
-      },
+      usuario: publicUser(row, tabla, deviceValidation),
     });
   } catch (err) {
     return sendDbError(res, err, "Error interno");
+  }
+}
+
+export async function issueWearSession(req, res) {
+  try {
+    if (req.user?.tabla !== "personal") {
+      return res.status(403).json({ ok: false, mensaje: "Solo personal operativo puede sincronizar smartwatch" });
+    }
+
+    const idPersonal = Number(req.user.sub);
+    const { rows } = await pool.query(
+      `SELECT id_personal AS id, username, rol, nombre, apellido, activo, puesto
+         FROM personal
+        WHERE id_personal = $1
+        LIMIT 1`,
+      [idPersonal]
+    );
+
+    const row = rows[0];
+    if (!row) return res.status(404).json({ ok: false, mensaje: "Personal no existe" });
+    if (!row.activo) return res.status(403).json({ ok: false, mensaje: "Usuario inactivo" });
+
+    const originalBody = req.body ?? {};
+    const incomingDevice = originalBody.device && typeof originalBody.device === "object"
+      ? originalBody.device
+      : originalBody;
+    req.body = {
+      ...originalBody,
+      plataforma: "SMARTWATCH",
+      tipo: "SMARTWATCH",
+      device: {
+        ...incomingDevice,
+        plataforma: "SMARTWATCH",
+        tipo: "SMARTWATCH",
+      },
+    };
+
+    const deviceValidation = await validatePersonalDeviceAccess(row, req);
+    if (deviceValidation?.ok === false) {
+      return res.status(deviceValidation.status).json({
+        ok: false,
+        codigo: deviceValidation.codigo,
+        mensaje: deviceValidation.mensaje,
+        identificador_app: deviceValidation.identificador_app ?? undefined,
+      });
+    }
+    if (!deviceValidation?.ok) {
+      return res.status(403).json({
+        ok: false,
+        codigo: "SMARTWATCH_NO_VALIDADO",
+        mensaje: "El smartwatch debe estar registrado y asignado al personal.",
+      });
+    }
+
+    const token = jwt.sign(
+      buildTokenPayload(row, "personal", deviceValidation),
+      JWT_SECRET,
+      { expiresIn: "8h" }
+    );
+
+    const operacion = await fetchAssignedOperationForPersonal(row.id);
+
+    return res.json({
+      ok: true,
+      token,
+      usuario: publicUser(row, "personal", deviceValidation),
+      operacion,
+    });
+  } catch (err) {
+    return sendDbError(res, err, "Error sincronizando smartwatch");
   }
 }
 

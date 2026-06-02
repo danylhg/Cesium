@@ -96,6 +96,19 @@ echo.
 if not defined PGPASSWORD set /p PGPASSWORD="Ingresa la contrasena de PostgreSQL (usuario: %PGUSER%): "
 echo.
 
+call :ensure_psql
+if %ERRORLEVEL% NEQ 0 (
+    pause
+    exit /b 1
+)
+
+call :ensure_postgres_ready
+if %ERRORLEVEL% NEQ 0 (
+    pause
+    exit /b 1
+)
+echo.
+
 :: ============================================================
 ::  PASO 2: Borrar base de datos configurada (si existe)
 :: ============================================================
@@ -203,3 +216,87 @@ echo  - Password de todos los usuarios: 1234
 echo ============================================================
 echo.
 pause
+exit /b 0
+
+:ensure_psql
+if exist "%PSQL%" exit /b 0
+
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$root = 'C:\Program Files\PostgreSQL'; if (Test-Path -LiteralPath $root) { Get-ChildItem -LiteralPath $root -Directory | Sort-Object Name -Descending | ForEach-Object { Join-Path $_.FullName 'bin\psql.exe' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1 }"`) do set "PSQL=%%I"
+
+if exist "%PSQL%" exit /b 0
+
+echo ERROR: No se encontro psql.exe.
+echo        Instala PostgreSQL o ajusta la ruta PSQL dentro de este archivo:
+echo        %~f0
+exit /b 1
+
+:ensure_postgres_ready
+echo Verificando PostgreSQL en %PGHOST%:%PGPORT% ...
+
+set "PGHOST_IS_LOCAL="
+if /I "%PGHOST%"=="localhost" set "PGHOST_IS_LOCAL=1"
+if "%PGHOST%"=="127.0.0.1" set "PGHOST_IS_LOCAL=1"
+if "%PGHOST%"=="::1" set "PGHOST_IS_LOCAL=1"
+
+if defined PGHOST_IS_LOCAL call :use_local_postgres_config_port
+
+call :test_postgres
+if not errorlevel 1 (
+    echo       PostgreSQL listo en %PGHOST%:%PGPORT%.
+    exit /b 0
+)
+
+if not defined PGHOST_IS_LOCAL (
+    echo ERROR: No se pudo conectar a PostgreSQL en %PGHOST%:%PGPORT% con usuario %PGUSER%.
+    echo        Revisa host, puerto, usuario y contrasena en Operaciones\api\.env.
+    exit /b 1
+)
+
+echo       PostgreSQL local no respondio; intentando iniciar el servicio ...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$svc = Get-Service | Where-Object { $_.Name -like 'postgresql*' -or $_.DisplayName -like 'postgresql*' } | Sort-Object Name -Descending | Select-Object -First 1; if (-not $svc) { Write-Error 'No se encontro ningun servicio postgresql-*'; exit 2 }; if ($svc.Status -ne 'Running') { Write-Host ('      Iniciando servicio ' + $svc.Name + ' ...'); Start-Service -Name $svc.Name -ErrorAction Stop; $svc.WaitForStatus('Running','00:00:30') } else { Write-Host ('      Servicio ' + $svc.Name + ' ya esta iniciado.') }"
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: No se pudo iniciar el servicio de PostgreSQL.
+    echo        Ejecuta este .bat como administrador o inicia PostgreSQL desde Servicios.
+    exit /b 1
+)
+
+set /a PG_TRIES=0
+
+:wait_postgres_loop
+set /a PG_TRIES+=1
+call :test_postgres
+if not errorlevel 1 (
+    echo       PostgreSQL listo en %PGHOST%:%PGPORT%.
+    exit /b 0
+)
+
+if %PG_TRIES% GEQ 20 goto postgres_not_ready
+timeout /t 1 /nobreak >nul
+goto wait_postgres_loop
+
+:postgres_not_ready
+echo ERROR: PostgreSQL no acepto conexiones en %PGHOST%:%PGPORT%.
+echo        Si cambiaste el puerto en postgresql.conf, actualiza PGPORT en Operaciones\api\.env.
+echo        Tambien verifica que la contrasena de %PGUSER% sea correcta.
+exit /b 1
+
+:use_local_postgres_config_port
+set "PG_CONF="
+set "DETECTED_PGPORT="
+for %%I in ("%PSQL%") do set "PG_CONF=%%~dpI..\data\postgresql.conf"
+
+if not exist "%PG_CONF%" exit /b 0
+
+for /f "usebackq delims=" %%I in (`powershell -NoProfile -Command "$conf = $env:PG_CONF; $line = Get-Content -LiteralPath $conf -ErrorAction SilentlyContinue | Where-Object { $_ -match '^\s*port\s*=\s*(\d+)' } | Select-Object -First 1; if ($line -match '^\s*port\s*=\s*(\d+)') { $matches[1] }"`) do set "DETECTED_PGPORT=%%I"
+
+if not defined DETECTED_PGPORT exit /b 0
+if "%DETECTED_PGPORT%"=="%PGPORT%" exit /b 0
+
+echo       Detecte que PostgreSQL local usa el puerto %DETECTED_PGPORT% (no %PGPORT%).
+echo       Usando PGPORT=%DETECTED_PGPORT% para este setup.
+set "PGPORT=%DETECTED_PGPORT%"
+exit /b 0
+
+:test_postgres
+"%PSQL%" -h "%PGHOST%" -p "%PGPORT%" -U "%PGUSER%" -d postgres -w -c "SELECT 1;" >nul 2>nul
+exit /b %ERRORLEVEL%

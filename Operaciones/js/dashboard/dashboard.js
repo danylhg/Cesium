@@ -34,7 +34,7 @@ import {
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
-import { initCameraFeeds } from "./dashboard.camera.js";
+import { initCameraFeeds } from "./dashboard.camera.js?v=20260528-camera-protocols";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";

@@ -42,6 +42,11 @@ function bindPanelEvents() {
       if (isOpen) {
         dom.chatPanel?.classList.remove("open");
         dom.chatAudiencePanel?.classList.remove("open");
+        dom.chatGroupMembersPanel?.classList.remove("open");
+        if (dom.chatGroupMembersToggle) {
+          dom.chatGroupMembersToggle.textContent = ">";
+          dom.chatGroupMembersToggle.setAttribute("aria-expanded", "false");
+        }
         dom.toggleChatPanel?.classList.remove("active");
         return;
       }
