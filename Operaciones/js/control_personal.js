@@ -260,13 +260,13 @@
   ========================= */
   const btnBack = document.getElementById("btnBack");
   const btnLogout = document.getElementById("btnLogout");
+  const controlUserName = document.getElementById("controlUserName");
 
   const btnAdd = document.getElementById("btnAdd");
   const btnEdit = document.getElementById("btnEdit");
   const btnDelete = document.getElementById("btnDelete");
 
   const searchInput = document.getElementById("searchInput");
-  const btnSearch = document.getElementById("btnSearch");
   const btnClear = document.getElementById("btnClear");
 
   const filterRol = document.getElementById("filterRol");
@@ -282,6 +282,12 @@
   const btnDeleteModal = document.getElementById("btnDeleteModal");
   const form = document.getElementById("form");
 
+  const errorDeleteModal = document.getElementById("errorDeleteModal");
+  const errorDeleteTitle = document.getElementById("errorDeleteTitle");
+  const errorDeleteMsg = document.getElementById("errorDeleteMsg");
+  const btnCloseErrorModal = document.getElementById("btnCloseErrorModal");
+  const btnCloseErrorBtn = document.getElementById("btnCloseErrorBtn");
+
   const fApodo = document.getElementById("fApodo");
   const fRol = document.getElementById("fRol");
   const fNombre = document.getElementById("fNombre");
@@ -291,6 +297,10 @@
   const fPassword = document.getElementById("fPassword");
   const fActivo = document.getElementById("fActivo");
   const fLastAccess = document.getElementById("fLastAccess");
+
+  if (controlUserName) {
+    controlUserName.textContent = localStorage.getItem("nombre") || localStorage.getItem("username") || "Admin";
+  }
 
   const requiredEls = {
     tbody,
@@ -660,11 +670,28 @@
     modal.setAttribute("aria-hidden", "true");
   }
 
+  function closeErrorModal() {
+    errorDeleteModal.classList.add("hidden");
+    errorDeleteModal.setAttribute("aria-hidden", "true");
+  }
+
+  function showErrorDeleteModal(message) {
+    errorDeleteMsg.textContent = message;
+    errorDeleteModal.classList.remove("hidden");
+    errorDeleteModal.setAttribute("aria-hidden", "false");
+  }
+
   btnCloseModal?.addEventListener("click", closeModal);
+  btnCloseErrorModal?.addEventListener("click", closeErrorModal);
+  btnCloseErrorBtn?.addEventListener("click", closeErrorModal);
   btnDeleteModal?.addEventListener("click", () => btnDelete?.click());
 
   modal?.addEventListener("click", (e) => {
     if (e.target?.dataset?.close === "true") closeModal();
+  });
+
+  errorDeleteModal?.addEventListener("click", (e) => {
+    if (e.target?.dataset?.close === "true") closeErrorModal();
   });
 
   document.addEventListener("keydown", (e) => {
@@ -715,14 +742,18 @@
       closeModal();
       alert("Registro eliminado.");
     } catch (e) {
-      alert(e.message);
+      // Si el error dice que está referenciado por operaciones, mostrar modal especial
+      if (e.message && e.message.includes("referenciado")) {
+        closeModal();
+        showErrorDeleteModal(`No se puede eliminar a ${name} porque está asignado a una o más operaciones activas o planificadas. Desasigna la persona de esas operaciones primero.`);
+      } else {
+        alert(e.message);
+      }
     } finally {
       isDeleting = false;
       updateButtons();
     }
   });
-
-  btnSearch?.addEventListener("click", renderTable);
 
   searchInput?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {

@@ -2,7 +2,7 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/dash_bg"
+    android:background="#0a0f1e"
     android:orientation="horizontal">
 
     <androidx.coordinatorlayout.widget.CoordinatorLayout
@@ -10,44 +10,27 @@
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
-        android:background="@color/dash_bg">
+        android:background="#0a0f1e">
 
         <WebView
             android:id="@+id/cesiumWebView"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
 
-        <ImageButton
-            android:id="@+id/btnMapLayers"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_gravity="top|start"
-            android:layout_marginTop="16dp"
-            android:layout_marginStart="12dp"
-            android:background="@drawable/bg_object_tools_button"
-            android:clickable="true"
-            android:contentDescription="Tipos de mapa"
-            android:elevation="16dp"
-            android:focusable="true"
-            android:padding="9dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_map_layers" />
-
         <TextView
             android:id="@+id/connectionBanner"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="top"
-            android:background="@color/dash_danger"
+            android:background="#B71C1C"
             android:elevation="12dp"
             android:gravity="center"
             android:paddingHorizontal="16dp"
-            android:paddingVertical="0dp"
+            android:paddingVertical="10dp"
             android:text="Se perdio la conexion con el servidor."
-            android:textColor="@color/dash_text"
+            android:textColor="#FFFFFF"
             android:textStyle="bold"
-            android:visibility="gone"
-            android:maxHeight="0dp" />
+            android:visibility="gone" />
 
         <LinearLayout
             android:id="@+id/drawingToolbar"
@@ -97,27 +80,20 @@
             android:gravity="end"
             android:orientation="vertical">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/btnObjectTools"
                 android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="end"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/btnObjectTools"
-                    android:layout_width="wrap_content"
-                    android:layout_height="44dp"
-                    android:background="@drawable/bg_object_tools_button"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center"
-                    android:minWidth="104dp"
-                    android:paddingHorizontal="16dp"
-                    android:text="Objetos &#x25BE;"
-                    android:textColor="#F8FAFC"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
+                android:layout_height="44dp"
+                android:background="@drawable/bg_object_tools_button"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:minWidth="104dp"
+                android:paddingHorizontal="16dp"
+                android:text="Objetos &#x25BE;"
+                android:textColor="#F8FAFC"
+                android:textSize="14sp"
+                android:textStyle="bold" />
 
             <ScrollView
                 android:id="@+id/objectToolsMenu"
@@ -398,7 +374,7 @@
             android:id="@+id/navBar"
             android:layout_width="match_parent"
             android:layout_height="56dp"
-            android:background="@color/dash_surface_strong"
+            android:background="#0d1526"
             android:orientation="horizontal">
 
             <LinearLayout
@@ -423,7 +399,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Op."
-                    android:textColor="#9FB3BF"
+                    android:textColor="#64748b"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -449,7 +425,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Chat"
-                    android:textColor="#9FB3BF"
+                    android:textColor="#64748b"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -462,8 +438,7 @@
                 android:clickable="true"
                 android:focusable="true"
                 android:gravity="center"
-                android:orientation="vertical"
-                android:visibility="gone">
+                android:orientation="vertical">
 
                 <TextView
                     android:id="@+id/iconNavPersonal"
@@ -476,7 +451,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Pers."
-                    android:textColor="#9FB3BF"
+                    android:textColor="#64748b"
                     android:textSize="10sp" />
             </LinearLayout>
 
@@ -495,17 +470,42 @@
                     android:id="@+id/iconNavVehiculos"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:text="&#x1F697;"
+                    android:textSize="18sp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Veh."
+                    android:textColor="#64748b"
+                    android:textSize="10sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/btnNavEquipos"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true"
+                android:gravity="center"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/iconNavEquipos"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:text="&#x1F9F0;"
                     android:textSize="18sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Rec."
-                    android:textColor="#9FB3BF"
+                    android:text="Eq."
+                    android:textColor="#64748b"
                     android:textSize="10sp" />
             </LinearLayout>
-
         </LinearLayout>
 
         <FrameLayout

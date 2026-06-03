@@ -10,7 +10,34 @@
 </head>
 <body>
 
-  <button id="btnBack" class="backArrow" type="button" aria-label="Volver" title="Volver">&larr;</button>
+  <header class="topbar">
+    <div class="brand">
+      <button id="btnBack" class="backOnly" type="button" aria-label="Volver" title="Volver">
+        <svg viewBox="0 0 24 24" focusable="false" width="20" height="20">
+          <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="topActions">
+      <div class="logo" aria-label="Logo SEDAM"></div>
+      <div class="controlUserMenu">
+        <button class="userButton" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="userIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path>
+              <path d="M4.5 20a7.5 7.5 0 0 1 15 0"></path>
+            </svg>
+          </span>
+          <span id="controlUserName">Admin</span>
+        </button>
+        <div class="userDropdown">
+          <button id="btnLogout" type="button">Cerrar sesi&oacute;n</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
   <div class="bgOrbs" aria-hidden="true">
     <span class="orb orb1"></span>
     <span class="orb orb2"></span>
@@ -24,69 +51,60 @@
           <h1 class="title">Control de Personal</h1>
           <p class="subtitle">Administra personal operativo, roles y accesos registrados</p>
         </div>
-
-        <div class="headBtns">
-          <button id="btnAdd" class="btn primary">
-            <span class="btnIcon">＋</span>
-            Agregar
-          </button>
-          <button id="btnEdit" class="btn soft" disabled>
-            <span class="btnIcon">✎</span>
-            Modificar
-          </button>
-          <button id="btnDelete" class="btn danger" disabled>
-            <span class="btnIcon">🗑</span>
-            Eliminar
-          </button>
-        </div>
       </div>
 
       <!-- Filtros -->
       <div class="filtersCard">
-        <div class="field">
+        <div class="field searchField">
           <label>Buscar</label>
-          <div class="searchRow">
-            <div class="searchWrap" tabindex="0">
-              <button class="searchIcon" id="btnSearch" type="button" aria-label="Buscar"><span class="btnIcon miniIcon">⌕</span></button>
-              <input id="searchInput" type="text" placeholder="Buscar por apodo, nombre, rol, puesto, username..." />
-              <button id="btnClear" class="btn mini" type="button">Limpiar</button>
-            </div>
-          </div>
+          <input id="searchInput" type="text" placeholder="Buscar por apodo, nombre, rol, puesto, username..." />
         </div>
 
-        <div class="grid3">
-          <div class="field">
-            <label>Filtro por Rol</label>
-            <select id="filterRol">
-              <option value="">Todos</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label>Filtro por Puesto</label>
-            <select id="filterPuesto">
-              <option value="">Todos</option>
-            </select>
-          </div>
-
-          <div class="field">
-            <label>Filtro por Activo</label>
-            <select id="filterActivo">
-              <option value="">Todos</option>
-              <option value="true">Activos</option>
-              <option value="false">Inactivos</option>
-            </select>
-          </div>
+        <div class="field filterField">
+          <label>Filtro por Rol</label>
+          <select id="filterRol">
+            <option value="">Todos</option>
+          </select>
         </div>
 
-        <div class="hintRow">
-          <span id="resultHint" class="hint"></span>
-          <span class="hint">Tip: da clic en una fila para seleccionarla.</span>
+        <div class="field filterField">
+          <label>Filtro por Puesto</label>
+          <select id="filterPuesto">
+            <option value="">Todos</option>
+          </select>
         </div>
+
+        <div class="field filterField">
+          <label>Filtro por Activo</label>
+          <select id="filterActivo">
+            <option value="">Todos</option>
+            <option value="true">Activos</option>
+            <option value="false">Inactivos</option>
+          </select>
+        </div>
+
+        <button id="btnClear" class="btn" type="button">Limpiar</button>
       </div>
 
       <!-- Tabla -->
       <div class="tableCard">
+        <div class="tableHead">
+          <span id="resultHint" class="hint"></span>
+          <div class="tableActions" style="display: flex; gap: 8px;">
+            <button id="btnAdd" class="btn primary">
+              <span class="btnIcon">＋</span>
+              Agregar
+            </button>
+            <button id="btnEdit" class="btn soft" disabled>
+              <span class="btnIcon">✎</span>
+              Modificar
+            </button>
+            <button id="btnDelete" class="btn danger" disabled>
+              <span class="btnIcon">🗑</span>
+              Eliminar
+            </button>
+          </div>
+        </div>
         <div class="tableWrap">
           <table class="tbl">
             <thead>
@@ -177,6 +195,23 @@
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <!-- Modal de Error de Eliminación -->
+    <div id="errorDeleteModal" class="modal hidden" aria-hidden="true">
+      <div class="modalBackdrop" data-close="true"></div>
+      <div class="modalCard" role="dialog" aria-modal="true">
+        <div class="modalHead">
+          <div class="modalTitle" id="errorDeleteTitle">No se puede eliminar</div>
+          <button class="iconBtn" id="btnCloseErrorModal" title="Cerrar">✕</button>
+        </div>
+        <div class="modalBody">
+          <p id="errorDeleteMsg" style="margin: 0; color: var(--muted); line-height: 1.5;"></p>
+        </div>
+        <div class="modalActions">
+          <button type="button" id="btnCloseErrorBtn" class="btn primary">Aceptar</button>
+        </div>
       </div>
     </div>
 

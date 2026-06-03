@@ -78,7 +78,7 @@ async function findAssignedLoginDevices(idPersonal) {
             d.imei, d.numero_serie, d.identificador_app, d.estado,
             od.id_operacion, od.id_personal,
             o.nombre AS operacion_nombre, o.estado AS operacion_estado
-       FROM operacion_dispositivo od
+       FROM dispositivo_operacion od
        JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
        JOIN operacion o ON o.id_operacion = od.id_operacion
       WHERE od.id_personal = $1
@@ -194,7 +194,7 @@ async function validatePersonalDeviceAccess(row, req) {
 
   const { rows: assignmentRows } = await pool.query(
     `SELECT od.id_operacion, od.id_personal, o.nombre AS operacion_nombre, o.estado AS operacion_estado
-       FROM operacion_dispositivo od
+       FROM dispositivo_operacion od
        JOIN operacion o ON o.id_operacion = od.id_operacion
       WHERE od.id_dispositivo = $1
         AND od.id_personal = $2

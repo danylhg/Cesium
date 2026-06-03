@@ -55,16 +55,29 @@
 
   <header class="topbar">
     <div class="brand">
-      <div class="logo"></div>
-      <div class="brandText">
-        <div class="brandName">Centro de Operaciones</div>
-        <div class="brandSub">Control de vehículos</div>
-      </div>
+      <button id="btnBack" class="backOnly" type="button" aria-label="Volver" title="Volver">
+        <svg viewBox="0 0 24 24" focusable="false" width="20" height="20">
+          <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
 
     <div class="topActions">
-      <button id="btnBack" class="btnTop">Volver</button>
-      <button id="btnLogout" class="btnTop">Cerrar sesión</button>
+      <div class="logo" aria-label="Logo SEDAM"></div>
+      <div class="controlUserMenu">
+        <button class="userButton" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="userIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path>
+              <path d="M4.5 20a7.5 7.5 0 0 1 15 0"></path>
+            </svg>
+          </span>
+          <span id="controlUserName">Admin</span>
+        </button>
+        <div class="userDropdown">
+          <button id="btnLogout" type="button">Cerrar sesi&oacute;n</button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -81,60 +94,49 @@
           <h1 class="title">Control de Vehículos</h1>
           <p class="subtitle">Administra vehiculos operativos registrados</p>
         </div>
-
-        <div class="headBtns">
-          <button id="btnAdd" class="btn primary">
-            <span class="btnIcon">＋</span>
-            Agregar
-          </button>
-
-          <button id="btnEdit" class="btn soft" disabled>
-            <span class="btnIcon">✎</span>
-            Modificar
-          </button>
-
-          <button id="btnDelete" class="btn danger" disabled>
-            <span class="btnIcon">🗑</span>
-            Eliminar
-          </button>
-        </div>
       </div>
 
       <div class="filtersCard">
-        <div class="field">
+        <div class="field searchField">
           <label>Buscar</label>
-          <div class="searchRow">
-            <div class="searchWrap" tabindex="0">
-              <button class="searchIcon" id="btnSearch" type="button" aria-label="Buscar"><span class="btnIcon miniIcon">⌕</span></button>
-              <input id="searchInput" type="text" placeholder="Buscar por código, alias, tipo..." />
-              <button id="btnClear" class="btn mini" type="button">Limpiar</button>
-            </div>
-          </div>
+          <input id="searchInput" type="text" placeholder="Buscar por código, alias, tipo..." />
         </div>
 
-        <div class="grid3">
-          <div class="field">
-            <label>Filtro por Tipo</label>
-            <select id="filterTipo">
-              <option value="">Todos</option>
-              <option value="coche">coche</option>
-              <option value="camioneta">camioneta</option>
-              <option value="camión">camión</option>
-              <option value="moto">moto</option>
-              <option value="helicóptero">helicóptero</option>
-              <option value="lancha">lancha</option>
-              <option value="otro">otro</option>
-            </select>
-          </div>
+        <div class="field filterField">
+          <label>Filtro por Tipo</label>
+          <select id="filterTipo">
+            <option value="">Todos</option>
+            <option value="coche">coche</option>
+            <option value="camioneta">camioneta</option>
+            <option value="camión">camión</option>
+            <option value="moto">moto</option>
+            <option value="helicóptero">helicóptero</option>
+            <option value="lancha">lancha</option>
+            <option value="otro">otro</option>
+          </select>
         </div>
 
-        <div class="hintRow">
-          <span id="resultHint" class="hint"></span>
-          <span class="hint">Tip: da clic en una fila para seleccionarla.</span>
-        </div>
+        <button id="btnClear" class="btn" type="button">Limpiar</button>
       </div>
 
       <div class="tableCard">
+        <div class="tableHead">
+          <span id="resultHint" class="hint"></span>
+          <div class="tableActions" style="display: flex; gap: 8px;">
+            <button id="btnAdd" class="btn primary">
+              <span class="btnIcon">＋</span>
+              Agregar
+            </button>
+            <button id="btnEdit" class="btn soft" disabled>
+              <span class="btnIcon">✎</span>
+              Modificar
+            </button>
+            <button id="btnDelete" class="btn danger" disabled>
+              <span class="btnIcon">🗑</span>
+              Eliminar
+            </button>
+          </div>
+        </div>
         <div class="tableWrap">
           <table class="tbl">
             <thead>

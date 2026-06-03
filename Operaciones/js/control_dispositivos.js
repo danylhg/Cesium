@@ -136,6 +136,7 @@
 
   const btnBack = document.getElementById("btnBack");
   const btnLogout = document.getElementById("btnLogout");
+  const controlUserName = document.getElementById("controlUserName");
   const btnAdd = document.getElementById("btnAdd");
   const btnEdit = document.getElementById("btnEdit");
   const btnDelete = document.getElementById("btnDelete");
@@ -163,6 +164,10 @@
   const fIdentificadorApp = document.getElementById("fIdentificadorApp");
   const fSistemaOperativo = document.getElementById("fSistemaOperativo");
   const fDetalles = document.getElementById("fDetalles");
+
+  if (controlUserName) {
+    controlUserName.textContent = localStorage.getItem("nombre") || localStorage.getItem("username") || "Admin";
+  }
   const deviceFieldControls = {
     numero_telefono: {
       el: fNumeroTelefono,

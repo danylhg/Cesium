@@ -1,10 +1,8 @@
 package com.operaciones.operaciones_android.ui.panel
 
-import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.VehiculoItem
-import com.operaciones.operaciones_android.network.DispositivoRepository
 import com.operaciones.operaciones_android.network.EquipoRepository
 import com.operaciones.operaciones_android.network.PersonalRepository
 import com.operaciones.operaciones_android.network.VehiculoRepository
@@ -13,8 +11,7 @@ class PanelDataController(
     private val host: Host,
     private val personalRepository: PersonalRepository = PersonalRepository(),
     private val vehiculoRepository: VehiculoRepository = VehiculoRepository(),
-    private val equipoRepository: EquipoRepository = EquipoRepository(),
-    private val dispositivoRepository: DispositivoRepository = DispositivoRepository()
+    private val equipoRepository: EquipoRepository = EquipoRepository()
 ) {
     interface Host {
         fun getPanelDataOperationId(): Int
@@ -23,8 +20,7 @@ class PanelDataController(
         fun onPanelPersonalLoaded(items: List<PersonalItem>)
         fun onPanelVehiculosLoaded(items: List<VehiculoItem>)
         fun onPanelEquiposLoaded(items: List<EquipoItem>)
-        fun onPanelDispositivosLoaded(items: List<DispositivoItem>)
-        fun onPanelDataError(source: String, message: String)
+        fun onPanelDataError(message: String)
     }
 
     fun fetchPersonal() {
@@ -38,7 +34,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError("personal", message)
+                    host.onPanelDataError(message)
                 }
             }
         )
@@ -55,7 +51,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError("vehiculos", message)
+                    host.onPanelDataError(message)
                 }
             }
         )
@@ -72,24 +68,7 @@ class PanelDataController(
             },
             onError = { message ->
                 host.runPanelDataOnUi {
-                    host.onPanelDataError("equipos", message)
-                }
-            }
-        )
-    }
-
-    fun fetchDispositivos() {
-        dispositivoRepository.fetchDispositivos(
-            operationId = host.getPanelDataOperationId(),
-            token = host.getPanelDataToken(),
-            onSuccess = { items ->
-                host.runPanelDataOnUi {
-                    host.onPanelDispositivosLoaded(items)
-                }
-            },
-            onError = { message ->
-                host.runPanelDataOnUi {
-                    host.onPanelDataError("dispositivos", message)
+                    host.onPanelDataError(message)
                 }
             }
         )

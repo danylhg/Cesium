@@ -8,40 +8,37 @@
   <script src="js/api_config.js"></script>
 </head>
 <body>
-
-  <!-- Fondo -->
-  <div class="bgOrbs" aria-hidden="true">
-    <span class="orb orb1"></span>
-    <span class="orb orb2"></span>
-    <span class="orb orb3"></span>
-  </div>
-
-  <!-- Card de login -->
   <main class="wrap">
-    <div class="card">
+    <section class="card" aria-labelledby="loginTitle">
       <div class="icon">
-        <img src="img/logo_sedam.jpeg" alt="Logo SEDAM" class="logoSedam" />
+        <div class="logo-ring">
+          <img src="img/logo_sedam_sinfondo.png" alt="Logo SEDAM" class="logoSedam" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
+          <span class="logoFallback" hidden aria-hidden="true">SEDAM</span>
+        </div>
       </div>
 
-      <h1>Sistema de Operaciones</h1>
+      <h1 id="loginTitle"><span>Sistema de</span><span>Operaciones</span></h1>
       <p class="sub">Ingresa tus credenciales para continuar</p>
 
-      <label>Usuario</label>
-      <input id="username" placeholder="Ingresa tu usuario" />
+      <div class="field">
+        <label for="username">Usuario</label>
+        <input id="username" name="username" autocomplete="username" value="admin" />
+      </div>
 
-      <label>Contraseña</label>
-      <input id="password" type="password" placeholder="Ingresa tu contraseña" />
+      <div class="field">
+        <label for="password">Contrase&ntilde;a</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" value="1234" />
+      </div>
 
-      <button id="btnLogin">Iniciar Sesión</button>
+      <button id="btnLogin" type="button">Iniciar sesi&oacute;n</button>
       <p id="msg" class="msg"></p>
 
       <p class="hint">
-        Demo: usuario <b>admin</b> · contraseña <b>1234</b>
+        Demo: usuario <b>admin</b> &middot; contrase&ntilde;a <b>1234</b>
       </p>
-    </div>
+    </section>
   </main>
 
   <script src="js/login.js"></script>
 </body>
 </html>
-

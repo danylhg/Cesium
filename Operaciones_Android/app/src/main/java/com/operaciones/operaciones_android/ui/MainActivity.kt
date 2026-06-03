@@ -34,7 +34,6 @@ import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
 import com.operaciones.operaciones_android.location.LocationHelper
 import com.operaciones.operaciones_android.model.ChatMessage
-import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.MessageType
 import com.operaciones.operaciones_android.model.Operation
@@ -87,10 +86,10 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnNavChat: LinearLayout
     private lateinit var btnNavPersonal: LinearLayout
     private lateinit var btnNavVehiculos: LinearLayout
+    private lateinit var btnNavEquipos: LinearLayout
     private lateinit var btnMyLocation: ImageButton
     private lateinit var btnStreamMedia: ImageButton
     private lateinit var btnDeleteSelectedObject: ImageButton
-    private lateinit var navBar: LinearLayout
 
     private var chatSocketManager: ChatSocketManager? = null
 
@@ -118,15 +117,6 @@ class MainActivity : AppCompatActivity(),
     private val personalList = mutableListOf<PersonalItem>()
     private val vehiculosList = mutableListOf<VehiculoItem>()
     private val equiposList = mutableListOf<EquipoItem>()
-    private val dispositivosList = mutableListOf<DispositivoItem>()
-    private var personalFetchInFlight = false
-    private var vehiculosFetchInFlight = false
-    private var equiposFetchInFlight = false
-    private var dispositivosFetchInFlight = false
-    private var personalLoadedOnce = false
-    private var vehiculosLoadedOnce = false
-    private var equiposLoadedOnce = false
-    private var dispositivosLoadedOnce = false
 
     private var opLat = 0.0
     private var opLon = 0.0
@@ -255,10 +245,10 @@ class MainActivity : AppCompatActivity(),
         btnNavChat = findViewById(R.id.btnNavChat)
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
         btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
+        btnNavEquipos = findViewById(R.id.btnNavEquipos)
         btnMyLocation = findViewById(R.id.btnMyLocation)
         btnStreamMedia = findViewById(R.id.btnStreamMedia)
         btnDeleteSelectedObject = findViewById(R.id.btnDeleteSelectedObject)
-        navBar = findViewById(R.id.navBar)
         webView = findViewById(R.id.cesiumWebView)
 
         mediaStreamController = MediaStreamController(this, btnStreamMedia, this)
@@ -328,10 +318,9 @@ class MainActivity : AppCompatActivity(),
             btnNavOperation = btnNavOperation,
             btnNavChat = btnNavChat,
             btnNavPersonal = btnNavPersonal,
-            btnNavRecursos = btnNavVehiculos,
-            navBar = navBar,
-            host = this,
-            onPanelChanged = { panel -> configurePanelContentSize(panel) }
+            btnNavVehiculos = btnNavVehiculos,
+            btnNavEquipos = btnNavEquipos,
+            host = this
         )
 
         setupWebView()
@@ -352,7 +341,6 @@ class MainActivity : AppCompatActivity(),
             fetchPersonalPanelData()
             fetchVehiculosPanelData()
             fetchEquiposPanelData()
-            fetchDispositivosPanelData()
             startEmergencyService()
             requestMediaStreamForOperation()
         }
@@ -422,11 +410,7 @@ class MainActivity : AppCompatActivity(),
         mapObjectsController.setupDeleteButton(btnDeleteSelectedObject)
     }
 
-    private fun configurePanelContentSize(panel: Panel = if (::panelNavigationController.isInitialized) {
-        panelNavigationController.activePanel
-    } else {
-        Panel.NONE
-    }) {
+    private fun configurePanelContentSize() {
         panelContent.post {
             val params = panelContent.layoutParams
             val parentParams = (panelContent.parent as? View)?.layoutParams
@@ -437,30 +421,12 @@ class MainActivity : AppCompatActivity(),
                 params.height = 0
                 (params as? LinearLayout.LayoutParams)?.weight = 1f
             } else {
-                params.height = when (panel) {
-                    // Chat debe ocupar toda la pantalla en móvil
-                    Panel.CHAT -> resources.displayMetrics.heightPixels
-                    Panel.RECURSOS -> (resources.displayMetrics.heightPixels * 0.68).toInt()
-                    Panel.OPERATION,
-                    Panel.PERSONAL -> (resources.displayMetrics.heightPixels * 0.40).toInt()
-                    Panel.NONE -> 0
-                }
+                params.height = (resources.displayMetrics.heightPixels * 0.40).toInt()
                 (params as? LinearLayout.LayoutParams)?.weight = 0f
             }
             panelContent.layoutParams = params
         }
     }
-
-    private fun fullPanelContentHeight(): Int {
-        val navHeight = navBar.height.takeIf { it > 0 } ?: dp(56f)
-        val handleAndPadding = dp(18f)
-        val minHeight = (resources.displayMetrics.heightPixels * 0.72).toInt()
-        return (resources.displayMetrics.heightPixels - navHeight - handleAndPadding)
-            .coerceAtLeast(minHeight)
-    }
-
-    private fun dp(value: Float): Int =
-        (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun restoreActivePanel(savedInstanceState: Bundle?) {
         val restoredPanel = savedInstanceState
@@ -847,18 +813,6 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun selectVehicleOnMap(idVehiculo: Int, lat: Double, lon: Double, label: String) {
-        followedPersonalId = null
-        cesiumWebController.evaluate(
-            "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($idVehiculo, $lat, $lon, '${jsString(label)}')"
-        )
-        cesiumWebController.centerOnLocation(lat, lon, zoom = 500, follow = false)
-    }
-
-    override fun showResourceLocationUnavailable() {
-        Toast.makeText(this, "Este recurso no tiene ubicacion disponible.", Toast.LENGTH_SHORT).show()
-    }
-
     override fun refreshPersonalPanelIfActive() {
         if (panelNavigationController.activePanel == Panel.PERSONAL && personalList.isNotEmpty()) {
             panelNavigationController.showPanel(Panel.PERSONAL)
@@ -922,87 +876,48 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPanelPersonalLoaded(items: List<PersonalItem>) {
-        personalFetchInFlight = false
-        personalLoadedOnce = true
         personalList.clear()
         personalList.addAll(items)
 
         if (panelNavigationController.activePanel == Panel.PERSONAL) {
             inflatePersonalPanel()
-        } else if (panelNavigationController.activePanel == Panel.RECURSOS) {
-            inflateRecursosPanel()
         } else if (panelNavigationController.activePanel == Panel.CHAT) {
-            panelNavigationController.showPanel(Panel.CHAT)
+            chatController.refreshVisibleMessages()
         }
     }
 
     override fun onPanelVehiculosLoaded(items: List<VehiculoItem>) {
-        vehiculosFetchInFlight = false
-        vehiculosLoadedOnce = true
         vehiculosList.clear()
         vehiculosList.addAll(items)
 
-        if (panelNavigationController.activePanel == Panel.RECURSOS) {
-            inflateRecursosPanel()
-        } else if (panelNavigationController.activePanel == Panel.CHAT) {
-            panelNavigationController.showPanel(Panel.CHAT)
+        if (panelNavigationController.activePanel == Panel.VEHICULOS) {
+            inflateVehiculoPanel()
         }
     }
 
     override fun onPanelEquiposLoaded(items: List<EquipoItem>) {
-        equiposFetchInFlight = false
-        equiposLoadedOnce = true
         equiposList.clear()
         equiposList.addAll(items)
 
-        if (panelNavigationController.activePanel == Panel.RECURSOS) {
-            inflateRecursosPanel()
+        if (panelNavigationController.activePanel == Panel.EQUIPOS) {
+            inflateEquipoPanel()
         }
     }
 
-    override fun onPanelDispositivosLoaded(items: List<DispositivoItem>) {
-        dispositivosFetchInFlight = false
-        dispositivosLoadedOnce = true
-        dispositivosList.clear()
-        dispositivosList.addAll(items)
-
-        if (panelNavigationController.activePanel == Panel.RECURSOS) {
-            inflateRecursosPanel()
-        }
-    }
-
-    override fun onPanelDataError(source: String, message: String) {
-        when (source) {
-            "personal" -> personalFetchInFlight = false
-            "vehiculos" -> vehiculosFetchInFlight = false
-            "equipos" -> equiposFetchInFlight = false
-            "dispositivos" -> dispositivosFetchInFlight = false
-        }
+    override fun onPanelDataError(message: String) {
         addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
     }
 
     private fun fetchPersonalPanelData() {
-        if (personalFetchInFlight || personalLoadedOnce) return
-        personalFetchInFlight = true
         panelDataController.fetchPersonal()
     }
 
     private fun fetchVehiculosPanelData() {
-        if (vehiculosFetchInFlight || vehiculosLoadedOnce) return
-        vehiculosFetchInFlight = true
         panelDataController.fetchVehiculos()
     }
 
     private fun fetchEquiposPanelData() {
-        if (equiposFetchInFlight || equiposLoadedOnce) return
-        equiposFetchInFlight = true
         panelDataController.fetchEquipos()
-    }
-
-    private fun fetchDispositivosPanelData() {
-        if (dispositivosFetchInFlight || dispositivosLoadedOnce) return
-        dispositivosFetchInFlight = true
-        panelDataController.fetchDispositivos()
     }
 
     private fun setupWebView() {
@@ -1416,7 +1331,6 @@ class MainActivity : AppCompatActivity(),
             messages = chatController.visibleMessages,
             currentUser = currentUser,
             personalList = personalList,
-            vehiculosList = vehiculosList,
             onFilterChanged = { selection ->
                 chatController.setActiveSelection(selection)
                 markVisibleChatMessagesRead()
@@ -1427,12 +1341,6 @@ class MainActivity : AppCompatActivity(),
         chatController.refreshVisibleMessages()
         markVisibleChatMessagesRead()
         loadChatHistoryIfNeeded()
-        if (currentOperation.id > 0 && personalList.isEmpty()) {
-            fetchPersonalPanelData()
-        }
-        if (currentOperation.id > 0 && vehiculosList.isEmpty()) {
-            fetchVehiculosPanelData()
-        }
     }
 
     override fun inflatePersonalPanel() {
@@ -1447,24 +1355,25 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun inflateRecursosPanel() {
-        panelRenderer.inflateRecursosPanel(
+    override fun inflateVehiculoPanel() {
+        panelRenderer.inflateVehiculoPanel(
             panelContent = panelContent,
-            vehiculosList = vehiculosList,
-            equiposList = equiposList,
-            dispositivosList = dispositivosList,
-            personalList = personalList,
-            currentUser = currentUser
+            vehiculosList = vehiculosList
         )
 
         if (currentOperation.id > 0 && vehiculosList.isEmpty()) {
             fetchVehiculosPanelData()
         }
+    }
+
+    override fun inflateEquipoPanel() {
+        panelRenderer.inflateEquipoPanel(
+            panelContent = panelContent,
+            equiposList = equiposList
+        )
+
         if (currentOperation.id > 0 && equiposList.isEmpty()) {
             fetchEquiposPanelData()
-        }
-        if (currentOperation.id > 0 && dispositivosList.isEmpty()) {
-            fetchDispositivosPanelData()
         }
     }
 

@@ -14,6 +14,7 @@
 
   <header class="topbar">
     <div class="topLeft">
+      <img src="img/logo_sedam_sinfondo.png" alt="Logo SEDAM" class="topLogo" />
       <span class="pill" id="lblUsuario"></span>
       <span class="opName">Operación: <strong id="lblOperacion">—</strong></span>
     </div>
@@ -36,16 +37,21 @@
               <label class="lbl">Descripción</label>
               <textarea class="inp area" id="opDesc" placeholder="Descripción de la operación"></textarea>
 
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-                <label class="lbl" style="margin-bottom:0;">Fecha de inicio de operación</label>
-                <button type="button" class="btnGhost" id="btnHoy"
-                  style="padding: 2px 8px; font-size: 11px; height: auto;">Hoy</button>
-              </div>
-              <input class="inp" type="date" id="opInicio" />
+              <div class="dateTimeRow">
+                <div class="dateField">
+                  <label class="lbl">Fecha de inicio de operación</label>
+                  <div class="dateInputWrap">
+                    <input class="inp" type="date" id="opInicio" />
+                    <button type="button" class="btnGhost btnToday" id="btnHoy">Hoy</button>
+                  </div>
+                </div>
 
-              <label class="lbl">Hora de inicio de operación</label>
-              <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5"
-                list="opHoraInicioList" autocomplete="off" />
+                <div class="timeField">
+                  <label class="lbl">Hora de inicio de operación</label>
+                  <input class="inp" type="text" id="opHoraInicio" placeholder="HH:MM (24H)" maxlength="5"
+                    list="opHoraInicioList" autocomplete="off" />
+                </div>
+              </div>
               <datalist id="opHoraInicioList">
                 <option value="00:00"></option>
                 <option value="01:00"></option>

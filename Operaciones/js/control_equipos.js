@@ -116,6 +116,7 @@
   ========================= */
   const btnBack = document.getElementById("btnBack");
   const btnLogout = document.getElementById("btnLogout");
+  const controlUserName = document.getElementById("controlUserName");
 
   const btnAdd = document.getElementById("btnAdd");
   const btnEdit = document.getElementById("btnEdit");
@@ -144,6 +145,10 @@
   const fCategoria = document.getElementById("fCategoria");
   const fEstado = document.getElementById("fEstado");
   const fDetalles = document.getElementById("fDetalles");
+
+  if (controlUserName) {
+    controlUserName.textContent = localStorage.getItem("nombre") || localStorage.getItem("username") || "Admin";
+  }
 
   // DOM crítico obligatorio
   const requiredEls = {

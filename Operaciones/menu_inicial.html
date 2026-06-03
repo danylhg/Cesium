@@ -4,50 +4,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Menú inicial</title>
+  <title>Men&uacute; inicial</title>
   <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
   <link rel="stylesheet" href="css/menu_inicial.css" />
 </head>
 
 <body>
-
-  <!-- Topbar -->
   <header class="topbar">
-    <div class="brand">
-      <img src="img/logo_sedam.jpeg" alt="Logo" class="logo" />
-      <div class="brandText">
-        <div class="brandName">Usuario: <span id="userName">Invitado</span></div>
-        <div class="brandSub">Panel administrativo</div>
+    <div class="brand" aria-hidden="true"></div>
+
+    <div class="headerRight">
+      <img src="img/logo_sedam_sinfondo.png" alt="Logo SEDAM" class="logo" />
+
+      <div class="userMenu">
+        <button id="btnUserMenu" class="userButton" type="button" aria-haspopup="true" aria-expanded="false">
+          <span class="userIcon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path>
+              <path d="M4.5 20a7.5 7.5 0 0 1 15 0"></path>
+            </svg>
+          </span>
+          <span id="userName">Invitado</span>
+        </button>
+        <div id="userDropdown" class="userDropdown hidden">
+          <button id="btnLogout" type="button">Cerrar sesi&oacute;n</button>
+        </div>
       </div>
     </div>
-
-    <button id="btnLogout" class="btnTop">
-      Cerrar sesión
-    </button>
   </header>
 
-  <!-- Main -->
   <main class="wrap">
     <section class="hero">
-      <h1 class="title">Menú de Operaciones</h1>
-      <p class="subtitle">Seleccione una opción para continuar</p>
+      <h1 class="title">Men&uacute; de Operaciones</h1>
+      <p class="subtitle">Seleccione una opci&oacute;n para continuar</p>
 
       <div class="card">
-        <div class="cardHeader">
-          <div class="pill">Bienvenido(a)</div>
-          <div class="cardTitle">¿Qué desea hacer?</div>
-        </div>
-
         <div class="actions">
           <button id="btnCreate" class="btn primary">
             <span class="btnIcon">＋</span>
-            Crear operación
+            Crear operaci&oacute;n
           </button>
 
           <button id="btnSelect" class="btn soft">
             <span class="btnIcon">≡</span>
-            Seleccionar operación
+            Seleccionar operaci&oacute;n
           </button>
 
           <button id="btnPersonal" class="btn soft">
@@ -55,13 +56,47 @@
           </button>
         </div>
 
-        <div id="submenuControl" class="submenu hidden">
-          <ul>
-            <li id="btnControlPersonal">Control de personal</li>
-            <li id="btnControlVehiculos">Control de vehículos</li>
-            <li id="btnControlEquipos">Control de equipos</li>
-            <li id="btnControlDispositivos">Control de dispositivos</li>
-          </ul>
+        <div id="submenuControl" class="controlGrid hidden">
+          <button id="btnControlPersonal" class="controlItem" type="button">
+            <span class="controlItemIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path>
+                <path d="M4 20a8 8 0 0 1 16 0"></path>
+              </svg>
+            </span>
+            <span class="controlItemLabel">Personal</span>
+          </button>
+          <button id="btnControlVehiculos" class="controlItem" type="button">
+            <span class="controlItemIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M4 15h16l-1.4-5.2A2 2 0 0 0 16.7 8H7.3a2 2 0 0 0-1.9 1.8L4 15Z"></path>
+                <path d="M7 15v2"></path>
+                <path d="M17 15v2"></path>
+                <path d="M8 12h8"></path>
+              </svg>
+            </span>
+            <span class="controlItemLabel">Veh&iacute;culos</span>
+          </button>
+          <button id="btnControlEquipos" class="controlItem" type="button">
+            <span class="controlItemIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"></path>
+                <path d="M12 12 4.7 7.7"></path>
+                <path d="M12 12v8.5"></path>
+                <path d="m12 12 7.3-4.3"></path>
+              </svg>
+            </span>
+            <span class="controlItemLabel">Equipos</span>
+          </button>
+          <button id="btnControlDispositivos" class="controlItem" type="button">
+            <span class="controlItemIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M8 3h8a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"></path>
+                <path d="M10 18h4"></path>
+              </svg>
+            </span>
+            <span class="controlItemLabel">Dispositivos</span>
+          </button>
         </div>
 
         <div id="opsList" class="ops hidden">

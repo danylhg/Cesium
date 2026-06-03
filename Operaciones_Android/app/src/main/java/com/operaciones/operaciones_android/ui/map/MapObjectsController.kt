@@ -6,7 +6,6 @@ import android.view.View
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -71,16 +70,16 @@ class MapObjectsController(
         LABEL
     }
 
-    private val mapActionController = MapActionController(activity, this, cesiumWebController)
+    private val mapActionController = MapActionController(this, cesiumWebController)
     private val drawingLocalToBackendId = HashMap<String, Int>()
     private val polygonToolPoints = mutableListOf<Pair<Double, Double>>()
 
     private var drawingMode: String? = null
     private var selectedObjectTool: ObjectTool? = null
+    private var objectToolSelectionView: TextView? = null
     private var selectedMapObject: SelectedMapObject? = null
     private var deleteButton: ImageButton? = null
     private var lastRouteId: Int = -1
-    private var selectedBaseLayerKey: String = "hybrid"
 
     fun setupDeleteButton(button: ImageButton) {
         deleteButton = button
@@ -124,7 +123,6 @@ class MapObjectsController(
     }
 
     fun showMapActionDialogFromBridge(lat: Double, lon: Double) {
-        hideObjectToolsMenu()
         if (handleSelectedObjectToolTap(lat, lon)) return
         mapActionController.showMapActionDialog(host.getMapCurrentUser(), lat, lon)
     }
@@ -136,8 +134,8 @@ class MapObjectsController(
 
     fun setupObjectToolsMenu() {
         val btnObjectTools = activity.findViewById<TextView>(R.id.btnObjectTools)
-        val btnMapLayers = activity.findViewById<View>(R.id.btnMapLayers)
         val objectToolsMenu = activity.findViewById<View>(R.id.objectToolsMenu)
+        objectToolSelectionView = activity.findViewById(R.id.objectToolSelection)
 
         fun setMenuVisible(visible: Boolean) {
             objectToolsMenu.visibility = if (visible) View.VISIBLE else View.GONE
@@ -146,10 +144,6 @@ class MapObjectsController(
 
         btnObjectTools.setOnClickListener {
             setMenuVisible(objectToolsMenu.visibility != View.VISIBLE)
-        }
-        btnMapLayers.setOnClickListener { anchor ->
-            setMenuVisible(false)
-            showBaseLayerMenu(anchor, btnMapLayers)
         }
 
         fun bindItem(id: Int, action: () -> Unit) {
@@ -177,36 +171,6 @@ class MapObjectsController(
         bindItem(R.id.itemToolLabel) { selectMapObjectTool(ObjectTool.LABEL, "Etiqueta") }
     }
 
-    private fun hideObjectToolsMenu() {
-        activity.findViewById<View>(R.id.objectToolsMenu)?.visibility = View.GONE
-        activity.findViewById<TextView>(R.id.btnObjectTools)?.text = "Objetos v"
-    }
-
-    private fun showBaseLayerMenu(anchor: View, button: View) {
-        val popup = PopupMenu(activity, anchor)
-        val layers = listOf(
-            "hybrid" to "Hibrida",
-            "osm" to "Normal (OSM)",
-            "satellite" to "Satelite"
-        )
-        layers.forEachIndexed { index, (key, label) ->
-            popup.menu.add(BASE_LAYER_MENU_GROUP, index, index, label).apply {
-                isCheckable = true
-                isChecked = key == selectedBaseLayerKey
-            }
-        }
-        popup.menu.setGroupCheckable(BASE_LAYER_MENU_GROUP, true, true)
-        popup.setOnMenuItemClickListener { item ->
-            val (key, label) = layers.getOrElse(item.itemId) { layers.first() }
-            selectedBaseLayerKey = key
-            item.isChecked = true
-            cesiumWebController.setBaseLayer(key)
-            button.contentDescription = "Tipo de mapa: $label"
-            true
-        }
-        popup.show()
-    }
-
     override fun addMessage(msg: ChatMessage) {
         host.addMapMessage(msg)
     }
@@ -231,15 +195,9 @@ class MapObjectsController(
         iconoSrc: String?
     ) {
         val operationId = host.getMapOperationId()
-        if (operationId <= 0) {
-            renderLocalPoi(lat, lon, nombre, tipoPoi, color, iconoSrc)
-            return
-        }
+        if (operationId <= 0) return
         val token = host.getMapToken()
-        if (token.isBlank()) {
-            renderLocalPoi(lat, lon, nombre, tipoPoi, color, iconoSrc)
-            return
-        }
+        if (token.isBlank()) return
 
         val currentUser = host.getMapCurrentUser()
         val tipoCreador = if (currentUser.tabla == "personal") "PERSONAL" else "USUARIO"
@@ -266,7 +224,6 @@ class MapObjectsController(
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("POI", "Error guardando POI en backend", e)
                 activity.runOnUiThread {
-                    renderLocalPoi(lat, lon, nombre, tipoPoi, color, iconoSrc)
                     host.addMapMessage(ChatMessage(user = "Sistema", text = "Error de conexion al guardar el POI.", type = MessageType.SYSTEM))
                 }
             }
@@ -285,7 +242,6 @@ class MapObjectsController(
                     }.getOrDefault("No se pudo guardar el POI.")
 
                     activity.runOnUiThread {
-                        renderLocalPoi(lat, lon, nombre, tipoPoi, color, iconoSrc)
                         host.addMapMessage(ChatMessage(user = "Sistema", text = mensaje, type = MessageType.SYSTEM))
                     }
                 }
@@ -637,28 +593,6 @@ class MapObjectsController(
         true
     }.getOrDefault(false)
 
-    private fun renderLocalPoi(
-        lat: Double,
-        lon: Double,
-        nombre: String,
-        tipoPoi: String,
-        color: String,
-        iconoSrc: String?
-    ) {
-        val localId = localMapId()
-        cesiumWebController.addPoiToMap(
-            idPoi = localId,
-            lat = lat,
-            lon = lon,
-            nombre = nombre,
-            tipoPoi = tipoPoi,
-            color = color,
-            iconoSrc = resolvePoiIconUrl(iconoSrc.orEmpty())?.takeIf { it.isNotBlank() },
-            sidc = iconoSrc?.takeIf { it.startsWith("S") }
-        )
-        Toast.makeText(activity, "$nombre colocado.", Toast.LENGTH_SHORT).show()
-    }
-
     private fun toggleFreeDrawingMode(mode: String, label: String) {
         clearSelectedMapObject()
         selectedObjectTool = null
@@ -702,7 +636,9 @@ class MapObjectsController(
         updateObjectToolSelection(null)
     }
 
-    private fun updateObjectToolSelection(label: String?) = Unit
+    private fun updateObjectToolSelection(label: String?) {
+        objectToolSelectionView?.text = label ?: "Selecciona herramienta..."
+    }
 
     private fun handleSelectedObjectToolTap(lat: Double, lon: Double): Boolean =
         when (selectedObjectTool) {
@@ -713,12 +649,12 @@ class MapObjectsController(
             }
             ObjectTool.POI -> {
                 clearSelectedObjectTool()
-                savePoi(lat, lon, "Punto de Interes", "PDI", "#FFD700", null)
+                mapActionController.showPoiCreationDialog(lat, lon, host.getMapCurrentUser().nombreCompleto, "PDI")
                 true
             }
             ObjectTool.CIRCLE -> {
                 clearSelectedObjectTool()
-                saveCoverageCircle(lat, lon, "Circulo de cobertura", 500.0)
+                showCoverageCircleDialog(lat, lon)
                 true
             }
             ObjectTool.ROUTE_START -> {
@@ -736,12 +672,12 @@ class MapObjectsController(
             }
             ObjectTool.BUILDING -> {
                 clearSelectedObjectTool()
-                saveStructure(lat, lon, "Edificio", "EDIFICIO")
+                showStructureDialog(lat, lon, "EDIFICIO", "Edificio / Estructura")
                 true
             }
             ObjectTool.LABEL -> {
                 clearSelectedObjectTool()
-                saveStructure(lat, lon, "Etiqueta", "ETIQUETA")
+                showStructureDialog(lat, lon, "ETIQUETA", "Etiqueta")
                 true
             }
             ObjectTool.POLYGON -> {
@@ -862,15 +798,9 @@ class MapObjectsController(
         onSaved: (Int) -> Unit
     ) {
         val operationId = host.getMapOperationId()
-        if (operationId <= 0) {
-            renderLocalArea(nombre, onSaved)
-            return
-        }
+        if (operationId <= 0) return
         val token = host.getMapToken()
-        if (token.isBlank()) {
-            renderLocalArea(nombre, onSaved)
-            return
-        }
+        if (token.isBlank()) return
 
         val body = JSONObject()
             .put("nombre", nombre)
@@ -890,7 +820,6 @@ class MapObjectsController(
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("AREA_ANDROID", "Error guardando area", e)
                 activity.runOnUiThread {
-                    renderLocalArea(nombre, onSaved)
                     host.addMapMessage(ChatMessage(user = "Sistema", text = "Error de conexion al guardar el area.", type = MessageType.SYSTEM))
                 }
             }
@@ -899,7 +828,6 @@ class MapObjectsController(
                 val responseBody = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     activity.runOnUiThread {
-                        renderLocalArea(nombre, onSaved)
                         host.addMapMessage(ChatMessage(user = "Sistema", text = "No se pudo guardar el area.", type = MessageType.SYSTEM))
                     }
                     return
@@ -921,15 +849,9 @@ class MapObjectsController(
 
     private fun saveStructure(lat: Double, lon: Double, nombre: String, tipoEstructura: String) {
         val operationId = host.getMapOperationId()
-        if (operationId <= 0) {
-            renderLocalStructure(lat, lon, nombre, tipoEstructura)
-            return
-        }
+        if (operationId <= 0) return
         val token = host.getMapToken()
-        if (token.isBlank()) {
-            renderLocalStructure(lat, lon, nombre, tipoEstructura)
-            return
-        }
+        if (token.isBlank()) return
 
         val body = JSONObject()
             .put("nombre", nombre)
@@ -949,7 +871,6 @@ class MapObjectsController(
             override fun onFailure(call: Call, e: IOException) {
                 Log.e("ESTRUCTURA_ANDROID", "Error guardando estructura", e)
                 activity.runOnUiThread {
-                    renderLocalStructure(lat, lon, nombre, tipoEstructura)
                     host.addMapMessage(ChatMessage(user = "Sistema", text = "Error de conexion al guardar la estructura.", type = MessageType.SYSTEM))
                 }
             }
@@ -961,7 +882,6 @@ class MapObjectsController(
                         JSONObject(responseBody).optString("mensaje", "No se pudo guardar la estructura.")
                     }.getOrDefault("No se pudo guardar la estructura.")
                     activity.runOnUiThread {
-                        renderLocalStructure(lat, lon, nombre, tipoEstructura)
                         host.addMapMessage(ChatMessage(user = "Sistema", text = mensaje, type = MessageType.SYSTEM))
                     }
                     return
@@ -994,26 +914,6 @@ class MapObjectsController(
         body.put("tipo_creador", tipoCreador)
         body.put(idKey, currentUser.id)
     }
-
-    private fun renderLocalArea(nombre: String, onSaved: (Int) -> Unit) {
-        onSaved(localMapId())
-        Toast.makeText(activity, "$nombre colocado.", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun renderLocalStructure(lat: Double, lon: Double, nombre: String, tipoEstructura: String) {
-        cesiumWebController.addStructureToMap(
-            idMarca = localMapId(),
-            lat = lat,
-            lon = lon,
-            nombre = nombre,
-            tipoEstructura = tipoEstructura,
-            iconoSrc = resolveStructureIconUrl(tipoEstructura)
-        )
-        Toast.makeText(activity, "$nombre colocado.", Toast.LENGTH_SHORT).show()
-    }
-
-    private fun localMapId(): Int =
-        ((System.currentTimeMillis() % 1_000_000_000L).toInt()).coerceAtLeast(1)
 
     private fun circleCoordinates(lat: Double, lon: Double, radiusMeters: Double): JSONArray {
         val earthRadius = 6378137.0
@@ -1083,7 +983,6 @@ class MapObjectsController(
             .replace("\r", " ")
 
     private companion object {
-        const val BASE_LAYER_MENU_GROUP = 300
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
     }
 }

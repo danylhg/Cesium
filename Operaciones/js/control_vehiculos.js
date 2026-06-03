@@ -120,7 +120,7 @@
   const btnSearch = document.getElementById("btnSearch");
   const btnClear = document.getElementById("btnClear");
 
-  const filterEstado = document.getElementById("filterEstado");
+  const filterTipo = document.getElementById("filterTipo");
   const resultHint = document.getElementById("resultHint");
   const tbody = document.getElementById("tbody");
 
@@ -276,7 +276,6 @@
      Init catálogos UI
   ========================= */
   function initCatalogs() {
-    if (filterEstado) fillSelect(filterEstado, ESTADOS, true);
     if (fEstado) fillSelect(fEstado, ESTADOS, false);
   }
 
@@ -302,10 +301,10 @@
   ========================= */
   function getFiltered() {
     const q = normalize(searchInput?.value);
-    const estado = filterEstado?.value || "";
+    const tipo = filterTipo?.value || "";
 
     return vehiculos.filter(v => {
-      if (estado && v.estado !== estado) return false;
+      if (tipo && normalize(v.tipo) !== normalize(tipo)) return false;
 
       if (!q) return true;
 
@@ -499,7 +498,7 @@
 
   btnClear?.addEventListener("click", () => {
     if (searchInput) searchInput.value = "";
-    if (filterEstado) filterEstado.value = "";
+    if (filterTipo) filterTipo.value = "";
     selectedId = null;
     renderTable();
   });
@@ -512,7 +511,7 @@
     }
   });
 
-  filterEstado?.addEventListener("change", renderTable);
+  filterTipo?.addEventListener("change", renderTable);
   fCodigoPrefijo?.addEventListener("change", toggleCodigoOtro);
 
   /* =========================

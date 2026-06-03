@@ -16,12 +16,13 @@ function apiFetch(path, options = {}) {
   });
 }
 
-// DOM
 const btnCreate = document.getElementById("btnCreate");
 const btnSelect = document.getElementById("btnSelect");
 const btnPersonal = document.getElementById("btnPersonal");
 const btnLogout = document.getElementById("btnLogout");
+const btnUserMenu = document.getElementById("btnUserMenu");
 const userName = document.getElementById("userName");
+const userDropdown = document.getElementById("userDropdown");
 const opsList = document.getElementById("opsList");
 const opsUl = document.getElementById("opsUl");
 const submenuControl = document.getElementById("submenuControl");
@@ -53,12 +54,27 @@ async function init() {
     return;
   }
 
-  userName.textContent = usuario.nombre ?? usuario.username;
+  const displayName = usuario.nombre ?? usuario.username;
+  userName.textContent = displayName;
 }
 
 btnLogout.addEventListener("click", () => {
   localStorage.removeItem("token");
   window.location.href = "login.html";
+});
+
+btnUserMenu?.addEventListener("click", () => {
+  const isOpen = !userDropdown.classList.contains("hidden");
+  userDropdown.classList.toggle("hidden", isOpen);
+  btnUserMenu.setAttribute("aria-expanded", String(!isOpen));
+});
+
+document.addEventListener("click", (event) => {
+  if (!btnUserMenu || !userDropdown) return;
+  if (btnUserMenu.contains(event.target) || userDropdown.contains(event.target)) return;
+
+  userDropdown.classList.add("hidden");
+  btnUserMenu.setAttribute("aria-expanded", "false");
 });
 
 btnCreate.addEventListener("click", () => {
@@ -69,13 +85,18 @@ btnCreate.addEventListener("click", () => {
   window.location.href = "asignacion.html";
 });
 
+
+
 btnSelect.addEventListener("click", async () => {
   if (!opsList.classList.contains("hidden")) {
     opsList.classList.add("hidden");
+    btnSelect.classList.remove("active");
     return;
   }
 
   submenuControl.classList.add("hidden");
+  btnPersonal.classList.remove("active");
+  btnSelect.classList.add("active");
   opsUl.innerHTML = "<li>Cargando...</li>";
   opsList.classList.remove("hidden");
 
@@ -137,7 +158,7 @@ function renderOps(ops) {
     li.textContent = op.nombre;
     if (pClass === "cancelada") {
       li.classList.add("opCancelled");
-      li.title = "No se puede entrar a una operacion cancelada";
+      li.title = "No se puede entrar a una operación cancelada";
     }
 
     const tag = document.createElement("span");
@@ -166,7 +187,7 @@ function renderOps(ops) {
     if (pClass === "cerrada" || pClass === "cancelada") {
       const btnDel = document.createElement("button");
       btnDel.className = "btnDeleteOp";
-      btnDel.innerHTML = "🗑️";
+      btnDel.innerHTML = "&times;";
       btnDel.title = "Eliminar operación permanentemente";
 
       btnDel.addEventListener("click", async (e) => {
@@ -197,7 +218,7 @@ function renderOps(ops) {
 
     li.addEventListener("click", async () => {
       if (pClass === "cancelada") {
-        alert(`La operacion "${op.nombre}" esta cancelada y no se puede abrir.`);
+        alert(`La operación "${op.nombre}" está cancelada y no se puede abrir.`);
         return;
       }
 
@@ -227,7 +248,9 @@ function renderOps(ops) {
 
 btnPersonal.addEventListener("click", () => {
   opsList.classList.add("hidden");
+  btnSelect.classList.remove("active");
   submenuControl.classList.toggle("hidden");
+  btnPersonal.classList.toggle("active", !submenuControl.classList.contains("hidden"));
 });
 
 btnControlPersonal.addEventListener("click", () => {

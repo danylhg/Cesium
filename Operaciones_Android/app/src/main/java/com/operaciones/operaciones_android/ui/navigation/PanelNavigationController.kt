@@ -11,10 +11,9 @@ class PanelNavigationController(
     private val btnNavOperation: LinearLayout,
     private val btnNavChat: LinearLayout,
     private val btnNavPersonal: LinearLayout,
-    private val btnNavRecursos: LinearLayout,
-    private val navBar: LinearLayout,
-    private val host: Host,
-    private val onPanelChanged: (Panel) -> Unit = {}
+    private val btnNavVehiculos: LinearLayout,
+    private val btnNavEquipos: LinearLayout,
+    private val host: Host
 ) {
 
     enum class Panel {
@@ -22,14 +21,16 @@ class PanelNavigationController(
         OPERATION,
         CHAT,
         PERSONAL,
-        RECURSOS
+        VEHICULOS,
+        EQUIPOS
     }
 
     interface Host {
         fun inflateOperationPanel()
         fun inflateChatPanel()
         fun inflatePersonalPanel()
-        fun inflateRecursosPanel()
+        fun inflateVehiculoPanel()
+        fun inflateEquipoPanel()
     }
 
     var activePanel: Panel = Panel.NONE
@@ -39,7 +40,8 @@ class PanelNavigationController(
         btnNavOperation.setOnClickListener { togglePanel(Panel.OPERATION) }
         btnNavChat.setOnClickListener { togglePanel(Panel.CHAT) }
         btnNavPersonal.setOnClickListener { togglePanel(Panel.PERSONAL) }
-        btnNavRecursos.setOnClickListener { togglePanel(Panel.RECURSOS) }
+        btnNavVehiculos.setOnClickListener { togglePanel(Panel.VEHICULOS) }
+        btnNavEquipos.setOnClickListener { togglePanel(Panel.EQUIPOS) }
     }
 
     fun togglePanel(panel: Panel) {
@@ -49,12 +51,12 @@ class PanelNavigationController(
     fun showPanel(panel: Panel) {
         activePanel = panel
         panelContent.removeAllViews()
-        onPanelChanged(panel)
 
         setNavActive(btnNavOperation, panel == Panel.OPERATION)
         setNavActive(btnNavChat, panel == Panel.CHAT)
         setNavActive(btnNavPersonal, panel == Panel.PERSONAL)
-        setNavActive(btnNavRecursos, panel == Panel.RECURSOS)
+        setNavActive(btnNavVehiculos, panel == Panel.VEHICULOS)
+        setNavActive(btnNavEquipos, panel == Panel.EQUIPOS)
 
         if (panel == Panel.NONE) {
             panelContent.visibility = View.GONE
@@ -67,7 +69,8 @@ class PanelNavigationController(
             Panel.OPERATION -> host.inflateOperationPanel()
             Panel.CHAT -> host.inflateChatPanel()
             Panel.PERSONAL -> host.inflatePersonalPanel()
-            Panel.RECURSOS -> host.inflateRecursosPanel()
+            Panel.VEHICULOS -> host.inflateVehiculoPanel()
+            Panel.EQUIPOS -> host.inflateEquipoPanel()
             Panel.NONE -> {}
         }
     }
