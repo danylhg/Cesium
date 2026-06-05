@@ -221,20 +221,49 @@ export function renderDispositivoAsignacion() {
     card.addEventListener("click", () => {
       if (isEnOtraOperacion) return;
 
-      if (isSelected) {
-        state.dispositivoSelectedItems = state.dispositivoSelectedItems.filter(x => x !== disp.id);
+      const hasSelectedResource = !!state.dispositivoSelectedResource;
+
+      if (hasSelectedResource) {
         if (asigActual) {
-          removerAsignacionDispositivo(disp.id);
-          if (!state.dispositivosLiberadosLocalmente.includes(disp.id)) {
-            state.dispositivosLiberadosLocalmente.push(disp.id);
+          if (destinoActualCoincide(asigActual)) {
+            // Si ya está asignado al recurso seleccionado -> DESASIGNAR
+            removerAsignacionDispositivo(disp.id);
+            if (!state.dispositivosLiberadosLocalmente.includes(disp.id)) {
+              state.dispositivosLiberadosLocalmente.push(disp.id);
+            }
+            state.dispositivoSelectedItems = state.dispositivoSelectedItems.filter(x => x !== disp.id);
+          } else {
+            // Si está asignado a otra persona -> REASIGNAR
+            const idPersonal = getIdPersonalFromResource(state.dispositivoSelectedResource);
+            if (idPersonal) {
+              removerAsignacionDispositivo(disp.id);
+              asignarDispositivo(disp.id, idPersonal);
+              state.dispositivosLiberadosLocalmente = state.dispositivosLiberadosLocalmente.filter(id => id !== disp.id);
+              state.dispositivoSelectedItems = [];
+            }
           }
-          if (state.dispositivoSelectedItems.length === 0) {
-            state.dispositivoSelectedResource = null;
+        } else {
+          // Si está disponible -> ASIGNAR
+          const idPersonal = getIdPersonalFromResource(state.dispositivoSelectedResource);
+          if (idPersonal) {
+            asignarDispositivo(disp.id, idPersonal);
+            state.dispositivosLiberadosLocalmente = state.dispositivosLiberadosLocalmente.filter(id => id !== disp.id);
+            state.dispositivoSelectedItems = [];
           }
         }
       } else {
-        state.dispositivoSelectedItems.push(disp.id);
-        if (asigActual) enfocarDestinoAsignado(asigActual);
+        if (isSelected) {
+          state.dispositivoSelectedItems = state.dispositivoSelectedItems.filter(x => x !== disp.id);
+          if (asigActual) {
+            removerAsignacionDispositivo(disp.id);
+            if (!state.dispositivosLiberadosLocalmente.includes(disp.id)) {
+              state.dispositivosLiberadosLocalmente.push(disp.id);
+            }
+          }
+        } else {
+          state.dispositivoSelectedItems.push(disp.id);
+          if (asigActual) enfocarDestinoAsignado(asigActual);
+        }
       }
 
       saveAsignacionActual();
@@ -246,13 +275,13 @@ export function renderDispositivoAsignacion() {
 
   // Función para intentar asignación automática
   function tryAutoAssignment() {
-    if (!state.dispositivoSelectedResource || state.dispositivoSelectedItems.length === 0) return;
+    if (!state.dispositivoSelectedResource || state.dispositivoSelectedItems.length === 0) return false;
 
     const hasUnassigned = state.dispositivoSelectedItems.some(id => !destinoActualCoincide(getAsignacionDispositivo(id)));
-    if (!hasUnassigned) return;
+    if (!hasUnassigned) return false;
 
     const idPersonal = getIdPersonalFromResource(state.dispositivoSelectedResource);
-    if (!idPersonal) return;
+    if (!idPersonal) return false;
 
     state.dispositivoSelectedItems.forEach(idDispositivo => {
       try {
@@ -266,10 +295,11 @@ export function renderDispositivoAsignacion() {
 
     state.dispositivoSelectedItems = [];
     renderDispositivoAsignacion();
+    return true;
   }
 
   // Intentar asignación automática
-  tryAutoAssignment();
+  if (tryAutoAssignment()) return;
 
   const footer = document.createElement("div");
   footer.className = "rightFooter";

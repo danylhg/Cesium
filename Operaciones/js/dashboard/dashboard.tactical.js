@@ -486,7 +486,7 @@ function getMilSymbolInstance(sidc, size = 200) {
   }
 }
 
-function renderMilSymbolImage(sidc, size = 200) {
+export function renderMilSymbolImage(sidc, size = 200) {
   const symbol = getMilSymbolInstance(sidc, size);
   return symbol ? symbol.asCanvas() : null;
 }

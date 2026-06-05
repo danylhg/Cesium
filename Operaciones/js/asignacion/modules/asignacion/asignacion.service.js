@@ -20,7 +20,8 @@ export function buildAsignacionActual() {
 
   // Construir personal con asignaciones de vehículos
   if (state.cutSeleccionado) {
-    const vehAsig = state.asignacionVehiculos.find(a => a.tipo_destino === 'personal' && a.id_personal === state.cutSeleccionado?.id);
+    const cutId = state.personalMap[state.cutSeleccionado];
+    const vehAsig = state.asignacionVehiculos.find(a => a.tipo_destino === 'personal' && a.id_personal === cutId);
     const vehNombre = vehAsig ? state.vehiclesList.find(v => v.id === vehAsig.id_vehiculo)?.name : "";
     personal.push({
       nombre: state.cutSeleccionado,
@@ -35,7 +36,7 @@ export function buildAsignacionActual() {
   state.cetSeleccionados.forEach((cet) => {
     // CET
     const grupoCet = state.gruposByCet[cet]?.active;
-    const vehAsigCet = state.asignacionVehiculos.find(a => a.tipo_destino === 'grupo' && a.id_grupo_operacion === grupoCet?.id);
+    const vehAsigCet = state.asignacionVehiculos.find(a => a.tipo_destino === 'grupo' && a.id_grupo_operacion === grupoCet);
     const vehNombreCet = vehAsigCet ? state.vehiclesList.find(v => v.id === vehAsigCet.id_vehiculo)?.name : "";
     personal.push({
       nombre: cet,
@@ -95,9 +96,9 @@ export function buildAsignacionActual() {
         // Buscar nombre de persona
         for (const cet of state.cetSeleccionados) {
           const celulas = state.asignacionCelulas[cet] || [];
-          const persona = celulas.find(p => p.id === asig.id_personal);
+          const persona = celulas.find(p => state.personalMap[p] === asig.id_personal);
           if (persona) {
-            destino = `${cet} - ${persona.nombre}`;
+            destino = `${cet} - ${persona}`;
             break;
           }
         }
@@ -174,7 +175,6 @@ export async function saveOperacionYAsignacion() {
   const op = readObjectStorage(STORAGE_OPERACION_ACTUAL, {});
   if (op.id) {
     writeStorage(`operacion_${op.id}`, op);
-    // Aquí también podríamos llamar a syncOperacionCompleta(op.id) si fuera necesario
   }
   return saveAsignacionActual();
 }

@@ -412,7 +412,7 @@ export function renderVehiculos() {
 
   // Función para intentar asignación automática
   function tryAutoAssignment() {
-    if (!state.selectedVehicle) return;
+    if (!state.selectedVehicle) return false;
 
     const selected = (state.selectedCells || []).filter(k => {
       if (k.includes("::")) return false;
@@ -421,19 +421,19 @@ export function renderVehiculos() {
       return false;
     }).filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
 
-    if (selected.length === 0) return;
+    if (selected.length === 0) return false;
 
     const vehObj = state.vehiclesList.find(v => v.name === state.selectedVehicle);
-    if (!vehObj) return;
+    if (!vehObj) return false;
 
     const used = state.asignacionVehiculos.filter(a => a.id_vehiculo === vehObj.id).length;
     const cap = Number(vehObj.capacity || 0);
     const remainingNow = cap - used;
 
     const locked = selected.filter(k => getNombreVehiculoAsignado(k));
-    if (locked.length > 0) return;
+    if (locked.length > 0) return false;
 
-    if (selected.length > remainingNow) return;
+    if (selected.length > remainingNow) return false;
 
     // Asignar automáticamente
     selected.forEach((key) => {
@@ -459,10 +459,11 @@ export function renderVehiculos() {
     state.selectedVehicle = null;
     state.selectedCells = [];
     renderVehiculos();
+    return true;
   }
 
   // Intentar asignación automática
-  tryAutoAssignment();
+  if (tryAutoAssignment()) return;
 
   btnAccion.onclick = async () => {
     if (hasGroups && groupIndex < lastGroupIndex) {

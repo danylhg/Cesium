@@ -7,6 +7,22 @@
   <title>Panorama táctico</title>
 
   <link rel="stylesheet" href="css/dashboard.css?v=20260605-close-fullscreen" />
+  <script>
+    window.addEventListener('error', function(e) {
+      const el = document.getElementById('debug-errors');
+      if (el) {
+        el.style.display = 'block';
+        el.innerHTML += '<div style="margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.3); padding-bottom:4px;">Error: ' + e.message + '<br><small>' + e.filename + ':' + e.lineno + '</small></div>';
+      }
+    });
+    window.addEventListener('unhandledrejection', function(e) {
+      const el = document.getElementById('debug-errors');
+      if (el) {
+        el.style.display = 'block';
+        el.innerHTML += '<div style="margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.3); padding-bottom:4px;">Promise Rejection: ' + (e.reason?.message || e.reason) + '</div>';
+      }
+    });
+  </script>
   <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
 
@@ -50,6 +66,8 @@
 </head>
 
 <body>
+
+  <div id="debug-errors" style="position:fixed; top:80px; left:10px; z-index:99999; background:rgba(255,0,0,0.95); color:white; padding:12px; border-radius:12px; display:none; max-width:500px; font-family:monospace; font-size:12px; box-shadow:0 8px 30px rgba(0,0,0,0.5); overflow-y:auto; max-height:300px;"></div>
 
   <header class="topbar">
     <div class="topbarLeft">
@@ -641,35 +659,6 @@
 
       window.addEventListener("DOMContentLoaded", paintDashboardFallback);
       window.addEventListener("load", () => setTimeout(paintDashboardFallback, 1200));
-
-      window.addEventListener("DOMContentLoaded", () => {
-        const pairs = [
-          ["toggleInfoPanel", "infoPanel"],
-          ["toggleRoutePanel", "routePanel"],
-          ["toggleTacticalPanel", "tacticalPanel"],
-          ["toggleCameraPanel", "cameraPanel"]
-        ];
-
-        function closePanels() {
-          pairs.forEach(([buttonId, panelId]) => {
-            document.getElementById(panelId)?.classList.remove("open");
-            document.getElementById(buttonId)?.classList.remove("active");
-          });
-        }
-
-        pairs.forEach(([buttonId, panelId]) => {
-          const button = document.getElementById(buttonId);
-          const panel = document.getElementById(panelId);
-          if (!button || !panel || button.dataset.fallbackBound === "1") return;
-          button.dataset.fallbackBound = "1";
-          button.addEventListener("click", () => {
-            const wasOpen = panel.classList.contains("open");
-            closePanels();
-            panel.classList.toggle("open", !wasOpen);
-            button.classList.toggle("active", !wasOpen);
-          });
-        });
-      });
     })();
   </script>
   <script type="module" src="js/dashboard/dashboard.js?v=20260605-close-fullscreen"></script>

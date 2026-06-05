@@ -90,7 +90,7 @@ function buildPeopleRows() {
   const cutName = personName(state.cutSeleccionado);
   addPerson({
     name: cutName,
-    id: state.cutSeleccionado?.id,
+    id: state.personalMap[state.cutSeleccionado],
     cargo: "CUT"
   });
 

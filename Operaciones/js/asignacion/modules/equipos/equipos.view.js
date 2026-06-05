@@ -351,17 +351,75 @@ export function renderEquipoAsignacion() {
     card.addEventListener("click", () => {
       if (isDisabled) return;
 
-      if (isSelected) {
-        state.equipoSelectedItems = state.equipoSelectedItems.filter(x => x !== eqId);
+      const hasSelectedResource = !!state.equipoSelectedResource;
+
+      if (hasSelectedResource) {
         if (asigActual) {
-          removerAsignacionActualDeEquipo(eqId);
-          if (state.equipoSelectedItems.length === 0) {
-            state.equipoSelectedResource = null;
+          if (destinoActualCoincide(asigActual)) {
+            // Si ya está asignado al recurso seleccionado -> DESASIGNAR
+            removerAsignacionActualDeEquipo(eqId);
+            state.equipoSelectedItems = state.equipoSelectedItems.filter(x => x !== eqId);
+          } else {
+            // Si está asignado a otro recurso -> REASIGNAR
+            let tipoDestino, idPersonal = null, idVehiculo = null;
+            if (state.equipoDestino === "personal") {
+              tipoDestino = "personal";
+              const parts = state.equipoSelectedResource.split(" - ");
+              if (parts.length === 2) {
+                const cet = parts[0];
+                const personaNombre = parts[1];
+                const nombreNorm = personaNombre.replace(/^CET: /, "");
+                const idFromMap = state.personalMap[nombreNorm] || state.personalMap[personaNombre];
+                if (idFromMap) idPersonal = idFromMap;
+              }
+            } else {
+              tipoDestino = "vehiculo";
+              const veh = state.vehiclesList.find(v => v.name === state.equipoSelectedResource);
+              if (veh) idVehiculo = veh.id;
+            }
+
+            if (idPersonal || idVehiculo) {
+              removerAsignacionActualDeEquipo(eqId);
+              asignarEquipo(eqId, tipoDestino, idPersonal, idVehiculo, state.equipoCategoria);
+              state.equiposLiberadosLocalmente = state.equiposLiberadosLocalmente.filter(id => id !== eqId);
+              state.equipoSelectedItems = [];
+            }
+          }
+        } else {
+          // Si está disponible -> ASIGNAR
+          let tipoDestino, idPersonal = null, idVehiculo = null;
+          if (state.equipoDestino === "personal") {
+            tipoDestino = "personal";
+            const parts = state.equipoSelectedResource.split(" - ");
+            if (parts.length === 2) {
+              const cet = parts[0];
+              const personaNombre = parts[1];
+              const nombreNorm = personaNombre.replace(/^CET: /, "");
+              const idFromMap = state.personalMap[nombreNorm] || state.personalMap[personaNombre];
+              if (idFromMap) idPersonal = idFromMap;
+            }
+          } else {
+            tipoDestino = "vehiculo";
+            const veh = state.vehiclesList.find(v => v.name === state.equipoSelectedResource);
+            if (veh) idVehiculo = veh.id;
+          }
+
+          if (idPersonal || idVehiculo) {
+            asignarEquipo(eqId, tipoDestino, idPersonal, idVehiculo, state.equipoCategoria);
+            state.equiposLiberadosLocalmente = state.equiposLiberadosLocalmente.filter(id => id !== eqId);
+            state.equipoSelectedItems = [];
           }
         }
       } else {
-        state.equipoSelectedItems.push(eqId);
-        if (asigActual) enfocarDestinoAsignado(asigActual);
+        if (isSelected) {
+          state.equipoSelectedItems = state.equipoSelectedItems.filter(x => x !== eqId);
+          if (asigActual) {
+            removerAsignacionActualDeEquipo(eqId);
+          }
+        } else {
+          state.equipoSelectedItems.push(eqId);
+          if (asigActual) enfocarDestinoAsignado(asigActual);
+        }
       }
       renderEquipoAsignacion();
     });
@@ -371,15 +429,15 @@ export function renderEquipoAsignacion() {
 
   // Función para intentar asignación automática
   function tryAutoAssignment() {
-    if (!state.equipoSelectedResource || state.equipoSelectedItems.length === 0) return;
+    if (!state.equipoSelectedResource || state.equipoSelectedItems.length === 0) return false;
 
     const hasUnassigned = state.equipoSelectedItems.some(eqId => {
       const asigActual = state.asignacionEquipos.find(a => a.id_equipo === eqId);
       return !destinoActualCoincide(asigActual);
     });
-    if (!hasUnassigned) return;
+    if (!hasUnassigned) return false;
 
-    if (!state.equipoCategoria) return;
+    if (!state.equipoCategoria) return false;
 
     // Mapear destino a ids
     let tipoDestino, idPersonal = null, idVehiculo = null;
@@ -389,7 +447,6 @@ export function renderEquipoAsignacion() {
       if (parts.length === 2) {
         const cet = parts[0];
         const personaNombre = parts[1];
-        const celulas = state.asignacionCelulas[cet] || [];
         const nombreNorm = personaNombre.replace(/^CET: /, "");
         const idFromMap = state.personalMap[nombreNorm] || state.personalMap[personaNombre];
         if (idFromMap) idPersonal = idFromMap;
@@ -400,7 +457,7 @@ export function renderEquipoAsignacion() {
       if (veh) idVehiculo = veh.id;
     }
 
-    if (!idPersonal && !idVehiculo) return;
+    if (!idPersonal && !idVehiculo) return false;
 
     // Asignar automáticamente
     state.equipoSelectedItems.forEach(eqId => {
@@ -415,10 +472,11 @@ export function renderEquipoAsignacion() {
 
     state.equipoSelectedItems = [];
     renderEquipoAsignacion();
+    return true;
   }
 
   // Intentar asignación automática
-  tryAutoAssignment();
+  if (tryAutoAssignment()) return;
 
   const footer = document.createElement("div");
   footer.className = "rightFooter";
