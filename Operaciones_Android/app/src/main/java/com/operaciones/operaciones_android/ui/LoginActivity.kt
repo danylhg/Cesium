@@ -147,14 +147,7 @@ class LoginActivity : AppCompatActivity() {
                                 handleLoginSuccess(json)
                             response.code == 403 -> {
                                 val message = json.optString("mensaje", "Usuario inactivo.")
-                                val code = json.optString("codigo", "")
-                                val deviceId = devicePayload.optString("identificador_app", "")
-                                val deviceMessage = if (code.startsWith("DISPOSITIVO") && deviceId.isNotBlank()) {
-                                    "$message\nID app: $deviceId"
-                                } else {
-                                    message
-                                }
-                                showError(deviceMessage)
+                                showError(message)
                             }
                             else ->
                                 showError(json.optString("mensaje", "Usuario o contraseña incorrectos."))

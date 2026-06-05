@@ -34,6 +34,7 @@ import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.auth.AuthManager
 import com.operaciones.operaciones_android.location.LocationHelper
 import com.operaciones.operaciones_android.model.ChatMessage
+import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.MessageType
 import com.operaciones.operaciones_android.model.Operation
@@ -87,6 +88,7 @@ class MainActivity : AppCompatActivity(),
     private lateinit var btnNavPersonal: LinearLayout
     private lateinit var btnNavVehiculos: LinearLayout
     private lateinit var btnNavEquipos: LinearLayout
+    private lateinit var btnNavDispositivos: LinearLayout
     private lateinit var btnMyLocation: ImageButton
     private lateinit var btnStreamMedia: ImageButton
     private lateinit var btnDeleteSelectedObject: ImageButton
@@ -117,6 +119,11 @@ class MainActivity : AppCompatActivity(),
     private val personalList = mutableListOf<PersonalItem>()
     private val vehiculosList = mutableListOf<VehiculoItem>()
     private val equiposList = mutableListOf<EquipoItem>()
+    private val dispositivosList = mutableListOf<DispositivoItem>()
+    private val livePersonalLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val liveVehiculoLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val liveEquipoLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val liveDispositivoLocations = mutableMapOf<Int, Pair<Double, Double>>()
 
     private var opLat = 0.0
     private var opLon = 0.0
@@ -246,6 +253,7 @@ class MainActivity : AppCompatActivity(),
         btnNavPersonal = findViewById(R.id.btnNavPersonal)
         btnNavVehiculos = findViewById(R.id.btnNavVehiculos)
         btnNavEquipos = findViewById(R.id.btnNavEquipos)
+        btnNavDispositivos = findViewById(R.id.btnNavDispositivos)
         btnMyLocation = findViewById(R.id.btnMyLocation)
         btnStreamMedia = findViewById(R.id.btnStreamMedia)
         btnDeleteSelectedObject = findViewById(R.id.btnDeleteSelectedObject)
@@ -283,12 +291,37 @@ class MainActivity : AppCompatActivity(),
             onLocationUpdate = { latitude, longitude ->
                 lastKnownLat = latitude
                 lastKnownLon = longitude
-                cesiumWebController.updateMyPosition(latitude, longitude)
+                cesiumWebController.updateMyPosition(latitude, longitude, shouldShowSelfLocationMarker())
                 if (::currentUser.isInitialized) {
-                    panelRenderer.updatePersonalLocation(currentUser.id, latitude, longitude)
+                    if (recordPersonalLocation(currentUser.id, latitude, longitude)) {
+                        panelRenderer.updatePersonalLocation(currentUser.id, latitude, longitude)
+                    }
+                    currentUser.idDispositivo?.let { idDispositivo ->
+                        val dispositivo = dispositivosList.firstOrNull { it.idDispositivo == idDispositivo }
+                        if (recordDispositivoLocation(idDispositivo, latitude, longitude)) {
+                            panelRenderer.updateDispositivoLocation(
+                                idDispositivo,
+                                latitude,
+                                longitude,
+                                dispositivo?.numeroSerie,
+                                dispositivo?.imei
+                            )
+                        }
+                        val label = dispositivoLabel(dispositivo, fallback = currentUser.nombreCompleto)
+                        val meta = JSONObject()
+                            .put("tipo", dispositivo?.tipo ?: "")
+                            .put("marca", dispositivo?.marca ?: "")
+                            .put("modelo", dispositivo?.modelo ?: "")
+                            .put("numero_serie", dispositivo?.numeroSerie ?: "")
+                            .put("imei", dispositivo?.imei ?: "")
+                        cesiumWebController.evaluate(
+                            "if(typeof updateTrackingDispositivo === 'function') updateTrackingDispositivo($idDispositivo, $latitude, $longitude, '${jsString(label)}', ${meta})"
+                        )
+                    }
                     if (followedPersonalId == currentUser.id) {
                         cesiumWebController.centerOnLocation(latitude, longitude, zoom = 500, follow = true)
                     }
+                    refreshEquipmentLocationsFromAssignments()
                 }
                 if (centerOnNextLocation) {
                     centerOnNextLocation = false
@@ -301,13 +334,16 @@ class MainActivity : AppCompatActivity(),
                 if (::currentUser.isInitialized) {
                     val deviceId = currentUser.idDispositivo
                     if (deviceId != null) {
+                        val dispositivo = dispositivosList.firstOrNull { it.idDispositivo == deviceId }
                         chatSocketManager?.emitTrackingDispositivo(
                             idDispositivo = deviceId,
                             lat = lat,
                             lon = lon,
                             speedKmh = speedKmh,
                             headingDegrees = headingDegrees,
-                            accuracyMeters = accuracyMeters
+                            accuracyMeters = accuracyMeters,
+                            numeroSerie = dispositivo?.numeroSerie,
+                            imei = dispositivo?.imei
                         )
                     } else {
                         chatSocketManager?.emitTracking(
@@ -332,6 +368,7 @@ class MainActivity : AppCompatActivity(),
             btnNavPersonal = btnNavPersonal,
             btnNavVehiculos = btnNavVehiculos,
             btnNavEquipos = btnNavEquipos,
+            btnNavDispositivos = btnNavDispositivos,
             host = this
         )
 
@@ -353,6 +390,7 @@ class MainActivity : AppCompatActivity(),
             fetchPersonalPanelData()
             fetchVehiculosPanelData()
             fetchEquiposPanelData()
+            fetchDispositivosPanelData()
             startEmergencyService()
             requestMediaStreamForOperation()
         }
@@ -408,7 +446,7 @@ class MainActivity : AppCompatActivity(),
                 return@setOnClickListener
             }
 
-            cesiumWebController.updateMyPosition(lat, lon)
+            cesiumWebController.updateMyPosition(lat, lon, shouldShowSelfLocationMarker())
             cesiumWebController.centerOnLocation(lat, lon, follow = false)
         }
     }
@@ -589,6 +627,44 @@ class MainActivity : AppCompatActivity(),
     override fun selectMapPersonal(idPersonal: Int?) {
         if (::panelRenderer.isInitialized) {
             panelRenderer.selectPersonal(idPersonal)
+            if (idPersonal != null) {
+                panelRenderer.selectVehiculo(null)
+                panelRenderer.selectEquipo(null)
+                panelRenderer.selectDispositivo(null)
+            }
+        }
+    }
+
+    override fun selectMapVehiculo(idVehiculo: Int?) {
+        if (::panelRenderer.isInitialized) {
+            panelRenderer.selectVehiculo(idVehiculo)
+            if (idVehiculo != null) {
+                panelRenderer.selectPersonal(null)
+                panelRenderer.selectEquipo(null)
+                panelRenderer.selectDispositivo(null)
+            }
+        }
+    }
+
+    override fun selectMapEquipo(idEquipo: Int?) {
+        if (::panelRenderer.isInitialized) {
+            panelRenderer.selectEquipo(idEquipo)
+            if (idEquipo != null) {
+                panelRenderer.selectPersonal(null)
+                panelRenderer.selectVehiculo(null)
+                panelRenderer.selectDispositivo(null)
+            }
+        }
+    }
+
+    override fun selectMapDispositivo(idDispositivo: Int?) {
+        if (::panelRenderer.isInitialized) {
+            panelRenderer.selectDispositivo(idDispositivo)
+            if (idDispositivo != null) {
+                panelRenderer.selectPersonal(null)
+                panelRenderer.selectVehiculo(null)
+                panelRenderer.selectEquipo(null)
+            }
         }
     }
 
@@ -615,7 +691,38 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun updateMapDataPersonalPanel(idPersonal: Int, lat: Double, lon: Double) {
-        panelRenderer.updatePersonalLocation(idPersonal, lat, lon)
+        if (recordPersonalLocation(idPersonal, lat, lon)) {
+            panelRenderer.updatePersonalLocation(idPersonal, lat, lon)
+            refreshEquipmentLocationsFromAssignments()
+        }
+    }
+
+    override fun updateMapDataVehiculoPanel(idVehiculo: Int, lat: Double, lon: Double) {
+        if (recordVehiculoLocation(idVehiculo, lat, lon)) {
+            panelRenderer.updateVehiculoLocation(idVehiculo, lat, lon)
+            refreshEquipmentLocationsFromAssignments()
+        }
+    }
+
+    override fun updateMapDataEquipoPanel(idEquipo: Int, lat: Double, lon: Double) {
+        if (recordEquipoLocation(idEquipo, lat, lon)) {
+            panelRenderer.updateEquipoLocation(idEquipo, lat, lon)
+        }
+    }
+
+    override fun updateMapDataDispositivoPanel(
+        idDispositivo: Int,
+        lat: Double,
+        lon: Double,
+        numeroSerie: String,
+        imei: String
+    ) {
+        val dispositivo = dispositivosList.firstOrNull { it.idDispositivo == idDispositivo }
+        if (dispositivo != null && !matchesDispositivoIdentity(dispositivo, numeroSerie, imei)) return
+        if (recordDispositivoLocation(idDispositivo, lat, lon)) {
+            panelRenderer.updateDispositivoLocation(idDispositivo, lat, lon, numeroSerie, imei)
+            refreshEquipmentLocationsFromAssignments()
+        }
     }
 
     override fun loadMapDataDrawings(replace: Boolean) {
@@ -631,6 +738,18 @@ class MainActivity : AppCompatActivity(),
     override fun getSocketUserId(): Int = currentUser.id
 
     override fun getSocketDeviceId(): Int? = currentUser.idDispositivo
+
+    override fun getSocketDeviceSerial(): String? =
+        currentUser.idDispositivo
+            ?.let { id -> dispositivosList.firstOrNull { it.idDispositivo == id } }
+            ?.numeroSerie
+            ?.takeIf { it.isNotBlank() }
+
+    override fun getSocketDeviceImei(): String? =
+        currentUser.idDispositivo
+            ?.let { id -> dispositivosList.firstOrNull { it.idDispositivo == id } }
+            ?.imei
+            ?.takeIf { it.isNotBlank() }
 
     override fun getSocketUserRole(): String = currentUser.rol.name
 
@@ -684,7 +803,10 @@ class MainActivity : AppCompatActivity(),
         cesiumWebController.evaluate(
             "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
-        panelRenderer.updatePersonalLocation(id, lat, lon)
+        if (recordPersonalLocation(id, lat, lon)) {
+            panelRenderer.updatePersonalLocation(id, lat, lon)
+            refreshEquipmentLocationsFromAssignments()
+        }
     }
 
     override fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String) {
@@ -698,6 +820,10 @@ class MainActivity : AppCompatActivity(),
         cesiumWebController.evaluate(
             "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
+        if (recordVehiculoLocation(id, lat, lon)) {
+            panelRenderer.updateVehiculoLocation(id, lat, lon)
+            refreshEquipmentLocationsFromAssignments()
+        }
     }
 
     override fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String) {
@@ -710,6 +836,36 @@ class MainActivity : AppCompatActivity(),
         cesiumWebController.evaluate(
             "if(typeof updateTrackingEquipo === 'function') updateTrackingEquipo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
+        if (recordEquipoLocation(id, lat, lon)) {
+            panelRenderer.updateEquipoLocation(id, lat, lon)
+        }
+    }
+
+    override fun onSocketTrackingDispositivo(
+        id: Int,
+        lat: Double,
+        lon: Double,
+        label: String,
+        numeroSerie: String?,
+        imei: String?
+    ) {
+        val dispositivo = dispositivosList.firstOrNull { it.idDispositivo == id }
+        if (dispositivo != null && !matchesDispositivoIdentity(dispositivo, numeroSerie, imei)) return
+        val displayLabel = dispositivoLabel(dispositivo, fallback = label)
+        val meta = JSONObject()
+            .put("tipo", dispositivo?.tipo ?: "")
+            .put("marca", dispositivo?.marca ?: "")
+            .put("modelo", dispositivo?.modelo ?: "")
+            .put("numero_serie", dispositivo?.numeroSerie ?: numeroSerie.orEmpty())
+            .put("imei", dispositivo?.imei ?: imei.orEmpty())
+            .put("bateria_pct", dispositivo?.bateriaPct ?: JSONObject.NULL)
+        cesiumWebController.evaluate(
+            "if(typeof updateTrackingDispositivo === 'function') updateTrackingDispositivo($id, $lat, $lon, '${jsString(displayLabel)}', ${meta})"
+        )
+        if (recordDispositivoLocation(id, lat, lon)) {
+            panelRenderer.updateDispositivoLocation(id, lat, lon, numeroSerie, imei)
+            refreshEquipmentLocationsFromAssignments()
+        }
     }
 
     override fun onSocketPoiCreated(
@@ -829,14 +985,60 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun selectPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String) {
+        if (!isValidTrackingLocation(lat, lon)) {
+            Toast.makeText(this, "$label sin ubicacion activa.", Toast.LENGTH_SHORT).show()
+            return
+        }
         followedPersonalId = idPersonal
         panelRenderer.selectPersonal(idPersonal)
+        panelRenderer.selectVehiculo(null)
+        panelRenderer.selectEquipo(null)
+        panelRenderer.selectDispositivo(null)
         if (::currentUser.isInitialized && idPersonal == currentUser.id) {
             cesiumWebController.selectTrackingPersonal(idPersonal)
             cesiumWebController.centerOnLocation(lat, lon, zoom = 500, follow = true)
         } else {
             cesiumWebController.followTrackingPersonal(idPersonal, lat, lon, zoom = 500)
         }
+    }
+
+    override fun selectVehiculoOnMap(idVehiculo: Int, lat: Double?, lon: Double?, label: String) {
+        if (lat == null || lon == null || !isValidTrackingLocation(lat, lon)) {
+            Toast.makeText(this, "$label sin ubicacion activa.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        followedPersonalId = null
+        panelRenderer.selectPersonal(null)
+        panelRenderer.selectVehiculo(idVehiculo)
+        panelRenderer.selectEquipo(null)
+        panelRenderer.selectDispositivo(null)
+        cesiumWebController.followTrackingVehiculo(idVehiculo, lat, lon, zoom = 500)
+    }
+
+    override fun selectEquipoOnMap(idEquipo: Int, lat: Double?, lon: Double?, label: String) {
+        if (lat == null || lon == null || !isValidTrackingLocation(lat, lon)) {
+            Toast.makeText(this, "$label sin ubicacion activa.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        followedPersonalId = null
+        panelRenderer.selectPersonal(null)
+        panelRenderer.selectVehiculo(null)
+        panelRenderer.selectEquipo(idEquipo)
+        panelRenderer.selectDispositivo(null)
+        cesiumWebController.followTrackingEquipo(idEquipo, lat, lon, zoom = 500)
+    }
+
+    override fun selectDispositivoOnMap(idDispositivo: Int, lat: Double?, lon: Double?, label: String) {
+        if (lat == null || lon == null || !isValidTrackingLocation(lat, lon)) {
+            Toast.makeText(this, "$label sin ubicacion activa.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        followedPersonalId = null
+        panelRenderer.selectPersonal(null)
+        panelRenderer.selectVehiculo(null)
+        panelRenderer.selectEquipo(null)
+        panelRenderer.selectDispositivo(idDispositivo)
+        cesiumWebController.followTrackingDispositivo(idDispositivo, lat, lon, zoom = 500)
     }
 
     override fun refreshPersonalPanelIfActive() {
@@ -910,6 +1112,7 @@ class MainActivity : AppCompatActivity(),
         } else if (panelNavigationController.activePanel == Panel.CHAT) {
             chatController.refreshVisibleMessages()
         }
+        refreshEquipmentLocationsFromAssignments()
     }
 
     override fun onPanelVehiculosLoaded(items: List<VehiculoItem>) {
@@ -919,6 +1122,7 @@ class MainActivity : AppCompatActivity(),
         if (panelNavigationController.activePanel == Panel.VEHICULOS) {
             inflateVehiculoPanel()
         }
+        refreshEquipmentLocationsFromAssignments()
     }
 
     override fun onPanelEquiposLoaded(items: List<EquipoItem>) {
@@ -928,11 +1132,102 @@ class MainActivity : AppCompatActivity(),
         if (panelNavigationController.activePanel == Panel.EQUIPOS) {
             inflateEquipoPanel()
         }
+        refreshEquipmentLocationsFromAssignments()
+    }
+
+    override fun onPanelDispositivosLoaded(items: List<DispositivoItem>) {
+        dispositivosList.clear()
+        dispositivosList.addAll(items)
+        dispositivosList.forEach { dispositivo ->
+            validPair(dispositivo.lat, dispositivo.lon)?.let { liveDispositivoLocations[dispositivo.idDispositivo] = it }
+            val location = liveDispositivoLocations[dispositivo.idDispositivo] ?: return@forEach
+            dispositivo.idPersonal?.let { idPersonal ->
+                livePersonalLocations[idPersonal] = location
+            }
+        }
+
+        if (panelNavigationController.activePanel == Panel.DISPOSITIVOS) {
+            inflateDispositivoPanel()
+        }
+        refreshEquipmentLocationsFromAssignments()
     }
 
     override fun onPanelDataError(message: String) {
         addMessage(ChatMessage(user = "Sistema", text = message, type = MessageType.SYSTEM))
     }
+
+    private fun recordPersonalLocation(idPersonal: Int, lat: Double, lon: Double): Boolean {
+        if (!isValidTrackingLocation(lat, lon)) return false
+        livePersonalLocations[idPersonal] = lat to lon
+        return true
+    }
+
+    private fun recordVehiculoLocation(idVehiculo: Int, lat: Double, lon: Double): Boolean {
+        if (!isValidTrackingLocation(lat, lon)) return false
+        liveVehiculoLocations[idVehiculo] = lat to lon
+        return true
+    }
+
+    private fun recordEquipoLocation(idEquipo: Int, lat: Double, lon: Double): Boolean {
+        if (!isValidTrackingLocation(lat, lon)) return false
+        liveEquipoLocations[idEquipo] = lat to lon
+        return true
+    }
+
+    private fun recordDispositivoLocation(idDispositivo: Int, lat: Double, lon: Double): Boolean {
+        if (!isValidTrackingLocation(lat, lon)) return false
+        liveDispositivoLocations[idDispositivo] = lat to lon
+        dispositivosList.firstOrNull { it.idDispositivo == idDispositivo }?.idPersonal?.let { idPersonal ->
+            livePersonalLocations[idPersonal] = lat to lon
+        }
+        return true
+    }
+
+    private fun refreshEquipmentLocationsFromAssignments() {
+        if (equiposList.isEmpty()) return
+        equiposList.forEach { equipo ->
+            val location = resolveEquipoLocation(equipo) ?: return@forEach
+            panelRenderer.updateEquipoLocation(equipo.idEquipo, location.first, location.second)
+        }
+    }
+
+    private fun resolveEquipoLocation(equipo: EquipoItem): Pair<Double, Double>? {
+        liveEquipoLocations[equipo.idEquipo]?.let { return it }
+        return null
+    }
+
+    private fun validPair(lat: Double?, lon: Double?): Pair<Double, Double>? {
+        if (lat == null || lon == null) return null
+        return if (isValidTrackingLocation(lat, lon)) lat to lon else null
+    }
+
+    private fun isValidTrackingLocation(lat: Double, lon: Double): Boolean =
+        !lat.isNaN() &&
+            !lon.isNaN() &&
+            !lat.isInfinite() &&
+            !lon.isInfinite() &&
+            lat in -90.0..90.0 &&
+            lon in -180.0..180.0 &&
+            !(lat == 0.0 && lon == 0.0)
+
+    private fun matchesDispositivoIdentity(
+        dispositivo: DispositivoItem,
+        numeroSerie: String?,
+        imei: String?
+    ): Boolean {
+        val incoming = setOf(numeroSerie, imei)
+            .map { normalizeDeviceIdentity(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (incoming.isEmpty()) return false
+
+        return setOf(dispositivo.numeroSerie, dispositivo.imei, dispositivo.identificadorApp)
+            .map { normalizeDeviceIdentity(it) }
+            .any { it.isNotBlank() && it in incoming }
+    }
+
+    private fun normalizeDeviceIdentity(value: String?): String =
+        value?.trim()?.lowercase().orEmpty()
 
     private fun fetchPersonalPanelData() {
         panelDataController.fetchPersonal()
@@ -944,6 +1239,10 @@ class MainActivity : AppCompatActivity(),
 
     private fun fetchEquiposPanelData() {
         panelDataController.fetchEquipos()
+    }
+
+    private fun fetchDispositivosPanelData() {
+        panelDataController.fetchDispositivos()
     }
 
     private fun setupWebView() {
@@ -1240,6 +1539,17 @@ class MainActivity : AppCompatActivity(),
             .replace("\n", " ")
             .replace("\r", " ")
 
+    private fun shouldShowSelfLocationMarker(): Boolean =
+        !::currentUser.isInitialized || currentUser.idDispositivo == null
+
+    private fun dispositivoLabel(dispositivo: DispositivoItem?, fallback: String): String =
+        dispositivo?.let {
+            listOf(it.tipo, it.marca, it.modelo)
+                .filter { value -> value.isNotBlank() }
+                .joinToString(" ")
+                .ifBlank { fallback }
+        } ?: fallback
+
     override fun inflateOperationPanel() {
         panelRenderer.inflateOperationPanel(
             panelContent = panelContent,
@@ -1397,9 +1707,21 @@ class MainActivity : AppCompatActivity(),
             panelContent = panelContent,
             equiposList = equiposList
         )
+        refreshEquipmentLocationsFromAssignments()
 
         if (currentOperation.id > 0 && equiposList.isEmpty()) {
             fetchEquiposPanelData()
+        }
+    }
+
+    override fun inflateDispositivoPanel() {
+        panelRenderer.inflateDispositivoPanel(
+            panelContent = panelContent,
+            dispositivosList = dispositivosList
+        )
+
+        if (currentOperation.id > 0 && dispositivosList.isEmpty()) {
+            fetchDispositivosPanelData()
         }
     }
 

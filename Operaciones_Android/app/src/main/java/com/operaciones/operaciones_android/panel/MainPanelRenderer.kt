@@ -5,6 +5,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import androidx.recyclerview.widget.RecyclerView
 import com.operaciones.operaciones_android.model.ChatMessage
+import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.Operation
 import com.operaciones.operaciones_android.model.PersonalItem
@@ -34,6 +35,7 @@ class MainPanelRenderer(
     private val personalRenderer = PersonalPanelRenderer(host)
     private val vehicleRenderer = VehiclePanelRenderer(host)
     private val equipmentRenderer = EquipmentPanelRenderer(host)
+    private val deviceRenderer = DevicePanelRenderer(host)
 
     interface Host {
         fun getLayoutInflater(): LayoutInflater
@@ -58,6 +60,9 @@ class MainPanelRenderer(
         fun isSimulationActive(): Boolean
         fun toggleSimulation()
         fun selectPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String)
+        fun selectVehiculoOnMap(idVehiculo: Int, lat: Double?, lon: Double?, label: String)
+        fun selectEquipoOnMap(idEquipo: Int, lat: Double?, lon: Double?, label: String)
+        fun selectDispositivoOnMap(idDispositivo: Int, lat: Double?, lon: Double?, label: String)
         fun refreshPersonalPanelIfActive()
     }
 
@@ -65,8 +70,38 @@ class MainPanelRenderer(
         personalRenderer.selectPersonal(idPersonal)
     }
 
+    fun selectVehiculo(idVehiculo: Int?) {
+        vehicleRenderer.selectVehiculo(idVehiculo)
+    }
+
+    fun selectEquipo(idEquipo: Int?) {
+        equipmentRenderer.selectEquipo(idEquipo)
+    }
+
+    fun selectDispositivo(idDispositivo: Int?) {
+        deviceRenderer.selectDispositivo(idDispositivo)
+    }
+
     fun updatePersonalLocation(id: Int, lat: Double, lon: Double) {
         personalRenderer.updatePersonalLocation(id, lat, lon)
+    }
+
+    fun updateVehiculoLocation(id: Int, lat: Double, lon: Double) {
+        vehicleRenderer.updateVehiculoLocation(id, lat, lon)
+    }
+
+    fun updateEquipoLocation(id: Int, lat: Double, lon: Double) {
+        equipmentRenderer.updateEquipoLocation(id, lat, lon)
+    }
+
+    fun updateDispositivoLocation(
+        id: Int,
+        lat: Double,
+        lon: Double,
+        numeroSerie: String? = null,
+        imei: String? = null
+    ) {
+        deviceRenderer.updateDispositivoLocation(id, lat, lon, numeroSerie, imei)
     }
 
     fun inflateOperationPanel(
@@ -105,5 +140,12 @@ class MainPanelRenderer(
         equiposList: List<EquipoItem>
     ) {
         equipmentRenderer.inflate(panelContent, equiposList)
+    }
+
+    fun inflateDispositivoPanel(
+        panelContent: FrameLayout,
+        dispositivosList: List<DispositivoItem>
+    ) {
+        deviceRenderer.inflate(panelContent, dispositivosList)
     }
 }

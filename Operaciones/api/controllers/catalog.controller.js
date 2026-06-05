@@ -582,7 +582,7 @@ export async function createDispositivo(req, res) {
     if (err.code === "23505") {
       return res.status(409).json({
         ok: false,
-        mensaje: "Ya existe un dispositivo con ese telefono, IMEI, numero de serie o identificador de app",
+        mensaje: "Ya existe un dispositivo con ese telefono, IMEI o numero de serie",
         error: err.detail || err.message,
       });
     }
@@ -729,7 +729,7 @@ export async function updateDispositivo(req, res) {
     if (err.code === "23505") {
       return res.status(409).json({
         ok: false,
-        mensaje: "Ya existe un dispositivo con ese telefono, IMEI, numero de serie o identificador de app",
+        mensaje: "Ya existe un dispositivo con ese telefono, IMEI o numero de serie",
         error: err.detail || err.message,
       });
     }

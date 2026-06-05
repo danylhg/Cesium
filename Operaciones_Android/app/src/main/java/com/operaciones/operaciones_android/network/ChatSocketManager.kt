@@ -13,6 +13,7 @@ class ChatSocketManager(
     private val onTrackingPersonal: ((JSONObject) -> Unit)? = null,
     private val onTrackingVehiculo: ((JSONObject) -> Unit)? = null,
     private val onTrackingEquipo: ((JSONObject) -> Unit)? = null,
+    private val onTrackingDispositivo: ((JSONObject) -> Unit)? = null,
     private val onPoiCreado: ((JSONObject) -> Unit)? = null,
     private val onPoiEliminado: ((JSONObject) -> Unit)? = null,
     private val onAreaCreada: ((JSONObject) -> Unit)? = null,
@@ -99,6 +100,11 @@ class ChatSocketManager(
         socket?.on("tracking_equipo") { args ->
             val data = args.firstOrNull() as? JSONObject ?: return@on
             onTrackingEquipo?.invoke(data)
+        }
+
+        socket?.on("tracking_dispositivo") { args ->
+            val data = args.firstOrNull() as? JSONObject ?: return@on
+            onTrackingDispositivo?.invoke(data)
         }
 
         socket?.on("poi_creado") { args ->
@@ -232,7 +238,9 @@ class ChatSocketManager(
         lon: Double,
         speedKmh: Double? = null,
         headingDegrees: Double? = null,
-        accuracyMeters: Float? = null
+        accuracyMeters: Float? = null,
+        numeroSerie: String? = null,
+        imei: String? = null
     ) {
         val connected = socket?.connected() == true
         Log.d(
@@ -252,6 +260,11 @@ class ChatSocketManager(
             speedKmh?.let { put("velocidad_kmh", it) }
             headingDegrees?.let { put("rumbo_grados", it) }
             accuracyMeters?.let { put("precision_m", it) }
+            numeroSerie?.takeIf { it.isNotBlank() }?.let {
+                put("serial_dispositivo", it)
+                put("numero_serie", it)
+            }
+            imei?.takeIf { it.isNotBlank() }?.let { put("imei", it) }
         }
         socket?.emit("tracking_dispositivo", payload)
     }

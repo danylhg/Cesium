@@ -479,6 +479,33 @@
                     android:textSize="10sp"/>
             </LinearLayout>
 
+            <LinearLayout
+                android:id="@+id/btnNavDispositivos"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+
+                <TextView
+                    android:id="@+id/iconNavDispositivos"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="DEV"
+                    android:textSize="13sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Disp."
+                    android:textColor="#64748b"
+                    android:textSize="10sp"/>
+            </LinearLayout>
+
         </LinearLayout>
     </LinearLayout>
 

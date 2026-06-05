@@ -110,11 +110,7 @@ class PhoneWearListenerService : WearableListenerService() {
                     val json = JSONObject(bodyStr)
                     if (!response.isSuccessful || !json.optBoolean("ok")) {
                         val message = json.optString("mensaje", "Smartwatch no autorizado")
-                        val deviceId = json.optString("identificador_app", "")
-                        sendSessionError(
-                            messageEvent.sourceNodeId,
-                            if (deviceId.isNotBlank()) "$message ID app: $deviceId" else message
-                        )
+                        sendSessionError(messageEvent.sourceNodeId, message)
                         return
                     }
 

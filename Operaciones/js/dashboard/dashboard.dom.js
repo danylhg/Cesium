@@ -77,6 +77,7 @@ export const dom = {
   cameraLayoutGrid: document.getElementById("cameraLayoutGrid"),
   cameraLayoutSpeaker: document.getElementById("cameraLayoutSpeaker"),
   cameraNextBtn: document.getElementById("cameraNextBtn"),
+  cameraCloseBtn: document.getElementById("cameraCloseBtn"),
   cameraWebRtcBtn: document.getElementById("cameraWebRtcBtn"),
   cameraRtmpBtn: document.getElementById("cameraRtmpBtn"),
   // Panels

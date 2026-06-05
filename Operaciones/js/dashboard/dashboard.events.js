@@ -8,7 +8,7 @@ import {
 } from "./dashboard.storage.js";
 import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
-import { clearPersonnelLiveCamera } from "./dashboard.camera.js";
+import { clearPersonnelLiveCamera } from "./dashboard.camera.js?v=20260604-person-card-camera";
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -65,8 +65,14 @@ function bindPanelEvents() {
       }
 
       const isOpen = dom.cameraPanel?.classList.contains("open");
-      dom.cameraPanel?.classList.toggle("open", !isOpen);
-      dom.toggleCameraPanel?.classList.toggle("active", !isOpen);
+      if (isOpen) {
+        closeAllPanels();
+        return;
+      }
+
+      closeAllPanels();
+      dom.cameraPanel?.classList.add("open");
+      dom.toggleCameraPanel?.classList.add("active");
     });
   }
 }

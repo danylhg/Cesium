@@ -4,6 +4,7 @@ data class OperationMapData(
     val personal: List<PersonalItem>,
     val vehiculos: List<VehiculoItem>,
     val equipos: List<EquipoItem>,
+    val dispositivos: List<DispositivoItem> = emptyList(),
     val rutasNavegacion: String? = null,
     val rutasTacticas: String? = null,
     val operationZone: OperationZoneItem? = null,

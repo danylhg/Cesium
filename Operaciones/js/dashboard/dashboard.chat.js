@@ -4,6 +4,7 @@ import { dom } from "./dashboard.dom.js";
 import { escapeHtml } from "./dashboard.storage.js";
 import { formatTime } from "./dashboard.ui.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
+import { pulseEmergencyForChatMessage } from "./dashboard.emergency.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
@@ -853,14 +854,14 @@ function renderMessages() {
 
 // ── Agrega un mensaje (guard de duplicados) ─────────────────
 function appendMessage(msg) {
-  if (!dom.chatMessages) return;
+  if (!dom.chatMessages) return false;
 
   // Dedup por id_mensaje
-  if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return;
+  if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return false;
   _allMsgs.push(msg);
 
-  if (shouldHideChatMessage(msg)) return;
-  if (!isVisibleInTab(msg)) return;
+  if (shouldHideChatMessage(msg)) return true;
+  if (!isVisibleInTab(msg)) return true;
 
   const atBottom =
     dom.chatMessages.scrollHeight - dom.chatMessages.scrollTop <=
@@ -869,6 +870,7 @@ function appendMessage(msg) {
   dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
 
   if (atBottom) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  return true;
 }
 
 // ── Carga historial desde backend ──────────────────────────
@@ -1105,7 +1107,9 @@ export function initChat(opId, socket) {
   _socket = socket;
 
   socket.on("chat_message", (msg) => {
-    appendMessage(msg);
+    if (appendMessage(msg)) {
+      pulseEmergencyForChatMessage(msg);
+    }
   });
 
   loadChatDirectory();

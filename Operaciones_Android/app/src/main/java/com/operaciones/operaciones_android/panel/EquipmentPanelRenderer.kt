@@ -1,6 +1,7 @@
 package com.operaciones.operaciones_android.ui.panel
 
 import android.graphics.Color
+import android.view.View
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -10,11 +11,39 @@ import com.operaciones.operaciones_android.model.EquipoItem
 internal class EquipmentPanelRenderer(
     private val host: MainPanelRenderer.Host
 ) {
+    private val liveLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val locatedEquipoIds = mutableSetOf<Int>()
+    private val activeRows = mutableMapOf<Int, View>()
+    private var selectedEquipoId: Int? = null
+
+    fun selectEquipo(idEquipo: Int?) {
+        selectedEquipoId = idEquipo
+        activeRows.forEach { (id, row) -> applyEquipmentRowStyle(row, id) }
+    }
+
+    fun updateEquipoLocation(id: Int, lat: Double, lon: Double) {
+        if (!isValidLocation(lat, lon)) return
+        liveLocations[id] = lat to lon
+        locatedEquipoIds.add(id)
+        val row = activeRows[id] ?: return
+        val label = row.tag as? String
+            ?: row.findViewById<TextView>(R.id.equipoNombre).text.toString()
+        setSelectableForeground(row)
+        row.isClickable = true
+        row.setOnClickListener {
+            selectEquipo(id)
+            host.selectEquipoOnMap(id, lat, lon, label)
+        }
+        applyEquipmentRowStyle(row, id)
+    }
+
     fun inflate(panelContent: FrameLayout, equiposList: List<EquipoItem>) {
         val view = host.getLayoutInflater().inflate(R.layout.panel_equipo, panelContent, false)
         panelContent.addView(view)
 
         val list = view.findViewById<LinearLayout>(R.id.equipoList)
+        activeRows.clear()
+        locatedEquipoIds.clear()
         if (equiposList.isEmpty()) {
             addEmptyState(list, "Cargando equipo...")
             return
@@ -42,6 +71,8 @@ internal class EquipmentPanelRenderer(
 
     private fun addEquipmentRow(list: LinearLayout, item: EquipoItem) {
         val row = host.getLayoutInflater().inflate(R.layout.item_equipo, list, false)
+        val rowLabel = item.nombre.ifBlank { "E-${item.idEquipo}" }
+        row.tag = rowLabel
 
         row.findViewById<TextView>(R.id.equipoIcon).text = when (item.categoria.uppercase()) {
             "COMUNICACION" -> "COM"
@@ -50,10 +81,23 @@ internal class EquipmentPanelRenderer(
         }
 
         row.findViewById<TextView>(R.id.equipoNombre).text =
-            "Nombre de equipo: ${item.nombre.ifBlank { "Equipo" }}"
+            "Nombre de equipo: ${rowLabel.ifBlank { "Equipo" }}"
         row.findViewById<TextView>(R.id.equipoDetalle).text = equipmentDetail(item)
         row.findViewById<TextView>(R.id.equipoTipo).text = ""
 
+        val live = liveLocations[item.idEquipo]
+        if (live != null && isValidLocation(live.first, live.second)) {
+            locatedEquipoIds.add(item.idEquipo)
+            setSelectableForeground(row)
+            row.isClickable = true
+            row.setOnClickListener {
+                selectEquipo(item.idEquipo)
+                host.selectEquipoOnMap(item.idEquipo, live.first, live.second, rowLabel)
+            }
+        }
+
+        activeRows[item.idEquipo] = row
+        applyEquipmentRowStyle(row, item.idEquipo)
         list.addView(row)
     }
 
@@ -110,6 +154,40 @@ internal class EquipmentPanelRenderer(
         item.personalAsignado.isNotBlank() -> item.personalAsignado
         item.asignadoA.isNotBlank() -> item.asignadoA
         else -> "Sin destino"
+    }
+
+    private fun setSelectableForeground(row: View) {
+        if (row.foreground == null) {
+            row.foreground = row.context.obtainStyledAttributes(
+                intArrayOf(android.R.attr.selectableItemBackground)
+            ).getDrawable(0)
+        }
+    }
+
+    private fun isValidLocation(lat: Double, lon: Double): Boolean =
+        !lat.isNaN() &&
+            !lon.isNaN() &&
+            !lat.isInfinite() &&
+            !lon.isInfinite() &&
+            lat in -90.0..90.0 &&
+            lon in -180.0..180.0 &&
+            !(lat == 0.0 && lon == 0.0)
+
+    private fun applyEquipmentRowStyle(row: View, idEquipo: Int) {
+        val selected = selectedEquipoId == idEquipo
+        val hasLocation = locatedEquipoIds.contains(idEquipo)
+        val highlighted = selected
+
+        row.setBackgroundColor(Color.parseColor(if (highlighted) "#0d1f3c" else "#0d1526"))
+        row.findViewById<TextView>(R.id.equipoNombre).setTextColor(
+            Color.parseColor(if (highlighted) "#3b82f6" else "#e2e8f0")
+        )
+        row.findViewById<TextView>(R.id.equipoDetalle).setTextColor(
+            Color.parseColor(if (hasLocation) "#94a3b8" else "#64748b")
+        )
+        row.findViewById<TextView>(R.id.equipoIcon).setBackgroundColor(
+            Color.parseColor(if (selected) "#2563eb" else "#0f172a")
+        )
     }
 
     private fun dp(list: LinearLayout, value: Float): Int =

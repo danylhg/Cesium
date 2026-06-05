@@ -25,6 +25,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.View
 import android.widget.Button
@@ -50,6 +51,7 @@ import com.operaciones.operaciones_android.wear.device.WearDeviceInfo
 import com.operaciones.operaciones_android.wear.emergency.WearEmergencyService
 import com.operaciones.operaciones_android.wear.health.HeartRateMonitor
 import com.operaciones.operaciones_android.wear.network.WearApiClient
+import com.operaciones.operaciones_android.wear.network.WearSocketManager
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
@@ -108,12 +110,15 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
 
     private val api = WearApiClient()
     private lateinit var phoneBridge: PhoneBridge
+    private var wearSocketManager: WearSocketManager? = null
     private var activePanel = Panel.OPERACION
     private var selectedChatChannel = ChatChannel.TODOS
 
     private var panelContainer: LinearLayout? = null
     private var statusText: TextView? = null
     private var heartRateValue: TextView? = null
+    private var gpsValue: TextView? = null
+    private var gpsSubValue: TextView? = null
     private var spo2Value: TextView? = null
     private var tempValue: TextView? = null
     private var respValue: TextView? = null
@@ -243,7 +248,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
     private fun renderLogin() {
         val content = compactColumn()
         content.addView(brandHeader("ACCESO"))
-        content.addView(thinDivider(132))
+        content.addView(thinDivider(fieldWidthDp()))
 
         content.addView(fieldLabel("SERVIDOR"))
         serverInput = loginInput(WearApiConfig.baseUrl, "192.168.1.1:3001", InputType.TYPE_TEXT_VARIATION_URI)
@@ -261,8 +266,8 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         )
         content.addView(passwordInput)
 
-        content.addView(proButton("ENTRAR", 136, C_GREEN, C_GREEN_DARK) { attemptLogin() })
-        statusText = mutedText("listo", 7f)
+        content.addView(proButton("ENTRAR", fieldWidthDp(), C_GREEN, C_GREEN_DARK) { attemptLogin() })
+        statusText = mutedText("listo", 7f).apply { layoutParams = blockParams(fieldWidthDp(), top = 4) }
         content.addView(statusText)
         setCenteredContent(content)
     }
@@ -270,13 +275,13 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
     private fun renderHome() {
         val content = homeColumn()
         content.addView(topBar())
-        content.addView(thinDivider(176))
+        content.addView(thinDivider(contentWidthDp()))
         panelContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
         content.addView(panelContainer)
-        statusText = mutedText("", 7f)
+        statusText = mutedText("", 7f).apply { layoutParams = blockParams(contentWidthDp(), top = 5) }
         content.addView(statusText)
         setHomeContent(content, bottomNav())
         renderActivePanel()
@@ -299,6 +304,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         val operation = WearSession.operation(this)
         container.addView(sectionBlock("OPERADOR", user?.nombreCompleto ?: "--", user?.rol?.name ?: "--"))
         container.addView(sectionBlock("OPERACION", operationTitle(operation), operation?.status?.name ?: "SIN ASIGNACION"))
+        container.addView(gpsBlock())
         container.addView(twoButtonRow(
             proButton("SOS", 68, C_RED, C_RED_DARK) { sendEmergency("BOTON_RELOJ") },
             proButton("APP", 68, C_BLUE, C_PANEL_ALT) {
@@ -307,7 +313,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
                 }
             }
         ))
-        container.addView(proButton("SALIR", 176, C_RED, C_RED_DARK) { logout() })
+        container.addView(proButton("SALIR", contentWidthDp(), C_RED, C_RED_DARK) { logout() })
     }
 
     private fun renderVitalsPanel(container: LinearLayout) {
@@ -332,7 +338,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         ))
         container.addView(grid)
 
-        container.addView(proButton("PERMISOS SALUD", 176, C_PANEL_ALT, C_PANEL) {
+        container.addView(proButton("PERMISOS SALUD", contentWidthDp(), C_PANEL_ALT, C_PANEL) {
             requestRuntimePermissions()
         })
     }
@@ -345,6 +351,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             gravity = Gravity.CENTER_HORIZONTAL
         }
         container.addView(chatList)
+        renderChatPlaceholder("cargando", selectedChatChannel.shortLabel)
         container.addView(twoButtonRow(
             proButton("REFRESCAR", 68, C_BLUE, C_PANEL_ALT) { refreshChat() },
             proButton("AUDIO", 68, C_GREEN, C_GREEN_DARK) { toggleVoiceRecording() }.also { voiceButton = it }
@@ -372,8 +379,8 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             gravity = Gravity.CENTER_HORIZONTAL
         }
         container.addView(resourceList)
-        renderResourceRows(summary)
-        container.addView(proButton("ACTUALIZAR", 176, C_BLUE, C_PANEL_ALT) { refreshResources() })
+        renderResourceRows(summary, if (summary == null) "cargando" else "sin datos")
+        container.addView(proButton("ACTUALIZAR", contentWidthDp(), C_BLUE, C_PANEL_ALT) { refreshResources() })
         if (summary == null) refreshResources()
     }
 
@@ -428,12 +435,14 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         val user = WearSession.user(this) ?: return
         val token = WearSession.token(this)
         if (token.isBlank()) return
+        setStatus("cargando operacion")
         api.fetchAssignedOperation(
             userId = user.id,
             token = token,
             onSuccess = { operation ->
                 WearSession.saveOperation(this, operation)
                 runOnUiThread {
+                    setStatus(if (operation == null) "sin operacion" else "operacion cargada")
                     if (activePanel == Panel.OPERACION) renderActivePanel()
                 }
             },
@@ -445,14 +454,20 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         val operation = WearSession.operation(this)
         val token = WearSession.token(this)
         if (operation == null || token.isBlank()) {
-            renderMessages(emptyList())
+            renderChatPlaceholder("sin operacion", selectedChatChannel.shortLabel)
             return
         }
+        renderChatPlaceholder("cargando", selectedChatChannel.shortLabel)
         api.getMessages(
             operationId = operation.id,
             token = token,
             onSuccess = { messages -> runOnUiThread { renderMessages(messages) } },
-            onError = { error -> runOnUiThread { setStatus(error) } }
+            onError = { error ->
+                runOnUiThread {
+                    setStatus(error)
+                    renderChatPlaceholder("error red", selectedChatChannel.shortLabel)
+                }
+            }
         )
     }
 
@@ -460,9 +475,10 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         val operation = WearSession.operation(this)
         val token = WearSession.token(this)
         if (operation == null || token.isBlank()) {
-            renderResourceRows(null)
+            renderResourceRows(null, "sin operacion")
             return
         }
+        renderResourceRows(resourceSummary, if (resourceSummary == null) "cargando" else "actualizando")
         api.getResourceSummary(
             operationId = operation.id,
             token = token,
@@ -472,8 +488,19 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
                     if (activePanel == Panel.RECURSOS) renderActivePanel()
                 }
             },
-            onError = { error -> runOnUiThread { setStatus(error) } }
+            onError = { error ->
+                runOnUiThread {
+                    setStatus(error)
+                    if (resourceSummary == null) renderResourceRows(null, "error red")
+                }
+            }
         )
+    }
+
+    private fun renderChatPlaceholder(value: String, sub: String) {
+        val list = chatList ?: return
+        list.removeAllViews()
+        list.addView(sectionBlock("CHAT", value, sub))
     }
 
     private fun renderMessages(messages: List<WearChatMessage>) {
@@ -493,10 +520,12 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
                 gravity = Gravity.CENTER
                 background = rounded(C_PANEL)
                 includeFontPadding = false
+                maxLines = 3
+                ellipsize = TextUtils.TruncateAt.END
                 setPadding(dp(6), dp(5), dp(6), dp(5))
                 if (message.attachmentUrl != null) setOnClickListener { openAttachment(message) }
             }
-            list.addView(card, blockParams(176, top = 4))
+            list.addView(card, blockParams(contentWidthDp(), top = 4))
         }
     }
 
@@ -511,11 +540,15 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             }
         }
 
-    private fun renderResourceRows(summary: WearApiClient.ResourceSummary?) {
+    private fun renderResourceRows(summary: WearApiClient.ResourceSummary?, placeholder: String = "sin datos") {
         val list = resourceList ?: return
         list.removeAllViews()
         if (summary == null) {
-            list.addView(sectionBlock("RECURSOS", "sin datos", ""))
+            list.addView(sectionBlock("RECURSOS", placeholder, ""))
+            return
+        }
+        if (summary.personal.isEmpty() && summary.vehiculos.isEmpty() && summary.equipos.isEmpty()) {
+            list.addView(sectionBlock("RECURSOS", "sin asignaciones", ""))
             return
         }
         addResourceGroup(list, "PERSONAL", summary.personal)
@@ -583,7 +616,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             token = token,
             contenido = emergencyContent(user, source),
             tipoMensaje = "URGENTE",
-            onSuccess = { runOnUiThread { setStatus("SOS enviado") } },
+            onSuccess = { runOnUiThread { setStatus("SOS enviado"); refreshChat() } },
             onError = { error -> runOnUiThread { setStatus(error) } }
         )
     }
@@ -781,21 +814,33 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
     private fun onLocation(location: Location) {
         lastLat = location.latitude
         lastLon = location.longitude
+        gpsValue?.text = trackingState()
+        gpsSubValue?.text = locationText()
 
         val user = WearSession.user(this) ?: return
         val operation = WearSession.operation(this) ?: return
         val token = WearSession.token(this)
         if (token.isBlank() || user.tabla != "personal" || operation.status != WearOperationStatus.ACTIVA) return
-        api.sendTracking(
-            operationId = operation.id,
-            token = token,
-            idPersonal = user.id,
-            latitude = location.latitude,
-            longitude = location.longitude,
-            accuracyMeters = if (location.hasAccuracy()) location.accuracy else null,
+        val sentBySocket = wearSocketManager?.emitTracking(
+            lat = location.latitude,
+            lon = location.longitude,
+            apodo = user.nombreCompleto,
             speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
-            headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
-        )
+            headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null,
+            accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
+        ) == true
+        if (!sentBySocket) {
+            api.sendTracking(
+                operationId = operation.id,
+                token = token,
+                idPersonal = user.id,
+                latitude = location.latitude,
+                longitude = location.longitude,
+                accuracyMeters = if (location.hasAccuracy()) location.accuracy else null,
+                speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
+                headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
+            )
+        }
         maybeSendVitals()
     }
 
@@ -810,17 +855,27 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         if (lastHeartRate == null && todaySteps == null && lastPressure == null && currentBatteryPct() == null) return
 
         lastVitalUploadAt = now
-        api.sendVitalSigns(
-            operationId = operation.id,
-            token = token,
-            idPersonal = user.id,
+        val sentBySocket = wearSocketManager?.emitVitalSigns(
             heartRateBpm = lastHeartRate,
             steps = todaySteps,
             pressureHpa = lastPressure,
             batteryPct = currentBatteryPct(),
-            latitude = lastLat,
-            longitude = lastLon
-        )
+            lat = lastLat,
+            lon = lastLon
+        ) == true
+        if (!sentBySocket) {
+            api.sendVitalSigns(
+                operationId = operation.id,
+                token = token,
+                idPersonal = user.id,
+                heartRateBpm = lastHeartRate,
+                steps = todaySteps,
+                pressureHpa = lastPressure,
+                batteryPct = currentBatteryPct(),
+                latitude = lastLat,
+                longitude = lastLon
+            )
+        }
     }
 
     private fun currentBatteryPct(): Double? {
@@ -849,6 +904,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
     }
 
     private fun startWearRuntime() {
+        startWearSocketIfPossible()
         startLocationUpdates()
         startMotionSensors()
         startHeartRateIfPossible()
@@ -856,10 +912,35 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
     }
 
     private fun stopWearRuntime() {
+        wearSocketManager?.disconnect()
+        wearSocketManager = null
         heartRateMonitor?.stop()
         stopLocationUpdates()
         stopMotionSensors()
         stopVoiceRecording(send = false)
+    }
+
+    private fun startWearSocketIfPossible() {
+        val user = WearSession.user(this) ?: return
+        val operation = WearSession.operation(this) ?: return
+        val token = WearSession.token(this)
+        if (token.isBlank() || user.tabla != "personal" || operation.status != WearOperationStatus.ACTIVA) return
+
+        if (wearSocketManager?.matches(WearApiConfig.baseUrl, operation.id, user.id) == true) {
+            wearSocketManager?.connect()
+            return
+        }
+
+        wearSocketManager?.disconnect()
+        wearSocketManager = WearSocketManager(
+            baseUrl = WearApiConfig.baseUrl,
+            operationId = operation.id,
+            idPersonal = user.id,
+            rol = user.rol.name,
+            onConnected = { runOnUiThread { setStatus("socket reloj conectado") } },
+            onDisconnected = { runOnUiThread { setStatus("socket reloj desconectado") } },
+            onConnectionError = { runOnUiThread { setStatus("socket reloj error") } }
+        ).also { it.connect() }
     }
 
     private fun requestRuntimePermissions() {
@@ -940,7 +1021,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
                 addView(
                     bottomNav,
                     FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        dp(contentWidthDp()),
                         dp(48),
                         Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
                     ).apply { bottomMargin = dp(5) }
@@ -953,7 +1034,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(8), 0, dp(8))
+            setPadding(0, dp(if (isRoundScreen()) 12 else 8), 0, dp(8))
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -965,7 +1046,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(0, dp(10), 0, dp(74))
+            setPadding(0, dp(if (isRoundScreen()) 14 else 10), 0, dp(74))
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -1009,12 +1090,12 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(5), dp(5), dp(5), dp(5))
+            setPadding(dp(4), dp(5), dp(4), dp(5))
             background = rounded(C_INPUT)
             Panel.entries.forEach { panel ->
-                addView(navButton(panel), LinearLayout.LayoutParams(dp(42), dp(38)).apply {
-                    leftMargin = dp(2)
-                    rightMargin = dp(2)
+                addView(navButton(panel), LinearLayout.LayoutParams(0, dp(38), 1f).apply {
+                    leftMargin = dp(1)
+                    rightMargin = dp(1)
                 })
             }
         }
@@ -1052,12 +1133,12 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
                     selectedChatChannel = channel
                     renderActivePanel()
                 }
-                addView(button, buttonRowParams(button).apply {
+                addView(button, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
                     leftMargin = dp(2)
                     rightMargin = dp(2)
                 })
             }
-            layoutParams = blockParams(176, top = 6)
+            layoutParams = blockParams(contentWidthDp(), top = 6)
         }
 
     private fun sectionBlock(label: String, value: String, sub: String): LinearLayout =
@@ -1069,7 +1150,21 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             addView(mutedText(label, 7f))
             addView(valueText(value, 12f, C_TEXT))
             if (sub.isNotBlank()) addView(mutedText(sub, 8f))
-            layoutParams = blockParams(176, top = 6)
+            layoutParams = blockParams(contentWidthDp(), top = 6)
+        }
+
+    private fun gpsBlock(): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = rounded(C_PANEL)
+            setPadding(dp(7), dp(5), dp(7), dp(5))
+            addView(mutedText("GPS", 7f))
+            gpsValue = valueText(trackingState(), 11f, if (lastLat != null && lastLon != null) C_GREEN else C_MUTED)
+            addView(gpsValue)
+            gpsSubValue = mutedText(locationText(), 8f)
+            addView(gpsSubValue)
+            layoutParams = blockParams(contentWidthDp(), top = 6)
         }
 
     private fun vitalHero(heart: String): LinearLayout =
@@ -1080,7 +1175,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             heartRateValue = valueText(heart, 34f, if (heart == "--") C_MUTED else C_TEXT)
             addView(heartRateValue)
             addView(mutedText("bpm", 8f))
-            layoutParams = blockParams(176, top = 6)
+            layoutParams = blockParams(contentWidthDp(), top = 6)
         }
 
     private data class MetricViews(val root: LinearLayout, val value: TextView)
@@ -1105,13 +1200,13 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            addView(left, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            addView(left, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 rightMargin = dp(3)
             })
-            addView(right, LinearLayout.LayoutParams(dp(84), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            addView(right, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(3)
             })
-            layoutParams = blockParams(176, top = 6)
+            layoutParams = blockParams(contentWidthDp(), top = 6)
         }
 
     private fun twoButtonRow(vararg buttons: Button): LinearLayout =
@@ -1119,23 +1214,13 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             buttons.forEachIndexed { index, button ->
-                addView(button, buttonRowParams(button).apply {
+                addView(button, LinearLayout.LayoutParams(0, dp(32), 1f).apply {
                     if (index > 0) leftMargin = dp(3)
                     if (index < buttons.lastIndex) rightMargin = dp(3)
                 })
             }
-            layoutParams = blockParams(176, top = 6)
+            layoutParams = blockParams(contentWidthDp(), top = 6)
         }
-
-    private fun buttonRowParams(button: Button): LinearLayout.LayoutParams {
-        val existing = button.layoutParams as? LinearLayout.LayoutParams
-        return LinearLayout.LayoutParams(
-            existing?.width ?: LinearLayout.LayoutParams.WRAP_CONTENT,
-            existing?.height ?: LinearLayout.LayoutParams.WRAP_CONTENT
-        ).apply {
-            gravity = Gravity.CENTER
-        }
-    }
 
     private fun proButton(
         text: String,
@@ -1172,13 +1257,13 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             background = rounded(C_INPUT)
             setPadding(dp(8), 0, dp(8), 0)
             includeFontPadding = false
-            layoutParams = blockParams(136, height = 30, top = 2)
+            layoutParams = blockParams(fieldWidthDp(), height = 30, top = 2)
         }
 
     private fun fieldLabel(text: String): TextView =
         mutedText(text, 6f).apply {
             letterSpacing = 0.12f
-            layoutParams = blockParams(136, top = 5)
+            layoutParams = blockParams(fieldWidthDp(), top = 5)
         }
 
     private fun mutedText(text: String, size: Float): TextView =
@@ -1200,6 +1285,8 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             gravity = Gravity.CENTER
             includeFontPadding = false
+            maxLines = 3
+            ellipsize = TextUtils.TruncateAt.END
         }
 
     private fun thinDivider(widthDp: Int): View =
@@ -1210,13 +1297,33 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
 
     private fun blockParams(widthDp: Int, height: Int = LinearLayout.LayoutParams.WRAP_CONTENT, top: Int = 0):
         LinearLayout.LayoutParams =
-        LinearLayout.LayoutParams(dp(widthDp), if (height > 0) dp(height) else height).apply {
+        LinearLayout.LayoutParams(
+            dp(widthDp.coerceAtMost(contentWidthDp())),
+            if (height > 0) dp(height) else height
+        ).apply {
             topMargin = dp(top)
             gravity = Gravity.CENTER_HORIZONTAL
         }
 
     private fun inlineParams(): LinearLayout.LayoutParams =
         LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+
+    private fun contentWidthDp(): Int {
+        val config = resources.configuration
+        val screenWidth = config.screenWidthDp.takeIf { it > 0 }
+            ?: pxToDp(resources.displayMetrics.widthPixels)
+        val sideInset = if (isRoundScreen()) 20 else 12
+        return (screenWidth - sideInset * 2).coerceIn(120, 176)
+    }
+
+    private fun fieldWidthDp(): Int =
+        contentWidthDp().coerceAtMost(148)
+
+    private fun isRoundScreen(): Boolean =
+        resources.configuration.isScreenRound
+
+    private fun pxToDp(px: Int): Int =
+        (px / resources.displayMetrics.density).toInt()
 
     private fun rounded(color: Int): GradientDrawable =
         GradientDrawable().apply {

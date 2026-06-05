@@ -155,6 +155,9 @@ export async function ensureExtendedTrackingSchema() {
       )
     );
 
+    ALTER TABLE tracking_dispositivo
+      ADD COLUMN IF NOT EXISTS serial_dispositivo TEXT;
+
     CREATE INDEX IF NOT EXISTS idx_tracking_dispositivo_op_disp_ts
       ON tracking_dispositivo(id_operacion, id_dispositivo, "timestamp" DESC);
 
@@ -282,6 +285,7 @@ export async function ensureExtendedTrackingSchema() {
       td.rumbo_grados,
       td.precision_m,
       td.bateria_pct,
+      td.serial_dispositivo,
       td."timestamp" AS ultima_actualizacion,
       td.estado_operacion_creacion
     FROM tracking_dispositivo td

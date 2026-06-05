@@ -156,6 +156,13 @@ if %ERRORLEVEL% NEQ 0 (
     pause
     exit /b 1
 )
+echo       Aplicando seed SQL persistente de dispositivos ...
+"%PSQL%" -h %PGHOST% -p %PGPORT% -U %PGUSER% %PGDATABASE% -f "%PROYECTO%\db\remodulacion\29_seed_dispositivos_operacion.sql"
+if %ERRORLEVEL% NEQ 0 (
+    echo ERROR: Fallo al aplicar seed SQL de dispositivos.
+    pause
+    exit /b 1
+)
 echo       Seed ejecutado correctamente.
 echo.
 

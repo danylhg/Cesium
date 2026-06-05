@@ -38,6 +38,7 @@ const PLAYABLE_STALE_CHECK_MS = 5000;
 const PLAYABLE_STALE_MS = 9000;
 const HLS_ATTACH_RETRY_INITIAL_MS = 1500;
 const HLS_ATTACH_RETRY_MAX_MS = 15000;
+const LIVE_STREAMS_POLL_MS = 5000;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_SIDE_RATIO = 0.38;
 const VIDEO_BUFFER_DB = "operaciones-video-buffer";
@@ -51,6 +52,7 @@ let operationArchiveLoadPromise = null;
 let operationArchiveLoadKey = "";
 let uploadRetryBound = false;
 let hlsScriptPromise = null;
+let liveStreamsPollTimer = null;
 const hlsPlayers = new Map();
 const playableUrlWatchers = new Map();
 const hlsAttachRetries = new Map();
@@ -74,6 +76,7 @@ export function initCameraFeeds(opId = null, socket = null) {
   bindCameraEvents();
   makePanelDraggable();
   ensurePlaybackUiTimer();
+  ensureLiveStreamsPolling();
   bindUploadRetryEvents();
   const setupCleanup = clearLocalVideoBufferAfterSetupReset();
   void setupCleanup.then(() => openVideoBufferDb());
@@ -92,6 +95,13 @@ export function initCameraFeeds(opId = null, socket = null) {
       renderActivePersonnelCamera();
     });
   loadLiveStreams();
+}
+
+function ensureLiveStreamsPolling() {
+  if (liveStreamsPollTimer) return;
+  liveStreamsPollTimer = window.setInterval(() => {
+    void loadLiveStreams();
+  }, LIVE_STREAMS_POLL_MS);
 }
 
 function bindUploadRetryEvents() {
@@ -2974,6 +2984,59 @@ function destroyHlsPlayersIn(root) {
   });
 }
 
+function renderPersonnelCameraInto(container, personId, displayName = "") {
+  if (!container || personId == null) return;
+
+  const camera = findCameraForPerson(personId, displayName);
+  const name = camera?.name || displayName || `Agente ${personId}`;
+  const playbackKey = camera ? (camera.playbackKey || getCameraPlaybackKey(camera)) : "";
+  const fallbackCamera = {
+    protocol: CAMERA_PROTOCOL_WEBRTC,
+    protocolFamily: CAMERA_PROTOCOL_WEBRTC,
+    name,
+    placeholder: true
+  };
+  const badge = camera ? getCameraBadge(camera) : getWaitingSignalBadge(fallbackCamera);
+  const media = camera
+    ? buildMediaMarkup(camera)
+    : buildWaitingSignalMarkup(fallbackCamera);
+  const audioButton = camera ? buildCameraAudioButton(camera) : "";
+
+  destroyHlsPlayersIn(container);
+  container.dataset.playbackKey = playbackKey;
+  container.innerHTML = `
+    <div class="personInfoCameraFeed cameraFeed">
+      <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
+      ${audioButton}
+      ${media}
+      <div class="cameraFeedName">${escapeHtml(name)}</div>
+    </div>
+  `;
+
+  const feed = container.querySelector(".personInfoCameraFeed");
+  if (camera && feed) {
+    bindCameraAudioButton(feed);
+    if (camera.isWebRtc && camera.streamId) joinWebRtcStream(camera);
+    bindCameraSurfaceInteractions(feed, camera);
+  }
+  attachPlayableUrlFeeds(container);
+  attachKnownMediaStreams();
+}
+
+export async function renderPersonnelLiveCamera(container, personId, displayName = "") {
+  if (!container || personId == null) return;
+
+  activeOperationId = activeOperationId || localStorage.getItem("active_operation_id");
+  const personKey = String(personId);
+  container.dataset.personCameraPersonId = personKey;
+
+  renderPersonnelCameraInto(container, personKey, displayName);
+  await loadLiveStreams();
+
+  if (container.dataset.personCameraPersonId !== personKey) return;
+  renderPersonnelCameraInto(container, personKey, displayName);
+}
+
 export async function showPersonnelLiveCamera(personId, displayName = "") {
   if (!dom.personnelDetailCamera || personId == null) return;
 
@@ -3427,6 +3490,11 @@ function returnToCameraGrid() {
   setCameraLayout("grid");
 }
 
+function closeCameraPanel() {
+  dom.cameraPanel?.classList.remove("open");
+  dom.toggleCameraPanel?.classList.remove("active");
+}
+
 function bindCameraEvents() {
   if (cameraEventsBound) return;
   cameraEventsBound = true;
@@ -3436,6 +3504,7 @@ function bindCameraEvents() {
     setCameraLayout("speaker", dom.cameraFeeds?.querySelector(".cameraFeed.focused"));
   });
   dom.cameraNextBtn?.addEventListener("click", focusNextCamera);
+  dom.cameraCloseBtn?.addEventListener("click", closeCameraPanel);
 
   dom.cameraWebRtcBtn?.addEventListener("click", () => setCameraProtocolFilter(CAMERA_PROTOCOL_WEBRTC));
   dom.cameraRtmpBtn?.addEventListener("click", () => setCameraProtocolFilter(CAMERA_PROTOCOL_RTMP));

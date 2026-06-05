@@ -4,6 +4,8 @@ import android.webkit.WebView
 import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.AreaPolygonItem
 import com.operaciones.operaciones_android.model.CoverageCircleItem
+import com.operaciones.operaciones_android.model.DispositivoItem
+import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.OperationGridItem
 import com.operaciones.operaciones_android.model.OperationMapData
 import com.operaciones.operaciones_android.model.OperationZoneItem
@@ -16,6 +18,9 @@ import com.operaciones.operaciones_android.network.OperationMapRepository
 import com.operaciones.operaciones_android.webview.CesiumWebController
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class OperationMapDataController(
     private val webView: WebView,
@@ -32,6 +37,15 @@ class OperationMapDataController(
         fun onMapDataOperationZoneChanged(lat: Double, lon: Double, zoom: Int)
         fun onMapDataNavigationRoutesLoaded(routesJson: String)
         fun updateMapDataPersonalPanel(idPersonal: Int, lat: Double, lon: Double)
+        fun updateMapDataVehiculoPanel(idVehiculo: Int, lat: Double, lon: Double)
+        fun updateMapDataEquipoPanel(idEquipo: Int, lat: Double, lon: Double)
+        fun updateMapDataDispositivoPanel(
+            idDispositivo: Int,
+            lat: Double,
+            lon: Double,
+            numeroSerie: String,
+            imei: String
+        )
         fun loadMapDataDrawings(replace: Boolean = true)
         fun onMapDataError(message: String)
     }
@@ -91,6 +105,15 @@ class OperationMapDataController(
     private val pendingStructureAdditions = mutableListOf<PendingStructureAddition>()
 
     private var lastMapSyncAt = 0L
+
+    private val trackingTimestampFormats = listOf(
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ssX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    ).onEach { it.timeZone = TimeZone.getTimeZone("UTC") }
 
     fun fetchMapaData() {
         val operationId = host.getMapDataOperationId()
@@ -300,7 +323,7 @@ class OperationMapDataController(
 
         val trackingDelayMs = if (host.isMapDataCesiumReady()) 0L else CESIUM_LOAD_DELAY_MS
         webView.postDelayed({
-            loadInitialTrackingMarkers(data.personal, data.vehiculos)
+            loadInitialTrackingMarkers(data.personal, data.vehiculos, data.equipos, data.dispositivos)
         }, trackingDelayMs)
 
         syncMapObjectLayers(data)
@@ -464,13 +487,19 @@ class OperationMapDataController(
         return merged.toString()
     }
 
-    private fun loadInitialTrackingMarkers(personal: List<PersonalItem>, vehiculos: List<VehiculoItem>) {
+    private fun loadInitialTrackingMarkers(
+        personal: List<PersonalItem>,
+        vehiculos: List<VehiculoItem>,
+        equipos: List<EquipoItem>,
+        dispositivos: List<DispositivoItem>
+    ) {
         val currentUserId = host.getMapDataCurrentUserId()
         val js = buildString {
             append("(function(){")
             personal.forEach { person ->
                 val lat = person.lat ?: return@forEach
                 val lon = person.lon ?: return@forEach
+                if (!isValidLocation(lat, lon)) return@forEach
                 host.updateMapDataPersonalPanel(person.idPersonal, lat, lon)
                 if (person.idPersonal == currentUserId) return@forEach
                 val label = person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
@@ -500,6 +529,8 @@ class OperationMapDataController(
             vehiculos.forEach { vehiculo ->
                 val lat = vehiculo.lat ?: return@forEach
                 val lon = vehiculo.lon ?: return@forEach
+                if (!isValidLocation(lat, lon)) return@forEach
+                host.updateMapDataVehiculoPanel(vehiculo.idVehiculo, lat, lon)
                 val label = vehiculo.alias.ifBlank { vehiculo.codigoInterno }
                     .ifBlank { vehiculo.nombre }
                     .ifBlank { "V-${vehiculo.idVehiculo}" }
@@ -523,9 +554,95 @@ class OperationMapDataController(
                 )
                 append(");")
             }
+            equipos.forEach { equipo ->
+                val lat = equipo.lat ?: return@forEach
+                val lon = equipo.lon ?: return@forEach
+                if (!isValidLocation(lat, lon)) return@forEach
+                if (!isFreshTrackingTimestamp(equipo.ultimaActualizacion)) return@forEach
+                host.updateMapDataEquipoPanel(equipo.idEquipo, lat, lon)
+                val label = equipo.nombre.ifBlank { "E-${equipo.idEquipo}" }
+                append("if(typeof updateTrackingEquipo==='function') updateTrackingEquipo(")
+                append(equipo.idEquipo)
+                append(",")
+                append(lat)
+                append(",")
+                append(lon)
+                append(",'")
+                append(jsString(label))
+                append("',")
+                append(
+                    JSONObject()
+                        .put("categoria", equipo.categoria)
+                        .put("tipo_equipo", equipo.tipoEquipo)
+                        .put("nombre", equipo.nombre)
+                        .put("numero_serie", equipo.numeroSerie)
+                        .toString()
+                )
+                append(");")
+            }
+            dispositivos.forEach { dispositivo ->
+                val lat = dispositivo.lat ?: return@forEach
+                val lon = dispositivo.lon ?: return@forEach
+                if (!isValidLocation(lat, lon)) return@forEach
+                host.updateMapDataDispositivoPanel(
+                    dispositivo.idDispositivo,
+                    lat,
+                    lon,
+                    dispositivo.numeroSerie,
+                    dispositivo.imei
+                )
+                val label = listOf(dispositivo.tipo, dispositivo.marca, dispositivo.modelo)
+                    .filter { it.isNotBlank() }
+                    .joinToString(" ")
+                    .ifBlank { "D-${dispositivo.idDispositivo}" }
+                append("if(typeof updateTrackingDispositivo==='function') updateTrackingDispositivo(")
+                append(dispositivo.idDispositivo)
+                append(",")
+                append(lat)
+                append(",")
+                append(lon)
+                append(",'")
+                append(jsString(label))
+                append("',")
+                append(
+                    JSONObject()
+                        .put("tipo", dispositivo.tipo)
+                        .put("marca", dispositivo.marca)
+                        .put("modelo", dispositivo.modelo)
+                        .put("numero_serie", dispositivo.numeroSerie)
+                        .put("imei", dispositivo.imei)
+                        .put("bateria_pct", dispositivo.bateriaPct ?: JSONObject.NULL)
+                        .toString()
+                )
+                append(");")
+            }
             append("})();")
         }
         cesiumWebController.evaluate(js)
+    }
+
+    private fun isValidLocation(lat: Double, lon: Double): Boolean =
+        !lat.isNaN() &&
+            !lon.isNaN() &&
+            !lat.isInfinite() &&
+            !lon.isInfinite() &&
+            lat in -90.0..90.0 &&
+            lon in -180.0..180.0 &&
+            !(lat == 0.0 && lon == 0.0)
+
+    private fun isFreshTrackingTimestamp(value: String): Boolean {
+        val timestamp = parseTrackingTimestamp(value) ?: return false
+        return System.currentTimeMillis() - timestamp <= TRACKING_ACTIVE_STALE_MS
+    }
+
+    private fun parseTrackingTimestamp(value: String): Long? {
+        val clean = value.trim()
+        if (clean.isBlank()) return null
+        clean.toLongOrNull()?.let { return it }
+        trackingTimestampFormats.forEach { format ->
+            runCatching { format.parse(clean)?.time }.getOrNull()?.let { return it }
+        }
+        return null
     }
 
     private fun operationZoneJson(zone: OperationZoneItem): JSONObject =
@@ -624,5 +741,6 @@ class OperationMapDataController(
     private companion object {
         private const val SYNC_THROTTLE_MS = 1500L
         private const val CESIUM_LOAD_DELAY_MS = 2600L
+        private const val TRACKING_ACTIVE_STALE_MS = 30_000L
     }
 }

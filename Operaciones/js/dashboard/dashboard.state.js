@@ -54,6 +54,7 @@ export const dashboardState = {
   trackingEntities: new Map(),    // "P:id_personal" | "V:id_vehiculo" → cesiumEntity
   trackingHistory: new Map(),     // "P:id" | "V:id" → { lat, lng, time, speed, bearing }
   trackingClusters: new Map(),    // "V:id" → Set(["P:id1", "P:id2"])
+  followedTrackingKey: null,
   followedPersonalId: null,
   followedPersonalZoom: 800
 };

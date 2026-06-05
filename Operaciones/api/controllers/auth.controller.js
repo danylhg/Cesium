@@ -66,6 +66,201 @@ function requestedDeviceType(req) {
   return null;
 }
 
+function identifierValueSet(device) {
+  return [
+    device.identificador_app,
+    device.imei,
+    device.numero_serie,
+    device.numero_telefono,
+  ]
+    .map(cleanDeviceIdentifier)
+    .filter(Boolean)
+    .map(value => value.toLowerCase());
+}
+
+function primaryAppIdentifierForDevice(device, identifiers) {
+  if (!identifiers.length) return null;
+  const deviceValues = new Set(identifierValueSet({
+    ...device,
+    identificador_app: null,
+  }));
+  return identifiers.find(identifier => !deviceValues.has(identifier)) || identifiers[0];
+}
+
+async function bindCurrentIdentifier(client, device, identifiers) {
+  const identifier = primaryAppIdentifierForDevice(device, identifiers);
+  if (!identifier) {
+    return device;
+  }
+
+  try {
+    await client.query(
+      `UPDATE dispositivo
+          SET identificador_app = NULL
+        WHERE lower(btrim(COALESCE(identificador_app, ''))) = $1
+          AND id_dispositivo <> $2`,
+      [identifier, device.id_dispositivo]
+    );
+
+    const { rows } = await client.query(
+      `UPDATE dispositivo
+          SET identificador_app = $1
+        WHERE id_dispositivo = $2
+        RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono,
+                  imei, numero_serie, identificador_app, estado`,
+      [identifier, device.id_dispositivo]
+    );
+
+    return {
+      ...device,
+      ...(rows[0] || {}),
+    };
+  } catch (err) {
+    if (err.code === "23505") return device;
+    throw err;
+  }
+}
+
+function buildDeviceValidation(device) {
+  return {
+    ok: true,
+    dispositivo: {
+      id_dispositivo: device.id_dispositivo,
+      tipo: device.tipo,
+      marca: device.marca,
+      modelo: device.modelo,
+      numero_telefono: device.numero_telefono,
+      imei: device.imei,
+      numero_serie: device.numero_serie,
+      identificador_app: device.identificador_app,
+      estado: device.estado,
+    },
+    asignacion: {
+      id_operacion: device.id_operacion,
+      id_personal: device.id_personal,
+      operacion_nombre: device.operacion_nombre,
+      operacion_estado: device.operacion_estado,
+    },
+  };
+}
+
+async function findDeviceByLoginIdentity(client, idDispositivo, identifiers, expectedDeviceType) {
+  if (idDispositivo) {
+    const params = expectedDeviceType
+      ? [idDispositivo, expectedDeviceType]
+      : [idDispositivo];
+    const typePredicate = expectedDeviceType
+      ? `AND UPPER(d.tipo) = UPPER($2)`
+      : `AND UPPER(d.tipo) <> 'SMARTWATCH'`;
+    const { rows } = await client.query(
+      `SELECT d.id_dispositivo, d.tipo, d.marca, d.modelo, d.numero_telefono,
+              d.imei, d.numero_serie, d.identificador_app, d.estado
+         FROM dispositivo d
+        WHERE d.id_dispositivo = $1
+          ${typePredicate}
+          AND d.estado NOT IN ('BAJA', 'MANTENIMIENTO')
+        LIMIT 1`,
+      params
+    );
+    if (rows[0]) return rows[0];
+  }
+
+  if (!identifiers.length) return null;
+
+  const params = expectedDeviceType
+    ? [identifiers, expectedDeviceType]
+    : [identifiers];
+  const identifierTypePredicate = expectedDeviceType
+    ? `AND UPPER(d.tipo) = UPPER($2)`
+    : `AND UPPER(d.tipo) <> 'SMARTWATCH'`;
+
+  const { rows } = await client.query(
+    `SELECT d.id_dispositivo, d.tipo, d.marca, d.modelo, d.numero_telefono,
+            d.imei, d.numero_serie, d.identificador_app, d.estado
+       FROM dispositivo d
+      WHERE d.estado NOT IN ('BAJA', 'MANTENIMIENTO')
+        ${identifierTypePredicate}
+        AND (
+          lower(btrim(COALESCE(d.identificador_app, ''))) = ANY($1::text[]) OR
+          lower(btrim(COALESCE(d.imei, ''))) = ANY($1::text[]) OR
+          lower(btrim(COALESCE(d.numero_serie, ''))) = ANY($1::text[]) OR
+          lower(btrim(COALESCE(d.numero_telefono, ''))) = ANY($1::text[])
+        )
+      ORDER BY
+        CASE
+          WHEN lower(btrim(COALESCE(d.identificador_app, ''))) = ANY($1::text[]) THEN 1
+          WHEN lower(btrim(COALESCE(d.imei, ''))) = ANY($1::text[]) THEN 2
+          WHEN lower(btrim(COALESCE(d.numero_serie, ''))) = ANY($1::text[]) THEN 3
+          ELSE 4
+        END,
+        d.id_dispositivo
+      LIMIT 1`,
+    params
+  );
+  return rows[0] || null;
+}
+
+async function findFallbackAssignedDevice(client, idPersonal, expectedDeviceType) {
+  let assigned = await findAssignedLoginDevices(idPersonal, client);
+  if (expectedDeviceType) {
+    assigned = assigned.filter(d => String(d.tipo || "").toUpperCase() === expectedDeviceType);
+  } else {
+    assigned = assigned.filter(d => String(d.tipo || "").toUpperCase() !== "SMARTWATCH");
+  }
+  return assigned[0] || null;
+}
+
+async function getDefaultAssigningUserId(client) {
+  const { rows } = await client.query(
+    `SELECT id_usuario
+       FROM usuario
+      ORDER BY CASE WHEN rol = 'ADMIN' THEN 0 ELSE 1 END, id_usuario
+      LIMIT 1`
+  );
+  return rows[0]?.id_usuario || 1;
+}
+
+async function upsertDeviceAssignmentForLogin(client, device, idPersonal, operacion, identifiers) {
+  const assigningUserId = await getDefaultAssigningUserId(client);
+
+  await client.query(
+    `UPDATE operacion_dispositivo od
+        SET estado_asignacion = 'LIBERADO',
+            fecha_devolucion = COALESCE(od.fecha_devolucion, NOW())
+       FROM operacion o
+      WHERE od.id_operacion = o.id_operacion
+        AND od.id_dispositivo = $1
+        AND od.id_operacion <> $2
+        AND od.estado_asignacion = 'ASIGNADO'
+        AND od.fecha_devolucion IS NULL
+        AND o.estado IN ('ACTIVA', 'PLANIFICADA')`,
+    [device.id_dispositivo, operacion.id_operacion]
+  );
+
+  const { rows } = await client.query(
+    `INSERT INTO operacion_dispositivo
+       (id_operacion, id_dispositivo, id_personal, estado_asignacion, asignado_por)
+     VALUES ($1, $2, $3, 'ASIGNADO', $4)
+     ON CONFLICT (id_operacion, id_dispositivo) DO UPDATE SET
+       id_personal = EXCLUDED.id_personal,
+       estado_asignacion = 'ASIGNADO',
+       fecha_devolucion = NULL,
+       asignado_por = EXCLUDED.asignado_por,
+       fecha_asignacion = NOW()
+     RETURNING id_operacion, id_dispositivo, id_personal, estado_asignacion`,
+    [operacion.id_operacion, device.id_dispositivo, idPersonal, assigningUserId]
+  );
+
+  const boundDevice = await bindCurrentIdentifier(client, device, identifiers);
+  return {
+    ...boundDevice,
+    id_operacion: rows[0].id_operacion,
+    id_personal: rows[0].id_personal,
+    operacion_nombre: operacion.nombre,
+    operacion_estado: operacion.estado,
+  };
+}
+
 async function ensureLoginDeviceSchema() {
   if (loginDeviceSchemaReady) return;
 
@@ -81,8 +276,8 @@ async function ensureLoginDeviceSchema() {
   loginDeviceSchemaReady = true;
 }
 
-async function findAssignedLoginDevices(idPersonal) {
-  const { rows } = await pool.query(
+async function findAssignedLoginDevices(idPersonal, db = pool) {
+  const { rows } = await db.query(
     `SELECT d.id_dispositivo, d.tipo, d.marca, d.modelo, d.numero_telefono,
             d.imei, d.numero_serie, d.identificador_app, d.estado,
             od.id_operacion, od.id_personal,
@@ -111,133 +306,36 @@ async function validatePersonalDeviceAccess(row, req) {
 
   const { id_dispositivo, identifiers } = collectDeviceIdentifiers(req);
   const expectedDeviceType = requestedDeviceType(req);
-  if (!id_dispositivo && identifiers.length === 0) {
-    return {
-      ok: false,
-      status: 403,
-      codigo: "DISPOSITIVO_REQUERIDO",
-      mensaje: "Este usuario requiere iniciar sesion desde un dispositivo registrado y asignado.",
-    };
-  }
+  const client = await pool.connect();
 
-  const conditions = [];
-  const params = [];
+  try {
+    await client.query("BEGIN");
 
-  if (id_dispositivo) {
-    params.push(id_dispositivo);
-    conditions.push(`d.id_dispositivo = $${params.length}`);
-  }
-
-  if (identifiers.length > 0) {
-    params.push(identifiers);
-    const idx = params.length;
-    conditions.push(`
-      LOWER(BTRIM(COALESCE(d.identificador_app, ''))) = ANY($${idx}::text[])
-      OR LOWER(BTRIM(COALESCE(d.imei, ''))) = ANY($${idx}::text[])
-      OR LOWER(BTRIM(COALESCE(d.numero_serie, ''))) = ANY($${idx}::text[])
-      OR LOWER(BTRIM(COALESCE(d.numero_telefono, ''))) = ANY($${idx}::text[])
-    `);
-  }
-
-  const typeFilter = expectedDeviceType
-    ? `AND UPPER(COALESCE(d.tipo, '')) = $${params.length + 1}`
-    : "";
-  if (expectedDeviceType) params.push(expectedDeviceType);
-
-  const { rows: deviceRows } = await pool.query(
-    `SELECT d.id_dispositivo, d.tipo, d.marca, d.modelo, d.numero_telefono,
-            d.imei, d.numero_serie, d.identificador_app, d.estado
-       FROM dispositivo d
-      WHERE (${conditions.map(c => `(${c})`).join(" OR ")})
-      ${typeFilter}
-      LIMIT 1`,
-    params
-  );
-
-  const dispositivo = deviceRows[0];
-  if (!dispositivo) {
-    let assigned = await findAssignedLoginDevices(row.id);
-    if (expectedDeviceType) {
-      assigned = assigned.filter(d => String(d.tipo || "").toUpperCase() === expectedDeviceType);
-    }
-    if (assigned.length === 1 && identifiers.length > 0 && !cleanDeviceIdentifier(assigned[0].identificador_app)) {
-      const identificadorApp = identifiers[0];
-      const { rows: updatedRows } = await pool.query(
-        `UPDATE dispositivo
-            SET identificador_app = $1
-          WHERE id_dispositivo = $2
-          RETURNING id_dispositivo, tipo, marca, modelo, numero_telefono,
-                    imei, numero_serie, identificador_app, estado`,
-        [identificadorApp, assigned[0].id_dispositivo]
-      );
-
-      return {
-        ok: true,
-        dispositivo: updatedRows[0],
-        asignacion: {
-          id_operacion: assigned[0].id_operacion,
-          id_personal: assigned[0].id_personal,
-          operacion_nombre: assigned[0].operacion_nombre,
-          operacion_estado: assigned[0].operacion_estado,
-        },
-      };
+    const operacion = await fetchAssignedOperationForPersonal(row.id, client);
+    if (!operacion) {
+      await client.query("COMMIT");
+      return null;
     }
 
-    if (assigned.length > 1) {
-      return {
-        ok: false,
-        status: 403,
-        codigo: "DISPOSITIVO_AMBIGUO",
-        mensaje: "Este usuario tiene varios dispositivos asignados. Captura el ID app en el dispositivo correcto desde Control de dispositivos.",
-        identificador_app: identifiers[0] || null,
-      };
+    let device = await findDeviceByLoginIdentity(client, id_dispositivo, identifiers, expectedDeviceType);
+    if (!device) {
+      device = await findFallbackAssignedDevice(client, row.id, expectedDeviceType);
     }
 
-    return {
-      ok: false,
-      status: 403,
-      codigo: "DISPOSITIVO_NO_REGISTRADO",
-      mensaje: "Dispositivo no registrado. Primero registralo en Control de dispositivos.",
-      identificador_app: identifiers[0] || null,
-    };
+    if (!device) {
+      await client.query("COMMIT");
+      return null;
+    }
+
+    const selected = await upsertDeviceAssignmentForLogin(client, device, row.id, operacion, identifiers);
+    await client.query("COMMIT");
+    return buildDeviceValidation(selected);
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
-
-  if (["BAJA", "MANTENIMIENTO"].includes(String(dispositivo.estado || "").toUpperCase())) {
-    return {
-      ok: false,
-      status: 403,
-      codigo: "DISPOSITIVO_NO_DISPONIBLE",
-      mensaje: "Dispositivo no disponible para iniciar sesion.",
-    };
-  }
-
-  const { rows: assignmentRows } = await pool.query(
-    `SELECT od.id_operacion, od.id_personal, o.nombre AS operacion_nombre, o.estado AS operacion_estado
-       FROM operacion_dispositivo od
-       JOIN operacion o ON o.id_operacion = od.id_operacion
-      WHERE od.id_dispositivo = $1
-        AND od.id_personal = $2
-        AND od.estado_asignacion = 'ASIGNADO'
-        AND od.fecha_devolucion IS NULL
-        AND o.estado IN ('ACTIVA', 'PLANIFICADA')
-      ORDER BY
-        CASE o.estado WHEN 'ACTIVA' THEN 1 WHEN 'PLANIFICADA' THEN 2 ELSE 3 END,
-        od.fecha_asignacion DESC
-      LIMIT 1`,
-    [dispositivo.id_dispositivo, row.id]
-  );
-
-  const asignacion = assignmentRows[0];
-  if (!asignacion) {
-    return {
-      ok: false,
-      status: 403,
-      codigo: "DISPOSITIVO_NO_ASIGNADO",
-      mensaje: "Dispositivo no asignado a este usuario en una operacion activa o planificada.",
-    };
-  }
-
-  return { ok: true, dispositivo, asignacion };
 }
 
 function buildTokenPayload(row, tabla, deviceValidation = null) {
@@ -274,8 +372,8 @@ function publicUser(row, tabla, deviceValidation = null) {
   };
 }
 
-async function fetchAssignedOperationForPersonal(idPersonal) {
-  const { rows } = await pool.query(
+async function fetchAssignedOperationForPersonal(idPersonal, db = pool) {
+  const { rows } = await db.query(
     `SELECT
        o.id_operacion, o.codigo, o.nombre, o.descripcion,
        o.prioridad, o.estado, o.fecha_inicio, o.fecha_fin,
@@ -296,7 +394,7 @@ async function fetchAssignedOperationForPersonal(idPersonal) {
   const operacion = rows[0];
   if (!operacion) return null;
 
-  const zonaRes = await pool.query(
+  const zonaRes = await db.query(
     `SELECT centroide_lat, centroide_lon, zoom_inicial, color, geometria,
             estado_operacion_creacion
        FROM zona_operacion WHERE id_operacion = $1 LIMIT 1`,

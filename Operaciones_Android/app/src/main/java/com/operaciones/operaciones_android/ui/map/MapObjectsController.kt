@@ -50,6 +50,9 @@ class MapObjectsController(
         fun openMapChatPanel()
         fun isMapChatPanelActive(): Boolean
         fun selectMapPersonal(idPersonal: Int?)
+        fun selectMapVehiculo(idVehiculo: Int?)
+        fun selectMapEquipo(idEquipo: Int?)
+        fun selectMapDispositivo(idDispositivo: Int?)
     }
 
     private data class SelectedMapObject(
@@ -99,12 +102,17 @@ class MapObjectsController(
 
         if (selected.kind.isBlank() || (selected.id == null && selected.localId == null)) return
 
-        if (selected.kind == "personal") {
-            val idPersonal = selected.id ?: return
+        if (selected.kind in setOf("personal", "vehiculo", "equipo", "dispositivo")) {
+            val selectedId = selected.id ?: return
             selectedMapObject = null
             deleteButton?.visibility = View.GONE
             activity.findViewById<View>(R.id.objectToolsMenu)?.visibility = View.GONE
-            host.selectMapPersonal(idPersonal)
+            when (selected.kind) {
+                "personal" -> host.selectMapPersonal(selectedId)
+                "vehiculo" -> host.selectMapVehiculo(selectedId)
+                "equipo" -> host.selectMapEquipo(selectedId)
+                "dispositivo" -> host.selectMapDispositivo(selectedId)
+            }
             Toast.makeText(activity, "${selected.label} seleccionado.", Toast.LENGTH_SHORT).show()
             return
         }
@@ -118,6 +126,9 @@ class MapObjectsController(
     fun clearSelectedMapObject() {
         selectedMapObject = null
         host.selectMapPersonal(null)
+        host.selectMapVehiculo(null)
+        host.selectMapEquipo(null)
+        host.selectMapDispositivo(null)
         cesiumWebController.clearTrackingSelection()
         deleteButton?.visibility = View.GONE
     }

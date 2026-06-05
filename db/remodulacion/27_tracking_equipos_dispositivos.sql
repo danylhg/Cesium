@@ -62,6 +62,7 @@ CREATE TABLE IF NOT EXISTS tracking_dispositivo (
   rumbo_grados NUMERIC(5,2),
   precision_m NUMERIC(6,2),
   bateria_pct NUMERIC(5,2),
+  serial_dispositivo TEXT,
   "timestamp" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   estado_operacion_creacion estado_operacion_enum,
   CONSTRAINT chk_td_latitud CHECK (latitud BETWEEN -90 AND 90),
@@ -82,6 +83,9 @@ CREATE INDEX IF NOT EXISTS idx_tracking_dispositivo_ts
 
 CREATE INDEX IF NOT EXISTS idx_tracking_dispositivo_estado_operacion_creacion
   ON tracking_dispositivo(id_operacion, estado_operacion_creacion);
+
+ALTER TABLE tracking_dispositivo
+  ADD COLUMN IF NOT EXISTS serial_dispositivo TEXT;
 
 CREATE OR REPLACE VIEW v_ultima_posicion_equipo AS
 SELECT DISTINCT ON (te.id_operacion, te.id_equipo)
@@ -152,6 +156,7 @@ SELECT DISTINCT ON (td.id_operacion, td.id_dispositivo)
   td.rumbo_grados,
   td.precision_m,
   td.bateria_pct,
+  td.serial_dispositivo,
   td."timestamp" AS ultima_actualizacion,
   td.estado_operacion_creacion
 FROM tracking_dispositivo td

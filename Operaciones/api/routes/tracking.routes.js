@@ -64,6 +64,26 @@ async function getLatestDispositivoPosition(id_operacion, id_dispositivo) {
   return rows[0] || null;
 }
 
+async function verifyDeviceSerial(id_dispositivo, serial) {
+  const clean = String(serial || "").trim();
+  if (!clean) return false;
+
+  const { rows } = await pool.query(
+    `SELECT 1
+      FROM dispositivo
+     WHERE id_dispositivo = $1
+        AND (
+          lower(btrim(COALESCE(numero_serie, ''))) = lower($2) OR
+          lower(btrim(COALESCE(imei, ''))) = lower($2) OR
+          lower(btrim(COALESCE(identificador_app, ''))) = lower($2)
+        )
+      LIMIT 1`,
+    [Number(id_dispositivo), clean]
+  );
+
+  return rows.length > 0;
+}
+
 function optionalBoolean(value) {
   if (value == null || value === "") return null;
   if (typeof value === "boolean") return value;
@@ -572,6 +592,7 @@ router.post("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
   const id_operacion = Number(req.params.id);
   if (!isInt(id_operacion)) return res.status(400).json({ ok: false, mensaje: "id invalido" });
 
+  const payload = req.body ?? {};
   const {
     id_dispositivo,
     latitud,
@@ -581,18 +602,37 @@ router.post("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
     rumbo_grados,
     precision_m,
     bateria_pct
-  } = req.body ?? {};
+  } = payload;
+  const serialDispositivo = firstPayloadValue(
+    payload,
+    "serial_dispositivo",
+    "numero_serie",
+    "numeroSerie",
+    "serial",
+    "imei",
+    "identificador_app"
+  );
   if (!isInt(Number(id_dispositivo))) return res.status(400).json({ ok: false, mensaje: "Falta id_dispositivo" });
   if (!validCoords(latitud, longitud)) return res.status(400).json({ ok: false, mensaje: "Latitud/longitud invalidas" });
 
   try {
     await ensureExtendedTrackingSchema();
+    const serialOk = await verifyDeviceSerial(id_dispositivo, serialDispositivo);
+    if (!serialOk) {
+      return res.status(409).json({
+        ok: false,
+        mensaje: serialDispositivo
+          ? "El numero de serie no coincide con el dispositivo"
+          : "Falta numero de serie del dispositivo"
+      });
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO tracking_dispositivo (
          id_operacion, id_dispositivo, latitud, longitud, altitud,
-         velocidad_kmh, rumbo_grados, precision_m, bateria_pct
+         velocidad_kmh, rumbo_grados, precision_m, bateria_pct, serial_dispositivo
        )
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING id_tracking, timestamp, estado_operacion_creacion`,
       [
         id_operacion,
@@ -603,7 +643,8 @@ router.post("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
         optionalNumber(velocidad_kmh),
         optionalNumber(rumbo_grados),
         optionalNumber(precision_m),
-        optionalNumber(bateria_pct)
+        optionalNumber(bateria_pct),
+        serialDispositivo ? String(serialDispositivo).trim() : null
       ]
     );
 
@@ -618,7 +659,8 @@ router.post("/ops/:id/tracking/dispositivos", requireAuth, async (req, res) => {
       velocidad_kmh: optionalNumber(velocidad_kmh),
       rumbo_grados: optionalNumber(rumbo_grados),
       precision_m: optionalNumber(precision_m),
-      bateria_pct: optionalNumber(bateria_pct)
+      bateria_pct: optionalNumber(bateria_pct),
+      serial_dispositivo: serialDispositivo ? String(serialDispositivo).trim() : null
     });
 
     let personalFromDevices = null;

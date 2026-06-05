@@ -38,6 +38,9 @@ android {
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("io.socket:socket.io-client:2.1.0") {
+        exclude(group = "org.json", module = "json")
+    }
     implementation("com.google.android.gms:play-services-wearable:20.0.1")
     implementation("androidx.health:health-services-client:1.0.0")
     implementation("com.google.guava:guava:33.2.1-android")

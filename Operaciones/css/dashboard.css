@@ -1814,6 +1814,17 @@ body {
   color: #001b1b;
 }
 
+.cameraCloseBtn {
+  border-color: rgba(248, 113, 113, 0.48);
+  color: #fecaca;
+}
+
+.cameraCloseBtn:hover {
+  background: rgba(239, 68, 68, 0.88);
+  border-color: rgba(248, 113, 113, 0.95);
+  color: #fff;
+}
+
 .layoutBtn:disabled,
 .layoutBtn[aria-disabled="true"] {
   opacity: 0.38;
@@ -2024,22 +2035,27 @@ body {
   z-index: 1;
 }
 
-.person-link {
+.person-link,
+.tracking-link {
   color: #00ffa6;
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: rgba(0, 255, 166, 0.3);
 }
 
-.person-link.has-connection-history {
-  font-weight: 900;
+.person-link.tracking-locatable,
+.tracking-link.tracking-locatable {
+  font-weight: inherit;
 }
 
-.person-link.is-followed {
+.person-link.is-followed,
+.tracking-link.is-followed {
+  font-weight: 900;
   text-decoration-color: #38bdf8;
 }
 
-.person-link:hover {
+.person-link:hover,
+.tracking-link:hover {
   text-decoration-color: #00ffa6;
 }
 
@@ -2203,6 +2219,31 @@ body {
   height: 92px;
   min-height: 92px;
   padding: 12px;
+}
+
+.personInfoCamera .personInfoCameraFeed {
+  height: 92px;
+  min-height: 92px;
+}
+
+.personInfoCamera .cameraFeedBadge {
+  top: 6px;
+  right: 6px;
+  font-size: 10px;
+  padding: 3px 7px;
+}
+
+.personInfoCamera .cameraAudioBtn,
+.personInfoCamera .cameraSelectBtn {
+  display: none;
+}
+
+.personInfoCamera .cameraFeedName {
+  bottom: 6px !important;
+  left: 6px;
+  max-width: calc(100% - 12px);
+  font-size: 11px;
+  padding: 3px 7px;
 }
 
 .topbar {
@@ -2849,6 +2890,96 @@ body {
   color: #fff;
 }
 
+/* Ajuste final del panel de camaras: evita tarjetas comprimidas y overlays amontonados. */
+.cameraPanel {
+  width: min(980px, calc(100vw - 240px));
+  min-width: min(360px, calc(100vw - 24px));
+  min-height: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: min(82vh, 760px);
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.cameraLayoutControls {
+  position: static;
+  align-self: flex-end;
+  margin: 8px 8px 0 auto;
+}
+
+.cameraFeeds {
+  min-height: 0;
+  gap: 10px;
+  padding: 10px;
+  align-content: start;
+}
+
+.cameraFeeds.grid-layout {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: auto;
+}
+
+.cameraFeeds.grid-layout .cameraFeed {
+  min-height: 158px;
+  height: auto;
+  aspect-ratio: 16 / 9;
+}
+
+.cameraWaitingSignal,
+.personCameraWaiting {
+  padding: 42px 48px 40px 14px;
+}
+
+.cameraWaitingSignal strong,
+.personCameraWaiting strong {
+  min-width: 82px;
+  max-width: 100%;
+}
+
+.cameraFeedBadge {
+  max-width: calc(100% - 92px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cameraFeedName,
+.cameraFeedLabel {
+  max-width: calc(100% - 56px);
+}
+
+@media (max-width: 1040px) {
+  .cameraPanel {
+    width: min(760px, calc(100vw - 32px));
+  }
+
+  .cameraFeeds.grid-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .cameraPanel {
+    width: calc(100vw - 20px);
+    min-width: 0;
+    max-width: calc(100vw - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .cameraFeeds.grid-layout .cameraFeed {
+    min-height: 172px;
+  }
+
+  .cameraFeeds.grid-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .cameraWaitingSignal,
+  .personCameraWaiting {
+    padding-right: 48px;
+  }
+}
+
 .chatAttachment {
   display: grid;
   gap: 8px;
@@ -3107,6 +3238,7 @@ body {
 .chatAudienceChip.active,
 .chatAudienceSummary,
 .person-link,
+.tracking-link,
 .personInfoStatus strong,
 .topHistoryBtn {
   color: var(--dash-accent-light) !important;

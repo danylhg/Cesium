@@ -12,7 +12,7 @@ import {
   openPanel
 } from "./dashboard.ui.js";
 import { bindDashboardEvents } from "./dashboard.events.js";
-import { initChat, bindChatEvents } from "./dashboard.chat.js";
+import { initChat, bindChatEvents } from "./dashboard.chat.js?v=20260604-emergency-pulse";
 import {
   setTacticalUI,
   bindTacticalEvents,
@@ -34,7 +34,7 @@ import {
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
-import { initCameraFeeds } from "./dashboard.camera.js?v=20260528-camera-protocols";
+import { initCameraFeeds } from "./dashboard.camera.js?v=20260604-person-card-camera";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";

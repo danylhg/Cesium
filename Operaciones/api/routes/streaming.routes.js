@@ -1,6 +1,8 @@
 import { Router, raw } from "express";
 import { randomUUID } from "node:crypto";
-import { writeFile } from "node:fs/promises";
+import { readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { pool } from "../db.js";
 import {
   MEDIA_STREAM_DEFAULT_PROTOCOL,
@@ -19,8 +21,14 @@ import {
 } from "../utils/streamRecordings.js";
 
 const router = Router();
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const hlsRuntimeRoot = resolve(__dirname, "..", "..", "runtime", "ffmpeg-streams");
 let streamingTablesReady = false;
 const recordingContentTypes = new Set(["video/webm", "audio/webm", "application/octet-stream"]);
+const hlsStreamKeyPattern = /^[A-Za-z0-9._-]+$/;
+const hlsDiscoveryMaxAgeMs = Number.isFinite(Number(process.env.HLS_DISCOVERY_MAX_AGE_MS))
+  ? Number(process.env.HLS_DISCOVERY_MAX_AGE_MS)
+  : 45000;
 
 function isRecordingContentType(req) {
   const contentType = String(req.headers["content-type"] || "").toLowerCase();
@@ -108,6 +116,124 @@ function getRtmpPlaybackUrl(req, streamKey, playbackBaseUrl = null) {
   const configuredBase = getRtmpPlaybackBaseUrl();
   if (configuredBase) return joinHlsUrl(configuredBase, streamKey);
   return null;
+}
+
+function getRuntimeHlsPlaybackUrl(streamKey) {
+  return `/runtime/ffmpeg-streams/${encodeURIComponent(streamKey)}/index.m3u8`;
+}
+
+function getDiscoveredHlsLabel(streamKey) {
+  const normalized = String(streamKey || "").toLowerCase();
+  if (normalized.startsWith("obs")) return "OBS";
+  if (normalized.includes("dron") || normalized.includes("drone")) {
+    const suffix = normalized.match(/\d+/)?.[0];
+    return suffix ? `Dron ${suffix.padStart(2, "0")}` : "Dron";
+  }
+  return streamKey;
+}
+
+function getDiscoveredHlsSourceType(streamKey) {
+  const normalized = String(streamKey || "").toLowerCase();
+  return normalized.includes("dron") || normalized.includes("drone") ? "DRONE" : "EXTERNAL";
+}
+
+async function listFreshRuntimeHlsStreams() {
+  const entries = await readdir(hlsRuntimeRoot, { withFileTypes: true }).catch((err) => {
+    if (err?.code === "ENOENT") return [];
+    throw err;
+  });
+  const now = Date.now();
+  const maxAge = hlsDiscoveryMaxAgeMs > 0 ? hlsDiscoveryMaxAgeMs : 45000;
+  const streams = [];
+
+  await Promise.all(entries.map(async (entry) => {
+    if (!entry.isDirectory() || !hlsStreamKeyPattern.test(entry.name)) return;
+
+    const playlistPath = resolve(hlsRuntimeRoot, entry.name, "index.m3u8");
+    const playlistStat = await stat(playlistPath).catch(() => null);
+    if (!playlistStat?.isFile()) return;
+    if ((now - playlistStat.mtimeMs) > maxAge) return;
+
+    streams.push({
+      streamKey: entry.name,
+      label: getDiscoveredHlsLabel(entry.name),
+      sourceType: getDiscoveredHlsSourceType(entry.name),
+      playbackUrl: getRuntimeHlsPlaybackUrl(entry.name),
+    });
+  }));
+
+  return streams.sort((a, b) => a.streamKey.localeCompare(b.streamKey, "es"));
+}
+
+async function syncDiscoveredRuntimeHlsStreams(id_operacion, req) {
+  const streams = await listFreshRuntimeHlsStreams();
+  const actor = getActorColumns(req);
+
+  for (const stream of streams) {
+    await pool.query(
+      `INSERT INTO media_stream_session (
+         id_operacion, id_usuario, id_personal, kind, status, label, protocol,
+         source_type, stream_key, rtmp_publish_url, rtmp_playback_url,
+         playback_url, external_device_id, consent_ack, foreground_notice,
+         created_by_tabla, created_by_id, started_at, last_seen_at
+       )
+       VALUES ($1,$2,$3,'AUDIO_VIDEO','ACTIVE',$4,'RTMP',$5,$6,$7,NULL,$8,$6,
+         TRUE,FALSE,$9,$10,NOW(),NOW())
+       ON CONFLICT (stream_key) DO UPDATE SET
+         id_operacion = EXCLUDED.id_operacion,
+         id_usuario = EXCLUDED.id_usuario,
+         id_personal = EXCLUDED.id_personal,
+         kind = EXCLUDED.kind,
+         status = 'ACTIVE',
+         label = EXCLUDED.label,
+         protocol = EXCLUDED.protocol,
+         source_type = EXCLUDED.source_type,
+         rtmp_publish_url = EXCLUDED.rtmp_publish_url,
+         rtmp_playback_url = NULL,
+         playback_url = EXCLUDED.playback_url,
+         external_device_id = EXCLUDED.external_device_id,
+         publisher_socket_id = NULL,
+         viewer_count = 0,
+         consent_ack = EXCLUDED.consent_ack,
+         foreground_notice = EXCLUDED.foreground_notice,
+         created_by_tabla = EXCLUDED.created_by_tabla,
+         created_by_id = EXCLUDED.created_by_id,
+         started_at = CASE
+           WHEN media_stream_session.status = 'ACTIVE'
+            AND media_stream_session.ended_at IS NULL
+           THEN media_stream_session.started_at
+           ELSE NOW()
+         END,
+         last_seen_at = NOW(),
+         ended_at = NULL`,
+      [
+        id_operacion,
+        actor.id_usuario,
+        actor.id_personal,
+        stream.label,
+        stream.sourceType,
+        stream.streamKey,
+        joinStreamUrl(getRtmpPublishBaseUrl(req), stream.streamKey),
+        stream.playbackUrl,
+        actor.created_by_tabla,
+        actor.created_by_id,
+      ]
+    );
+  }
+
+  await pool.query(
+    `UPDATE media_stream_session
+        SET status = 'STOPPED',
+            ended_at = COALESCE(ended_at, NOW()),
+            publisher_socket_id = NULL,
+            viewer_count = 0
+      WHERE id_operacion = $1
+        AND status = 'ACTIVE'
+        AND protocol = 'RTMP'
+        AND playback_url LIKE '/runtime/ffmpeg-streams/%/index.m3u8'
+        AND NOT (stream_key = ANY($2::text[]))`,
+    [id_operacion, streams.map((stream) => stream.streamKey)]
+  );
 }
 
 function getActorColumns(req) {
@@ -409,6 +535,7 @@ router.get("/ops/:id/streams", requireAuth, async (req, res) => {
 
   try {
     await ensureStreamingTables();
+    await syncDiscoveredRuntimeHlsStreams(id_operacion, req);
     const { rows } = await pool.query(
       `SELECT *
        FROM media_stream_session

@@ -269,6 +269,54 @@ export async function seedOperation1(client) {
     idUsuario: creadoPor,
   });
 
+  const externalStreams = [
+    { label: "OBS", sourceType: "EXTERNAL", streamKey: "obs-01" },
+    { label: "Dron 01", sourceType: "DRONE", streamKey: "dron-01" },
+  ];
+
+  for (const stream of externalStreams) {
+    await client.query(
+      `INSERT INTO media_stream_session (
+         id_operacion, id_usuario, kind, status, label, protocol, source_type,
+         stream_key, rtmp_publish_url, playback_url, external_device_id,
+         consent_ack, foreground_notice, created_by_tabla, created_by_id
+       )
+       VALUES ($1,$2,'AUDIO_VIDEO','ACTIVE',$3,'RTMP',$4,$5,$6,$7,$5,
+         TRUE,FALSE,'usuario',$2)
+       ON CONFLICT (stream_key) DO UPDATE SET
+         id_operacion = EXCLUDED.id_operacion,
+         id_usuario = EXCLUDED.id_usuario,
+         id_personal = NULL,
+         kind = EXCLUDED.kind,
+         status = 'ACTIVE',
+         label = EXCLUDED.label,
+         protocol = EXCLUDED.protocol,
+         source_type = EXCLUDED.source_type,
+         rtmp_publish_url = EXCLUDED.rtmp_publish_url,
+         rtmp_playback_url = NULL,
+         playback_url = EXCLUDED.playback_url,
+         external_device_id = EXCLUDED.external_device_id,
+         publisher_socket_id = NULL,
+         viewer_count = 0,
+         consent_ack = EXCLUDED.consent_ack,
+         foreground_notice = EXCLUDED.foreground_notice,
+         created_by_tabla = EXCLUDED.created_by_tabla,
+         created_by_id = EXCLUDED.created_by_id,
+         started_at = NOW(),
+         last_seen_at = NULL,
+         ended_at = NULL`,
+      [
+        idOp,
+        creadoPor,
+        stream.label,
+        stream.sourceType,
+        stream.streamKey,
+        `rtmp://localhost/live/${stream.streamKey}`,
+        `/runtime/ffmpeg-streams/${stream.streamKey}/index.m3u8`,
+      ]
+    );
+  }
+
   return {
     codigo: OP_CODIGO,
     estado: "ACTIVA",

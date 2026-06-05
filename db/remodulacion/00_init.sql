@@ -32,3 +32,4 @@
 \ir 26_patch_cierre_devoluciones.sql
 \ir 27_tracking_equipos_dispositivos.sql
 \ir 28_patch_tracking_personal_motion.sql
+\ir 29_seed_dispositivos_operacion.sql
