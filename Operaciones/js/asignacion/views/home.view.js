@@ -28,6 +28,7 @@ export function renderHome() {
 
   showOperacionInfo();
   clearPanel();
+  panel.classList.add("homePanel");
 
   state.categoria = null;
   state.pasoPersonal = "home";

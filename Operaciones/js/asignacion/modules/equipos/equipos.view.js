@@ -8,7 +8,7 @@ import {
   showVehiculosLeftPanel,
   setHeader,
   setAccion,
-  showDashboardButton,
+  renderAssignmentCompleteActions,
   restoreScrollTop
 } from "../../core/ui.js";
 import { renderHome } from "../../views/home.view.js";
@@ -178,16 +178,20 @@ async function finalizarAsignacionCompleta() {
       console.error(e);
       btnAccion.disabled = false;
       btnAccion.textContent = "Finalizar";
-      return; // Do not go home if failed
     }
   }
 
   renderHome();
-  showDashboardButton();
+  renderAssignmentCompleteActions();
 }
 
 export function renderEquipoAsignacion() {
   clearPanel();
+  panel.classList.add("resourceWidePanel");
+  panel.closest(".rightCard")?.classList.add("resourceWideMode");
+  panel.closest(".cols")?.classList.add("resourceWideMode");
+  panel.closest(".shell")?.classList.add("resourceWideMode");
+  document.body.classList.add("resourceWideMode");
   showBack(true);
   showVehiculosLeftPanel("Asignación de equipos");
 
@@ -248,6 +252,7 @@ export function renderEquipoAsignacion() {
     saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
     renderEquipoAsignacion();
   });
+  chipComunicacion.textContent = "Comunicaci\u00f3n";
 
   const chipTactico = document.createElement("button");
   chipTactico.className = "chip" + (state.equipoCategoria === "tactico" ? " active" : "");
@@ -257,6 +262,7 @@ export function renderEquipoAsignacion() {
     saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
     renderEquipoAsignacion();
   });
+  chipTactico.textContent = "T\u00e1ctico";
 
   const chipDispositivos = document.createElement("button");
   chipDispositivos.className = "chip";
@@ -286,11 +292,7 @@ export function renderEquipoAsignacion() {
   equipTitle.textContent = "Selecciona equipo";
 
   const eqWrap = document.createElement("div");
-  eqWrap.style.display = "flex";
-  eqWrap.style.flexDirection = "column";
-  eqWrap.style.gap = "10px";
-  eqWrap.style.maxHeight = "360px";
-  eqWrap.style.overflowY = "auto";
+  eqWrap.className = "equipmentGrid";
   eqWrap.addEventListener("scroll", () => {
     state.equiposRightScrollTop = eqWrap.scrollTop;
   });
@@ -313,65 +315,40 @@ export function renderEquipoAsignacion() {
       : (isEnOtraOperacion ? "En otra operación" : "Disponible");
     const isSelected = state.equipoSelectedItems.includes(eqId);
 
-    const row = document.createElement("div");
-    row.className = "item" + (isSelected ? " selected" : "");
-    row.style.cursor = isDisabled ? "not-allowed" : "pointer";
-    if (isDisabled) row.style.opacity = "0.55";
-    row.style.display = "flex";
-    row.style.alignItems = "center";
-    row.style.justifyContent = "space-between";
-    row.style.gap = "12px";
-
-    const leftWrap = document.createElement("div");
-    leftWrap.style.display = "flex";
-    leftWrap.style.alignItems = "center";
-    leftWrap.style.gap = "12px";
+    const card = document.createElement("div");
+    card.className = "vehicleCard equipmentCard"
+      + (isSelected ? " selected" : "")
+      + (isDisabled ? " disabled" : "");
+    card.style.cursor = isDisabled ? "not-allowed" : "pointer";
 
     if (eq.image) {
       const img = document.createElement("img");
       img.src = eq.image;
       img.alt = eq.nombre;
-      img.style.width = "54px";
-      img.style.height = "54px";
-      img.style.objectFit = "cover";
-      img.style.borderRadius = "10px";
-      img.style.border = "1px solid #d7e3ff";
-      leftWrap.appendChild(img);
+      card.appendChild(img);
     }
 
-    const textWrap = document.createElement("div");
-    textWrap.style.display = "flex";
-    textWrap.style.flexDirection = "column";
-    textWrap.style.gap = "4px";
+    const nameP = document.createElement("p");
+    nameP.textContent = eq.nombre;
 
-    const left = document.createElement("div");
-    left.className = "itemName";
-    left.textContent = eq.nombre;
-
-    const meta = document.createElement("div");
-    meta.style.fontSize = "12px";
-    meta.style.opacity = "0.8";
+    const meta = document.createElement("p");
+    meta.className = "equipmentMeta";
     meta.textContent = [
       eq.numeroSerie ? `Serie: ${eq.numeroSerie}` : "",
       eq.estado ? `Estado: ${eq.estado}` : ""
     ].filter(Boolean).join(" | ");
 
-    textWrap.appendChild(left);
-    textWrap.appendChild(meta);
-    leftWrap.appendChild(textWrap);
+    const badge = document.createElement("p");
+    badge.className = "vehicleMeta equipmentBadge";
+    if (isEnOtraOperacion) badge.classList.add("danger");
+    else if (isAssignedInFlow) badge.classList.add("success");
+    badge.textContent = badgeText;
 
-    const right = document.createElement("div");
-    right.className = "badgeRight";
-    right.textContent = badgeText;
-    if (isEnOtraOperacion) {
-      right.style.color = "#c0392b";
-      right.style.fontWeight = "700";
-    }
+    card.appendChild(nameP);
+    if (meta.textContent) card.appendChild(meta);
+    card.appendChild(badge);
 
-    row.appendChild(leftWrap);
-    row.appendChild(right);
-
-    row.addEventListener("click", () => {
+    card.addEventListener("click", () => {
       if (isDisabled) return;
 
       if (isSelected) {
@@ -389,33 +366,20 @@ export function renderEquipoAsignacion() {
       renderEquipoAsignacion();
     });
 
-    eqWrap.appendChild(row);
+    eqWrap.appendChild(card);
   });
 
-  const assignBtn = document.createElement("button");
-  assignBtn.className = "btnPrimary";
-  assignBtn.textContent = "Asignarle";
-  assignBtn.style.marginTop = "12px";
+  // Función para intentar asignación automática
+  function tryAutoAssignment() {
+    if (!state.equipoSelectedResource || state.equipoSelectedItems.length === 0) return;
 
-  const canAssign =
-    !!state.equipoSelectedResource &&
-    state.equipoSelectedItems.length > 0 &&
-    state.equipoSelectedItems.some(eqId => {
+    const hasUnassigned = state.equipoSelectedItems.some(eqId => {
       const asigActual = state.asignacionEquipos.find(a => a.id_equipo === eqId);
       return !destinoActualCoincide(asigActual);
     });
-  assignBtn.disabled = !canAssign;
+    if (!hasUnassigned) return;
 
-  assignBtn.addEventListener("click", () => {
-    if (!state.equipoCategoria) {
-      logAlert("Selecciona una categoría de equipo.");
-      return;
-    }
-
-    if (!state.equipoSelectedResource || state.equipoSelectedItems.length === 0) {
-      logAlert("Selecciona destino y equipo.");
-      return;
-    }
+    if (!state.equipoCategoria) return;
 
     // Mapear destino a ids
     let tipoDestino, idPersonal = null, idVehiculo = null;
@@ -436,12 +400,9 @@ export function renderEquipoAsignacion() {
       if (veh) idVehiculo = veh.id;
     }
 
-    if (!idPersonal && !idVehiculo) {
-      logAlert("Destino inválido.");
-      return;
-    }
+    if (!idPersonal && !idVehiculo) return;
 
-    // Asignar usando el service
+    // Asignar automáticamente
     state.equipoSelectedItems.forEach(eqId => {
       try {
         removerAsignacionActualDeEquipo(eqId);
@@ -454,11 +415,13 @@ export function renderEquipoAsignacion() {
 
     state.equipoSelectedItems = [];
     renderEquipoAsignacion();
-  });
+  }
+
+  // Intentar asignación automática
+  tryAutoAssignment();
 
   const footer = document.createElement("div");
   footer.className = "rightFooter";
-  footer.appendChild(assignBtn);
 
   listBox.appendChild(equipTitle);
   listBox.appendChild(eqWrap);

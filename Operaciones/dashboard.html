@@ -6,12 +6,45 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Panorama táctico</title>
 
-  <link rel="stylesheet" href="css/dashboard.css" />
+  <link rel="stylesheet" href="css/dashboard.css?v=20260605-close-fullscreen" />
   <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
 
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
+  <script>
+    window.Cesium = window.Cesium || (() => {
+      const makeColor = () => ({
+        withAlpha() {
+          return this;
+        }
+      });
+      const Color = {
+        fromCssColorString: makeColor,
+        RED: makeColor(),
+        CYAN: makeColor(),
+        BLACK: makeColor(),
+        YELLOW: makeColor(),
+        LIME: makeColor(),
+        WHITE: makeColor(),
+        MAGENTA: makeColor(),
+        ORANGE: makeColor(),
+        LIMEGREEN: makeColor(),
+        PINK: makeColor(),
+        DEEPSKYBLUE: makeColor(),
+        HOTPINK: makeColor(),
+        GOLD: makeColor(),
+        VIOLET: makeColor(),
+        SPRINGGREEN: makeColor()
+      };
+      return {
+        Ion: {},
+        Color,
+        Cartesian2: function Cartesian2() {},
+        NearFarScalar: function NearFarScalar() {}
+      };
+    })();
+  </script>
 
   <script src="js/libs/milsymbol.min.js"></script>
 </head>
@@ -203,7 +236,12 @@
 
   <aside id="infoPanel" class="glassPanel open">
     <h2 class="panelTitle">Información de operación</h2>
-    <div id="infoPanelContent" class="infoPanelContent"></div>
+    <div id="infoPanelContent" class="infoPanelContent">
+      <div class="infoBlock">
+        <h3>Operacion</h3>
+        <p><strong>Estado:</strong> Cargando informacion...</p>
+      </div>
+    </div>
   </aside>
 
   <aside id="routePanel" class="glassPanel">
@@ -553,7 +591,88 @@
     </div>
   </aside>
 
-  <script type="module" src="js/dashboard/dashboard.js?v=20260520-windrose"></script>
+  <script>
+    (function () {
+      function readJson(key, fallback) {
+        try {
+          return JSON.parse(localStorage.getItem(key) || "null") || fallback;
+        } catch {
+          return fallback;
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;");
+      }
+
+      function paintDashboardFallback() {
+        const container = document.getElementById("infoPanelContent");
+        if (!container) return;
+
+        const op = readJson("operacion_actual", {});
+        const asignacion = readJson("asignacion_actual", {});
+        const titulo = op.nombre || op.title || op.titulo || op.name || "Operacion sin nombre";
+        const descripcion = op.descripcion || op.description || op.desc || "Sin descripcion";
+        const fecha = op.fecha_inicio || "No definida";
+        const hora = op.hora_inicio || "No definida";
+        const personal = Array.isArray(asignacion.personal) ? asignacion.personal : (Array.isArray(op.personal) ? op.personal : []);
+        const vehiculos = Array.isArray(asignacion.vehiculos) ? asignacion.vehiculos : (Array.isArray(op.vehiculos) ? op.vehiculos : []);
+        const equipos = Array.isArray(asignacion.equipos) ? asignacion.equipos : (Array.isArray(op.equipos) ? op.equipos : []);
+        const dispositivos = Array.isArray(asignacion.dispositivos) ? asignacion.dispositivos : (Array.isArray(op.dispositivos) ? op.dispositivos : []);
+
+        container.innerHTML = `
+          <div class="infoBlock">
+            <h3>Operacion</h3>
+            <p><strong>Titulo:</strong> ${escapeHtml(titulo)}</p>
+            <p><strong>Descripcion:</strong> ${escapeHtml(descripcion)}</p>
+            <p><strong>Fecha programada:</strong> ${escapeHtml(fecha)}</p>
+            <p><strong>Hora programada:</strong> ${escapeHtml(hora)}</p>
+          </div>
+          <div class="infoBlock"><h3>Personal asignado</h3><p>${personal.length ? `${personal.length} elementos asignados.` : "Sin personal asignado."}</p></div>
+          <div class="infoBlock"><h3>Vehiculos asignados</h3><p>${vehiculos.length ? `${vehiculos.length} vehiculos asignados.` : "Sin vehiculos asignados."}</p></div>
+          <div class="infoBlock"><h3>Equipos asignados</h3><p>${equipos.length ? `${equipos.length} equipos asignados.` : "Sin equipos asignados."}</p></div>
+          <div class="infoBlock"><h3>Dispositivos asignados</h3><p>${dispositivos.length ? `${dispositivos.length} dispositivos asignados.` : "Sin dispositivos asignados."}</p></div>
+        `;
+      }
+
+      window.addEventListener("DOMContentLoaded", paintDashboardFallback);
+      window.addEventListener("load", () => setTimeout(paintDashboardFallback, 1200));
+
+      window.addEventListener("DOMContentLoaded", () => {
+        const pairs = [
+          ["toggleInfoPanel", "infoPanel"],
+          ["toggleRoutePanel", "routePanel"],
+          ["toggleTacticalPanel", "tacticalPanel"],
+          ["toggleCameraPanel", "cameraPanel"]
+        ];
+
+        function closePanels() {
+          pairs.forEach(([buttonId, panelId]) => {
+            document.getElementById(panelId)?.classList.remove("open");
+            document.getElementById(buttonId)?.classList.remove("active");
+          });
+        }
+
+        pairs.forEach(([buttonId, panelId]) => {
+          const button = document.getElementById(buttonId);
+          const panel = document.getElementById(panelId);
+          if (!button || !panel || button.dataset.fallbackBound === "1") return;
+          button.dataset.fallbackBound = "1";
+          button.addEventListener("click", () => {
+            const wasOpen = panel.classList.contains("open");
+            closePanels();
+            panel.classList.toggle("open", !wasOpen);
+            button.classList.toggle("active", !wasOpen);
+          });
+        });
+      });
+    })();
+  </script>
+  <script type="module" src="js/dashboard/dashboard.js?v=20260605-close-fullscreen"></script>
 
 </body>
 

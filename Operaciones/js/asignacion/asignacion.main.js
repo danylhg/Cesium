@@ -6,7 +6,10 @@ import {
   opDescEl,
   opInicioEl,
   opHoraInicioEl,
-  opPrioridadEl
+  opPrioridadEl,
+  btnUserMenu,
+  userDropdown,
+  btnLogout
 
 } from "./core/dom.js";
 
@@ -26,6 +29,7 @@ import {
   cargarOperacionRemota
 } from "./modules/operacion/operacion.service.js";
 import { startAsignacionPresenceHeartbeat } from "./modules/operacion/operacion.presence.js";
+import { releaseAsignacionPresence } from "./modules/operacion/operacion.presence.js";
 
 import { hydrateCatalogsFromControl, hydrateAsignacionFromBD } from "./modules/catalogos/catalogos.service.js";
 import { bindNavigation } from "./modules/navigation/asignacion.navigation.js";
@@ -44,6 +48,41 @@ function bindFormEvents() {
   }
 
   if (opHoraInicioEl) {
+    const hourOptions = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, "0")}:00`);
+    const timeDropdown = document.createElement("div");
+    timeDropdown.className = "timeDropdown hidden";
+    timeDropdown.setAttribute("role", "listbox");
+    opHoraInicioEl.removeAttribute("list");
+    opHoraInicioEl.parentElement?.appendChild(timeDropdown);
+
+    function hideTimeDropdown() {
+      timeDropdown.classList.add("hidden");
+    }
+
+    function showTimeDropdown(options = hourOptions) {
+      timeDropdown.innerHTML = "";
+      options.forEach((hour) => {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "timeOption" + (opHoraInicioEl.value === hour ? " active" : "");
+        option.textContent = hour;
+        option.setAttribute("role", "option");
+        option.addEventListener("pointerdown", (event) => {
+          event.preventDefault();
+          opHoraInicioEl.value = hour;
+          validateDateTime(opInicioEl, opHoraInicioEl);
+          saveOperacionActual();
+          hideTimeDropdown();
+          opHoraInicioEl.focus();
+        });
+        timeDropdown.appendChild(option);
+      });
+      timeDropdown.classList.remove("hidden");
+    }
+
+    opHoraInicioEl.addEventListener("focus", () => showTimeDropdown(hourOptions));
+    opHoraInicioEl.addEventListener("click", () => showTimeDropdown(hourOptions));
+
     opHoraInicioEl.addEventListener("input", function (e) {
       let v = e.target.value.replace(/[^\d:]/g, "");
       const firstColon = v.indexOf(":");
@@ -55,6 +94,8 @@ function bindFormEvents() {
       }
       v = v.substring(0, 5);
       e.target.value = v;
+      const filtered = hourOptions.filter((hour) => hour.startsWith(v));
+      showTimeDropdown(filtered.length ? filtered : hourOptions);
       saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
     });
 
@@ -68,6 +109,15 @@ function bindFormEvents() {
         validateDateTime(opInicioEl, opHoraInicioEl);
         saveOperacionActual(); // BACKEND: saveOperacionActual() se vuelve async y llama PUT /ops/:id con debounce
       }
+    });
+
+    opHoraInicioEl.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideTimeDropdown();
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      if (event.target === opHoraInicioEl || timeDropdown.contains(event.target)) return;
+      hideTimeDropdown();
     });
   }
 
@@ -93,6 +143,36 @@ function bindFormEvents() {
         lblOperacion.textContent = opNombreEl.value || "—";
       }
     });
+  });
+}
+
+function bindUserMenu() {
+  btnUserMenu?.addEventListener("click", () => {
+    if (!userDropdown) return;
+    const isOpen = !userDropdown.classList.contains("hidden");
+    userDropdown.classList.toggle("hidden", isOpen);
+    btnUserMenu.setAttribute("aria-expanded", String(!isOpen));
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!btnUserMenu || !userDropdown) return;
+    if (btnUserMenu.contains(event.target) || userDropdown.contains(event.target)) return;
+
+    userDropdown.classList.add("hidden");
+    btnUserMenu.setAttribute("aria-expanded", "false");
+  });
+
+  btnLogout?.addEventListener("click", async () => {
+    await releaseAsignacionPresence();
+    [
+      "session",
+      "token",
+      "username",
+      "rol",
+      "nombre",
+      "active_operation_id"
+    ].forEach((key) => localStorage.removeItem(key));
+    window.location.href = "login.html";
   });
 }
 
@@ -162,7 +242,9 @@ async function init() {
 
   if (lblUsuario) {
     const user = localStorage.getItem("username"); // BACKEND: Reemplazar por GET /me con Bearer token → { nombre, apellido, username, rol }
-    lblUsuario.textContent = user ? `Usuario: ${user}` : "Usuario no identificado";
+    lblUsuario.textContent = user
+      ? user.charAt(0).toUpperCase() + user.slice(1)
+      : "Invitado";
   }
 
   // En modo edición se excluye la operación actual del chequeo de ocupación
@@ -221,6 +303,7 @@ async function init() {
   renderHome();
   bindNavigation();
   bindFormEvents();
+  bindUserMenu();
   startAsignacionPresenceHeartbeat();
 
   const tieneNombre = !!(storedOp.title || storedOp.titulo);

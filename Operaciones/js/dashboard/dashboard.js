@@ -74,7 +74,29 @@ function setServerConnectionState(isConnected, message = CONNECTION_LOST_MESSAGE
   banner.style.display = isConnected ? "none" : "block";
 }
 
+function hasCesiumRuntime() {
+  return Boolean(window.Cesium?.Viewer);
+}
+
+function showMapFallback(message) {
+  const map = document.getElementById("map");
+  if (!map) return;
+  map.classList.add("mapUnavailable");
+  map.innerHTML = `
+    <div class="mapUnavailableCard">
+      <strong>Mapa no disponible</strong>
+      <span>${message}</span>
+    </div>
+  `;
+}
+
 async function loadCesiumToken() {
+  if (!hasCesiumRuntime()) {
+    setServerConnectionState(false, "No se pudo cargar Cesium. Revisa la conexion a internet o el CDN.");
+    showMapFallback("No se pudo cargar Cesium. La informacion de la operacion sigue disponible.");
+    return false;
+  }
+
   const data = await apiFetch("/config/cesium-token");
 
   if (data?.token) {
@@ -84,8 +106,8 @@ async function loadCesiumToken() {
   }
 
   localStorage.removeItem("CESIUM_TOKEN");
-  setServerConnectionState(false, "Token de Cesium no configurado en el servidor.");
-  return false;
+  console.warn("[MAP] Token de Cesium no configurado. Se usaran capas publicas del mapa.");
+  return true;
 }
 
 async function apiFetchEstado(opId, nuevoEstado) {
@@ -199,6 +221,24 @@ async function loadDashboardFromBD() {
       _mapaData: data   // para tracking
     };
   } catch {
+    return null;
+  }
+}
+
+function runDashboardStep(label, fn) {
+  try {
+    return fn();
+  } catch (error) {
+    console.error(`[DASHBOARD] Error en ${label}:`, error);
+    return null;
+  }
+}
+
+async function runDashboardAsyncStep(label, fn) {
+  try {
+    return await fn();
+  } catch (error) {
+    console.error(`[DASHBOARD] Error en ${label}:`, error);
     return null;
   }
 }
@@ -357,20 +397,35 @@ function bindDashboardRangeVisuals() {
 
 window.addEventListener("load", async () => {
   ensureConnectionBanner();
-  bindPlanningLogoutChoice();
-  await loadCesiumToken();
-  initCesium();
-  bindDashboardRangeVisuals();
-  bindChatEvents();
-  bindTacticalEvents();
-  bindAreaEvents();
-  bindDashboardEvents();
-  bindDrawingEvents();
-  setTacticalUI();
-  loadCurrentOperationOnMap();
+  runDashboardStep("abrir panel de informacion", () => openPanel(dom.infoPanel, dom.toggleInfoPanel));
+  runDashboardStep("pintar informacion inicial", () => renderInfoPanel());
+  runDashboardStep("actualizar estado inicial", () => updateChatAvailability());
+  runDashboardStep("preparar salida", () => bindPlanningLogoutChoice());
+
+  const canUseCesium = await runDashboardAsyncStep("cargar Cesium", () => loadCesiumToken());
+  if (canUseCesium) {
+    try {
+      initCesium();
+    } catch (error) {
+      console.error("[MAP] No se pudo inicializar Cesium:", error);
+      showMapFallback("No se pudo inicializar el mapa. La informacion de la operacion sigue disponible.");
+    }
+  }
+  runDashboardStep("controles de rango", () => bindDashboardRangeVisuals());
+  runDashboardStep("eventos de chat", () => bindChatEvents());
+  runDashboardStep("eventos tacticos", () => bindTacticalEvents());
+  runDashboardStep("eventos de area", () => bindAreaEvents());
+  runDashboardStep("eventos del dashboard", () => bindDashboardEvents());
+  runDashboardStep("eventos de dibujo", () => bindDrawingEvents());
+  runDashboardStep("ui tactica", () => setTacticalUI());
+  if (dashboardState.viewer) {
+    runDashboardStep("cargar operacion en mapa", () => loadCurrentOperationOnMap());
+  }
 
   if (dom.recenterMapBtn) {
     dom.recenterMapBtn.onclick = () => {
+      if (!dashboardState.viewer) return;
+
       const currentOperation = getCurrentOperation();
       const operationZone =
         dashboardState.currentOperationZone ||
@@ -397,10 +452,10 @@ window.addEventListener("load", async () => {
   }
 
   // Abrir panel de info al cargar
-  openPanel(dom.infoPanel, dom.toggleInfoPanel);
+  runDashboardStep("asegurar panel de informacion", () => openPanel(dom.infoPanel, dom.toggleInfoPanel));
 
   // Cargar datos de la operación desde BD
-  const bdData = await loadDashboardFromBD();
+  const bdData = await runDashboardAsyncStep("cargar datos de operacion", () => loadDashboardFromBD());
   if (bdData) {
     if (handleClosedOperation(bdData.operacion)) return;
     saveCurrentOperation({
@@ -413,57 +468,61 @@ window.addEventListener("load", async () => {
       dispositivos: bdData.dispositivos || []
     });
     dashboardState.currentOperation = getCurrentOperation();
-    renderInfoPanel(bdData);
-    initCameraFeeds();
-    setTacticalUI();
-    if (bdData.zona_operacion) {
-      centerMapOnOperationZone(bdData.zona_operacion);
+    runDashboardStep("pintar informacion de BD", () => renderInfoPanel(bdData));
+    runDashboardStep("inicializar camaras", () => initCameraFeeds());
+    runDashboardStep("actualizar ui tactica", () => setTacticalUI());
+    if (dashboardState.viewer && bdData.zona_operacion) {
+      runDashboardStep("centrar zona de operacion", () => centerMapOnOperationZone(bdData.zona_operacion));
     }
   } else {
-    renderInfoPanel();
-    initCameraFeeds();
+    runDashboardStep("pintar informacion local", () => renderInfoPanel());
+    runDashboardStep("inicializar camaras locales", () => initCameraFeeds());
   }
-  updateChatAvailability();
+  runDashboardStep("actualizar disponibilidad", () => updateChatAvailability());
 
-  // Cargar POIs existentes desde la BD
-  await loadPoisFromBackend();
-  await loadAreasFromBackend();
-  await loadStructuresFromBackend();
-  await loadRoutesFromBackend();
-  await loadOperationZoneFromBackend();
-  await restoreGridFromBackend(bdData?.grid || bdData?.cuadricula_operacion);
-  await loadDrawingsFromBackend();
+  if (dashboardState.viewer) {
+    // Cargar POIs existentes desde la BD
+    await runDashboardAsyncStep("cargar POIs", () => loadPoisFromBackend());
+    await runDashboardAsyncStep("cargar areas", () => loadAreasFromBackend());
+    await runDashboardAsyncStep("cargar estructuras", () => loadStructuresFromBackend());
+    await runDashboardAsyncStep("cargar rutas", () => loadRoutesFromBackend());
+    await runDashboardAsyncStep("cargar zona", () => loadOperationZoneFromBackend());
+    await runDashboardAsyncStep("restaurar cuadricula", () => restoreGridFromBackend(bdData?.grid || bdData?.cuadricula_operacion));
+    await runDashboardAsyncStep("cargar dibujos", () => loadDrawingsFromBackend());
 
-  // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)
-  if (bdData?._mapaData) {
-    loadTrackingFromMapaData(bdData._mapaData);
-  } else {
-    await loadTrackingFromBackend();
+    // Cargar posiciones de tracking usando datos ya obtenidos (evita segunda llamada a /mapa)
+    if (bdData?._mapaData) {
+      runDashboardStep("cargar tracking desde mapa", () => loadTrackingFromMapaData(bdData._mapaData));
+    } else {
+      await runDashboardAsyncStep("cargar tracking", () => loadTrackingFromBackend());
+    }
+    runDashboardStep("iniciar tracking", () => startTrackingPolling(5000));
   }
-  startTrackingPolling(5000);
 
   // Conectar Socket.io — chat y rutas en tiempo real
   const opId = localStorage.getItem("active_operation_id");
   if (opId) {
-    const socket = await connectSocket(opId);
+    const socket = await runDashboardAsyncStep("conectar socket", () => connectSocket(opId));
     if (socket) {
-      initChat(opId, socket);
-      initRoutes(socket);
-      initPoiSocket(socket);
-      initTrackingSocket(socket);
-      initDrawingSocket(socket);
-      initCameraFeeds(opId, socket);
+      runDashboardStep("iniciar chat", () => initChat(opId, socket));
+      if (dashboardState.viewer) {
+        runDashboardStep("iniciar rutas", () => initRoutes(socket));
+        runDashboardStep("iniciar POIs", () => initPoiSocket(socket));
+        runDashboardStep("iniciar tracking socket", () => initTrackingSocket(socket));
+        runDashboardStep("iniciar dibujo socket", () => initDrawingSocket(socket));
+      }
+      runDashboardStep("iniciar camaras socket", () => initCameraFeeds(opId, socket));
     }
   }
 
   // Poblar selector de vehículos con datos del backend
   if (bdData?.vehiculos?.length) {
-    populateRouteVehicleSelect(bdData.vehiculos);
+    runDashboardStep("poblar vehiculos de ruta", () => populateRouteVehicleSelect(bdData.vehiculos));
   }
 
   // Refresco periódico solo del panel de info (chat ya va por socket)
   setInterval(async () => {
-    const fresh = await loadDashboardFromBD();
+    const fresh = await runDashboardAsyncStep("refrescar datos de operacion", () => loadDashboardFromBD());
     if (fresh) {
       if (handleClosedOperation(fresh.operacion)) return;
       saveCurrentOperation({
@@ -476,13 +535,13 @@ window.addEventListener("load", async () => {
         dispositivos: fresh.dispositivos || []
       });
       dashboardState.currentOperation = getCurrentOperation();
-      renderInfoPanel(fresh);
-      initCameraFeeds();
-      setTacticalUI();
+      runDashboardStep("refrescar informacion", () => renderInfoPanel(fresh));
+      runDashboardStep("refrescar camaras", () => initCameraFeeds());
+      runDashboardStep("refrescar ui tactica", () => setTacticalUI());
     }
-    updateChatAvailability();
+    runDashboardStep("refrescar disponibilidad", () => updateChatAvailability());
   }, 30000);
 
-  checkServerHealth();
-  setInterval(checkServerHealth, 10000);
+  runDashboardAsyncStep("verificar servidor", () => checkServerHealth());
+  setInterval(() => runDashboardAsyncStep("verificar servidor", () => checkServerHealth()), 10000);
 });

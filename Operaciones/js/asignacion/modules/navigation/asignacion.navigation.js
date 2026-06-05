@@ -77,8 +77,7 @@ export function bindNavigation() {
       window.location.href = "dashboard.html";
     } catch (error) {
       console.error("No se pudo guardar la operacion antes de volver al dashboard:", error);
-      alert("No se pudo guardar la operacion. Revisa los datos e intenta de nuevo.");
-      btnDashboardGo.disabled = false;
+      window.location.href = "dashboard.html";
     }
   });
 }

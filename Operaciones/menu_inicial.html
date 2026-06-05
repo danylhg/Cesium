@@ -101,10 +101,12 @@
 
         <div id="opsList" class="ops hidden">
           <div class="opsHead">
-            <span class="opsTitle">Operaciones existentes</span>
+            <div>
+              <span class="opsTitle">Operaciones existentes</span>
+            </div>
           </div>
 
-          <div class="opsFilters" style="flex-direction: column;">
+          <div class="opsFilters">
             <select id="searchOpState" class="opFilterInput">
               <option value="todas">Todas</option>
               <option value="activa">Activas</option>
@@ -112,7 +114,7 @@
               <option value="cerrada">Cerradas</option>
               <option value="cancelada">Canceladas</option>
             </select>
-            <div style="display: flex; gap: 10px;">
+            <div class="opsFilterRow">
               <input type="text" id="searchOpName" placeholder="Buscar por nombre..." class="opFilterInput" />
               <input type="date" id="searchOpDate" class="opFilterInput" />
             </div>

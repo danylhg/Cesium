@@ -71,25 +71,27 @@ export function renderCUT() {
   showOperacionInfo();
   const prevScroll = getScrollTopInPanel();
   clearPanel();
+  panel.classList.add("personasPanel");
   showBack(true);
 
   setHeader("Comandante de Unidad Táctica", "");
   setAccion("Siguiente", !state.cutSeleccionado);
 
   const listBox = document.createElement("div");
-  listBox.className = "listBox";
+  listBox.className = "listBox personasListBox";
 
   const search = document.createElement("input");
-  search.className = "inp";
+  search.className = "inp searchCompact";
   search.placeholder = "Buscar CUT...";
   search.style.marginBottom = "10px";
 
   const data = state.cutList.slice();
 
   const rowsWrap = document.createElement("div");
+  rowsWrap.className = "personasScroll";
   rowsWrap.style.display = "flex";
   rowsWrap.style.flexDirection = "column";
-  rowsWrap.style.gap = "10px";
+  rowsWrap.style.gap = "14px";
 
   function paint(filterText) {
     const ft = (filterText || "").toLowerCase().trim();
@@ -103,12 +105,9 @@ export function renderCUT() {
         row.className = "item"
           + (state.cutSeleccionado === name ? " selected" : "")
           + (enOp ? " disabled" : "");
+        row.style.cursor = enOp ? "not-allowed" : "pointer";
 
-        const left = document.createElement("div");
-        left.className = "itemName";
-        left.textContent = name;
-        left.style.cursor = enOp ? "not-allowed" : "pointer";
-        left.addEventListener("click", () => {
+        const selectCut = () => {
           if (enOp) return;
           state.cutSeleccionado = name;
           state.cetSeleccionados = [];
@@ -116,7 +115,12 @@ export function renderCUT() {
           state.asignacionCelulas = {};
           saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
           renderCUT();
-        });
+        };
+
+        const left = document.createElement("div");
+        left.className = "itemName";
+        left.textContent = name;
+        row.addEventListener("click", selectCut);
 
         row.appendChild(left);
 
@@ -153,6 +157,7 @@ export function renderCET() {
   showOperacionInfo();
   const prevScroll = getScrollTopInPanel();
   clearPanel();
+  panel.classList.add("personasPanel");
   showBack(true);
 
   setHeader("Comandante de Equipo de Trabajo", "");
@@ -162,8 +167,13 @@ export function renderCET() {
   chips.className = "chipRow";
 
   const cutChip = document.createElement("div");
-  cutChip.className = "chip";
+  cutChip.className = "chip navChip";
   cutChip.textContent = `CUT: ${state.cutSeleccionado || "—"}`;
+  cutChip.addEventListener("click", () => {
+    state.pasoPersonal = "cut";
+    saveAsignacionActual();
+    renderCUT();
+  });
   chips.appendChild(cutChip);
 
   state.cetSeleccionados.forEach((n) => {
@@ -176,19 +186,20 @@ export function renderCET() {
   panel.appendChild(chips);
 
   const listBox = document.createElement("div");
-  listBox.className = "listBox";
+  listBox.className = "listBox personasListBox";
 
   const search = document.createElement("input");
-  search.className = "inp";
+  search.className = "inp searchCompact";
   search.placeholder = "Buscar CET...";
   search.style.marginBottom = "10px";
 
   const data = state.cetList.slice();
 
   const rowsWrap = document.createElement("div");
+  rowsWrap.className = "personasScroll";
   rowsWrap.style.display = "flex";
   rowsWrap.style.flexDirection = "column";
-  rowsWrap.style.gap = "10px";
+  rowsWrap.style.gap = "14px";
 
   function paint(filterText) {
     const ft = (filterText || "").toLowerCase().trim();
@@ -204,12 +215,9 @@ export function renderCET() {
         row.className = "item"
           + (isSel ? " selected" : "")
           + (enOp ? " disabled" : "");
+        row.style.cursor = enOp ? "not-allowed" : "pointer";
 
-        const left = document.createElement("div");
-        left.className = "itemName";
-        left.textContent = name;
-        left.style.cursor = enOp ? "not-allowed" : "pointer";
-        left.addEventListener("click", () => {
+        const toggleCet = () => {
           if (enOp) return;
           if (isSel) {
             limpiarAsignacionesDependientesDePersonal(name);
@@ -233,7 +241,12 @@ export function renderCET() {
           }
           saveAsignacionActual(); // BACKEND: saveAsignacionActual() se vuelve async con POST /ops/:id/personal, /grupos, /vehiculos, /equipos
           renderCET();
-        });
+        };
+
+        const left = document.createElement("div");
+        left.className = "itemName";
+        left.textContent = name;
+        row.addEventListener("click", toggleCet);
 
         row.appendChild(left);
 
@@ -346,6 +359,7 @@ export function renderCelulas() {
   showOperacionInfo();
   const prevScroll = getScrollTopInPanel();
   clearPanel();
+  panel.classList.add("personasPanel");
   showBack(true);
 
   const cetActivo = state.cetSeleccionados[state.cetActivoIndex];
@@ -383,8 +397,13 @@ export function renderCelulas() {
   chips.className = "chipRow";
 
   const cutChip = document.createElement("div");
-  cutChip.className = "chip";
+  cutChip.className = "chip navChip";
   cutChip.textContent = `CUT: ${state.cutSeleccionado || "—"}`;
+  cutChip.addEventListener("click", () => {
+    state.pasoPersonal = "cut";
+    saveAsignacionActual();
+    renderCUT();
+  });
   chips.appendChild(cutChip);
 
   state.cetSeleccionados.forEach((n, i) => {
@@ -419,7 +438,7 @@ export function renderCelulas() {
   panel.appendChild(chips);
 
   const listBox = document.createElement("div");
-  listBox.className = "listBox";
+  listBox.className = "listBox personasListBox";
 
   const sticky = document.createElement("div");
   sticky.className = "stickyTop";
@@ -429,6 +448,7 @@ export function renderCelulas() {
 
   const flotWrap = document.createElement("div");
   flotWrap.style.flex = "1";
+  flotWrap.style.position = "relative";
 
   const flotLbl = document.createElement("div");
   flotLbl.className = "lbl";
@@ -441,7 +461,7 @@ export function renderCelulas() {
   flotInp.placeholder = "Nombre de la flotilla (obligatorio)";
 
   const flotError = document.createElement("div");
-  flotError.style.cssText = "color:#dc2626;font-size:12px;margin-top:4px;display:none;";
+  flotError.style.cssText = "color:#dc2626;font-size:12px;position:absolute;bottom:-18px;left:0;display:none;white-space:nowrap;";
   flotError.textContent = "El nombre de la flotilla es obligatorio.";
 
   if (state.flotillaErrorByCet?.cet === cetActivo && state.flotillaErrorByCet?.message) {
@@ -469,28 +489,29 @@ export function renderCelulas() {
   btnCrearGrupo.textContent = "Crear grupo";
   btnCrearGrupo.addEventListener("click", () => abrirModalCrearGrupo(cetActivo));
 
+  const searchInp = document.createElement("input");
+  searchInp.className = "inp searchCompact";
+  searchInp.placeholder = "Buscar personal...";
+  searchInp.value = state.searchByCet[cetActivo] || "";
+
   flotillaRow.appendChild(flotWrap);
   flotillaRow.appendChild(btnCrearGrupo);
+  flotillaRow.appendChild(searchInp);
 
   const groupsRow = document.createElement("div");
   groupsRow.className = "groupsRow";
   pintarChipsGrupos(cetActivo, groupsRow);
 
-  const searchInp = document.createElement("input");
-  searchInp.className = "inp";
-  searchInp.placeholder = "Buscar personal...";
-  searchInp.value = state.searchByCet[cetActivo] || "";
-
   sticky.appendChild(flotillaRow);
   sticky.appendChild(groupsRow);
-  sticky.appendChild(searchInp);
 
   listBox.appendChild(sticky);
 
   const rowsWrap = document.createElement("div");
+  rowsWrap.className = "personasScroll";
   rowsWrap.style.display = "flex";
   rowsWrap.style.flexDirection = "column";
-  rowsWrap.style.gap = "10px";
+  rowsWrap.style.gap = "14px";
 
   const yaUsadas = new Set();
   state.cetSeleccionados.forEach((cet, i) => {

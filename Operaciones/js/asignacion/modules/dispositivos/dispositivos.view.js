@@ -8,7 +8,7 @@ import {
   showVehiculosLeftPanel,
   setHeader,
   setAccion,
-  showDashboardButton,
+  renderAssignmentCompleteActions,
   restoreScrollTop
 } from "../../core/ui.js";
 import { renderHome } from "../../views/home.view.js";
@@ -100,12 +100,11 @@ async function finalizarAsignacionCompleta() {
       console.error(e);
       btnAccion.disabled = false;
       btnAccion.textContent = "Finalizar";
-      return;
     }
   }
 
   renderHome();
-  showDashboardButton();
+  renderAssignmentCompleteActions();
 }
 
 function getIdPersonalFromResource(resourceKey) {
@@ -117,31 +116,62 @@ function getIdPersonalFromResource(resourceKey) {
   return state.personalMap[personaNombre] || state.personalMap[parts[1]] || null;
 }
 
+async function switchToEquipoTab(categoria) {
+  state.categoria = "equipo";
+  state.equipoCategoria = categoria;
+  state.equipoSelectedItems = [];
+  state.equipoSelectedResource = null;
+  saveAsignacionActual();
+  const { renderEquipoAsignacion } = await import("../equipos/equipos.view.js");
+  renderEquipoAsignacion();
+}
+
+function renderEquipoTabs() {
+  const tabs = document.createElement("div");
+  tabs.className = "chipRow";
+  tabs.style.marginBottom = "10px";
+
+  const chipComunicacion = document.createElement("button");
+  chipComunicacion.className = "chip";
+  chipComunicacion.textContent = "Comunicaci\u00f3n";
+  chipComunicacion.addEventListener("click", () => switchToEquipoTab("comunicacion"));
+
+  const chipTactico = document.createElement("button");
+  chipTactico.className = "chip";
+  chipTactico.textContent = "T\u00e1ctico";
+  chipTactico.addEventListener("click", () => switchToEquipoTab("tactico"));
+
+  const chipDispositivos = document.createElement("button");
+  chipDispositivos.className = "chip active";
+  chipDispositivos.textContent = "Dispositivos";
+
+  tabs.appendChild(chipComunicacion);
+  tabs.appendChild(chipTactico);
+  tabs.appendChild(chipDispositivos);
+  return tabs;
+}
+
 export function renderDispositivoAsignacion() {
   clearPanel();
+  panel.classList.add("resourceWidePanel");
+  panel.closest(".rightCard")?.classList.add("resourceWideMode");
+  panel.closest(".cols")?.classList.add("resourceWideMode");
+  panel.closest(".shell")?.classList.add("resourceWideMode");
+  document.body.classList.add("resourceWideMode");
   showBack(true);
-  showVehiculosLeftPanel("Asignación de dispositivos");
+  showVehiculosLeftPanel("Asignación de equipos");
 
-  setHeader("Selecciona dispositivo", "");
+  setHeader("Selecciona equipo", "");
   setAccion("Finalizar", false);
 
   vehiculosLeftEl.innerHTML = "";
   renderDispositivoLeftPersonal();
 
-  const title = document.createElement("div");
-  title.className = "lbl";
-  title.style.marginBottom = "10px";
-  title.textContent = "Dispositivos disponibles";
-
   const listBox = document.createElement("div");
   listBox.className = "listBox";
 
   const wrap = document.createElement("div");
-  wrap.style.display = "flex";
-  wrap.style.flexDirection = "column";
-  wrap.style.gap = "10px";
-  wrap.style.maxHeight = "390px";
-  wrap.style.overflowY = "auto";
+  wrap.className = "equipmentGrid";
   wrap.addEventListener("scroll", () => {
     state.dispositivosRightScrollTop = wrap.scrollTop;
   });
@@ -154,42 +184,41 @@ export function renderDispositivoAsignacion() {
     const isEnOtraOperacion = !isAssignedInFlow && !fueLiberadoLocalmente && disp.estado && disp.estado !== "DISPONIBLE";
     const isSelected = state.dispositivoSelectedItems.includes(disp.id);
 
-    const row = document.createElement("div");
-    row.className = "item" + (isSelected ? " selected" : "");
-    row.style.cursor = isEnOtraOperacion ? "not-allowed" : "pointer";
-    if (isEnOtraOperacion) row.style.opacity = "0.55";
+    const card = document.createElement("div");
+    card.className = "vehicleCard equipmentCard deviceCard"
+      + (isSelected ? " selected" : "")
+      + (isEnOtraOperacion ? " disabled" : "");
+    card.style.cursor = isEnOtraOperacion ? "not-allowed" : "pointer";
 
-    const textWrap = document.createElement("div");
-    textWrap.style.display = "flex";
-    textWrap.style.flexDirection = "column";
-    textWrap.style.gap = "4px";
+    const icon = document.createElement("div");
+    icon.className = "deviceIcon";
+    icon.innerHTML = `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2.8" width="10" height="18.4" rx="2.2"></rect><path d="M10 6h4"></path><path d="M11 18h2"></path></svg>`;
 
-    const name = document.createElement("div");
-    name.className = "itemName";
+    const name = document.createElement("p");
     name.textContent = [disp.tipo, disp.marca, disp.modelo].filter(Boolean).join(" ");
 
-    const meta = document.createElement("div");
-    meta.style.fontSize = "12px";
-    meta.style.opacity = "0.8";
+    const meta = document.createElement("p");
+    meta.className = "equipmentMeta";
     meta.textContent = [
       disp.numeroTelefono ? `Tel: ${disp.numeroTelefono}` : "",
       disp.imei ? `IMEI: ${disp.imei}` : "",
       disp.numeroSerie ? `Serie: ${disp.numeroSerie}` : ""
     ].filter(Boolean).join(" | ");
 
-    textWrap.appendChild(name);
-    textWrap.appendChild(meta);
-
-    const badge = document.createElement("div");
-    badge.className = "badgeRight";
+    const badge = document.createElement("p");
+    badge.className = "vehicleMeta equipmentBadge";
+    if (isEnOtraOperacion) badge.classList.add("danger");
+    else if (isAssignedInFlow) badge.classList.add("success");
     badge.textContent = isAssignedInFlow
       ? assignedInFlow
       : (isEnOtraOperacion ? "En otra operación" : "Disponible");
 
-    row.appendChild(textWrap);
-    row.appendChild(badge);
+    card.appendChild(icon);
+    card.appendChild(name);
+    if (meta.textContent) card.appendChild(meta);
+    card.appendChild(badge);
 
-    row.addEventListener("click", () => {
+    card.addEventListener("click", () => {
       if (isEnOtraOperacion) return;
 
       if (isSelected) {
@@ -212,25 +241,18 @@ export function renderDispositivoAsignacion() {
       renderDispositivoAsignacion();
     });
 
-    wrap.appendChild(row);
+    wrap.appendChild(card);
   });
 
-  const assignBtn = document.createElement("button");
-  assignBtn.className = "btnPrimary";
-  assignBtn.textContent = "Asignarle";
-  assignBtn.style.marginTop = "12px";
-  assignBtn.disabled = !(
-    state.dispositivoSelectedResource &&
-    state.dispositivoSelectedItems.length > 0 &&
-    state.dispositivoSelectedItems.some(id => !destinoActualCoincide(getAsignacionDispositivo(id)))
-  );
+  // Función para intentar asignación automática
+  function tryAutoAssignment() {
+    if (!state.dispositivoSelectedResource || state.dispositivoSelectedItems.length === 0) return;
 
-  assignBtn.addEventListener("click", () => {
+    const hasUnassigned = state.dispositivoSelectedItems.some(id => !destinoActualCoincide(getAsignacionDispositivo(id)));
+    if (!hasUnassigned) return;
+
     const idPersonal = getIdPersonalFromResource(state.dispositivoSelectedResource);
-    if (!idPersonal) {
-      logAlert("Selecciona una persona válida.");
-      return;
-    }
+    if (!idPersonal) return;
 
     state.dispositivoSelectedItems.forEach(idDispositivo => {
       try {
@@ -244,13 +266,15 @@ export function renderDispositivoAsignacion() {
 
     state.dispositivoSelectedItems = [];
     renderDispositivoAsignacion();
-  });
+  }
+
+  // Intentar asignación automática
+  tryAutoAssignment();
 
   const footer = document.createElement("div");
   footer.className = "rightFooter";
-  footer.appendChild(assignBtn);
 
-  listBox.appendChild(title);
+  panel.appendChild(renderEquipoTabs());
   listBox.appendChild(wrap);
   panel.appendChild(listBox);
   panel.appendChild(footer);

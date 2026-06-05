@@ -23,3 +23,6 @@ export const opPrioridadEl = document.getElementById("opPrioridad");
 
 export const btnHoy = document.getElementById("btnHoy");
 export const lblUsuario = document.getElementById("lblUsuario");
+export const btnUserMenu = document.getElementById("btnUserMenu");
+export const userDropdown = document.getElementById("userDropdown");
+export const btnLogout = document.getElementById("btnLogout");

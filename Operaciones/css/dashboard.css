@@ -21,16 +21,28 @@
 html,
 body {
   margin: 0;
+  padding: 0;
   width: 100%;
   height: 100%;
+  min-width: 100vw;
+  min-height: 100vh;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   background: #08111b;
   overflow: hidden;
+  border: 0;
+  outline: 0;
 }
 
 body {
-  position: relative;
+  position: fixed;
+  inset: 0;
   color: #e6edf3;
+}
+
+body::before,
+body::after {
+  display: none !important;
+  content: none !important;
 }
 
 .topbar {
@@ -95,13 +107,64 @@ body {
 .mapStage {
   position: fixed;
   inset: 0;
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .mapBox {
   width: 100%;
   height: 100%;
+  display: block;
+  margin: 0;
+  border: 0;
+  outline: 0;
+}
+
+.cesium-widget,
+.cesium-widget canvas,
+.cesium-viewer,
+.cesium-viewer-cesiumWidgetContainer {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+}
+
+.mapBox.mapUnavailable {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(56, 189, 248, .14), transparent 34%),
+    linear-gradient(135deg, rgba(8, 17, 27, .98), rgba(6, 13, 22, .98));
+}
+
+.mapUnavailableCard {
+  width: min(420px, calc(100vw - 48px));
+  display: grid;
+  gap: 8px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--dash-border);
+  background: rgba(19, 55, 92, .58);
+  color: var(--dash-text);
+  box-shadow: var(--dash-shadow);
+  text-align: center;
+}
+
+.mapUnavailableCard strong {
+  font-size: 18px;
+}
+
+.mapUnavailableCard span {
+  color: var(--dash-muted);
+  line-height: 1.35;
 }
 
 .planningExitModal.hidden {

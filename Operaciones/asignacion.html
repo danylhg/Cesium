@@ -7,7 +7,7 @@
   <title>Asignación</title>
   <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
-  <link rel="stylesheet" href="css/asignacion.css" />
+  <link rel="stylesheet" href="css/asignacion.css?v=20260605-fullscreen" />
 </head>
 
 <body>
@@ -15,7 +15,14 @@
   <header class="topbar">
     <div class="topLeft">
       <img src="img/logo_sedam_sinfondo.png" alt="Logo SEDAM" class="topLogo" />
-      <span class="pill" id="lblUsuario"></span>
+      <div class="userMenu">
+        <button class="pill" id="btnUserMenu" type="button" aria-haspopup="true" aria-expanded="false">
+          <span id="lblUsuario"></span>
+        </button>
+        <div id="userDropdown" class="userDropdown hidden">
+          <button id="btnLogout" type="button">Cerrar sesi&oacute;n</button>
+        </div>
+      </div>
       <span class="opName">Operación: <strong id="lblOperacion">—</strong></span>
     </div>
 
@@ -115,16 +122,16 @@
     </section>
   </main>
 
-  <div id="dashboardWrap" style="display:none; justify-content:center; gap: 14px; flex-wrap: wrap; margin: 18px 0 28px;">
+  <div id="dashboardWrap" style="justify-content:center; gap: 14px; flex-wrap: wrap; margin: 18px 0 28px; display: none;">
     <button id="btnDownloadList" class="btnPrimary btnDownloadList" type="button">
-      Descargar lista
+      Descargar lista de Excel
     </button>
     <button id="btnDashboardGo" class="btnPrimary btnDashboardAction" type="button">
       Panorama táctico →
     </button>
   </div>
 
-  <script type="module" src="js/asignacion/asignacion.main.js"></script>
+  <script type="module" src="js/asignacion/asignacion.main.js?v=20260605-final-buttons"></script>
 </body>
 
 </html>

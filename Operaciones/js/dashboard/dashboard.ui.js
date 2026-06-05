@@ -614,7 +614,7 @@ export function renderInfoPanel(bdData = null) {
   const container = document.getElementById("infoPanelContent");
   if (!container) return;
 
-  const operacion = bdData?.operacion ?? getCurrentOperation();
+  const operacion = bdData?.operacion ?? getCurrentOperation() ?? {};
 
   let personal;
   let vehiculos;
@@ -641,7 +641,7 @@ export function renderInfoPanel(bdData = null) {
       : (Array.isArray(operacion.dispositivos) ? operacion.dispositivos : []);
   }
 
-  const esActiva = (operacion.phase || operacion.estado?.toLowerCase()) === "activa";
+  const esActiva = (operacion.phase || operacion.estado?.toLowerCase?.()) === "activa";
 
   const titulo = operacion.nombre || operacion.title || operacion.titulo || operacion.name || "Sin titulo";
   const descripcion = operacion.descripcion || operacion.description || operacion.desc || "Sin descripcion";

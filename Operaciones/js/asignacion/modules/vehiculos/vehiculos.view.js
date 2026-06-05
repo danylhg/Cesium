@@ -102,14 +102,8 @@ function toggleSelectedKey(value, checked) {
 
 function mkCheckRow({ labelText, valueKey, disabled = false, checked = false, onChange }) {
   const label = document.createElement("label");
-  label.style.display = "flex";
-  label.style.alignItems = "center";
-  label.style.gap = "10px";
-  label.style.marginBottom = "10px";
-  label.style.padding = "10px";
+  label.className = "checkRow" + (disabled ? " disabled" : "");
   label.style.cursor = disabled ? "not-allowed" : "pointer";
-  label.style.borderRadius = "8px";
-  label.style.backgroundColor = "#f5f5f5";
   if (disabled) label.style.opacity = "0.65";
 
   const chk = document.createElement("input");
@@ -120,7 +114,6 @@ function mkCheckRow({ labelText, valueKey, disabled = false, checked = false, on
   chk.addEventListener("change", (e) => onChange?.(e.target.checked));
 
   const textSpan = document.createElement("span");
-  textSpan.style.flex = "1";
   textSpan.textContent = labelText;
 
   label.appendChild(chk);
@@ -130,6 +123,11 @@ function mkCheckRow({ labelText, valueKey, disabled = false, checked = false, on
 
 export function renderVehiculos() {
   clearPanel();
+  panel.classList.add("resourceWidePanel");
+  panel.closest(".rightCard")?.classList.add("resourceWideMode");
+  panel.closest(".cols")?.classList.add("resourceWideMode");
+  panel.closest(".shell")?.classList.add("resourceWideMode");
+  document.body.classList.add("resourceWideMode");
   showBack(true);
 
   showVehiculosLeftPanel("Asignación de personal al vehículo");
@@ -194,12 +192,6 @@ export function renderVehiculos() {
 
   const headerBox = document.createElement("div");
   headerBox.className = "stickyTop";
-  headerBox.style.position = "relative";
-  headerBox.style.top = "auto";
-  headerBox.style.padding = "10px 0 10px";
-  headerBox.style.background = "#fff";
-  headerBox.style.borderBottom = "1px solid #d7e3ff";
-  headerBox.style.marginBottom = "10px";
 
   const flotillaLbl = document.createElement("div");
   flotillaLbl.className = "lbl";
@@ -241,9 +233,6 @@ export function renderVehiculos() {
 
   const grpRow = document.createElement("div");
   grpRow.className = "groupsRow";
-  grpRow.style.display = "flex";
-  grpRow.style.gap = "8px";
-  grpRow.style.flexWrap = "wrap";
 
   // Grupos existentes (a, b...)
   ginfo.names.forEach((gName) => {
@@ -273,8 +262,7 @@ export function renderVehiculos() {
   vehiculosLeftEl.appendChild(headerBox);
 
   const cellulasList = document.createElement("div");
-  cellulasList.style.maxHeight = "350px";
-  cellulasList.style.overflowY = "auto";
+  cellulasList.className = "leftPeopleList";
 
   const cellsForCET = state.asignacionCelulas[cet] || [];
 
@@ -353,14 +341,10 @@ export function renderVehiculos() {
   vehiculosLeftEl.appendChild(cellulasList);
 
   const vehiclesWrap = document.createElement("div");
-  vehiclesWrap.className = "listBox";
-  vehiclesWrap.style.gap = "12px";
-  vehiclesWrap.style.minHeight = "0";
+  vehiclesWrap.className = "listBox vehicleListBox";
 
   const vehicleGrid = document.createElement("div");
   vehicleGrid.className = "vehicleGrid";
-  vehicleGrid.style.maxHeight = "420px";
-  vehicleGrid.style.overflowY = "auto";
   vehicleGrid.addEventListener("scroll", () => {
     state.vehiculosGridScrollTop = vehicleGrid.scrollTop;
   });
@@ -393,17 +377,14 @@ export function renderVehiculos() {
     nameP.textContent = vehicle.name;
 
     const capP = document.createElement("p");
-    capP.style.margin = "6px 0 0";
-    capP.style.fontWeight = "700";
-    capP.style.fontSize = "12px";
-    capP.style.opacity = "0.85";
+    capP.className = "vehicleMeta";
 
     if (isEnOperacion) {
       capP.textContent = "En operación";
-      capP.style.color = "#c0392b";
+      capP.classList.add("danger");
     } else if (isAssignedInCurrentOp) {
       capP.textContent = `Asignado | Capacidad: ${used}/${cap || 0}`;
-      capP.style.color = "#1f7a3f";
+      capP.classList.add("success");
     } else {
       capP.textContent = `Capacidad: ${used}/${cap || 0}`;
     }
@@ -429,40 +410,9 @@ export function renderVehiculos() {
   panel.appendChild(vehiclesWrap);
   restoreScrollTop(vehicleGrid, state.vehiculosGridScrollTop || 0);
 
-  const assignBtn = document.createElement("button");
-  assignBtn.className = "btnPrimary";
-  assignBtn.style.marginTop = "20px";
-  assignBtn.style.width = "100%";
-  assignBtn.textContent = "Asignarle";
-
-  const selectedVehicleObj = state.vehiclesList.find(v => v.name === state.selectedVehicle);
-  const usedNow = state.selectedVehicle ? (vehCount[state.selectedVehicle] || 0) : 0;
-  const capNow = selectedVehicleObj ? Number(selectedVehicleObj.capacity || 0) : 0;
-  const remaining = capNow - usedNow;
-
-  const selectedAssignable = (state.selectedCells || []).filter(k => {
-    if (k.includes("::")) return false;
-    if (state.cetSeleccionados.includes(k)) return true;
-    if (k.includes("-")) return true;
-    return false;
-  });
-
-  const selectedNuevos = selectedAssignable.filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
-  const lockedSelected = selectedNuevos.filter(k => !!getNombreVehiculoAsignado(k));
-
-  const canAssign =
-    !!state.selectedVehicle &&
-    selectedNuevos.length > 0 &&
-    lockedSelected.length === 0 &&
-    remaining >= selectedNuevos.length;
-
-  assignBtn.disabled = !canAssign;
-
-  assignBtn.addEventListener("click", () => {
-    if (!state.selectedVehicle) {
-      alert("Selecciona un vehículo");
-      return;
-    }
+  // Función para intentar asignación automática
+  function tryAutoAssignment() {
+    if (!state.selectedVehicle) return;
 
     const selected = (state.selectedCells || []).filter(k => {
       if (k.includes("::")) return false;
@@ -471,47 +421,33 @@ export function renderVehiculos() {
       return false;
     }).filter(k => !keysAsignadosAlVehiculoSeleccionado.has(k));
 
-    if (selected.length === 0) {
-      alert("Selecciona al menos una persona/célula o el CET");
-      return;
-    }
+    if (selected.length === 0) return;
 
     const vehObj = state.vehiclesList.find(v => v.name === state.selectedVehicle);
-    if (!vehObj) {
-      alert("Vehículo inválido.");
-      return;
-    }
+    if (!vehObj) return;
 
     const used = state.asignacionVehiculos.filter(a => a.id_vehiculo === vehObj.id).length;
     const cap = Number(vehObj.capacity || 0);
     const remainingNow = cap - used;
 
     const locked = selected.filter(k => getNombreVehiculoAsignado(k));
-    if (locked.length > 0) {
-      alert("Uno o más ya tienen vehículo asignado. No se puede repetir.");
-      return;
-    }
+    if (locked.length > 0) return;
 
-    if (selected.length > remainingNow) {
-      alert(`Capacidad insuficiente. Disponible: ${remainingNow}/${cap}`);
-      return;
-    }
+    if (selected.length > remainingNow) return;
 
-    // Asignar usando el service
+    // Asignar automáticamente
     selected.forEach((key) => {
       const parts = key.split('-');
       const cet = parts[0];
       const celula = parts[1] || null;
 
       if (celula) {
-        // Asignar a personal — asignacionCelulas guarda strings, buscar id en personalMap
         const idPersonal = state.personalMap[celula];
         if (idPersonal) {
           asignarVehiculo(vehObj.id, 'personal', idPersonal);
           state.vehiculosLiberadosLocalmente = state.vehiculosLiberadosLocalmente.filter(id => id !== vehObj.id);
         }
       } else {
-        // CET sin grupo — asignar directamente por nombre de CET
         const idCet = state.personalMap[cet];
         if (idCet) {
           asignarVehiculo(vehObj.id, 'personal', idCet);
@@ -523,9 +459,10 @@ export function renderVehiculos() {
     state.selectedVehicle = null;
     state.selectedCells = [];
     renderVehiculos();
-  });
+  }
 
-  panel.appendChild(assignBtn);
+  // Intentar asignación automática
+  tryAutoAssignment();
 
   btnAccion.onclick = async () => {
     if (hasGroups && groupIndex < lastGroupIndex) {

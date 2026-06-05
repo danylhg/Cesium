@@ -98,6 +98,23 @@ async function apiFetchEstado(opId, nuevoEstado) {
   return res;
 }
 
+function getActiveOperationId(op) {
+  return localStorage.getItem("active_operation_id") ||
+    op?.id_operacion ||
+    op?.id ||
+    op?.idOperacion ||
+    null;
+}
+
+async function changeOperationState(opId, estado) {
+  const res = await apiFetchEstado(opId, estado);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data.mensaje || data.error || res.statusText || `No se pudo cambiar a ${estado}`);
+  }
+  return data;
+}
+
 function showConfirmationModal({ title, message, confirmText = "Confirmar", onConfirm }) {
   if (!dom.confirmationModal) {
     onConfirm?.();
@@ -135,7 +152,7 @@ function bindOperationActionEvents() {
   if (dom.saveOpMapBtn) {
     dom.saveOpMapBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
-      const opId = localStorage.getItem("active_operation_id") || op?.id;
+      const opId = getActiveOperationId(op);
       const opName = op.nombre || op.title || op.titulo || "Operación";
 
       if (!opId) {
@@ -159,7 +176,7 @@ function bindOperationActionEvents() {
   if (dom.cancelOpMapBtn) {
     dom.cancelOpMapBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
-      const opId = localStorage.getItem("active_operation_id") || op?.id;
+      const opId = getActiveOperationId(op);
       const opName = op.nombre || op.title || op.titulo || "Operación";
 
       if (!opId) {
@@ -194,7 +211,7 @@ function bindOperationActionEvents() {
   if (activateOpBtn) {
     activateOpBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
-      const opId = localStorage.getItem("active_operation_id") || op?.id_operacion || op?.id;
+      const opId = getActiveOperationId(op);
       const opName = op.nombre || op.title || op.titulo || "Operacion";
 
       if (!opId) {
@@ -228,9 +245,44 @@ function bindOperationActionEvents() {
 
   const closeActiveBtn = document.getElementById("closeActiveOpBtn");
   if (closeActiveBtn) {
+    closeActiveBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+
+      const op = getCurrentOperation();
+      const opId = getActiveOperationId(op);
+      const opName = op.nombre || op.title || op.titulo || "Operacion";
+
+      if (!opId) {
+        alert("No se encontro la operacion activa.");
+        return;
+      }
+
+      showConfirmationModal({
+        title: "Cerrar operacion",
+        message: `Quieres cerrar la operacion "${opName}"?`,
+        confirmText: "Cerrar operacion",
+        onConfirm: async () => {
+          closeActiveBtn.disabled = true;
+          try {
+            const data = await changeOperationState(opId, "CERRADA");
+            const updatedOp = data.operacion || { ...op, id_operacion: opId, id: opId, estado: "CERRADA", phase: "cerrada" };
+            updatedOp.phase = "cerrada";
+            localStorage.setItem("operacion_actual", JSON.stringify(updatedOp));
+            localStorage.setItem("active_operation_id", updatedOp.id_operacion || updatedOp.id || opId);
+            window.location.href = "menu_inicial.html";
+          } catch (error) {
+            console.error(error);
+            alert(`Error al cerrar la operacion: ${error.message}`);
+            closeActiveBtn.disabled = false;
+          }
+        }
+      });
+    }, true);
+
     closeActiveBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
-      const opId = localStorage.getItem("active_operation_id") || op?.id;
+      const opId = getActiveOperationId(op);
       const opName = op.nombre || op.title || op.titulo || "Operación";
 
       if (!opId) {

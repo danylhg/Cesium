@@ -7,7 +7,9 @@ import {
   leftCardTitleEl,
   opInfoFormEl,
   vehiculosLeftEl,
-  dashboardWrap
+  dashboardWrap,
+  btnDashboardGo,
+  btnDownloadList
 } from "./dom.js";
 import { capFirst } from "./utils.js";
 
@@ -24,17 +26,29 @@ export function showVehiculosLeftPanel(title = "Asignación de personal al vehí
   if (leftCardTitleEl) leftCardTitleEl.textContent = title;
   if (opInfoFormEl) opInfoFormEl.style.display = "none";
   if (vehiculosLeftEl) {
-    vehiculosLeftEl.style.display = "block";
+    vehiculosLeftEl.style.display = "flex";
     vehiculosLeftEl.innerHTML = "";
   }
 }
 
 export function hideDashboardButton() {
-  if (dashboardWrap) dashboardWrap.style.display = "none";
+  if (dashboardWrap) {
+    dashboardWrap.style.display = "none";
+    dashboardWrap.classList.remove("visible");
+  }
 }
 
 export function showDashboardButton() {
-  if (dashboardWrap) dashboardWrap.style.display = "flex";
+  if (dashboardWrap) {
+    dashboardWrap.style.display = "flex";
+    dashboardWrap.classList.add("visible");
+  }
+  if (btnDashboardGo) btnDashboardGo.disabled = false;
+  if (btnDownloadList) btnDownloadList.disabled = false;
+}
+
+export function renderAssignmentCompleteActions() {
+  showDashboardButton();
 }
 
 export function setHeader(title, hint) {
@@ -54,7 +68,16 @@ export function showBack(show) {
 }
 
 export function clearPanel() {
-  if (panel) panel.innerHTML = "";
+  if (panel) {
+    panel.innerHTML = "";
+    panel.classList.remove("homePanel");
+    panel.classList.remove("personasPanel");
+    panel.classList.remove("resourceWidePanel");
+    panel.closest(".rightCard")?.classList.remove("resourceWideMode");
+    panel.closest(".cols")?.classList.remove("resourceWideMode");
+    panel.closest(".shell")?.classList.remove("resourceWideMode");
+    document.body.classList.remove("resourceWideMode");
+  }
 }
 
 export function getScrollTopInPanel() {

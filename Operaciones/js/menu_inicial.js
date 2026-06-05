@@ -114,7 +114,7 @@ btnSelect.addEventListener("click", async () => {
 });
 
 function normalizeOperationState(estado) {
-  let pClass = (estado ?? "PLANIFICADA").toLowerCase();
+  let pClass = String(estado ?? "PLANIFICADA").trim().toLowerCase();
   if (pClass === "terminada" || pClass === "pasada") pClass = "cerrada";
   return pClass;
 }
@@ -147,6 +147,7 @@ function renderOps(ops) {
 
   if (!ops.length) {
     const li = document.createElement("li");
+    li.className = "opsEmpty";
     li.textContent = "No hay operaciones que coincidan";
     opsUl.appendChild(li);
     return;
@@ -155,40 +156,40 @@ function renderOps(ops) {
   ops.forEach(op => {
     const pClass = normalizeOperationState(op.estado);
     const li = document.createElement("li");
-    li.textContent = op.nombre;
+    li.className = `opItem opState-${pClass}`;
     if (pClass === "cancelada") {
       li.classList.add("opCancelled");
       li.title = "No se puede entrar a una operación cancelada";
     }
 
+    const name = document.createElement("span");
+    name.className = "opName";
+    name.textContent = op.nombre || "Operacion sin nombre";
+    li.appendChild(name);
+
     const tag = document.createElement("span");
-    tag.className = "tag";
+    tag.className = `tag tag-${pClass}`;
     tag.textContent = pClass.charAt(0).toUpperCase() + pClass.slice(1);
 
-    if (pClass === "activa") {
-      tag.style.background = "#00ffa6";
-      tag.style.color = "#001b1b";
-      tag.style.border = "none";
-    } else if (pClass === "cancelada") {
-      tag.style.background = "rgba(239, 68, 68, 0.4)";
-      tag.style.color = "#ffdede";
-      tag.style.border = "1px solid #ef4444";
-    } else if (pClass === "cerrada") {
-      tag.style.background = "rgba(59, 130, 246, 0.4)";
-      tag.style.color = "#dbeafe";
-      tag.style.border = "1px solid #3b82f6";
-    }
-
     const rightSide = document.createElement("div");
-    rightSide.style.display = "flex";
-    rightSide.style.alignItems = "center";
+    rightSide.className = "opActions";
     rightSide.appendChild(tag);
 
     if (pClass === "cerrada" || pClass === "cancelada") {
       const btnDel = document.createElement("button");
       btnDel.className = "btnDeleteOp";
-      btnDel.innerHTML = "&times;";
+      btnDel.type = "button";
+      btnDel.innerHTML = `
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M3 6h18"></path>
+          <path d="M8 6V4h8v2"></path>
+          <path d="M6.5 6l1 14h9l1-14"></path>
+          <path d="M10 11v5"></path>
+          <path d="M14 11v5"></path>
+        </svg>
+      `;
       btnDel.title = "Eliminar operación permanentemente";
+      btnDel.setAttribute("aria-label", `Eliminar operacion ${op.nombre || ""}`.trim());
 
       btnDel.addEventListener("click", async (e) => {
         e.stopPropagation();
