@@ -961,6 +961,13 @@ export function emitRutaOperacionEliminada(io, idOperacion, idRuta) {
 }
 
 // ── Visibilidad de mensajes de chat ──────────────────────────
+function splitChatDestinationIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
 async function canReceiveChatMessage(sock, msg, idOperacion) {
   const { rol, id_personal } = sock.userData || {};
   const tipo   = (msg.destino_tipo || '').toUpperCase().trim();
@@ -968,16 +975,41 @@ async function canReceiveChatMessage(sock, msg, idOperacion) {
 
   if (!tipo || tipo === 'GLOBAL') return true;
   if (!rol) return true;                          // dashboard sin rol → ve todo
-  if (rol === 'ADMIN' || rol === 'CUT') return true;
+  if (rol === 'ADMIN') return true;
 
   switch (tipo) {
     case 'CETS': return rol === 'CET';
     case 'CET':  return rol === 'CET'  && id_personal != null && String(id_personal) === destId;
-    case 'CUTS': return rol === 'CUT' || rol === 'CET';
+    case 'CUTS': return rol === 'CUT';
     case 'CUT':  return id_personal != null && (
       (rol === 'CUT' && String(id_personal) === destId)
       || (rol === 'CET' && msg.id_personal != null && String(msg.id_personal) === String(id_personal))
     );
+
+    case 'CELL_LIST':
+      if (rol === 'CUT') return true;
+      return id_personal != null && splitChatDestinationIds(destId).includes(String(id_personal));
+
+    case 'VEHICULO': {
+      if (rol === 'CUT') return true;
+      if (!id_personal || !destId) return false;
+      try {
+        const { rows } = await pool.query(
+          `SELECT 1
+           FROM vehiculo_operacion vo
+           WHERE vo.id_operacion = $1
+             AND vo.id_vehiculo::text = $2
+             AND vo.id_personal = $3
+             AND COALESCE(vo.estado_asignacion::text, '') <> 'LIBERADO'
+           LIMIT 1`,
+          [idOperacion, destId, id_personal]
+        );
+        return rows.length > 0;
+      } catch (err) {
+        console.error('[SOCKET] canReceiveChatMessage VEHICULO:', err.message);
+        return false;
+      }
+    }
 
     case 'CELL': {
       if (!id_personal) return false;

@@ -249,6 +249,25 @@ function firstTrackingValue(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "");
 }
 
+function isWearableDevice(item = {}) {
+  const tipo = normalizeText(item.tipo || item.tipo_dispositivo || "");
+  return textIncludes(tipo, "SMARTWATCH", "WEARABLE", "WATCH", "RELOJ");
+}
+
+function activateAssignedWearableLocationsFromPersonal(item = {}, coords = null) {
+  const idPersonal = assignedPersonalId(item);
+  if (!idPersonal || !coords) return;
+
+  getAssignedDevices()
+    .filter((device) => isWearableDevice(device) && assignedPersonalId(device) === idPersonal)
+    .forEach((device) => {
+      const idDispositivo = getDeviceId(device);
+      if (idDispositivo == null || String(idDispositivo).trim() === "") return;
+      activateTrackingLocation("D", idDispositivo, coords.lat, coords.lng);
+      updateFollowedTrackingLocation(`D:${idDispositivo}`, coords.lat, coords.lng);
+    });
+}
+
 function normalizeDeviceIdentity(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -315,6 +334,7 @@ function upsertPersonalTracking(item) {
     liveData: item
   });
   activatePersonalLocation(item.id_personal, coords.lat, coords.lng);
+  activateAssignedWearableLocationsFromPersonal(item, coords);
   updateFollowedPersonalLocation(item.id_personal, coords.lat, coords.lng);
   refreshPersonnelInfoPopup(item.id_personal, item);
 }

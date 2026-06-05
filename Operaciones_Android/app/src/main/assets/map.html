@@ -1082,21 +1082,11 @@
     window.updateTrackingDispositivo = function (idDispositivo, lat, lon, label, meta) {
       try {
         const id = String(idDispositivo || "");
-        const options = Object.assign({}, meta || {}, {
-          kind: "dispositivo",
-          trackingKey: "D:" + id,
-          tacticalType: "dispositivo",
-          active: true
-        });
-        upsertTrackingEntity(
-          trackingDispositivoEntities,
-          id,
-          lat,
-          lon,
-          label || ("D-" + id),
-          TRACKING_DISPOSITIVO_COLOR,
-          options
-        );
+        const current = trackingDispositivoEntities.get(id);
+        if (current) {
+          viewer.entities.remove(current);
+          trackingDispositivoEntities.delete(id);
+        }
       } catch (e) {
         console.error("Error en updateTrackingDispositivo: " + e.message);
       }

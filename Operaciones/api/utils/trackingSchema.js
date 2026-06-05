@@ -1,12 +1,235 @@
 import { pool } from "../db.js";
 
+const TRACKING_SCHEMA_LOCK_NAME = "operaciones_tracking_schema";
+const TRANSIENT_LOCK_ERRORS = new Set(["40P01", "55P03"]);
+
 let extendedTrackingReady = false;
 let personalMotionTrackingReady = false;
+let extendedTrackingPromise = null;
+let personalMotionTrackingPromise = null;
+
+const PERSONAL_TRACKING_COLUMNS = [
+  "velocidad_kmh",
+  "rumbo_grados",
+  "fuente_tracking",
+  "dispositivos_fuente",
+  "confianza_tracking",
+];
+
+const PERSONAL_POSITION_VIEW_COLUMNS = [
+  "velocidad_kmh",
+  "rumbo_grados",
+  "fuente_tracking",
+  "dispositivos_fuente",
+  "confianza_tracking",
+  "frecuencia_cardiaca_bpm",
+  "bateria_pct",
+  "signos_actualizacion",
+];
+
+const DISPOSITIVO_COLUMNS = ["imagen_disp", "identificador_app"];
+
+const TRACKING_EQUIPO_COLUMNS = [
+  "id_tracking",
+  "id_operacion",
+  "id_equipo",
+  "latitud",
+  "longitud",
+  "bateria_pct",
+  "conectado",
+  "dron_encendido",
+  "modo_vuelo",
+  "pitch_grados",
+  "roll_grados",
+  "satelites",
+  "tiempo_vuelo_s",
+  "serial_dispositivo",
+];
+
+const TRACKING_DISPOSITIVO_COLUMNS = [
+  "id_tracking",
+  "id_operacion",
+  "id_dispositivo",
+  "latitud",
+  "longitud",
+  "bateria_pct",
+  "serial_dispositivo",
+];
+
+const EQUIPO_POSITION_VIEW_COLUMNS = [
+  "id_tracking",
+  "id_equipo",
+  "tipo_equipo",
+  "bateria_pct",
+  "conectado",
+  "serial_dispositivo",
+  "ultima_actualizacion",
+];
+
+const DISPOSITIVO_POSITION_VIEW_COLUMNS = [
+  "id_tracking",
+  "id_dispositivo",
+  "imagen_disp",
+  "identificador_app",
+  "id_personal",
+  "serial_dispositivo",
+  "ultima_actualizacion",
+];
+
+const EXTENDED_INDEXES = [
+  "uq_dispositivo_identificador_app",
+  "idx_tracking_equipo_op_eq_ts",
+  "idx_tracking_equipo_ts",
+  "idx_tracking_equipo_estado_operacion_creacion",
+  "idx_tracking_dispositivo_op_disp_ts",
+  "idx_tracking_dispositivo_ts",
+  "idx_tracking_dispositivo_estado_operacion_creacion",
+];
+
+const EXTENDED_TRIGGERS = [
+  ["tracking_equipo", "tr_estado_operacion_creacion"],
+  ["tracking_dispositivo", "tr_estado_operacion_creacion"],
+  ["tracking_equipo", "tr_tracking_equipo_op_modificable"],
+  ["tracking_dispositivo", "tr_tracking_dispositivo_op_modificable"],
+];
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function hasColumns(client, relationName, columns) {
+  const { rows } = await client.query(
+    `SELECT column_name
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+        AND column_name = ANY($2::text[])`,
+    [relationName, columns]
+  );
+  return new Set(rows.map((row) => row.column_name)).size === columns.length;
+}
+
+async function hasConstraints(client, constraintNames) {
+  const { rows } = await client.query(
+    `SELECT conname
+       FROM pg_constraint c
+       JOIN pg_namespace n ON n.oid = c.connamespace
+      WHERE n.nspname = 'public'
+        AND c.conname = ANY($1::text[])`,
+    [constraintNames]
+  );
+  return new Set(rows.map((row) => row.conname)).size === constraintNames.length;
+}
+
+async function hasIndexes(client, indexNames) {
+  const { rows } = await client.query(
+    `SELECT c.relname
+       FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND c.relkind = 'i'
+        AND c.relname = ANY($1::text[])`,
+    [indexNames]
+  );
+  return new Set(rows.map((row) => row.relname)).size === indexNames.length;
+}
+
+async function hasFunctions(client, functionNames) {
+  const { rows } = await client.query(
+    `SELECT p.proname
+       FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+      WHERE n.nspname = 'public'
+        AND p.proname = ANY($1::text[])`,
+    [functionNames]
+  );
+  return new Set(rows.map((row) => row.proname)).size === functionNames.length;
+}
+
+async function hasTriggers(client, triggers) {
+  const triggerKeys = triggers.map(([tableName, triggerName]) => `${tableName}.${triggerName}`);
+  const { rows } = await client.query(
+    `SELECT c.relname || '.' || t.tgname AS trigger_key
+       FROM pg_trigger t
+       JOIN pg_class c ON c.oid = t.tgrelid
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public'
+        AND NOT t.tgisinternal
+        AND c.relname || '.' || t.tgname = ANY($1::text[])`,
+    [triggerKeys]
+  );
+  return new Set(rows.map((row) => row.trigger_key)).size === triggerKeys.length;
+}
+
+async function isPersonalMotionTrackingSchemaReady(client) {
+  return (await hasColumns(client, "tracking_personal", PERSONAL_TRACKING_COLUMNS)) &&
+    (await hasColumns(client, "v_ultima_posicion_personal", PERSONAL_POSITION_VIEW_COLUMNS)) &&
+    (await hasConstraints(client, ["chk_tp_rumbo"]));
+}
+
+async function isExtendedTrackingSchemaReady(client) {
+  return (await isPersonalMotionTrackingSchemaReady(client)) &&
+    (await hasColumns(client, "dispositivo", DISPOSITIVO_COLUMNS)) &&
+    (await hasColumns(client, "tracking_equipo", TRACKING_EQUIPO_COLUMNS)) &&
+    (await hasColumns(client, "tracking_dispositivo", TRACKING_DISPOSITIVO_COLUMNS)) &&
+    (await hasColumns(client, "v_ultima_posicion_equipo", EQUIPO_POSITION_VIEW_COLUMNS)) &&
+    (await hasColumns(client, "v_ultima_posicion_dispositivo", DISPOSITIVO_POSITION_VIEW_COLUMNS)) &&
+    (await hasIndexes(client, EXTENDED_INDEXES)) &&
+    (await hasFunctions(client, [
+      "fn_set_estado_operacion_creacion_tracking_ext",
+      "fn_validar_tracking_ext_modificable",
+    ])) &&
+    (await hasTriggers(client, EXTENDED_TRIGGERS));
+}
+
+async function withTrackingSchemaLock(callback) {
+  const client = await pool.connect();
+  let locked = false;
+
+  try {
+    await client.query(
+      "SELECT pg_advisory_lock(hashtext($1::text)::bigint)",
+      [TRACKING_SCHEMA_LOCK_NAME]
+    );
+    locked = true;
+    return await callback(client);
+  } finally {
+    if (locked) {
+      try {
+        await client.query(
+          "SELECT pg_advisory_unlock(hashtext($1::text)::bigint)",
+          [TRACKING_SCHEMA_LOCK_NAME]
+        );
+      } catch (err) {
+        console.error("[DB SCHEMA] Error liberando lock de tracking:", err.message);
+      }
+    }
+
+    client.release();
+  }
+}
+
+async function querySchemaSql(client, sql) {
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await client.query(sql);
+    } catch (err) {
+      if (!TRANSIENT_LOCK_ERRORS.has(err.code) || attempt === 3) throw err;
+      await delay(200 * attempt);
+    }
+  }
+}
 
 export async function ensurePersonalMotionTrackingSchema() {
   if (personalMotionTrackingReady) return;
+  if (personalMotionTrackingPromise) return personalMotionTrackingPromise;
 
-  await pool.query(`
+  personalMotionTrackingPromise = withTrackingSchemaLock(async (client) => {
+    if (await isPersonalMotionTrackingSchemaReady(client)) {
+      return;
+    }
+
+    await querySchemaSql(client, `
     ALTER TABLE tracking_personal
       ADD COLUMN IF NOT EXISTS velocidad_kmh NUMERIC(6,2),
       ADD COLUMN IF NOT EXISTS rumbo_grados NUMERIC(5,2),
@@ -71,13 +294,31 @@ export async function ensurePersonalMotionTrackingSchema() {
     ORDER BY tp.id_operacion, tp.id_personal, tp."timestamp" DESC;
   `);
 
-  personalMotionTrackingReady = true;
+    if (!(await isPersonalMotionTrackingSchemaReady(client))) {
+      throw new Error("No se pudo preparar el esquema de tracking_personal");
+    }
+  })
+    .then(() => {
+      personalMotionTrackingReady = true;
+    })
+    .catch((err) => {
+      personalMotionTrackingPromise = null;
+      throw err;
+    });
+
+  return personalMotionTrackingPromise;
 }
 
 export async function ensureExtendedTrackingSchema() {
   if (extendedTrackingReady) return;
+  if (extendedTrackingPromise) return extendedTrackingPromise;
 
-  await pool.query(`
+  extendedTrackingPromise = withTrackingSchemaLock(async (client) => {
+    if (await isExtendedTrackingSchemaReady(client)) {
+      return;
+    }
+
+    await querySchemaSql(client, `
     ALTER TABLE dispositivo
       ADD COLUMN IF NOT EXISTS imagen_disp TEXT,
       ADD COLUMN IF NOT EXISTS identificador_app TEXT;
@@ -92,6 +333,20 @@ export async function ensureExtendedTrackingSchema() {
       ADD COLUMN IF NOT EXISTS fuente_tracking TEXT,
       ADD COLUMN IF NOT EXISTS dispositivos_fuente JSONB,
       ADD COLUMN IF NOT EXISTS confianza_tracking TEXT;
+
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'chk_tp_rumbo'
+      ) THEN
+        ALTER TABLE tracking_personal
+          ADD CONSTRAINT chk_tp_rumbo CHECK (
+            rumbo_grados IS NULL OR rumbo_grados BETWEEN 0 AND 360
+          );
+      END IF;
+    END $$;
 
     CREATE TABLE IF NOT EXISTS tracking_equipo (
       id_tracking BIGSERIAL PRIMARY KEY,
@@ -372,5 +627,23 @@ export async function ensureExtendedTrackingSchema() {
     END $$;
   `);
 
-  extendedTrackingReady = true;
+    if (!(await isExtendedTrackingSchemaReady(client))) {
+      throw new Error("No se pudo preparar el esquema extendido de tracking");
+    }
+  })
+    .then(() => {
+      extendedTrackingReady = true;
+      personalMotionTrackingReady = true;
+    })
+    .catch((err) => {
+      extendedTrackingPromise = null;
+      throw err;
+    });
+
+  return extendedTrackingPromise;
+}
+
+export async function ensureTrackingSchemas() {
+  await ensureExtendedTrackingSchema();
+  await ensurePersonalMotionTrackingSchema();
 }

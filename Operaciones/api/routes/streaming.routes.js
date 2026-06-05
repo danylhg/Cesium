@@ -170,19 +170,27 @@ async function syncDiscoveredRuntimeHlsStreams(id_operacion, req) {
   const actor = getActorColumns(req);
 
   for (const stream of streams) {
+    const equipo = await resolveAssignedDroneEquipo(id_operacion, stream.streamKey, stream.label);
+    const idEquipo = equipo?.id_equipo ? Number(equipo.id_equipo) : null;
+    const label = equipo?.nombre || stream.label;
+    const sourceType = equipo ? "DRONE" : stream.sourceType;
+    const externalDeviceId = equipo?.numero_serie || stream.streamKey;
+    const idPersonal = idEquipo ? null : actor.id_personal;
+
     await pool.query(
       `INSERT INTO media_stream_session (
-         id_operacion, id_usuario, id_personal, kind, status, label, protocol,
+         id_operacion, id_usuario, id_personal, id_equipo, kind, status, label, protocol,
          source_type, stream_key, rtmp_publish_url, rtmp_playback_url,
          playback_url, external_device_id, consent_ack, foreground_notice,
          created_by_tabla, created_by_id, started_at, last_seen_at
        )
-       VALUES ($1,$2,$3,'AUDIO_VIDEO','ACTIVE',$4,'RTMP',$5,$6,$7,NULL,$8,$6,
-         TRUE,FALSE,$9,$10,NOW(),NOW())
+       VALUES ($1,$2,$3,$4,'AUDIO_VIDEO','ACTIVE',$5,'RTMP',$6,$7,$8,NULL,$9,$10,
+         TRUE,FALSE,$11,$12,NOW(),NOW())
        ON CONFLICT (stream_key) DO UPDATE SET
          id_operacion = EXCLUDED.id_operacion,
          id_usuario = EXCLUDED.id_usuario,
          id_personal = EXCLUDED.id_personal,
+         id_equipo = EXCLUDED.id_equipo,
          kind = EXCLUDED.kind,
          status = 'ACTIVE',
          label = EXCLUDED.label,
@@ -209,12 +217,14 @@ async function syncDiscoveredRuntimeHlsStreams(id_operacion, req) {
       [
         id_operacion,
         actor.id_usuario,
-        actor.id_personal,
-        stream.label,
-        stream.sourceType,
+        idPersonal,
+        idEquipo,
+        label,
+        sourceType,
         stream.streamKey,
         joinStreamUrl(getRtmpPublishBaseUrl(req), stream.streamKey),
         stream.playbackUrl,
+        externalDeviceId,
         actor.created_by_tabla,
         actor.created_by_id,
       ]
@@ -252,6 +262,57 @@ function textMentionsDrone(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
   return text.includes("dron") || text.includes("drone") || text.includes("uav") || text.includes("vant");
+}
+
+function normalizeStreamIdentity(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function streamIdentityValues(row = {}) {
+  return [
+    row.numero_serie,
+    row.nombre,
+    row.tipo_tactico,
+    [row.marca, row.modelo].filter(Boolean).join(" ")
+  ]
+    .map(normalizeStreamIdentity)
+    .filter(Boolean);
+}
+
+async function resolveAssignedDroneEquipo(id_operacion, ...values) {
+  const incoming = values.map(normalizeStreamIdentity).filter(Boolean);
+  if (!incoming.length) return null;
+
+  const { rows } = await pool.query(
+    `SELECT e.id_equipo, e.numero_serie, e.nombre, e.categoria,
+            ec.marca, ec.modelo, et.tipo_tactico
+       FROM operacion_equipo oe
+       JOIN equipo e ON e.id_equipo = oe.id_equipo
+       LEFT JOIN equipo_comunicacion ec ON ec.id_equipo = e.id_equipo
+       LEFT JOIN equipo_tactico et ON et.id_equipo = e.id_equipo
+      WHERE oe.id_operacion = $1
+        AND oe.estado_asignacion != 'LIBERADO'`,
+    [id_operacion]
+  );
+
+  return rows.find((row) => {
+    const droneText = [
+      row.nombre,
+      row.categoria,
+      row.tipo_tactico,
+      row.marca,
+      row.modelo,
+      row.numero_serie
+    ].join(" ");
+    if (!textMentionsDrone(droneText)) return false;
+
+    const candidateValues = streamIdentityValues(row);
+    return incoming.some((value) => candidateValues.includes(value));
+  }) || null;
 }
 
 async function getStreamSourceHints({ id_equipo = null, id_dispositivo = null }) {
@@ -622,7 +683,7 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
     );
   }
 
-  const id_equipo = optionalInt(req.body?.id_equipo);
+  let id_equipo = optionalInt(req.body?.id_equipo);
   const id_dispositivo = optionalInt(req.body?.id_dispositivo);
   if (Number.isNaN(id_equipo)) return sendError(res, 400, "id_equipo invalido");
   if (Number.isNaN(id_dispositivo)) return sendError(res, 400, "id_dispositivo invalido");
@@ -653,6 +714,14 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
 
   try {
     await ensureStreamingTables();
+    const requestedExternalDeviceId = req.body?.external_device_id != null
+      ? String(req.body.external_device_id).trim()
+      : "";
+    const resolvedEquipo = id_equipo == null
+      ? await resolveAssignedDroneEquipo(id_operacion, requestedExternalDeviceId, stream_key, req.body?.label)
+      : null;
+    if (resolvedEquipo?.id_equipo) id_equipo = Number(resolvedEquipo.id_equipo);
+
     const hints = await getStreamSourceHints({ id_equipo, id_dispositivo });
     const label = req.body?.label != null
       ? String(req.body.label).trim()
@@ -662,6 +731,7 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
       "ANDROID"
     );
     const actor = getActorColumns(req);
+    const idPersonal = id_equipo != null && source_type === "DRONE" ? null : actor.id_personal;
     const { rows } = await pool.query(
       `INSERT INTO media_stream_session (
          id_operacion, id_usuario, id_personal, id_equipo, id_dispositivo,
@@ -674,7 +744,7 @@ router.post("/ops/:id/streams", requireAuth, async (req, res) => {
       [
         id_operacion,
         actor.id_usuario,
-        actor.id_personal,
+        idPersonal,
         id_equipo,
         id_dispositivo,
         kind,
@@ -707,7 +777,7 @@ router.post("/ops/:id/streams/external", requireAuth, async (req, res) => {
   const kind = normalizeKind(req.body?.kind || req.body?.tipo || "AUDIO_VIDEO");
   if (!kind) return sendError(res, 400, "kind invalido");
 
-  const id_equipo = optionalInt(req.body?.id_equipo);
+  let id_equipo = optionalInt(req.body?.id_equipo);
   const id_dispositivo = optionalInt(req.body?.id_dispositivo);
   if (Number.isNaN(id_equipo)) return sendError(res, 400, "id_equipo invalido");
   if (Number.isNaN(id_dispositivo)) return sendError(res, 400, "id_dispositivo invalido");
@@ -735,6 +805,14 @@ router.post("/ops/:id/streams/external", requireAuth, async (req, res) => {
 
   try {
     await ensureStreamingTables();
+    const requestedExternalDeviceId = req.body?.external_device_id != null
+      ? String(req.body.external_device_id).trim()
+      : "";
+    const resolvedEquipo = id_equipo == null
+      ? await resolveAssignedDroneEquipo(id_operacion, requestedExternalDeviceId, stream_key, req.body?.label)
+      : null;
+    if (resolvedEquipo?.id_equipo) id_equipo = Number(resolvedEquipo.id_equipo);
+
     const hints = await getStreamSourceHints({ id_equipo, id_dispositivo });
     const label = req.body?.label != null
       ? String(req.body.label).trim()
@@ -745,10 +823,11 @@ router.post("/ops/:id/streams/external", requireAuth, async (req, res) => {
       req.body?.source_type || req.body?.tipo_fuente || hints.source_type || "EXTERNAL",
       "EXTERNAL"
     );
-    const external_device_id = req.body?.external_device_id != null
-      ? String(req.body.external_device_id).trim()
+    const external_device_id = requestedExternalDeviceId
+      ? requestedExternalDeviceId
       : hints.external_device_id;
     const actor = getActorColumns(req);
+    const idPersonal = id_equipo != null && source_type === "DRONE" ? null : actor.id_personal;
     const { rows } = await pool.query(
       `INSERT INTO media_stream_session (
          id_operacion, id_usuario, id_personal, id_equipo, id_dispositivo,
@@ -761,7 +840,7 @@ router.post("/ops/:id/streams/external", requireAuth, async (req, res) => {
       [
         id_operacion,
         actor.id_usuario,
-        actor.id_personal,
+        idPersonal,
         id_equipo,
         id_dispositivo,
         kind,

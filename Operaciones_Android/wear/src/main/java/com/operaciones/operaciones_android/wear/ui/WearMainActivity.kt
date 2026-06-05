@@ -500,7 +500,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
     private fun renderChatPlaceholder(value: String, sub: String) {
         val list = chatList ?: return
         list.removeAllViews()
-        list.addView(sectionBlock("CHAT", value, sub))
+        list.addView(chatStatusBlock(value, sub))
     }
 
     private fun renderMessages(messages: List<WearChatMessage>) {
@@ -508,7 +508,7 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         list.removeAllViews()
         val last = messages.filterForSelectedChat().takeLast(4)
         if (last.isEmpty()) {
-            list.addView(sectionBlock("CHAT", "sin mensajes", selectedChatChannel.shortLabel))
+            list.addView(chatStatusBlock("sin mensajes", selectedChatChannel.shortLabel))
             return
         }
         last.forEach { message ->
@@ -534,9 +534,10 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             val rol = message.destinatarioRol.uppercase(Locale.US)
             val tipo = message.destinoTipo?.uppercase(Locale.US).orEmpty()
             when (selectedChatChannel) {
-                ChatChannel.TODOS -> (tipo.isBlank() && rol == "GLOBAL") || tipo == "GLOBAL"
-                ChatChannel.CETS -> tipo == "CETS" || (tipo.isBlank() && rol == "CET")
-                ChatChannel.CELULAS -> tipo.isBlank() && rol == "CELL,CET"
+                ChatChannel.TODOS -> true
+                ChatChannel.CETS -> tipo == "CETS" || tipo == "CET" || (tipo.isBlank() && rol == "CET")
+                ChatChannel.CELULAS -> tipo in setOf("CELL", "CELL_LIST", "FLOTILLA", "GRUPO", "VEHICULO") ||
+                    (tipo.isBlank() && rol == "CELL,CET")
             }
         }
 
@@ -569,7 +570,9 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
             "VIDEO" -> "VIDEO ${message.attachmentName ?: ""}".trim()
             else -> message.contenido.ifBlank { "--" }
         }
-        return "${message.autor}\n$body"
+        val destination = message.destinoLabel?.takeIf { it.isNotBlank() }
+        val header = if (destination != null) "${message.autor} > $destination" else message.autor
+        return "$header\n$body"
     }
 
     private fun openAttachment(message: WearChatMessage) {
@@ -816,31 +819,6 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
         lastLon = location.longitude
         gpsValue?.text = trackingState()
         gpsSubValue?.text = locationText()
-
-        val user = WearSession.user(this) ?: return
-        val operation = WearSession.operation(this) ?: return
-        val token = WearSession.token(this)
-        if (token.isBlank() || user.tabla != "personal" || operation.status != WearOperationStatus.ACTIVA) return
-        val sentBySocket = wearSocketManager?.emitTracking(
-            lat = location.latitude,
-            lon = location.longitude,
-            apodo = user.nombreCompleto,
-            speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
-            headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null,
-            accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
-        ) == true
-        if (!sentBySocket) {
-            api.sendTracking(
-                operationId = operation.id,
-                token = token,
-                idPersonal = user.id,
-                latitude = location.latitude,
-                longitude = location.longitude,
-                accuracyMeters = if (location.hasAccuracy()) location.accuracy else null,
-                speedKmh = if (location.hasSpeed()) location.speed.toDouble() * 3.6 else null,
-                headingDegrees = if (location.hasBearing()) location.bearing.toDouble() else null
-            )
-        }
         maybeSendVitals()
     }
 
@@ -1139,6 +1117,18 @@ class WearMainActivity : Activity(), SensorEventListener, MessageClient.OnMessag
                 })
             }
             layoutParams = blockParams(contentWidthDp(), top = 6)
+        }
+
+    private fun chatStatusBlock(value: String, sub: String): LinearLayout =
+        LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            background = rounded(C_PANEL)
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            addView(mutedText("CHAT", 6f))
+            addView(valueText(value, 10f, C_TEXT))
+            if (sub.isNotBlank()) addView(mutedText(sub, 7f))
+            layoutParams = blockParams(contentWidthDp(), top = 4)
         }
 
     private fun sectionBlock(label: String, value: String, sub: String): LinearLayout =

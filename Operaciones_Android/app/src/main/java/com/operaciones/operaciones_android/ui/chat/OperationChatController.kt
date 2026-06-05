@@ -258,19 +258,34 @@ class OperationChatController(
 
         return when (selection.type.uppercase()) {
             "GLOBAL" -> destinatario == "GLOBAL" && (destinoTipo.isBlank() || destinoTipo == "GLOBAL")
-            "CETS" -> (destinatario == "CET" && (destinoTipo.isBlank() || destinoTipo == "CETS")) ||
-                destinoTipo == "CUTS"
+            "CETS" -> destinatario == "CET" && (destinoTipo.isBlank() || destinoTipo == "CETS")
             "CET_SPECIFIC" -> (destinoTipo == "CET" && sameChatValue(destinoId, selection.destinoId)) ||
+                (destinoTipo == "CELL" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId)) ||
                 (destinoTipo == "CUT" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
             "CUTS" -> destinoTipo == "CUTS" || (destinatario == "CUT" && destinoTipo.isBlank())
             "CUT_SPECIFIC" -> (destinoTipo == "CUT" && sameChatValue(destinoId, selection.destinoId)) ||
                 (destinoTipo == "CET" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
-            "CELL_SPECIFIC" -> destinoTipo == "CELL" && sameChatValue(destinoId, selection.destinoId)
+            "CELL_SPECIFIC" -> (destinoTipo == "CELL" && sameChatValue(destinoId, selection.destinoId)) ||
+                (destinoTipo == "CET" && sameChatValue(msg.idPersonal?.toString(), selection.destinoId))
             "FLOTILLA" -> isFlotillaMessageForSelection(msg, selection)
             "GRUPO" -> destinoTipo == "GRUPO" && matchesGroupSelection(msg, selection)
-            "VEHICULO" -> destinoTipo == "VEHICULO" && sameChatValue(destinoId, selection.destinoId)
+            "VEHICULO" -> (destinoTipo == "VEHICULO" && sameChatValue(destinoId, selection.destinoId)) ||
+                cellListMatchesVehicleSelection(msg, selection)
             else -> destinatario == "GLOBAL" && destinoTipo.isBlank()
         }
+    }
+
+    private fun cellListMatchesVehicleSelection(
+        msg: ChatMessage,
+        selection: ChatChannelSelection
+    ): Boolean {
+        if (!msg.destinoTipo.equals("CELL_LIST", ignoreCase = true)) return false
+        if (sameChatValue(msg.destinoLabel, selection.destinoLabel)) return true
+
+        val messageRecipientIds = splitChatIds(msg.destinoId)
+        val selectedRecipientIds = splitChatIds(selection.destinoSendId)
+        if (messageRecipientIds.isEmpty() || selectedRecipientIds.isEmpty()) return false
+        return messageRecipientIds.any { it in selectedRecipientIds }
     }
 
     private fun isFlotillaMessageForSelection(
@@ -282,7 +297,6 @@ class OperationChatController(
                 listOf(msg.destinoId, msg.destinoLabel),
                 flotillaAliasesForSelection(selection)
             )
-            "CELL" -> cellBelongsToFlotilla(msg.destinoId, selection)
             else -> false
         }
     }
@@ -400,6 +414,13 @@ class OperationChatController(
         val right = normalizeChatValue(b)
         return left.isNotBlank() && left == right
     }
+
+    private fun splitChatIds(value: String?): Set<String> =
+        value.orEmpty()
+            .split(",")
+            .map { normalizeChatValue(it) }
+            .filter { it.isNotBlank() }
+            .toSet()
 
     private fun normalizeChatValue(value: String?): String =
         value.orEmpty().trim().lowercase()

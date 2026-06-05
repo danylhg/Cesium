@@ -15,6 +15,7 @@ let _channelType = "global";
 let _channelTarget = "";
 let _allMsgs   = [];             // todos los mensajes en memoria
 let _chatDirectory = {
+  cuts: [],
   cets: [],
   cells: [],
   flotillas: [],
@@ -27,7 +28,7 @@ let _audioChunks = [];
 let _isRecordingAudio = false;
 
 const ATTACHMENT_PREFIX = "CHAT_ATTACHMENT:";
-const GROUP_MEMBER_CHANNELS = new Set(["global", "cets", "flotilla", "grupo", "vehiculo"]);
+const GROUP_MEMBER_CHANNELS = new Set(["global", "cuts", "cets", "flotilla", "grupo", "vehiculo"]);
 
 // ── JWT helper ──────────────────────────────────────────────
 function getMyInfo() {
@@ -136,31 +137,51 @@ function isVisibleInTab(msg) {
 
   if (_channelType === "global") return destinatario === "GLOBAL" && !destinoTipo;
   if (_channelType === "cets") {
-    return (destinatario === "CET" && (!destinoTipo || destinoTipo === "CETS"))
-      || destinoTipo === "CUTS";
+    return destinatario === "CET" && (!destinoTipo || destinoTipo === "CETS");
+  }
+  if (_channelType === "cuts") {
+    return destinoTipo === "CUTS" || (destinatario === "CUT" && !destinoTipo);
   }
   if (_channelType === "cet_specific") {
     return (destinoTipo === "CET" && destinoId === String(_channelTarget))
+      || (destinoTipo === "CELL" && String(msg.id_personal || "") === String(_channelTarget))
       || (destinoTipo === "CUT" && String(msg.id_personal || "") === String(_channelTarget));
   }
   if (_channelType === "cell_specific") {
-    return destinoTipo === "CELL" && destinoId === String(_channelTarget);
+    return (destinoTipo === "CELL" && destinoId === String(_channelTarget))
+      || (destinoTipo === "CET" && String(msg.id_personal || "") === String(_channelTarget));
   }
   if (_channelType === "flotilla") {
-    return flotillaMessageMatchesTarget(msg)
-      || destinoTipo === "CETS"
-      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget))
-      || (destinoTipo === "CET" && personBelongsToFlotilla(destinoId, _channelTarget));
+    return flotillaMessageMatchesTarget(msg);
   }
   if (_channelType === "grupo") {
-    return destinoTipo === "GRUPO" && destinoId === String(_channelTarget);
+    return destinoTipo === "GRUPO" && grupoAliasesForTarget().some((alias) =>
+      sameValue(destinoId, alias) || sameValue(msg.destino_label, alias)
+    );
   }
   if (_channelType === "vehiculo") {
-    return (destinoTipo === "VEHICULO" && destinoId === String(_channelTarget))
-      || (destinoTipo === "CELL_LIST" && sameValue(msg.destino_label, getTargetLabel()));
+    return (destinoTipo === "VEHICULO" && sameValue(destinoId, _channelTarget))
+      || cellListMatchesVehicle(msg);
   }
   if (_activeTab === "global") return destinatario === "GLOBAL";
   return destinatario === "CET" || destinatario === "CUT";
+}
+
+function splitDestinationIds(value) {
+  return String(value || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function cellListMatchesVehicle(msg) {
+  const destinoTipo = String(msg?.destino_tipo || "").toUpperCase();
+  if (destinoTipo !== "CELL_LIST") return false;
+  if (sameValue(msg.destino_label, getTargetLabel())) return true;
+
+  const vehicleRecipientIds = new Set(getVehicleRecipientIds().map((id) => String(id)));
+  if (!vehicleRecipientIds.size) return false;
+  return splitDestinationIds(msg.destino_id).some((id) => vehicleRecipientIds.has(String(id)));
 }
 
 function normalizeRole(person) {
@@ -232,14 +253,20 @@ function uniqueById(items, keyFn = (item) => item?.id) {
 function buildChatDirectory(mapaData = {}) {
   const personal = Array.isArray(mapaData.personal) ? mapaData.personal : [];
   const vehiculosRaw = Array.isArray(mapaData.vehiculos) ? mapaData.vehiculos : [];
+  const { sub, tabla } = getMyInfo();
+  const currentPersonalId = tabla === "personal" ? String(sub || "") : "";
 
   const personalById = new Map();
   personal.forEach((p) => {
     if (p.id_personal != null) personalById.set(String(p.id_personal), p);
   });
 
+  const cuts = personal
+    .filter((p) => normalizeRole(p) === "CUT")
+    .map((p) => ({ id: String(p.id_personal), label: fullName(p) }));
+
   const cets = personal
-    .filter((p) => normalizeRole(p) === "CET")
+    .filter((p) => normalizeRole(p) === "CET" && String(p.id_personal) !== currentPersonalId)
     .map((p) => ({ id: String(p.id_personal), label: fullName(p) }));
 
   const cells = personal
@@ -284,7 +311,7 @@ function buildChatDirectory(mapaData = {}) {
     personIds: Array.from(v.personIds)
   }));
 
-  _chatDirectory = { cets, cells, flotillas, grupos, vehiculos, personalById };
+  _chatDirectory = { cuts, cets, cells, flotillas, grupos, vehiculos, personalById };
 }
 
 async function loadChatDirectory() {
@@ -372,6 +399,7 @@ function getGroupChatMembers() {
   const people = getChatPeople();
 
   if (_channelType === "global") return people;
+  if (_channelType === "cuts") return people.filter((person) => normalizeRole(person) === "CUT");
   if (_channelType === "cets") return people.filter((person) => normalizeRole(person) === "CET");
   if (_channelType === "flotilla") {
     return people.filter((person) => personBelongsToFlotilla(person.id_personal, _channelTarget));
@@ -449,6 +477,7 @@ function renderGroupMembersPanel() {
 function channelLabel(type = _channelType) {
   const labels = {
     global: "Todos",
+    cuts: "Todos los CUT",
     cets: "Todos los CET",
     cet_specific: "CET",
     cell_specific: "CELL",
@@ -462,6 +491,7 @@ function channelLabel(type = _channelType) {
 function channelSubtitle(type = _channelType) {
   const labels = {
     global: "Operación completa",
+    cuts: "Mandos CUT",
     cets: "Mandos CET",
     cet_specific: "Personal específico",
     cell_specific: "Personal específico",
@@ -475,6 +505,7 @@ function channelSubtitle(type = _channelType) {
 function channelAvatar(type = _channelType) {
   const labels = {
     global: "T",
+    cuts: "U",
     cets: "C",
     cet_specific: "C",
     cell_specific: "P",
@@ -560,6 +591,7 @@ function setChannel(type, target = "") {
 
 function getDestinatarioRol() {
   if (_channelType === "global") return "GLOBAL";
+  if (_channelType === "cuts") return "CUT";
   if (_channelType === "cets" || _channelType === "cet_specific") return "CET";
   if (_channelType === "cell_specific") return "CELL";
   if (_channelType === "flotilla" || _channelType === "grupo" || _channelType === "vehiculo") return "CELL,CET";
@@ -574,6 +606,7 @@ function getTargetLabel() {
 
 function getDestinoTipo() {
   if (_channelType === "cets") return "CETS";
+  if (_channelType === "cuts") return "CUTS";
   if (_channelType === "cet_specific") return "CET";
   if (_channelType === "cell_specific") return "CELL";
   if (_channelType === "flotilla") return "FLOTILLA";
@@ -582,30 +615,40 @@ function getDestinoTipo() {
   return "";
 }
 
+function getVehicleRecipientIds() {
+  const vehicle = getVehicleTarget();
+  return Array.from(new Set([
+    ...(vehicle?.personIds || []),
+    ...getVehicleOccupants(`V:${_channelTarget}`)
+      .map((key) => String(key).replace(/^P:/, "").trim())
+  ].filter(Boolean)));
+}
+
 function getDestinoPayload() {
   const destinoTipo = getDestinoTipo();
   if (!destinoTipo) return {};
 
-  const label = destinoTipo === "CETS" ? "Todos los CETs" : getTargetLabel();
-
-  if (destinoTipo === "VEHICULO") {
-    const occupantIds = getVehicleOccupants(`V:${_channelTarget}`)
-      .map((key) => String(key).replace(/^P:/, "").trim())
-      .filter(Boolean);
-
-    if (!occupantIds.length) {
-      alert("No hay personal detectado arriba de ese vehiculo.");
+  if (_channelType === "vehiculo") {
+    const recipientIds = getVehicleRecipientIds();
+    if (!recipientIds.length) {
+      alert("No hay personal detectado o asignado a ese vehiculo.");
       return null;
     }
 
     return {
       destino_tipo: "CELL_LIST",
-      destino_id: occupantIds.join(","),
-      destino_label: label
+      destino_id: recipientIds.join(","),
+      destino_label: getTargetLabel()
     };
   }
 
-  const id = destinoTipo === "CETS" ? "ALL" : _channelTarget;
+  const label = destinoTipo === "CETS"
+    ? "Todos los CETs"
+    : destinoTipo === "CUTS"
+      ? "Todos los CUT"
+      : getTargetLabel();
+
+  const id = destinoTipo === "CETS" || destinoTipo === "CUTS" ? "ALL" : _channelTarget;
 
   return {
     destino_tipo: destinoTipo,

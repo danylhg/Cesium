@@ -591,30 +591,6 @@ class OperationMapDataController(
                     dispositivo.numeroSerie,
                     dispositivo.imei
                 )
-                val label = listOf(dispositivo.tipo, dispositivo.marca, dispositivo.modelo)
-                    .filter { it.isNotBlank() }
-                    .joinToString(" ")
-                    .ifBlank { "D-${dispositivo.idDispositivo}" }
-                append("if(typeof updateTrackingDispositivo==='function') updateTrackingDispositivo(")
-                append(dispositivo.idDispositivo)
-                append(",")
-                append(lat)
-                append(",")
-                append(lon)
-                append(",'")
-                append(jsString(label))
-                append("',")
-                append(
-                    JSONObject()
-                        .put("tipo", dispositivo.tipo)
-                        .put("marca", dispositivo.marca)
-                        .put("modelo", dispositivo.modelo)
-                        .put("numero_serie", dispositivo.numeroSerie)
-                        .put("imei", dispositivo.imei)
-                        .put("bateria_pct", dispositivo.bateriaPct ?: JSONObject.NULL)
-                        .toString()
-                )
-                append(");")
             }
             append("})();")
         }

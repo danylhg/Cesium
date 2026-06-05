@@ -18,7 +18,8 @@ data class ChatChannelSelection(
     val destinatarioRol: String,
     val destinoTipo: String? = null,
     val destinoId: String? = null,
-    val destinoLabel: String? = null
+    val destinoLabel: String? = null,
+    val destinoSendId: String? = null
 )
 
 data class ChatPanelRefs(
@@ -116,9 +117,10 @@ class MainPanelRenderer(
         messages: MutableList<ChatMessage>,
         currentUser: User,
         personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>,
         onFilterChanged: (ChatChannelSelection) -> Unit = {}
     ): ChatPanelRefs =
-        chatRenderer.inflate(panelContent, messages, currentUser, personalList, onFilterChanged)
+        chatRenderer.inflate(panelContent, messages, currentUser, personalList, vehiculosList, onFilterChanged)
 
     fun inflatePersonalPanel(
         panelContent: FrameLayout,

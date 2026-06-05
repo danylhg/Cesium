@@ -52,6 +52,21 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
                 COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
         ))
       ))
+      OR (m.destino_tipo = 'CELL_LIST' AND (
+        ${rolParam} = 'CUT'
+        OR ${actorParam}::text = ANY(string_to_array(replace(COALESCE(m.destino_id, ''), ' ', ''), ','))
+      ))
+      OR (m.destino_tipo = 'VEHICULO' AND (
+        ${rolParam} = 'CUT'
+        OR EXISTS (
+          SELECT 1
+          FROM vehiculo_operacion vo
+          WHERE vo.id_operacion = ${opParam}
+            AND vo.id_vehiculo::text = m.destino_id
+            AND vo.id_personal = ${actorParam}
+            AND COALESCE(vo.estado_asignacion::text, '') <> 'LIBERADO'
+        )
+      ))
       OR (m.destino_tipo IN ('FLOTILLA', 'GRUPO') AND EXISTS (
         SELECT 1
         FROM grupo_personal gper
@@ -76,7 +91,7 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
       OR m.destino_tipo = 'GLOBAL'
       OR (m.destino_tipo = 'CETS' AND ${rolParam} = 'CET')
       OR (m.destino_tipo = 'CET'  AND m.destino_id = ${actorParam}::text AND ${rolParam} = 'CET')
-      OR (m.destino_tipo = 'CUTS' AND ${rolParam} IN ('CUT', 'CET'))
+      OR (m.destino_tipo = 'CUTS' AND ${rolParam} = 'CUT')
       OR (m.destino_tipo = 'CUT'  AND (
             (m.destino_id = ${actorParam}::text AND ${rolParam} = 'CUT')
             OR (pc.id_personal = ${actorParam} AND ${rolParam} = 'CET')
@@ -182,6 +197,22 @@ function shouldHideChatMessage(row) {
   );
 }
 
+function isSelfCetDestination(req, destinoTipo, destinoId) {
+  return req.user?.tabla === "personal" &&
+    String(req.user?.rol || "").toUpperCase() === "CET" &&
+    String(destinoTipo || "").trim().toUpperCase() === "CET" &&
+    destinoId != null &&
+    String(destinoId).trim() === String(req.user.sub);
+}
+
+function rejectInvalidChatDestination(req, res, destinoTipo, destinoId) {
+  if (isSelfCetDestination(req, destinoTipo, destinoId)) {
+    res.status(400).json({ ok: false, mensaje: "No puedes crear un chat CET contigo mismo" });
+    return true;
+  }
+  return false;
+}
+
 
 // ===============================
 // CHAT / MENSAJES
@@ -195,7 +226,7 @@ function shouldHideChatMessage(row) {
 // Además:
 //   Aplica filtro de visibilidad según el rol del usuario autenticado.
 // Reglas:
-//   - ADMIN y CUT ven todo
+//   - ADMIN ve todo
 //   - otros roles solo ven:
 //       * mensajes GLOBAL
 //       * mensajes dirigidos a su rol
@@ -263,8 +294,8 @@ router.get("/ops/:id/chat", requireAuth, async (req, res) => {
     `;
     let params = [id_operacion];
 
-    // Si no es ADMIN ni CUT, aplica filtro de visibilidad
-    if (user_role !== 'ADMIN' && user_role !== 'CUT') {
+    // Si no es ADMIN, aplica filtro de visibilidad
+    if (user_role !== 'ADMIN') {
       query += chatVisibilityClause('$1', '$2', '$3', isPersonal);
       params.push(user_role, id_actor);
     }
@@ -335,6 +366,10 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
 
   // Id del actor autenticado
   const id_actor = Number(req.user.sub);
+
+  if (rejectInvalidChatDestination(req, res, destino_tipo, destino_id)) {
+    return;
+  }
 
   // Conexión manual por transacción
   const client = await pool.connect();
@@ -718,8 +753,8 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     `;
     let msgParams = [id_chat];
 
-    // Aplica visibilidad si no es ADMIN/CUT
-    if (gm_role !== 'ADMIN' && gm_role !== 'CUT') {
+    // Aplica visibilidad si no es ADMIN
+    if (gm_role !== 'ADMIN') {
       msgParams.push(id_operacion, gm_role, gm_actor); // $2, $3, $4
       msgQuery += chatVisibilityClause('$2', '$3', '$4', gm_isPersonal);
     }
@@ -771,6 +806,10 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     const destino_tipo = String(req.body?.destino_tipo || "").trim().toUpperCase() || null;
     const destino_id = req.body?.destino_id != null ? String(req.body.destino_id).trim() : null;
     const destino_label = req.body?.destino_label != null ? String(req.body.destino_label).trim() : null;
+
+    if (rejectInvalidChatDestination(req, res, destino_tipo, destino_id)) {
+      return;
+    }
 
     // contenido obligatorio
     if (!contenido) {
@@ -935,6 +974,10 @@ router.post(
     const destino_tipo = String(req.query.destino_tipo || "").trim().toUpperCase() || null;
     const destino_id = req.query.destino_id != null ? String(req.query.destino_id).trim() : null;
     const destino_label = req.query.destino_label != null ? String(req.query.destino_label).trim() : null;
+
+    if (rejectInvalidChatDestination(req, res, destino_tipo, destino_id)) {
+      return;
+    }
 
     if (!["NORMAL", "SISTEMA", "URGENTE"].includes(tipo_mensaje)) {
       return res.status(400).json({ ok: false, mensaje: "tipo_mensaje invalido" });

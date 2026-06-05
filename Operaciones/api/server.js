@@ -4,6 +4,7 @@ import { app } from "./app.js";
 import { initSocket } from "./sockets/index.js";
 import { PORT } from "./config/env.js";
 import { startOperacionAutoActivator } from "./services/operacionesScheduler.service.js";
+import { ensureTrackingSchemas } from "./utils/trackingSchema.js";
 
 const getLocalIp = () => {
   const interfaces = os.networkInterfaces();
@@ -29,8 +30,19 @@ const io = initSocket(server);
 
 app.set("io", io);
 
-server.listen(PORT, "0.0.0.0", () => {
-  const localIp = getLocalIp();
-  console.log(`API + WS en http://${localIp}:${PORT}`);
-  startOperacionAutoActivator({ io });
-});
+async function startServer() {
+  try {
+    await ensureTrackingSchemas();
+  } catch (err) {
+    console.error("[DB SCHEMA] Error preparando tracking antes de iniciar API:", err);
+    process.exit(1);
+  }
+
+  server.listen(PORT, "0.0.0.0", () => {
+    const localIp = getLocalIp();
+    console.log(`API + WS en http://${localIp}:${PORT}`);
+    startOperacionAutoActivator({ io });
+  });
+}
+
+startServer();

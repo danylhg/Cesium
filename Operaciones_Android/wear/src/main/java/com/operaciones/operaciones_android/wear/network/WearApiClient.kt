@@ -368,7 +368,9 @@ class WearApiClient(
         accuracyMeters: Float?,
         speedKmh: Double? = null,
         headingDegrees: Double? = null,
-        onDone: () -> Unit = {}
+        onDone: () -> Unit = {},
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
     ) {
         val body = JSONObject().apply {
             put("id_personal", idPersonal)
@@ -386,8 +388,17 @@ class WearApiClient(
             .build()
 
         http.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) = onDone()
+            override fun onFailure(call: Call, e: IOException) {
+                onError("Error enviando tracking: ${e.message ?: "red no disponible"}")
+                onDone()
+            }
+
             override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    onSuccess()
+                } else {
+                    onError("Error enviando tracking: HTTP ${response.code}")
+                }
                 response.close()
                 onDone()
             }

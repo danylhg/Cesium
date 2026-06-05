@@ -307,16 +307,6 @@ class MainActivity : AppCompatActivity(),
                                 dispositivo?.imei
                             )
                         }
-                        val label = dispositivoLabel(dispositivo, fallback = currentUser.nombreCompleto)
-                        val meta = JSONObject()
-                            .put("tipo", dispositivo?.tipo ?: "")
-                            .put("marca", dispositivo?.marca ?: "")
-                            .put("modelo", dispositivo?.modelo ?: "")
-                            .put("numero_serie", dispositivo?.numeroSerie ?: "")
-                            .put("imei", dispositivo?.imei ?: "")
-                        cesiumWebController.evaluate(
-                            "if(typeof updateTrackingDispositivo === 'function') updateTrackingDispositivo($idDispositivo, $latitude, $longitude, '${jsString(label)}', ${meta})"
-                        )
                     }
                     if (followedPersonalId == currentUser.id) {
                         cesiumWebController.centerOnLocation(latitude, longitude, zoom = 500, follow = true)
@@ -805,6 +795,19 @@ class MainActivity : AppCompatActivity(),
         )
         if (recordPersonalLocation(id, lat, lon)) {
             panelRenderer.updatePersonalLocation(id, lat, lon)
+            dispositivosList
+                .filter { it.idPersonal == id && usesPersonalTrackingFallback(it) }
+                .forEach { dispositivo ->
+                    if (recordDispositivoLocation(dispositivo.idDispositivo, lat, lon)) {
+                        panelRenderer.updateDispositivoLocation(
+                            dispositivo.idDispositivo,
+                            lat,
+                            lon,
+                            dispositivo.numeroSerie,
+                            dispositivo.imei
+                        )
+                    }
+                }
             refreshEquipmentLocationsFromAssignments()
         }
     }
@@ -851,17 +854,6 @@ class MainActivity : AppCompatActivity(),
     ) {
         val dispositivo = dispositivosList.firstOrNull { it.idDispositivo == id }
         if (dispositivo != null && !matchesDispositivoIdentity(dispositivo, numeroSerie, imei)) return
-        val displayLabel = dispositivoLabel(dispositivo, fallback = label)
-        val meta = JSONObject()
-            .put("tipo", dispositivo?.tipo ?: "")
-            .put("marca", dispositivo?.marca ?: "")
-            .put("modelo", dispositivo?.modelo ?: "")
-            .put("numero_serie", dispositivo?.numeroSerie ?: numeroSerie.orEmpty())
-            .put("imei", dispositivo?.imei ?: imei.orEmpty())
-            .put("bateria_pct", dispositivo?.bateriaPct ?: JSONObject.NULL)
-        cesiumWebController.evaluate(
-            "if(typeof updateTrackingDispositivo === 'function') updateTrackingDispositivo($id, $lat, $lon, '${jsString(displayLabel)}', ${meta})"
-        )
         if (recordDispositivoLocation(id, lat, lon)) {
             panelRenderer.updateDispositivoLocation(id, lat, lon, numeroSerie, imei)
             refreshEquipmentLocationsFromAssignments()
@@ -1038,7 +1030,14 @@ class MainActivity : AppCompatActivity(),
         panelRenderer.selectVehiculo(null)
         panelRenderer.selectEquipo(null)
         panelRenderer.selectDispositivo(idDispositivo)
-        cesiumWebController.followTrackingDispositivo(idDispositivo, lat, lon, zoom = 500)
+        val assignedPersonalId = dispositivosList.firstOrNull { it.idDispositivo == idDispositivo }?.idPersonal
+        if (assignedPersonalId != null) {
+            followedPersonalId = assignedPersonalId
+            panelRenderer.selectPersonal(assignedPersonalId)
+            cesiumWebController.followTrackingPersonal(assignedPersonalId, lat, lon, zoom = 500)
+        } else {
+            cesiumWebController.centerOnLocation(lat, lon, zoom = 500, follow = false)
+        }
     }
 
     override fun refreshPersonalPanelIfActive() {
@@ -1110,7 +1109,7 @@ class MainActivity : AppCompatActivity(),
         if (panelNavigationController.activePanel == Panel.PERSONAL) {
             inflatePersonalPanel()
         } else if (panelNavigationController.activePanel == Panel.CHAT) {
-            chatController.refreshVisibleMessages()
+            refreshChatPanelIfActive()
         }
         refreshEquipmentLocationsFromAssignments()
     }
@@ -1121,8 +1120,16 @@ class MainActivity : AppCompatActivity(),
 
         if (panelNavigationController.activePanel == Panel.VEHICULOS) {
             inflateVehiculoPanel()
+        } else if (panelNavigationController.activePanel == Panel.CHAT) {
+            refreshChatPanelIfActive()
         }
         refreshEquipmentLocationsFromAssignments()
+    }
+
+    private fun refreshChatPanelIfActive() {
+        if (panelNavigationController.activePanel == Panel.CHAT) {
+            panelNavigationController.showPanel(Panel.CHAT)
+        }
     }
 
     override fun onPanelEquiposLoaded(items: List<EquipoItem>) {
@@ -1228,6 +1235,14 @@ class MainActivity : AppCompatActivity(),
 
     private fun normalizeDeviceIdentity(value: String?): String =
         value?.trim()?.lowercase().orEmpty()
+
+    private fun usesPersonalTrackingFallback(dispositivo: DispositivoItem): Boolean {
+        val tipo = dispositivo.tipo.uppercase()
+        return tipo.contains("SMARTWATCH") ||
+            tipo.contains("WEARABLE") ||
+            tipo.contains("WATCH") ||
+            tipo.contains("RELOJ")
+    }
 
     private fun fetchPersonalPanelData() {
         panelDataController.fetchPersonal()
@@ -1667,6 +1682,7 @@ class MainActivity : AppCompatActivity(),
             messages = chatController.visibleMessages,
             currentUser = currentUser,
             personalList = personalList,
+            vehiculosList = vehiculosList,
             onFilterChanged = { selection ->
                 chatController.setActiveSelection(selection)
                 markVisibleChatMessagesRead()

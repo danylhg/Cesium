@@ -1416,20 +1416,36 @@ router.get("/ops/:id/mapa", requireAuth, async (req, res) => {
            od.fecha_asignacion,
            od.fecha_devolucion,
            od.estado_operacion_creacion,
-           td.latitud,
-           td.longitud,
-           td.altitud,
-           td.velocidad_kmh,
-           td.rumbo_grados,
-           td.precision_m,
-           td.bateria_pct,
-           td.ultima_actualizacion
+           COALESCE(td.latitud, tp.latitud) AS latitud,
+           COALESCE(td.longitud, tp.longitud) AS longitud,
+           COALESCE(td.altitud, tp.altitud) AS altitud,
+           COALESCE(td.velocidad_kmh, tp.velocidad_kmh) AS velocidad_kmh,
+           COALESCE(td.rumbo_grados, tp.rumbo_grados) AS rumbo_grados,
+           COALESCE(td.precision_m, tp.precision_m) AS precision_m,
+           COALESCE(td.bateria_pct, tp.bateria_pct) AS bateria_pct,
+           COALESCE(td.ultima_actualizacion, tp.ultima_actualizacion) AS ultima_actualizacion,
+           CASE
+             WHEN td.id_dispositivo IS NOT NULL THEN 'DISPOSITIVO'
+             WHEN tp.id_personal IS NOT NULL THEN 'PERSONAL_ASIGNADO'
+             ELSE NULL
+           END AS fuente_ubicacion
          FROM operacion_dispositivo od
          JOIN dispositivo d ON d.id_dispositivo = od.id_dispositivo
          JOIN personal p ON p.id_personal = od.id_personal
+         LEFT JOIN LATERAL (
+           SELECT (
+             UPPER(COALESCE(d.tipo, '')) IN ('SMARTWATCH', 'WEARABLE', 'RELOJ')
+             OR UPPER(COALESCE(d.tipo, '')) LIKE '%WATCH%'
+             OR UPPER(COALESCE(d.tipo, '')) LIKE '%RELOJ%'
+           ) AS usar_tracking_personal
+         ) wearable ON TRUE
          LEFT JOIN v_ultima_posicion_dispositivo td
            ON td.id_operacion = od.id_operacion
           AND td.id_dispositivo = od.id_dispositivo
+         LEFT JOIN v_ultima_posicion_personal tp
+           ON tp.id_operacion = od.id_operacion
+          AND tp.id_personal = od.id_personal
+          AND wearable.usar_tracking_personal
          WHERE od.id_operacion = $1
            AND od.estado_asignacion = 'ASIGNADO'
            AND od.fecha_devolucion IS NULL
