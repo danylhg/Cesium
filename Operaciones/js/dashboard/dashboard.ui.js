@@ -234,13 +234,9 @@ function trackingSpan(nombre, kind, id, lat, lon, item = {}, extraClasses = [], 
     item?.latitud ?? item?.lat,
     item?.longitud ?? item?.lng ?? item?.lon
   );
-  const activeItemCoords = kind === "E"
-    ? (isTrackingItemFresh(item) ? itemCoords : null)
-    : itemCoords;
+  const activeItemCoords = itemCoords;
   const providedCoords = normalizeTrackingCoords(lat, lon);
-  const activeProvidedCoords = kind === "E"
-    ? (isTrackingItemFresh(item) ? providedCoords : null)
-    : providedCoords;
+  const activeProvidedCoords = providedCoords;
   const trackingAllowed = kind !== "D" || isDeviceTrackingConfirmed(item, id);
   const coords = trackingAllowed
     ? activeProvidedCoords || activeItemCoords || getTrackingEntityCoordinates(key)
@@ -335,23 +331,31 @@ export function followPersonalLocation(id, lat, lon) {
 export function followTrackingLocation(key, lat, lon) {
   const viewer = dashboardState.viewer;
   if (!viewer || !key) return;
+  const trackingKey = String(key);
 
   const liveCoords =
-    getTrackingEntityCoordinates(key) ||
+    getTrackingEntityCoordinates(trackingKey) ||
     normalizeTrackingCoords(lat, lon);
   if (!liveCoords) return;
 
-  dashboardState.followedTrackingKey = String(key);
-  dashboardState.followedPersonalId = key.startsWith("P:") ? key.slice(2) : null;
-  setFollowedTrackingStyle(key);
+  dashboardState.followedTrackingKey = trackingKey;
+  dashboardState.followedPersonalId = trackingKey.startsWith("P:") ? trackingKey.slice(2) : null;
+  setFollowedTrackingStyle(trackingKey);
+  document.dispatchEvent(new CustomEvent("dashboard:tracking-follow-requested", {
+    detail: {
+      key: trackingKey,
+      lat: liveCoords.lat,
+      lon: liveCoords.lon
+    }
+  }));
 
-  const entity = dashboardState.trackingEntities?.get(key);
+  const entity = dashboardState.trackingEntities?.get(trackingKey);
   if (entity) {
     dashboardState.selectedEntity = entity;
     updateSelectionInfo(entity);
   }
 
-  updateFollowedTrackingLocation(key, liveCoords.lat, liveCoords.lon, 0.45);
+  updateFollowedTrackingLocation(trackingKey, liveCoords.lat, liveCoords.lon, 0.45);
 }
 
 export function updateFollowedPersonalLocation(id, lat, lon, duration = 0.28) {
@@ -1165,6 +1169,20 @@ function formatBattery(value) {
   return text.endsWith("%") ? text : `${text}%`;
 }
 
+function isRealBiometricValue(value) {
+  const raw = firstValue(value);
+  if (raw == null) return false;
+  const text = String(raw).trim();
+  if (!text || ["-", "N/A", "NA", "NULL", "UNDEFINED", "SIN DATOS"].includes(text.toUpperCase())) return false;
+  const number = Number(text.replace("%", ""));
+  return Number.isFinite(number) ? number > 0 : true;
+}
+
+function renderPersonBiometricRow(label, value, unit = "") {
+  if (!isRealBiometricValue(value)) return "";
+  return `<div class="personInfoLabel">${escapeHtml(label)}:</div><div class="personInfoValue">${escapeHtml(String(value))}${unit}</div>`;
+}
+
 function normalizeDegrees(value) {
   const raw = firstValue(value);
   if (raw == null || raw === "-") return "-";
@@ -1616,11 +1634,11 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const curso = normalizeDegrees(firstValue(live.curso, live.rumbo_grados, live.rumboGrados, live.headingDegrees, live.heading, live.bearing, live.rumbo, person.curso, person.rumbo_grados, person.rumboGrados, person.headingDegrees, person.heading, person.bearing, person.rumbo, "-"));
   const connectionStatus = getConnectionStatus(id, person, live);
   const sidc = getPersonalSidc(person, live);
-  const fc = firstValue(live.frecuencia_cardiaca_bpm, live.frecuencia_cardiaca, live.fc, live.heart_rate_bpm, live.heart_rate, person.frecuencia_cardiaca_bpm, person.frecuencia_cardiaca, person.fc, person.heart_rate_bpm, person.heart_rate, assignedDevice.frecuencia_cardiaca_bpm, assignedDevice.frecuencia_cardiaca, assignedDevice.fc, assignedDevice.heart_rate_bpm, assignedDevice.heart_rate, "-");
-  const spo2 = firstValue(live.oxigenacion_spo2, live.spo2, live.oxigenacion, person.oxigenacion_spo2, person.spo2, person.oxigenacion, assignedDevice.oxigenacion_spo2, assignedDevice.spo2, assignedDevice.oxigenacion, "-");
-  const temp = firstValue(live.temperatura_c, live.temperatura, live.temperature_c, person.temperatura_c, person.temperatura, person.temperature_c, "-");
-  const resp = firstValue(live.frecuencia_respiratoria_rpm, live.respiracion, live.respiratory_rate, person.frecuencia_respiratoria_rpm, person.respiracion, person.respiratory_rate, "-");
-  const baro = firstValue(live.presion_barometrica_hpa, live.barometro, live.baro, live.presion, live.pressure, person.presion_barometrica_hpa, person.barometro, person.baro, person.presion, person.pressure, "-");
+  const fc = firstValue(live.frecuencia_cardiaca_bpm, live.frecuencia_cardiaca, live.fc, live.heart_rate_bpm, live.heart_rate, person.frecuencia_cardiaca_bpm, person.frecuencia_cardiaca, person.fc, person.heart_rate_bpm, person.heart_rate, assignedDevice.frecuencia_cardiaca_bpm, assignedDevice.frecuencia_cardiaca, assignedDevice.fc, assignedDevice.heart_rate_bpm, assignedDevice.heart_rate);
+  const spo2 = firstValue(live.oxigenacion_spo2, live.spo2, live.oxigenacion, person.oxigenacion_spo2, person.spo2, person.oxigenacion, assignedDevice.oxigenacion_spo2, assignedDevice.spo2, assignedDevice.oxigenacion);
+  const temp = firstValue(live.temperatura_c, live.temperatura, live.temperature_c, person.temperatura_c, person.temperatura, person.temperature_c);
+  const resp = firstValue(live.frecuencia_respiratoria_rpm, live.respiracion, live.respiratory_rate, person.frecuencia_respiratoria_rpm, person.respiracion, person.respiratory_rate);
+  const baro = firstValue(live.presion_barometrica_hpa, live.barometro, live.baro, live.presion, live.pressure, person.presion_barometrica_hpa, person.barometro, person.baro, person.presion, person.pressure);
   const bateria = formatBattery(firstValue(live.bateria_pct, live.bateria, live.battery, live.battery_level, person.bateria_pct, person.bateria, person.battery, person.battery_level, assignedDevice.bateria_pct, assignedDevice.bateria, assignedDevice.battery, assignedDevice.battery_level, assignedDevice.nivel_bateria));
   const actualizado = firstValue(live.signos_actualizacion, live.timestamp, person.signos_actualizacion, person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
   const cameraProtocol = getPersonCameraProtocol(person, live);
@@ -1630,8 +1648,26 @@ export function showPersonnelDetail(personId, anchor = {}) {
       return `<div class="personInfoDeviceLine">${escapeHtml(`${getDeviceDisplayName(device)} (${code})`)}</div>`;
     }).join("")
     : `<div class="personInfoDeviceLine muted">-</div>`;
-  const biometricSource = getBiometricSourceLabel(live, person, assignedDevices, assignedDevice);
+  const hasBiometricData = [fc, spo2, temp, resp, baro].some(isRealBiometricValue);
+  const biometricSource = hasBiometricData ? getBiometricSourceLabel(live, person, assignedDevices, assignedDevice) : "";
   const biometricTitle = biometricSource ? `Biometricos (${biometricSource})` : "Biometricos";
+  const biometricRows = [
+    renderPersonBiometricRow("FC", fc, " bpm"),
+    renderPersonBiometricRow("SpO2", spo2, "%"),
+    renderPersonBiometricRow("Temp", temp, " C"),
+    renderPersonBiometricRow("Resp", resp, " rpm"),
+    renderPersonBiometricRow("Baro", baro, " hPa"),
+    bateria !== "-" ? `<div class="personInfoLabel">Bateria:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>` : ""
+  ].filter(Boolean).join("");
+  const biometricHtml = hasBiometricData ? `
+    <div class="personInfoBio">
+      <div class="personInfoBioTitle">${escapeHtml(biometricTitle)}</div>
+      <div class="personInfoGrid">
+        ${biometricRows}
+      </div>
+      <div class="personInfoUpdated">${escapeHtml(actualizado ? `Actualizado ${formatTime(actualizado)}` : "Sin datos recientes")}</div>
+    </div>
+  ` : "";
 
   dom.personInfoPopupContent.innerHTML = `
     <h3 class="personInfoTitle">${escapeHtml(nombre)}</h3>
@@ -1650,18 +1686,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
       Estado <strong>${escapeHtml(connectionStatus.text)}</strong>
       <span>${escapeHtml(connectionStatus.detail)}</span>
     </div>
-    <div class="personInfoBio">
-      <div class="personInfoBioTitle">${escapeHtml(biometricTitle)}</div>
-      <div class="personInfoGrid">
-        <div class="personInfoLabel">FC:</div><div class="personInfoValue">${escapeHtml(String(fc))}${String(fc) !== "-" ? " bpm" : ""}</div>
-        <div class="personInfoLabel">SpO2:</div><div class="personInfoValue">${escapeHtml(String(spo2))}${String(spo2) !== "-" ? "%" : ""}</div>
-        <div class="personInfoLabel">Temp:</div><div class="personInfoValue">${escapeHtml(String(temp))}${String(temp) !== "-" ? " C" : ""}</div>
-        <div class="personInfoLabel">Resp:</div><div class="personInfoValue">${escapeHtml(String(resp))}${String(resp) !== "-" ? " rpm" : ""}</div>
-        <div class="personInfoLabel">Baro:</div><div class="personInfoValue">${escapeHtml(String(baro))}${String(baro) !== "-" ? " hPa" : ""}</div>
-        <div class="personInfoLabel">Bateria:</div><div class="personInfoValue">${escapeHtml(bateria)}</div>
-      </div>
-      <div class="personInfoUpdated">${escapeHtml(actualizado ? `Actualizado ${formatTime(actualizado)}` : "Sin datos recientes")}</div>
-    </div>
+    ${biometricHtml}
     <div class="personInfoCamera">
       ${renderWaitingCameraSignal(cameraProtocol)}
     </div>

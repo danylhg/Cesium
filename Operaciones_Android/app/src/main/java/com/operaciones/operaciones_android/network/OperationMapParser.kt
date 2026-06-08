@@ -16,6 +16,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class OperationMapParser {
+    private data class TrackingPosition(
+        val lat: Double,
+        val lon: Double,
+        val rumboGrados: Double?
+    )
 
     private data class ParsedAreas(
         val coverageCircles: List<CoverageCircleItem>,
@@ -59,7 +64,8 @@ class OperationMapParser {
                     rol = p.optString("rol", ""),
                     puesto = p.optString("puesto", ""),
                     lat = nullableDouble(p, "latitud"),
-                    lon = nullableDouble(p, "longitud")
+                    lon = nullableDouble(p, "longitud"),
+                    rumboGrados = nullableHeadingDegrees(p)
                 )
             )
         }
@@ -70,16 +76,22 @@ class OperationMapParser {
     fun parseGridObject(grid: JSONObject?): OperationGridItem? =
         parseOperationGrid(grid)
 
-    private fun parsePersonalPositions(posPersonal: JSONArray?): Map<Int, Pair<Double, Double>> {
-        val posMap = mutableMapOf<Int, Pair<Double, Double>>()
+    private fun parsePersonalPositions(posPersonal: JSONArray?): Map<Int, TrackingPosition> {
+        val posMap = mutableMapOf<Int, TrackingPosition>()
         if (posPersonal == null) return posMap
 
         for (i in 0 until posPersonal.length()) {
             val p = posPersonal.optJSONObject(i) ?: continue
-            posMap[p.optInt("id_personal")] = Pair(
-                p.optDouble("latitud"),
-                p.optDouble("longitud")
-            )
+            val lat = nullableDouble(p, "latitud")
+            val lon = nullableDouble(p, "longitud")
+            val idPersonal = p.optInt("id_personal")
+            if (idPersonal > 0 && lat != null && lon != null) {
+                posMap[idPersonal] = TrackingPosition(
+                    lat = lat,
+                    lon = lon,
+                    rumboGrados = nullableHeadingDegrees(p)
+                )
+            }
         }
 
         return posMap
@@ -87,7 +99,7 @@ class OperationMapParser {
 
     private fun parsePersonalFromLayers(
         capas: JSONArray?,
-        posMap: Map<Int, Pair<Double, Double>>
+        posMap: Map<Int, TrackingPosition>
     ): List<PersonalItem> {
         val personal = mutableListOf<PersonalItem>()
         if (capas == null) return personal
@@ -107,8 +119,9 @@ class OperationMapParser {
                     apellido = c.optString("apellido", ""),
                     rol = c.optString("rol", ""),
                     puesto = c.optString("puesto", ""),
-                    lat = pos?.first,
-                    lon = pos?.second,
+                    lat = pos?.lat,
+                    lon = pos?.lon,
+                    rumboGrados = pos?.rumboGrados ?: nullableHeadingDegrees(c),
                     idGrupoOperacion = positiveInt(c, "id_grupo_operacion"),
                     idGrupoPadre = positiveInt(c, "grupo_padre_id"),
                     grupoNombre = c.optString("grupo_nombre", ""),
@@ -150,7 +163,8 @@ class OperationMapParser {
                     grupoNombre = v.optString("grupo_nombre", ""),
                     grupoPadreNombre = v.optString("grupo_padre_nombre", ""),
                     lat = nullableDouble(v, "latitud"),
-                    lon = nullableDouble(v, "longitud")
+                    lon = nullableDouble(v, "longitud"),
+                    rumboGrados = nullableHeadingDegrees(v)
                 )
             )
         }
@@ -210,6 +224,7 @@ class OperationMapParser {
                     flotillasVinculadas = flotillasVinculadas,
                     lat = nullableDouble(c, "latitud"),
                     lon = nullableDouble(c, "longitud"),
+                    rumboGrados = nullableHeadingDegrees(c),
                     ultimaActualizacion = c.optString("ultima_actualizacion", "")
                 )
             )
@@ -245,6 +260,7 @@ class OperationMapParser {
                     lat = nullableDouble(d, "latitud"),
                     lon = nullableDouble(d, "longitud"),
                     velocidadKmh = nullableDouble(d, "velocidad_kmh"),
+                    rumboGrados = nullableHeadingDegrees(d),
                     precisionM = nullableDouble(d, "precision_m"),
                     bateriaPct = nullableDouble(d, "bateria_pct"),
                     ultimaActualizacion = d.optString("ultima_actualizacion", "")
@@ -489,6 +505,11 @@ class OperationMapParser {
         val value = json.optDouble(key, Double.NaN)
         return value.takeUnless { it.isNaN() || it.isInfinite() }
     }
+
+    private fun nullableHeadingDegrees(json: JSONObject): Double? =
+        listOf("rumbo_grados", "rumboGrados", "headingDegrees", "heading", "bearing", "curso", "rumbo")
+            .firstNotNullOfOrNull { key -> nullableDouble(json, key) }
+            ?.let { ((it % 360.0) + 360.0) % 360.0 }
 
     private fun positiveInt(json: JSONObject, key: String): Int? =
         json.optInt(key, -1).takeIf { it > 0 }

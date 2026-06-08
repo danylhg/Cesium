@@ -32,6 +32,11 @@ class EquipoRepository(
         return value.takeUnless { it.isNaN() || it.isInfinite() }
     }
 
+    private fun JSONObject.nullableHeadingDegrees(): Double? =
+        listOf("rumbo_grados", "rumboGrados", "headingDegrees", "heading", "bearing", "curso", "rumbo")
+            .firstNotNullOfOrNull { key -> nullableDouble(key) }
+            ?.let { ((it % 360.0) + 360.0) % 360.0 }
+
     fun fetchEquipos(
         operationId: Int,
         token: String,
@@ -135,6 +140,7 @@ class EquipoRepository(
                                 flotillasVinculadas = flotillasVinculadas,
                                 lat = e.nullableDouble("latitud"),
                                 lon = e.nullableDouble("longitud"),
+                                rumboGrados = e.nullableHeadingDegrees(),
                                 ultimaActualizacion = e.safeString("ultima_actualizacion")
                             )
                         )

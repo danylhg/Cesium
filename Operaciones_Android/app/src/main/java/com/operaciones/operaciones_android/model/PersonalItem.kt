@@ -9,6 +9,7 @@ data class PersonalItem(
     val puesto: String,
     val lat: Double? = null,
     val lon: Double? = null,
+    val rumboGrados: Double? = null,
     val grupoNombre: String = "",
     val grupoApodo: String = "",
     val idGrupoOperacion: Int? = null,

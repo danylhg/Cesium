@@ -7,6 +7,9 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.model.DispositivoItem
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 internal class DevicePanelRenderer(
     private val host: MainPanelRenderer.Host
@@ -17,6 +20,14 @@ internal class DevicePanelRenderer(
     private val activeRows = mutableMapOf<Int, View>()
     private val activeItems = mutableMapOf<Int, DispositivoItem>()
     private var selectedDispositivoId: Int? = null
+    private val trackingTimestampFormats = listOf(
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ssX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    ).onEach { it.timeZone = TimeZone.getTimeZone("UTC") }
 
     fun selectDispositivo(idDispositivo: Int?) {
         selectedDispositivoId = idDispositivo
@@ -59,6 +70,8 @@ internal class DevicePanelRenderer(
         activeRows.clear()
         activeItems.clear()
         locatedDispositivoIds.clear()
+        liveLocations.clear()
+        liveIdentities.clear()
 
         if (dispositivosList.isEmpty()) {
             addEmptyState(list, "Cargando dispositivos...")
@@ -96,8 +109,9 @@ internal class DevicePanelRenderer(
         row.findViewById<TextView>(R.id.equipoTipo).text = item.estado.ifBlank { "DISP" }.uppercase()
 
         val live = liveLocations[item.idDispositivo]
-        val effectiveLat = live?.first ?: item.lat
-        val effectiveLon = live?.second ?: item.lon
+        val freshItemLocation = isFreshTrackingTimestamp(item.ultimaActualizacion)
+        val effectiveLat = live?.first ?: item.lat?.takeIf { freshItemLocation }
+        val effectiveLon = live?.second ?: item.lon?.takeIf { freshItemLocation }
         val liveIdentity = liveIdentities[item.idDispositivo]
         val identityConfirmed = if (live != null) {
             liveIdentity != null && matchesDeviceIdentity(item, liveIdentity)
@@ -235,6 +249,21 @@ internal class DevicePanelRenderer(
             lon in -180.0..180.0 &&
             !(lat == 0.0 && lon == 0.0)
 
+    private fun isFreshTrackingTimestamp(value: String): Boolean {
+        val timestamp = parseTrackingTimestamp(value) ?: return false
+        return System.currentTimeMillis() - timestamp <= TRACKING_ACTIVE_STALE_MS
+    }
+
+    private fun parseTrackingTimestamp(value: String): Long? {
+        val clean = value.trim()
+        if (clean.isBlank()) return null
+        clean.toLongOrNull()?.let { return it }
+        trackingTimestampFormats.forEach { format ->
+            runCatching { format.parse(clean)?.time }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
     private fun applyDeviceRowStyle(row: View, idDispositivo: Int) {
         val selected = selectedDispositivoId == idDispositivo
         val hasLocation = locatedDispositivoIds.contains(idDispositivo)
@@ -256,4 +285,8 @@ internal class DevicePanelRenderer(
 
     private fun dp(view: View, value: Float): Int =
         (value * view.context.resources.displayMetrics.density + 0.5f).toInt()
+
+    private companion object {
+        private const val TRACKING_ACTIVE_STALE_MS = 30_000L
+    }
 }

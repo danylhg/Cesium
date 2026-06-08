@@ -24,16 +24,17 @@ class OperationSocketController(
         fun onSocketRemoteRouteDeleted(idRoute: Int)
         fun onSocketTacticalRouteCreated(route: JSONObject)
         fun onSocketTacticalRouteDeleted(idRoute: Int)
-        fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String)
-        fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String)
-        fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String)
+        fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?)
+        fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?)
+        fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?)
         fun onSocketTrackingDispositivo(
             id: Int,
             lat: Double,
             lon: Double,
             label: String,
             numeroSerie: String?,
-            imei: String?
+            imei: String?,
+            rumboGrados: Double?
         )
         fun onSocketPoiCreated(
             idPoi: Int,
@@ -119,8 +120,9 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("apodo", data.optString("nombre", "P-$id"))
+                    val rumboGrados = nullableHeadingDegrees(data)
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingPersonal(id, lat, lon, label)
+                        host.onSocketTrackingPersonal(id, lat, lon, label, rumboGrados)
                     }
                 }
             },
@@ -130,8 +132,9 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("alias", data.optString("nombre", "V-$id"))
+                    val rumboGrados = nullableHeadingDegrees(data)
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingVehicle(id, lat, lon, label)
+                        host.onSocketTrackingVehicle(id, lat, lon, label, rumboGrados)
                     }
                 }
             },
@@ -141,8 +144,9 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("nombre", data.optString("tipo_equipo", "E-$id"))
+                    val rumboGrados = nullableHeadingDegrees(data)
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingEquipo(id, lat, lon, label)
+                        host.onSocketTrackingEquipo(id, lat, lon, label, rumboGrados)
                     }
                 }
             },
@@ -162,8 +166,9 @@ class OperationSocketController(
                         data.optString("numero_serie", data.optString("numeroSerie", ""))
                     ).takeIf { it.isNotBlank() }
                     val imei = data.optString("imei", "").takeIf { it.isNotBlank() }
+                    val rumboGrados = nullableHeadingDegrees(data)
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingDispositivo(id, lat, lon, label, numeroSerie, imei)
+                        host.onSocketTrackingDispositivo(id, lat, lon, label, numeroSerie, imei, rumboGrados)
                     }
                 }
             },
@@ -338,6 +343,17 @@ class OperationSocketController(
         return json.optString(key, "").trim()
             .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
     }
+
+    private fun nullableDouble(json: JSONObject, key: String): Double? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val value = json.optDouble(key, Double.NaN)
+        return value.takeUnless { it.isNaN() || it.isInfinite() }
+    }
+
+    private fun nullableHeadingDegrees(json: JSONObject): Double? =
+        listOf("rumbo_grados", "rumboGrados", "headingDegrees", "heading", "bearing", "curso", "rumbo")
+            .firstNotNullOfOrNull { key -> nullableDouble(json, key) }
+            ?.let { ((it % 360.0) + 360.0) % 360.0 }
 
     private fun isValidTrackingLocation(lat: Double, lon: Double): Boolean =
         !lat.isNaN() &&

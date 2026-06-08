@@ -24,6 +24,17 @@ class VehiculoRepository(
         return value.takeIf { it > 0 }
     }
 
+    private fun JSONObject.nullableDouble(key: String): Double? {
+        if (!has(key) || isNull(key)) return null
+        val value = optDouble(key, Double.NaN)
+        return value.takeUnless { it.isNaN() || it.isInfinite() }
+    }
+
+    private fun JSONObject.nullableHeadingDegrees(): Double? =
+        listOf("rumbo_grados", "rumboGrados", "headingDegrees", "heading", "bearing", "curso", "rumbo")
+            .firstNotNullOfOrNull { key -> nullableDouble(key) }
+            ?.let { ((it % 360.0) + 360.0) % 360.0 }
+
     fun fetchVehiculos(
         operationId: Int,
         token: String,
@@ -94,8 +105,9 @@ class VehiculoRepository(
                                 cetNombre = v.safeString("cet_nombre"),
                                 grupoNombre = grupoNombre,
                                 grupoPadreNombre = v.safeString("grupo_padre_nombre"),
-                                lat = if (v.isNull("latitud")) null else v.optDouble("latitud"),
-                                lon = if (v.isNull("longitud")) null else v.optDouble("longitud")
+                                lat = v.nullableDouble("latitud"),
+                                lon = v.nullableDouble("longitud"),
+                                rumboGrados = v.nullableHeadingDegrees()
                             )
                         )
                     }

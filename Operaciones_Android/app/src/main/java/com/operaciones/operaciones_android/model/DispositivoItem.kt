@@ -20,6 +20,7 @@ data class DispositivoItem(
     val lat: Double? = null,
     val lon: Double? = null,
     val velocidadKmh: Double? = null,
+    val rumboGrados: Double? = null,
     val precisionM: Double? = null,
     val bateriaPct: Double? = null,
     val ultimaActualizacion: String = ""

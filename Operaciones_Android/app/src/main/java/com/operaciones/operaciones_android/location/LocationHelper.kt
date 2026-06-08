@@ -5,10 +5,15 @@ import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.util.Log
+import android.view.Surface
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
@@ -31,6 +36,10 @@ class LocationHelper(
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
     private var lastEmittedLocation: Location? = null
+    private var sensorManager: SensorManager? = null
+    private var headingSensor: Sensor? = null
+    private var headingSensorListener: SensorEventListener? = null
+    @Volatile private var lastSensorHeadingDegrees: Double? = null
 
     private fun speedKmh(location: Location): Double? =
         if (location.hasSpeed()) (location.speed * 3.6).toDouble() else null
@@ -38,7 +47,7 @@ class LocationHelper(
     private fun bearingDegrees(location: Location): Double? =
         if (location.hasBearing()) location.bearing.toDouble() else null
 
-    private fun inferredBearingDegrees(location: Location): Double? {
+    private fun movementBearingDegrees(location: Location): Double? {
         bearingDegrees(location)?.let { return it }
 
         val previous = lastEmittedLocation ?: return null
@@ -46,6 +55,58 @@ class LocationHelper(
         return previous.bearingTo(location).let { bearing ->
             ((bearing % 360f) + 360f) % 360f
         }.toDouble()
+    }
+
+    private fun emittedHeadingDegrees(location: Location): Double? =
+        lastSensorHeadingDegrees ?: movementBearingDegrees(location)
+
+    private fun startHeadingUpdates() {
+        if (headingSensorListener != null) return
+
+        val manager = activity.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return
+        val sensor = manager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+            ?: manager.getDefaultSensor(Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR)
+            ?: return
+
+        sensorManager = manager
+        headingSensor = sensor
+        headingSensorListener = object : SensorEventListener {
+            private val rotationMatrix = FloatArray(9)
+            private val adjustedMatrix = FloatArray(9)
+            private val orientation = FloatArray(3)
+
+            override fun onSensorChanged(event: SensorEvent) {
+                if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR &&
+                    event.sensor.type != Sensor.TYPE_GEOMAGNETIC_ROTATION_VECTOR
+                ) {
+                    return
+                }
+
+                SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                val (axisX, axisY) = when (activity.windowManager.defaultDisplay.rotation) {
+                    Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+                    Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+                    Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+                    else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+                }
+                SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, adjustedMatrix)
+                SensorManager.getOrientation(adjustedMatrix, orientation)
+                val azimuth = Math.toDegrees(orientation[0].toDouble())
+                lastSensorHeadingDegrees = ((azimuth % 360.0) + 360.0) % 360.0
+            }
+
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+        }
+        manager.registerListener(headingSensorListener, sensor, SensorManager.SENSOR_DELAY_UI)
+    }
+
+    private fun stopHeadingUpdates() {
+        headingSensorListener?.let { listener ->
+            sensorManager?.unregisterListener(listener)
+        }
+        headingSensorListener = null
+        headingSensor = null
+        lastSensorHeadingDegrees = null
     }
 
     @SuppressLint("MissingPermission")
@@ -119,6 +180,7 @@ class LocationHelper(
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         locationManager = activity.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+        startHeadingUpdates()
 
         locationListener = LocationListener { loc ->
             Log.d("TrackingPersonal", "location update lat=${loc.latitude} lon=${loc.longitude}")
@@ -151,7 +213,7 @@ class LocationHelper(
 
     private fun emitLocation(loc: Location) {
         val speedKmh = speedKmh(loc)
-        val headingDegrees = inferredBearingDegrees(loc)
+        val headingDegrees = emittedHeadingDegrees(loc)
         val accuracyMeters = if (loc.hasAccuracy()) loc.accuracy else null
         onEmitLocation?.invoke(
             loc.latitude,
@@ -171,5 +233,6 @@ class LocationHelper(
             }
         }
         locationListener = null
+        stopHeadingUpdates()
     }
 }

@@ -28,5 +28,6 @@ data class VehiculoItem(
     val grupoPadreNombre: String = "",  // flotilla (padre del grupo)
 
     val lat: Double? = null,
-    val lon: Double? = null
+    val lon: Double? = null,
+    val rumboGrados: Double? = null
 )

@@ -240,18 +240,25 @@ class CesiumWebController(
         }
     }
 
-    fun followTrackingDispositivo(idDispositivo: Int, latitude: Double?, longitude: Double?, zoom: Int = 500) {
+    fun followTrackingDispositivo(
+        idDispositivo: Int,
+        latitude: Double?,
+        longitude: Double?,
+        zoom: Int = 500,
+        label: String? = null
+    ) {
         if (latitude == null || longitude == null) {
             selectTrackingDispositivo(idDispositivo)
             return
         }
 
+        val labelArg = label?.let { "'${jsString(it)}'" } ?: "null"
         webView.post {
             webView.evaluateJavascript(
                 """
                 (function(){
                     if (typeof followTrackingDispositivo === 'function') {
-                        followTrackingDispositivo($idDispositivo, $latitude, $longitude, $zoom);
+                        followTrackingDispositivo($idDispositivo, $latitude, $longitude, $zoom, $labelArg);
                         return 'OK';
                     }
                     if (typeof selectTrackingDispositivo === 'function') {
@@ -267,6 +274,13 @@ class CesiumWebController(
             )
         }
     }
+
+    private fun jsString(value: String): String =
+        value
+            .replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace("\n", "\\n")
+            .replace("\r", "")
 
     fun clearTrackingSelection() {
         webView.post {
