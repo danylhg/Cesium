@@ -801,7 +801,7 @@ class MainActivity : AppCompatActivity(),
             .put("grupoNombre", person?.grupoNombre ?: "")
             .put("grupoApodo", person?.grupoApodo ?: "")
             .put("cetNombre", person?.cetNombre ?: "")
-            .apply { rumboGrados?.let { put("rumbo_grados", it) } }
+            .apply { (rumboGrados ?: person?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -819,7 +819,7 @@ class MainActivity : AppCompatActivity(),
             .put("alias", vehiculo?.alias ?: label)
             .put("codigo_interno", vehiculo?.codigoInterno ?: "")
             .put("detalle", vehiculo?.detalle ?: "")
-            .apply { rumboGrados?.let { put("rumbo_grados", it) } }
+            .apply { (rumboGrados ?: vehiculo?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -836,7 +836,7 @@ class MainActivity : AppCompatActivity(),
             .put("tipo_equipo", equipo?.tipoEquipo ?: "")
             .put("nombre", equipo?.nombre ?: label)
             .put("numero_serie", equipo?.numeroSerie ?: "")
-            .apply { rumboGrados?.let { put("rumbo_grados", it) } }
+            .apply { (rumboGrados ?: equipo?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingEquipo === 'function') updateTrackingEquipo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -862,7 +862,7 @@ class MainActivity : AppCompatActivity(),
             .put("modelo", dispositivo?.modelo ?: "")
             .put("numero_serie", numeroSerie ?: dispositivo?.numeroSerie ?: "")
             .put("imei", imei ?: dispositivo?.imei ?: "")
-            .apply { rumboGrados?.let { put("rumbo_grados", it) } }
+            .apply { (rumboGrados ?: dispositivo?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingDispositivo === 'function') updateTrackingDispositivo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )

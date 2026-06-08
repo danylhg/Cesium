@@ -289,8 +289,9 @@ function firstTrackingValue(...values) {
 }
 
 function normalizeHeadingDegrees(value) {
-  if (value === undefined || value === null || String(value).trim() === "") return null;
-  const degrees = Number(value);
+  const raw = firstTrackingValue(value);
+  if (raw == null) return null;
+  const degrees = Number(String(raw).replace(/[^\d.+-]/g, "").trim());
   if (!Number.isFinite(degrees)) return null;
   return ((degrees % 360) + 360) % 360;
 }

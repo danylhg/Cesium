@@ -158,7 +158,7 @@ function getEntityProperty(entity, key) {
 function isSelectableEntity(entity) {
   if (!entity) return false;
   const tacticalType = String(getEntityProperty(entity, "tacticalType"));
-  return tacticalType !== "grid-part" && tacticalType !== "tracking-heading";
+  return !["grid-part", "tracking-heading"].includes(tacticalType);
 }
 
 function getSelectablePickedEntity(position) {
