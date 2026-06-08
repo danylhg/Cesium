@@ -95,7 +95,8 @@ class VehiculoRepository(
                                 grupoNombre = grupoNombre,
                                 grupoPadreNombre = v.safeString("grupo_padre_nombre"),
                                 lat = if (v.isNull("latitud")) null else v.optDouble("latitud"),
-                                lon = if (v.isNull("longitud")) null else v.optDouble("longitud")
+                                lon = if (v.isNull("longitud")) null else v.optDouble("longitud"),
+                                rumboGrados = if (v.isNull("rumbo_grados")) null else v.optDouble("rumbo_grados")
                             )
                         )
                     }

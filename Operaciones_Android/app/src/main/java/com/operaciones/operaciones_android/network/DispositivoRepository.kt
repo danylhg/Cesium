@@ -91,6 +91,7 @@ class DispositivoRepository(
             lat = d.nullableDouble("latitud"),
             lon = d.nullableDouble("longitud"),
             velocidadKmh = d.nullableDouble("velocidad_kmh"),
+            rumboGrados = d.nullableDouble("rumbo_grados"),
             precisionM = d.nullableDouble("precision_m"),
             bateriaPct = d.nullableDouble("bateria_pct"),
             ultimaActualizacion = d.safeString("ultima_actualizacion")

@@ -135,6 +135,7 @@ class EquipoRepository(
                                 flotillasVinculadas = flotillasVinculadas,
                                 lat = e.nullableDouble("latitud"),
                                 lon = e.nullableDouble("longitud"),
+                                rumboGrados = e.nullableDouble("rumbo_grados"),
                                 ultimaActualizacion = e.safeString("ultima_actualizacion")
                             )
                         )

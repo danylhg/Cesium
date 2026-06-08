@@ -30,5 +30,6 @@ data class EquipoItem(
     val flotillasVinculadas: List<String> = emptyList(),
     val lat: Double? = null,
     val lon: Double? = null,
+    val rumboGrados: Double? = null,
     val ultimaActualizacion: String = ""
 )

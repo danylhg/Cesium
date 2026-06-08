@@ -22,6 +22,12 @@ class OperationMapParser {
         val areaPolygons: List<AreaPolygonItem>
     )
 
+    private data class TrackingPosition(
+        val lat: Double,
+        val lon: Double,
+        val rumboGrados: Double?
+    )
+
     fun parseMapData(json: JSONObject): OperationMapData {
         val capas = json.optJSONArray("capas")
         val personalPositions = parsePersonalPositions(json.optJSONArray("personal"))
@@ -59,7 +65,8 @@ class OperationMapParser {
                     rol = p.optString("rol", ""),
                     puesto = p.optString("puesto", ""),
                     lat = nullableDouble(p, "latitud"),
-                    lon = nullableDouble(p, "longitud")
+                    lon = nullableDouble(p, "longitud"),
+                    rumboGrados = nullableDouble(p, "rumbo_grados")
                 )
             )
         }
@@ -70,15 +77,16 @@ class OperationMapParser {
     fun parseGridObject(grid: JSONObject?): OperationGridItem? =
         parseOperationGrid(grid)
 
-    private fun parsePersonalPositions(posPersonal: JSONArray?): Map<Int, Pair<Double, Double>> {
-        val posMap = mutableMapOf<Int, Pair<Double, Double>>()
+    private fun parsePersonalPositions(posPersonal: JSONArray?): Map<Int, TrackingPosition> {
+        val posMap = mutableMapOf<Int, TrackingPosition>()
         if (posPersonal == null) return posMap
 
         for (i in 0 until posPersonal.length()) {
             val p = posPersonal.optJSONObject(i) ?: continue
-            posMap[p.optInt("id_personal")] = Pair(
-                p.optDouble("latitud"),
-                p.optDouble("longitud")
+            posMap[p.optInt("id_personal")] = TrackingPosition(
+                lat = p.optDouble("latitud"),
+                lon = p.optDouble("longitud"),
+                rumboGrados = nullableDouble(p, "rumbo_grados")
             )
         }
 
@@ -87,7 +95,7 @@ class OperationMapParser {
 
     private fun parsePersonalFromLayers(
         capas: JSONArray?,
-        posMap: Map<Int, Pair<Double, Double>>
+        posMap: Map<Int, TrackingPosition>
     ): List<PersonalItem> {
         val personal = mutableListOf<PersonalItem>()
         if (capas == null) return personal
@@ -107,8 +115,9 @@ class OperationMapParser {
                     apellido = c.optString("apellido", ""),
                     rol = c.optString("rol", ""),
                     puesto = c.optString("puesto", ""),
-                    lat = pos?.first,
-                    lon = pos?.second,
+                    lat = pos?.lat,
+                    lon = pos?.lon,
+                    rumboGrados = pos?.rumboGrados ?: nullableDouble(c, "rumbo_grados"),
                     idGrupoOperacion = positiveInt(c, "id_grupo_operacion"),
                     idGrupoPadre = positiveInt(c, "grupo_padre_id"),
                     grupoNombre = c.optString("grupo_nombre", ""),
@@ -150,7 +159,8 @@ class OperationMapParser {
                     grupoNombre = v.optString("grupo_nombre", ""),
                     grupoPadreNombre = v.optString("grupo_padre_nombre", ""),
                     lat = nullableDouble(v, "latitud"),
-                    lon = nullableDouble(v, "longitud")
+                    lon = nullableDouble(v, "longitud"),
+                    rumboGrados = nullableDouble(v, "rumbo_grados")
                 )
             )
         }
@@ -210,6 +220,7 @@ class OperationMapParser {
                     flotillasVinculadas = flotillasVinculadas,
                     lat = nullableDouble(c, "latitud"),
                     lon = nullableDouble(c, "longitud"),
+                    rumboGrados = nullableDouble(c, "rumbo_grados"),
                     ultimaActualizacion = c.optString("ultima_actualizacion", "")
                 )
             )
@@ -245,6 +256,7 @@ class OperationMapParser {
                     lat = nullableDouble(d, "latitud"),
                     lon = nullableDouble(d, "longitud"),
                     velocidadKmh = nullableDouble(d, "velocidad_kmh"),
+                    rumboGrados = nullableDouble(d, "rumbo_grados"),
                     precisionM = nullableDouble(d, "precision_m"),
                     bateriaPct = nullableDouble(d, "bateria_pct"),
                     ultimaActualizacion = d.optString("ultima_actualizacion", "")

@@ -30,6 +30,8 @@ const SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
 const TRACKING_SYMBOL_SIZE = 42;
 const TRACKING_SYMBOL_RENDER_SIZE = 160;
 const TRACKING_ACTIVE_STALE_MS = 30000;
+const HEADING_LINE_LENGTH_METERS = 90;
+const HEADING_LINE_WIDTH = 4;
 const trackingSymbolImageCache = new Map();
 
 function normalizeText(value) {
@@ -249,6 +251,91 @@ function firstTrackingValue(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "");
 }
 
+function normalizeHeadingDegrees(value) {
+  const raw = firstTrackingValue(value);
+  if (raw == null) return null;
+  const number = Number(String(raw).replace("°", "").trim());
+  if (!Number.isFinite(number)) return null;
+  return ((number % 360) + 360) % 360;
+}
+
+function getHeadingDegrees(item = {}) {
+  return normalizeHeadingDegrees(firstTrackingValue(
+    item.rumbo_grados,
+    item.rumboGrados,
+    item.headingDegrees,
+    item.heading,
+    item.heading_deg,
+    item.bearing,
+    item.curso,
+    item.rumbo
+  ));
+}
+
+function makeHeadingLinePositions(position, headingDegrees) {
+  const headingRadians = Cesium.Math.toRadians(headingDegrees);
+  const eastMeters = Math.sin(headingRadians) * HEADING_LINE_LENGTH_METERS;
+  const northMeters = Math.cos(headingRadians) * HEADING_LINE_LENGTH_METERS;
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(position);
+  const endPosition = Cesium.Matrix4.multiplyByPoint(
+    enu,
+    new Cesium.Cartesian3(eastMeters, northMeters, 0),
+    new Cesium.Cartesian3()
+  );
+  return [position, endPosition];
+}
+
+function removeTrackingHeadingEntity(key) {
+  const ent = dashboardState.trackingHeadingEntities.get(key);
+  if (!ent) return;
+  const viewer = dashboardState.viewer;
+  if (viewer) viewer.entities.remove(ent);
+  dashboardState.trackingHeadingEntities.delete(key);
+}
+
+function upsertTrackingHeadingEntity(key, position, color, meta = {}) {
+  const headingDegrees = getHeadingDegrees(meta.liveData || {});
+  if (headingDegrees == null) {
+    removeTrackingHeadingEntity(key);
+    return;
+  }
+
+  const positions = makeHeadingLinePositions(position, headingDegrees);
+  const material = color.withAlpha(0.95);
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
+
+  if (dashboardState.trackingHeadingEntities.has(key)) {
+    const ent = dashboardState.trackingHeadingEntities.get(key);
+    ent.name = `Rumbo ${headingDegrees.toFixed(0)}°`;
+    ent.polyline.positions = positions;
+    ent.polyline.material = material;
+    if (ent.properties) {
+      ent.properties.headingDegrees = headingDegrees;
+    }
+    return;
+  }
+
+  const ent = viewer.entities.add({
+    name: `Rumbo ${headingDegrees.toFixed(0)}°`,
+    polyline: {
+      positions,
+      width: HEADING_LINE_WIDTH,
+      material,
+      clampToGround: true,
+      zIndex: 5
+    },
+    properties: {
+      trackingKey: key,
+      tacticalType: "tracking-heading",
+      headingDegrees,
+      draggable: false
+    }
+  });
+
+  dashboardState.trackingHeadingEntities.set(key, ent);
+}
+
 function isWearableDevice(item = {}) {
   const tipo = normalizeText(item.tipo || item.tipo_dispositivo || "");
   return textIncludes(tipo, "SMARTWATCH", "WEARABLE", "WATCH", "RELOJ");
@@ -408,6 +495,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
 
   const position = Cesium.Cartesian3.fromDegrees(coords.lng, coords.lat);
   const marker = getTrackingMarker(meta);
+  upsertTrackingHeadingEntity(key, position, color, meta);
 
   if (dashboardState.trackingEntities.has(key)) {
     // Mover y refrescar estilo/etiqueta si ya existe
@@ -462,6 +550,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
 }
 
 function removeTrackingEntity(key) {
+  removeTrackingHeadingEntity(key);
   const ent = dashboardState.trackingEntities.get(key);
   if (!ent) return;
   const viewer = dashboardState.viewer;

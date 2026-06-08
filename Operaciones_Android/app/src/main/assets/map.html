@@ -63,6 +63,7 @@
     const trackingVehiculoEntities = new Map();
     const trackingEquipoEntities = new Map();
     const trackingDispositivoEntities = new Map();
+    const trackingHeadingEntities = new Map();
     const emergencyPulseEntities = new Map();
     let selectedTrackingKind = null;
     let selectedTrackingId = null;
@@ -82,6 +83,8 @@
     const TRACKING_SYMBOL_SIZE = 42;
     const TRACKING_SYMBOL_RENDER_SIZE = 160;
     const TRACKING_SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
+    const HEADING_LINE_LENGTH_METERS = 90;
+    const HEADING_LINE_WIDTH = 4;
     const trackingSymbolImageCache = new Map();
     const EMERGENCY_PULSE_COLORS = [
       Cesium.Color.fromCssColorString("#FF1D25"),
@@ -306,12 +309,21 @@
       }
     }
 
-    function getSelectableObjectAt(position) {
-      if (!viewer) return null;
-      const picked = viewer.scene.pick(position);
-      if (!picked || !picked.id) return null;
+    function getPickedEntities(position) {
+      if (!viewer) return [];
+      const drill = viewer.scene.drillPick ? viewer.scene.drillPick(position, 12) : [];
+      if (drill && drill.length) {
+        return drill.map(function (picked) { return picked && picked.id; }).filter(Boolean);
+      }
 
-      const entity = picked.id;
+      const picked = viewer.scene.pick(position);
+      return picked && picked.id ? [picked.id] : [];
+    }
+
+    function selectableObjectFromEntity(entity) {
+      if (!entity) return null;
+      if (String(getEntityProperty(entity, "tacticalType") || "") === "tracking-heading") return null;
+
       const entityId = String(entity.id || "");
       const label = getEntityText(entity);
 
@@ -351,6 +363,16 @@
         };
       }
 
+      return null;
+    }
+
+    function getSelectableObjectAt(position) {
+      if (!viewer) return null;
+      const pickedEntities = getPickedEntities(position);
+      for (let i = 0; i < pickedEntities.length; i += 1) {
+        const selected = selectableObjectFromEntity(pickedEntities[i]);
+        if (selected) return selected;
+      }
       return null;
     }
 
@@ -799,6 +821,97 @@
       return { lat: nLat, lon: nLon };
     }
 
+    function trackingHeadingKey(kind, key) {
+      return String(kind || "personal") + ":" + String(key || "");
+    }
+
+    function normalizeHeadingDegrees(value) {
+      if (value === undefined || value === null) return null;
+      const text = String(value).replace("°", "").trim();
+      if (!text) return null;
+      const number = Number(text);
+      if (!Number.isFinite(number)) return null;
+      return ((number % 360) + 360) % 360;
+    }
+
+    function firstHeadingValue(options) {
+      const source = options || {};
+      const keys = [
+        "rumbo_grados",
+        "rumboGrados",
+        "headingDegrees",
+        "heading",
+        "heading_deg",
+        "bearing",
+        "curso",
+        "rumbo"
+      ];
+      for (let i = 0; i < keys.length; i += 1) {
+        const value = source[keys[i]];
+        if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+      }
+      return null;
+    }
+
+    function makeHeadingLinePositions(position, headingDegrees) {
+      const headingRadians = Cesium.Math.toRadians(headingDegrees);
+      const eastMeters = Math.sin(headingRadians) * HEADING_LINE_LENGTH_METERS;
+      const northMeters = Math.cos(headingRadians) * HEADING_LINE_LENGTH_METERS;
+      const enu = Cesium.Transforms.eastNorthUpToFixedFrame(position);
+      const endPosition = Cesium.Matrix4.multiplyByPoint(
+        enu,
+        new Cesium.Cartesian3(eastMeters, northMeters, 0),
+        new Cesium.Cartesian3()
+      );
+      return [position, endPosition];
+    }
+
+    function removeTrackingHeadingEntity(kind, key) {
+      const id = trackingHeadingKey(kind, key);
+      const entity = trackingHeadingEntities.get(id);
+      if (!entity) return;
+      if (viewer) viewer.entities.remove(entity);
+      trackingHeadingEntities.delete(id);
+    }
+
+    function upsertTrackingHeadingEntity(kind, key, position, color, options) {
+      const headingDegrees = normalizeHeadingDegrees(firstHeadingValue(options));
+      if (headingDegrees === null) {
+        removeTrackingHeadingEntity(kind, key);
+        return;
+      }
+
+      const id = trackingHeadingKey(kind, key);
+      const positions = makeHeadingLinePositions(position, headingDegrees);
+      const material = color.withAlpha(0.95);
+
+      if (trackingHeadingEntities.has(id)) {
+        const entity = trackingHeadingEntities.get(id);
+        entity.name = "Rumbo " + headingDegrees.toFixed(0) + "°";
+        entity.polyline.positions = positions;
+        entity.polyline.material = material;
+        if (entity.properties) entity.properties.headingDegrees = headingDegrees;
+        return;
+      }
+
+      const entity = viewer.entities.add({
+        name: "Rumbo " + headingDegrees.toFixed(0) + "°",
+        polyline: {
+          positions,
+          width: HEADING_LINE_WIDTH,
+          material,
+          clampToGround: true,
+          zIndex: 5
+        },
+        properties: {
+          tacticalType: "tracking-heading",
+          headingDegrees,
+          draggable: false
+        }
+      });
+      trackingHeadingEntities.set(id, entity);
+    }
+
     function followTrackingEntity(kind, idValue, lat, lon, zoomMeters) {
       if (!viewer) return;
       const id = String(idValue || "");
@@ -966,10 +1079,11 @@
       const marker = getTrackingMilMarker(options, label);
       const current = store.get(key);
       if (current) viewer.entities.remove(current);
+      const position = Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat);
 
       const entity = viewer.entities.add({
         name: label,
-        position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat),
+        position,
         billboard: marker.billboard,
         label: label ? {
           text: label,
@@ -995,6 +1109,7 @@
       });
 
       store.set(key, entity);
+      upsertTrackingHeadingEntity(options.kind, key, position, color, options);
 
       if (isTrackingKind(options.kind)) {
         applyTrackingStyle(
@@ -1087,6 +1202,7 @@
           viewer.entities.remove(current);
           trackingDispositivoEntities.delete(id);
         }
+        removeTrackingHeadingEntity("dispositivo", id);
       } catch (e) {
         console.error("Error en updateTrackingDispositivo: " + e.message);
       }

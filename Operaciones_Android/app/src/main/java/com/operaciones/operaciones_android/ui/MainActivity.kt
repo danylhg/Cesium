@@ -780,7 +780,7 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String) {
+    override fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?) {
         val person = personalList.firstOrNull { it.idPersonal == id }
         val meta = JSONObject()
             .put("rol", person?.rol ?: "")
@@ -790,6 +790,7 @@ class MainActivity : AppCompatActivity(),
             .put("grupoNombre", person?.grupoNombre ?: "")
             .put("grupoApodo", person?.grupoApodo ?: "")
             .put("cetNombre", person?.cetNombre ?: "")
+            .put("rumbo_grados", rumboGrados ?: person?.rumboGrados)
         cesiumWebController.evaluate(
             "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -812,7 +813,7 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String) {
+    override fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?) {
         val vehiculo = vehiculosList.firstOrNull { it.idVehiculo == id }
         val meta = JSONObject()
             .put("tipo", vehiculo?.tipo ?: "")
@@ -820,6 +821,7 @@ class MainActivity : AppCompatActivity(),
             .put("alias", vehiculo?.alias ?: label)
             .put("codigo_interno", vehiculo?.codigoInterno ?: "")
             .put("detalle", vehiculo?.detalle ?: "")
+            .put("rumbo_grados", rumboGrados ?: vehiculo?.rumboGrados)
         cesiumWebController.evaluate(
             "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -829,13 +831,14 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String) {
+    override fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?) {
         val equipo = equiposList.firstOrNull { it.idEquipo == id }
         val meta = JSONObject()
             .put("categoria", equipo?.categoria ?: "")
             .put("tipo_equipo", equipo?.tipoEquipo ?: "")
             .put("nombre", equipo?.nombre ?: label)
             .put("numero_serie", equipo?.numeroSerie ?: "")
+            .put("rumbo_grados", rumboGrados ?: equipo?.rumboGrados)
         cesiumWebController.evaluate(
             "if(typeof updateTrackingEquipo === 'function') updateTrackingEquipo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -849,6 +852,7 @@ class MainActivity : AppCompatActivity(),
         lat: Double,
         lon: Double,
         label: String,
+        rumboGrados: Double?,
         numeroSerie: String?,
         imei: String?
     ) {

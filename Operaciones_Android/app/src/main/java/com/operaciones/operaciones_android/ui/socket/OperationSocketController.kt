@@ -24,14 +24,15 @@ class OperationSocketController(
         fun onSocketRemoteRouteDeleted(idRoute: Int)
         fun onSocketTacticalRouteCreated(route: JSONObject)
         fun onSocketTacticalRouteDeleted(idRoute: Int)
-        fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String)
-        fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String)
-        fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String)
+        fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?)
+        fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?)
+        fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?)
         fun onSocketTrackingDispositivo(
             id: Int,
             lat: Double,
             lon: Double,
             label: String,
+            rumboGrados: Double?,
             numeroSerie: String?,
             imei: String?
         )
@@ -119,8 +120,9 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("apodo", data.optString("nombre", "P-$id"))
+                    val rumbo = optionalDouble(data, "rumbo_grados")
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingPersonal(id, lat, lon, label)
+                        host.onSocketTrackingPersonal(id, lat, lon, label, rumbo)
                     }
                 }
             },
@@ -130,8 +132,9 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("alias", data.optString("nombre", "V-$id"))
+                    val rumbo = optionalDouble(data, "rumbo_grados")
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingVehicle(id, lat, lon, label)
+                        host.onSocketTrackingVehicle(id, lat, lon, label, rumbo)
                     }
                 }
             },
@@ -141,8 +144,9 @@ class OperationSocketController(
                     val lat = data.optDouble("latitud")
                     val lon = data.optDouble("longitud")
                     val label = data.optString("nombre", data.optString("tipo_equipo", "E-$id"))
+                    val rumbo = optionalDouble(data, "rumbo_grados")
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingEquipo(id, lat, lon, label)
+                        host.onSocketTrackingEquipo(id, lat, lon, label, rumbo)
                     }
                 }
             },
@@ -162,8 +166,9 @@ class OperationSocketController(
                         data.optString("numero_serie", data.optString("numeroSerie", ""))
                     ).takeIf { it.isNotBlank() }
                     val imei = data.optString("imei", "").takeIf { it.isNotBlank() }
+                    val rumbo = optionalDouble(data, "rumbo_grados")
                     if (id > 0 && isValidTrackingLocation(lat, lon)) {
-                        host.onSocketTrackingDispositivo(id, lat, lon, label, numeroSerie, imei)
+                        host.onSocketTrackingDispositivo(id, lat, lon, label, rumbo, numeroSerie, imei)
                     }
                 }
             },
@@ -337,6 +342,13 @@ class OperationSocketController(
         if (!json.has(key) || json.isNull(key)) return null
         return json.optString(key, "").trim()
             .takeUnless { it.isBlank() || it.equals("null", ignoreCase = true) }
+    }
+
+    private fun optionalDouble(json: JSONObject, key: String): Double? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val text = json.optString(key, "").trim()
+        if (text.isBlank() || text.equals("null", ignoreCase = true)) return null
+        return text.toDoubleOrNull()?.takeIf { !it.isNaN() && !it.isInfinite() }
     }
 
     private fun isValidTrackingLocation(lat: Double, lon: Double): Boolean =

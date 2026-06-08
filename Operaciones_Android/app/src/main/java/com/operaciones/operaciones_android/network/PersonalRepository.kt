@@ -61,6 +61,7 @@ class PersonalRepository(
                                 puesto = p.safeString("puesto"),
                                 lat = if (p.isNull("latitud")) null else p.optDouble("latitud"),
                                 lon = if (p.isNull("longitud")) null else p.optDouble("longitud"),
+                                rumboGrados = if (p.isNull("rumbo_grados")) null else p.optDouble("rumbo_grados"),
                                 grupoNombre = p.safeString("grupo_nombre"),
                                 grupoApodo = p.safeString("grupo_apodo"),
                                 idGrupoOperacion = p.optInt("id_grupo_operacion", -1).takeIf { it > 0 },
