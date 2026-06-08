@@ -1600,7 +1600,7 @@ export function setTacticalUI() {
   if (dom.markZoneBtn) {
     const isModeZone = dashboardState.toolMode === "perimeter";
     dom.markZoneBtn.disabled = !isPlanningOperation;
-    dom.markZoneBtn.style.background = isModeZone ? "#00ffa6" : "";
+    dom.markZoneBtn.style.background = isModeZone ? "var(--dash-accent-light)" : "";
     dom.markZoneBtn.style.color = isModeZone ? "#001b1b" : "";
     dom.markZoneBtn.textContent = isDrawingZone ? "Marcando..." : "Marcar zona";
     dom.markZoneBtn.title = isPlanningOperation
@@ -2123,8 +2123,20 @@ export function handleTacticalPlacement(lat, lng) {
     dashboardState.drawingVertexEntities.push(ent);
 
     if (dom.tbHint) {
-      dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
+      if (dashboardState.toolMode === "perimeter") {
+        dom.tbHint.textContent = `Punto ${dashboardState.drawingPoints.length}/4 agregado para la zona de operación.`;
+      } else {
+        dom.tbHint.textContent = `Punto agregado (${dashboardState.drawingPoints.length}). Continúa marcando y luego usa "Terminar figura".`;
+      }
     }
+
+    if (dashboardState.toolMode === "perimeter" && dashboardState.drawingPoints.length === 4) {
+      if (dom.tbHint) {
+        dom.tbHint.textContent = "Cargando 4 puntos... Generando zona de operación automáticamente.";
+      }
+      void finishOperationZonePerimeter();
+    }
+
     setTacticalUI();
     return true;
   }

@@ -321,6 +321,7 @@ router.get("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
         `SELECT r.id_ruta, r.id_operacion, r.geojson,
                 r.origen_lat, r.origen_lon, r.destino_lat, r.destino_lon,
                 r.distancia_m, r.duracion_s, r.id_vehiculo,
+                r.estado_operacion_creacion,
                 r.created_by_tipo, r.id_usuario, r.id_personal,
                 r.fecha_creacion,
                 COALESCE(u.nombre || ' ' || u.apellido, p.nombre || ' ' || p.apellido, 'Sistema') AS creador_nombre
@@ -347,6 +348,7 @@ router.get("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
         `SELECT r.id_ruta, r.id_operacion, r.geojson,
                 r.origen_lat, r.origen_lon, r.destino_lat, r.destino_lon,
                 r.distancia_m, r.duracion_s, r.id_vehiculo,
+                r.estado_operacion_creacion,
                 r.created_by_tipo, r.id_usuario, r.id_personal,
                 r.fecha_creacion,
                 COALESCE(u.nombre || ' ' || u.apellido, p.nombre || ' ' || p.apellido, 'Sistema') AS creador_nombre
@@ -508,7 +510,8 @@ router.post("/ops/:id/rutas/navegacion", requireAuth, async (req, res) => {
        RETURNING
          id_ruta, id_operacion, geojson, origen_lat, origen_lon,
          destino_lat, destino_lon, distancia_m, duracion_s,
-         created_by_tipo, id_usuario, id_personal, id_vehiculo, fecha_creacion`,
+         created_by_tipo, id_usuario, id_personal, id_vehiculo,
+         estado_operacion_creacion, fecha_creacion`,
       [
         id_operacion,
         JSON.stringify(geojson),

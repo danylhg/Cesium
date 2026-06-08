@@ -9,6 +9,7 @@ import {
 import { togglePanel, closeAllPanels, showPersonnelDetail } from "./dashboard.ui.js";
 import { saveTacticalData } from "./dashboard.persistence.js";
 import { clearPersonnelLiveCamera } from "./dashboard.camera.js?v=20260604-person-card-camera";
+import { dashboardState } from "./dashboard.state.js";
 
 /**
  * Vincula los eventos de clic de los paneles laterales (Info, Ruta, Táctico, Chat).
@@ -109,12 +110,128 @@ async function apiFetchEstado(opId, nuevoEstado) {
   return res;
 }
 
+async function apiFetchOperacion(path, method = "GET", body = null) {
+  const token = localStorage.getItem("token");
+  const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
+  const options = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`
+    }
+  };
+
+  if (body) options.body = JSON.stringify(body);
+
+  const res = await fetch(`${API_BASE}${path}`, options);
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok || data?.ok === false) {
+    throw new Error(data.mensaje || data.error || res.statusText || "No se pudo guardar la operacion.");
+  }
+
+  return data.items ?? data.operacion ?? data;
+}
+
+function normalizeOperationId(value) {
+  const raw = String(value ?? "").trim();
+  return /^\d+$/.test(raw) ? raw : null;
+}
+
 function getActiveOperationId(op) {
-  return localStorage.getItem("active_operation_id") ||
-    op?.id_operacion ||
-    op?.id ||
-    op?.idOperacion ||
+  return normalizeOperationId(localStorage.getItem("active_operation_id")) ||
+    normalizeOperationId(op?.id_operacion) ||
+    normalizeOperationId(op?.id) ||
+    normalizeOperationId(op?.idOperacion) ||
     null;
+}
+
+function normalizeDateForApi(value) {
+  if (!value) return "";
+  const raw = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (raw.includes("T")) return raw.split("T")[0];
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().split("T")[0];
+}
+
+function normalizeTimeForApi(op) {
+  const raw =
+    op?.hora_inicio ||
+    op?.hora ||
+    op?.time ||
+    op?.operationTime ||
+    op?.horaOperacion ||
+    op?.hora_operacion ||
+    "";
+
+  if (/^\d{2}:\d{2}/.test(String(raw))) return String(raw).slice(0, 5);
+
+  const dateValue = op?.fecha_inicio || op?.fechaHora || op?.datetime || op?.startAt;
+  if (!dateValue || !String(dateValue).includes("T")) return "";
+  return (String(dateValue).split("T")[1] || "").slice(0, 5);
+}
+
+function normalizePriority(value) {
+  const prioridad = String(value || "MEDIA").trim().toUpperCase();
+  return ["BAJA", "MEDIA", "ALTA"].includes(prioridad) ? prioridad : "MEDIA";
+}
+
+function buildOperationPayload(op) {
+  const nombre = op?.nombre || op?.title || op?.titulo || op?.name || "Operacion planificada";
+  return {
+    nombre,
+    descripcion: op?.descripcion || op?.description || "",
+    fecha_inicio: normalizeDateForApi(op?.fecha_inicio || op?.fecha || op?.date || op?.operationDate),
+    hora_inicio: normalizeTimeForApi(op),
+    prioridad: normalizePriority(op?.prioridad)
+  };
+}
+
+function normalizeSavedOperation(savedOp, fallback) {
+  const id = savedOp?.id_operacion || savedOp?.id || getActiveOperationId(fallback);
+  const nombre = savedOp?.nombre || fallback?.nombre || fallback?.title || fallback?.titulo || "Operacion planificada";
+  const descripcion = savedOp?.descripcion || fallback?.descripcion || fallback?.description || "";
+
+  return {
+    ...fallback,
+    ...savedOp,
+    id,
+    id_operacion: id,
+    nombre,
+    title: nombre,
+    titulo: nombre,
+    description: descripcion,
+    descripcion,
+    prioridad: savedOp?.prioridad || fallback?.prioridad || "MEDIA",
+    fecha_inicio: normalizeDateForApi(savedOp?.fecha_inicio || fallback?.fecha_inicio),
+    hora_inicio: normalizeTimeForApi({ ...fallback, ...savedOp }),
+    estado: "PLANIFICADA",
+    estado_operacion: "PLANIFICADA",
+    phase: "planificada",
+    created_at: savedOp?.fecha_creacion || fallback?.created_at || new Date().toISOString()
+  };
+}
+
+async function savePlannedOperation(op) {
+  const opId = getActiveOperationId(op);
+  const payload = buildOperationPayload(op);
+  const saved = opId
+    ? await apiFetchOperacion(`/ops/${opId}`, "PUT", payload)
+    : await apiFetchOperacion("/ops", "POST", payload);
+
+  const normalized = normalizeSavedOperation(saved, op);
+  if (!normalized.id_operacion) {
+    throw new Error("El servidor no devolvio el ID de la operacion.");
+  }
+
+  localStorage.setItem("active_operation_id", normalized.id_operacion);
+  saveCurrentOperation(normalized);
+  dashboardState.currentOperation = normalized;
+  saveTacticalData();
+  return normalized;
 }
 
 async function changeOperationState(opId, estado) {
@@ -156,30 +273,20 @@ function showConfirmationModal({ title, message, confirmText = "Confirmar", onCo
  * Vincula los eventos de los botones de acción global (Guardar/Cancelar operación).
  *
  * Cuando la operación está en PLANIFICADA (los botones solo son visibles en ese estado):
- *   - Guardar  → PATCH /ops/:id/estado { estado: "ACTIVA" }    → activa la operación
- *   - Cancelar → PATCH /ops/:id/estado { estado: "CANCELADA" } → libera todo lo asignado
+ *   - Guardar  -> crea/actualiza la operacion y conserva estado PLANIFICADA
+ *   - Cancelar -> PATCH /ops/:id/estado { estado: "CANCELADA" } libera lo asignado
  */
 function bindOperationActionEvents() {
   if (dom.saveOpMapBtn) {
     dom.saveOpMapBtn.addEventListener("click", async () => {
       const op = getCurrentOperation();
-      const opId = getActiveOperationId(op);
-      const opName = op.nombre || op.title || op.titulo || "Operación";
-
-      if (!opId) {
-        alert("No se encontró la operación activa.");
-        return;
-      }
-
-
 
       try {
-        saveTacticalData();
-        saveCurrentOperation(op);
+        await savePlannedOperation(op);
         window.location.href = "menu_inicial.html";
       } catch (e) {
         console.error(e);
-        alert("Error al guardar la operación.");
+        alert(`Error al guardar la operacion: ${e.message}`);
       }
     });
   }

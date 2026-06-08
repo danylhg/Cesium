@@ -1053,11 +1053,11 @@ export function updateChatAvailability() {
   }
 
   if (dom.toggleChatPanel) {
-    dom.toggleChatPanel.style.display = "flex";
+    dom.toggleChatPanel.style.display = active ? "flex" : "none";
     dom.toggleChatPanel.disabled = !active;
   }
   if (dom.toggleCameraPanel) {
-    dom.toggleCameraPanel.style.display = "flex";
+    dom.toggleCameraPanel.style.display = active ? "flex" : "none";
     dom.toggleCameraPanel.disabled = !active;
   }
 

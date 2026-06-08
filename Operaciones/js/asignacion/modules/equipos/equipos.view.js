@@ -694,9 +694,7 @@ export function renderEquipoLeftPersonal() {
 
 export function renderEquipoLeftVehiculo() {
   const box = document.createElement("div");
-  box.className = "listBox";
-  box.style.maxHeight = "520px";
-  box.style.overflowY = "auto";
+  box.className = "listBox equipmentVehicleTargetList";
   box.addEventListener("scroll", () => {
     state.equiposLeftScrollTop = box.scrollTop;
   });
@@ -716,7 +714,7 @@ export function renderEquipoLeftVehiculo() {
     const resumen = getResumenVehiculoDetallado(v.id);
 
     const card = document.createElement("div");
-    card.className = "item" + (state.equipoSelectedResource === v.name ? " selected" : "");
+    card.className = "item equipmentVehicleTargetCard" + (state.equipoSelectedResource === v.name ? " selected" : "");
     card.style.display = "flex";
     card.style.alignItems = "flex-start";
     card.style.gap = "12px";
@@ -724,6 +722,7 @@ export function renderEquipoLeftVehiculo() {
 
     if (v.image) {
       const img = document.createElement("img");
+      img.className = "equipmentVehicleTargetImage";
       img.src = v.image;
       img.alt = v.name;
       img.style.width = "72px";
@@ -735,16 +734,18 @@ export function renderEquipoLeftVehiculo() {
     }
 
     const content = document.createElement("div");
+    content.className = "equipmentVehicleTargetContent";
     content.style.display = "flex";
     content.style.flexDirection = "column";
     content.style.gap = "6px";
     content.style.flex = "1";
 
     const title = document.createElement("div");
-    title.className = "itemName";
+    title.className = "itemName equipmentVehicleTargetTitle";
     title.textContent = v.name;
 
     const sub = document.createElement("div");
+    sub.className = "equipmentVehicleTargetMeta";
     sub.style.fontSize = "12px";
     sub.style.opacity = "0.8";
     sub.textContent = [
@@ -753,15 +754,19 @@ export function renderEquipoLeftVehiculo() {
     ].filter(Boolean).join(" | ");
 
     const info1 = document.createElement("div");
+    info1.className = "equipmentVehicleTargetDetail";
     info1.textContent = `Flotilla: ${resumen.flotilla}`;
 
     const info2 = document.createElement("div");
+    info2.className = "equipmentVehicleTargetDetail";
     info2.textContent = `Grupo: ${resumen.grupo}`;
 
     const info3 = document.createElement("div");
+    info3.className = "equipmentVehicleTargetDetail";
     info3.textContent = `Personas: ${resumen.personas}`;
 
     const estadoAsignado = document.createElement("div");
+    estadoAsignado.className = "equipmentVehicleTargetBadge";
     estadoAsignado.textContent = "Asignado";
     estadoAsignado.style.width = "max-content";
     estadoAsignado.style.padding = "3px 8px";

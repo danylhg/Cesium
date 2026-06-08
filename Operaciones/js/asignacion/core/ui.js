@@ -81,12 +81,24 @@ export function clearPanel() {
 }
 
 export function getScrollTopInPanel() {
-  return panel?.querySelector(".listBox")?.scrollTop ?? 0;
+  const scrollTarget =
+    panel?.querySelector(".personasScroll") ||
+    panel?.querySelector(".personasListBox") ||
+    panel?.querySelector(".leftPeopleList") ||
+    panel?.querySelector(".listBox");
+
+  return scrollTarget?.scrollTop ?? 0;
 }
 
 export function restoreScrollTop(listBoxEl, scrollTop) {
   if (!listBoxEl) return;
   requestAnimationFrame(() => {
+    const scrollTarget =
+      listBoxEl.querySelector?.(".personasScroll") ||
+      listBoxEl.querySelector?.(".leftPeopleList") ||
+      listBoxEl;
+
+    scrollTarget.scrollTop = scrollTop;
     listBoxEl.scrollTop = scrollTop;
   });
 }

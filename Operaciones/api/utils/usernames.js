@@ -1,3 +1,5 @@
+// Convierte un texto libre en una base segura para username:
+// minusculas, sin acentos, separadores con punto y longitud acotada.
 export function slug(s = "") {
   return s
     .toString()
@@ -8,11 +10,14 @@ export function slug(s = "") {
     .slice(0, 30);
 }
 
+// Genera un username unico en la tabla personal.
+// Si existe, agrega un contador incremental al final de la base.
 export async function generateUniqueUsername(base, client, ignoreId = null) {
   let username = base;
   let counter = 1;
 
   while (true) {
+    // ignoreId permite editar un registro sin chocar contra su propio username.
     const { rowCount } = await client.query(
       `SELECT 1 FROM personal
        WHERE username = $1
@@ -29,11 +34,15 @@ export async function generateUniqueUsername(base, client, ignoreId = null) {
   return username;
 }
 
+// Genera un apodo unico para personal.
+// Intenta variantes cortas y, como ultimo recurso, usa timestamp.
 export async function generateUniqueApodo(baseApodo, client) {
   let attempt = 0;
+  // Mantiene el apodo dentro del limite esperado por la interfaz/base.
   const cleanBase = (baseApodo || "").toString().trim().slice(0, 40) || "SinApodo";
 
   while (attempt < 20) {
+    // Primer intento: apodo limpio. Siguientes: agrega un numero corto.
     const suffix = attempt === 0 ? "" : ` ${Math.floor(10 + Math.random() * 90)}`;
     const apodo = `${cleanBase}${suffix}`.slice(0, 40);
 

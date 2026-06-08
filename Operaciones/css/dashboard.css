@@ -3465,3 +3465,126 @@ body {
 .confirmationCard {
   border-color: rgba(96, 165, 250, 0.30);
 }
+
+/* Custom Route Panel Styling - Card Separation */
+.routeSectionCard {
+  background: rgba(0, 0, 0, 0.40);
+  border: 1px solid rgba(0, 255, 170, 0.15);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  transition: all 0.2s ease;
+}
+
+.routeSectionCard:hover {
+  border-color: rgba(0, 255, 170, 0.30);
+  box-shadow: 0 6px 20px rgba(0, 255, 170, 0.08);
+}
+
+.routeSectionCard .groupTitle {
+  margin-top: 0;
+  margin-bottom: 12px;
+}
+
+/* Force flat theme blue styling globally on all buttons (replaces shiny/gradient styles) */
+.btnBeige,
+.secondaryAction,
+.topBtn,
+.mapTopActionBtn,
+.gridGenerateBtn,
+.actionBtn.saveBtn,
+#markZoneBtn,
+#btnSelectPencil,
+#opStatusBadge {
+  background: var(--dash-accent) !important;
+  color: #ffffff !important;
+  border: 1px solid var(--dash-border) !important;
+  box-shadow: var(--dash-shadow) !important;
+  text-shadow: none !important;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+
+.btnBeige:hover,
+.secondaryAction:hover,
+.topBtn:hover,
+.mapTopActionBtn:hover,
+.gridGenerateBtn:hover,
+.actionBtn.saveBtn:hover,
+#btnSelectPencil:hover {
+  background: #026ca3 !important;
+  border-color: var(--dash-border-strong) !important;
+  transform: none !important;
+  box-shadow: var(--dash-shadow) !important;
+}
+
+.btnBeige:disabled,
+.secondaryAction:disabled,
+.topBtn:disabled,
+.mapTopActionBtn:disabled,
+.gridGenerateBtn:disabled,
+.actionBtn.saveBtn:disabled,
+#btnSelectPencil:disabled {
+  opacity: .48 !important;
+  cursor: not-allowed !important;
+  background: var(--dash-surface-strong) !important;
+  border-color: var(--dash-border) !important;
+  color: rgba(255, 255, 255, 0.4) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* Custom scrollbar and cleaner styling for grid quadrant names */
+#gridNamesContainer::-webkit-scrollbar {
+  width: 6px;
+}
+
+#gridNamesContainer::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 3px;
+}
+
+#gridNamesContainer::-webkit-scrollbar-thumb {
+  background: var(--dash-border);
+  border-radius: 3px;
+}
+
+#gridNamesContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--dash-border-strong);
+}
+
+#gridNamesContainer > div {
+  margin-bottom: 8px !important;
+}
+
+#gridNamesContainer .opsInput {
+  margin-bottom: 0px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  background: rgba(0, 0, 0, 0.3) !important;
+  border-radius: 8px !important;
+  border-color: var(--dash-border) !important;
+}
+
+#gridNamesContainer label.fieldLabel {
+  margin-bottom: 3px !important;
+  font-size: 9px !important;
+  text-transform: uppercase !important;
+  color: var(--dash-border-strong) !important;
+  letter-spacing: 0.5px !important;
+}
+
+/* Side-by-side grid buttons layout */
+.gridButtonsContainer {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  width: 100%;
+}
+
+.gridButtonsContainer .btnBeige {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+

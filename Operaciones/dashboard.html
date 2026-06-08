@@ -209,10 +209,10 @@
   <aside id="routePanel" class="glassPanel">
     <h2 class="panelTitle">Rutas y mapa</h2>
 
-    <div id="operationZoneControls">
+    <div class="routeSectionCard zoneCard" id="operationZoneControls">
       <div class="groupTitle">Zona de operación</div>
       <div class="btnGrid">
-        <button id="markZoneBtn" class="btnBeige" style="background: #00ffa6; color: #001b1b;">Marcar zona</button>
+        <button id="markZoneBtn" class="btnBeige">Marcar zona</button>
         <button id="clearZoneBtn" class="btnBeige">Limpiar zona</button>
       </div>
       <div class="styleGrid" style="margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
@@ -234,29 +234,28 @@
           <input id="zoneWidthRange" type="range" min="1" max="10" step="1" value="3" style="width: 100%;">
         </div>
       </div>
-      <div id="zoneActionBtns" style="display:none;">
-        <button id="finishZoneBtn" class="btnBeige" style="display:none;">Finalizar zona</button>
+    </div>
+
+    <div class="routeSectionCard routeCard">
+      <div class="groupTitle">Ruta por Vehículo</div>
+      <select id="routeVehicleSelect"
+        style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
+        <option value="global">Ruta General (Todos los vehículos)</option>
+      </select>
+
+      <div class="latlngRow">
+        <input id="opLat" class="latlngBox" placeholder="Origen LAT-LNG" readonly />
+        <input id="opLng" class="latlngBox" placeholder="Destino LAT-LNG" readonly />
       </div>
-    </div>
 
-    <div class="groupTitle">Ruta por Vehículo</div>
-    <select id="routeVehicleSelect"
-      style="margin-bottom: 10px; width: 100%; padding: 6px; font-size: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.5); color: #fff;">
-      <option value="global">Ruta General (Todos los vehículos)</option>
-    </select>
+      <div class="routeInfo" id="routeInfo">
+        Listo. Busca una ciudad con la barra de búsqueda de Cesium, delimita un área y luego elige ORIGEN y DESTINO.
+      </div>
 
-    <div class="latlngRow">
-      <input id="opLat" class="latlngBox" placeholder="Origen LAT-LNG" readonly />
-      <input id="opLng" class="latlngBox" placeholder="Destino LAT-LNG" readonly />
-    </div>
-
-    <div class="routeInfo" id="routeInfo">
-      Listo. Busca una ciudad con la barra de búsqueda de Cesium, delimita un área y luego elige ORIGEN y DESTINO.
-    </div>
-
-    <div class="btnGrid">
-      <button id="markRoute" class="btnBeige">Marcar ruta</button>
-      <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
+      <div class="btnGrid">
+        <button id="markRoute" class="btnBeige">Marcar ruta</button>
+        <button id="clearRoute" class="btnBeige">Limpiar ruta</button>
+      </div>
     </div>
 
     <div style="display:none;">
@@ -322,8 +321,10 @@
         <option value="3x3" selected>3 x 3</option>
         <option value="4x4">4 x 4</option>
       </select>
-      <button id="generateGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; background: #00ffa6; color: #001b1b;">Generar en Zona de Operación</button>
-      <button id="clearGridBtn" class="btnBeige" style="width:100%; margin-bottom:10px; display:none;">Limpiar Cuadrícula</button>
+      <div class="gridButtonsContainer">
+        <button id="generateGridBtn" class="btnBeige">Generar en Zona de Operación</button>
+        <button id="clearGridBtn" class="btnBeige" style="display:none;">Limpiar Cuadrícula</button>
+      </div>
 
       <div id="gridNamesWrapper" style="display:none; margin-top: 10px;">
         <label class="fieldLabel">Nombres de Cuadrantes</label>

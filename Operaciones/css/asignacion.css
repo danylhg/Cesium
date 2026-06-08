@@ -275,6 +275,122 @@ body {
   transform: translateY(-1px);
 }
 
+.groupModalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(3, 15, 32, .54);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.groupModalCard {
+  width: min(520px, calc(100vw - 34px));
+  max-height: min(78vh, 620px);
+  display: flex;
+  flex-direction: column;
+  padding: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(166, 190, 230, .26);
+  background:
+    linear-gradient(180deg, rgba(17, 39, 74, .98), rgba(9, 25, 50, .98));
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(3, 15, 32, .46);
+}
+
+.groupModalTitle {
+  margin: 0 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--stroke2);
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 900;
+  text-align: left;
+}
+
+.groupModalCountRow,
+.groupModalFieldRow {
+  display: grid;
+  grid-template-columns: 138px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.groupModalCountRow {
+  margin-bottom: 12px;
+}
+
+.groupModalLabel {
+  color: rgba(243, 247, 255, .92);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.groupModalCountInput {
+  max-width: 128px;
+  margin-bottom: 0;
+}
+
+.groupModalFields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.groupModalFields:empty {
+  display: none;
+}
+
+.groupModalFields .inp,
+.groupModalCountInput {
+  margin-bottom: 0;
+}
+
+.groupModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--stroke2);
+}
+
+.groupModalActions .btnGhost,
+.groupModalActions .btnPrimary {
+  width: auto;
+  min-width: 136px;
+}
+
+@media (max-width: 560px) {
+  .groupModalCard {
+    padding: 16px;
+  }
+
+  .groupModalCountRow,
+  .groupModalFieldRow {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .groupModalCountInput,
+  .groupModalActions .btnGhost,
+  .groupModalActions .btnPrimary {
+    width: 100%;
+    max-width: none;
+  }
+
+  .groupModalActions {
+    flex-direction: column-reverse;
+  }
+}
+
 #btnVolver {
   width: 38px;
   height: 38px;
@@ -358,7 +474,7 @@ body:has(#dashboardWrap.visible) .cols {
 
 .cols.resourceWideMode,
 body.resourceWideMode .cols {
-  grid-template-columns: minmax(360px, .55fr) minmax(720px, 1.45fr);
+  grid-template-columns: minmax(430px, .68fr) minmax(680px, 1.32fr);
   gap: 24px;
 }
 
@@ -613,7 +729,7 @@ select.inp option {
   min-height: 0;
   height: 100%;
   max-height: 100%;
-  padding-bottom: 28px;
+  padding-bottom: 12px;
   overflow: hidden;
 }
 
@@ -763,7 +879,7 @@ body.resourceWideMode .rightCard .rightHeader {
   position: static;
   background: transparent;
   width: min(100%, 612px);
-  padding-top: 18px;
+  padding-top: 6px;
   margin-top: auto;
   margin-left: auto;
   margin-right: auto;
@@ -1076,6 +1192,79 @@ body.resourceWideMode .rightCard > .rightFooter .btnPrimary {
 
 .chip.navChip {
   cursor: pointer;
+}
+
+.equipmentVehicleTargetList {
+  gap: 10px !important;
+  padding: 0 6px 12px 0;
+  max-height: none !important;
+  overflow-y: auto;
+}
+
+#vehiculosLeft > .chipRow {
+  width: 100%;
+  justify-content: center;
+}
+
+.equipmentVehicleTargetCard {
+  display: grid !important;
+  grid-template-columns: 78px minmax(0, 1fr);
+  align-items: start !important;
+  justify-content: initial !important;
+  gap: 14px !important;
+  min-height: 0;
+  padding: 14px 14px !important;
+  overflow: hidden;
+}
+
+.equipmentVehicleTargetImage {
+  width: 78px !important;
+  height: 78px !important;
+  border-radius: 10px !important;
+  object-fit: cover;
+  align-self: start;
+}
+
+.equipmentVehicleTargetContent {
+  display: grid !important;
+  gap: 5px !important;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.equipmentVehicleTargetTitle {
+  min-width: 0;
+  color: #f3f7ff;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.equipmentVehicleTargetMeta {
+  color: rgba(226, 236, 252, .84);
+  font-size: 12px !important;
+  line-height: 1.25;
+  opacity: 1 !important;
+}
+
+.equipmentVehicleTargetBadge {
+  width: max-content !important;
+  margin-top: 1px;
+  padding: 3px 9px !important;
+  border-radius: 999px !important;
+  background: #e9f8ee !important;
+  color: #1f7a3f !important;
+  font-size: 12px !important;
+  font-weight: 900 !important;
+  line-height: 1.15;
+}
+
+.equipmentVehicleTargetDetail {
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1.28;
+  overflow-wrap: anywhere;
 }
 
 /* ITEMS SELECTED */
