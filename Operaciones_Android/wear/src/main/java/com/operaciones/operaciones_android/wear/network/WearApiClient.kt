@@ -6,6 +6,7 @@ import com.operaciones.operaciones_android.wear.data.WearChatMessage
 import com.operaciones.operaciones_android.wear.data.WearOperation
 import com.operaciones.operaciones_android.wear.data.WearUser
 import com.operaciones.operaciones_android.wear.data.WearUserRole
+import com.operaciones.operaciones_android.wear.device.WearDeviceInfo
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -42,6 +43,7 @@ class WearApiClient(
         val body = JSONObject().apply {
             put("username", username)
             put("password", password)
+            put("device", WearDeviceInfo.toJson(context))
         }.toString().toRequestBody("application/json".toMediaType())
 
         val req = Request.Builder()
@@ -59,7 +61,8 @@ class WearApiClient(
                 try {
                     val json = JSONObject(bodyStr)
                     if (!response.isSuccessful || !json.optBoolean("ok")) {
-                        onError(json.optString("mensaje", "Login invalido"))
+                        val message = json.optString("mensaje", "Login invalido")
+                        onError(message)
                         return
                     }
                     val u = json.getJSONObject("usuario")
@@ -173,6 +176,37 @@ class WearApiClient(
         onSuccess: (ResourceSummary) -> Unit,
         onError: (String) -> Unit
     ) {
+        val lock = Any()
+        var remaining = 3
+        val errors = mutableListOf<String>()
+        var personalResult = emptyList<String>()
+        var vehiculosResult = emptyList<String>()
+        var equiposResult = emptyList<String>()
+
+        fun finish(kind: String, items: List<String>, error: String? = null) {
+            var summary: ResourceSummary? = null
+            var failure: String? = null
+            synchronized(lock) {
+                when (kind) {
+                    "personal" -> personalResult = items
+                    "vehiculos" -> vehiculosResult = items
+                    "equipos" -> equiposResult = items
+                }
+                error?.let { errors.add(it) }
+                remaining--
+                if (remaining == 0) {
+                    val loadedAny = personalResult.isNotEmpty() || vehiculosResult.isNotEmpty() || equiposResult.isNotEmpty()
+                    if (loadedAny || errors.size < 3) {
+                        summary = ResourceSummary(personalResult, vehiculosResult, equiposResult)
+                    } else {
+                        failure = errors.firstOrNull() ?: "Error cargando recursos"
+                    }
+                }
+            }
+            summary?.let(onSuccess)
+            failure?.let(onError)
+        }
+
         fetchItems(
             path = "/ops/$operationId/personal",
             token = token,
@@ -181,34 +215,32 @@ class WearApiClient(
                     "${item.safeString("nombre")} ${item.safeString("apellido")}".trim()
                 }.ifBlank { item.safeString("rol").ifBlank { "Personal" } }
             },
-            onSuccess = { personal ->
-                fetchItems(
-                    path = "/ops/$operationId/vehiculos-asignados",
-                    token = token,
-                    mapper = { item ->
-                        item.safeString("alias").ifBlank {
-                            item.safeString("codigo_interno").ifBlank { item.safeString("tipo") }
-                        }.ifBlank { "Vehiculo" }
-                    },
-                    onSuccess = { vehiculos ->
-                        fetchItems(
-                            path = "/ops/$operationId/equipos-asignados",
-                            token = token,
-                            mapper = { item ->
-                                item.safeString("nombre").ifBlank {
-                                    item.safeString("numero_serie")
-                                }.ifBlank { "Equipo" }
-                            },
-                            onSuccess = { equipos ->
-                                onSuccess(ResourceSummary(personal, vehiculos, equipos))
-                            },
-                            onError = onError
-                        )
-                    },
-                    onError = onError
-                )
+            onSuccess = { finish("personal", it) },
+            onError = { finish("personal", emptyList(), it) }
+        )
+
+        fetchItems(
+            path = "/ops/$operationId/vehiculos-asignados",
+            token = token,
+            mapper = { item ->
+                item.safeString("alias").ifBlank {
+                    item.safeString("codigo_interno").ifBlank { item.safeString("tipo") }
+                }.ifBlank { "Vehiculo" }
             },
-            onError = onError
+            onSuccess = { finish("vehiculos", it) },
+            onError = { finish("vehiculos", emptyList(), it) }
+        )
+
+        fetchItems(
+            path = "/ops/$operationId/equipos-asignados",
+            token = token,
+            mapper = { item ->
+                item.safeString("nombre").ifBlank {
+                    item.safeString("numero_serie")
+                }.ifBlank { "Equipo" }
+            },
+            onSuccess = { finish("equipos", it) },
+            onError = { finish("equipos", emptyList(), it) }
         )
     }
 
@@ -336,7 +368,9 @@ class WearApiClient(
         accuracyMeters: Float?,
         speedKmh: Double? = null,
         headingDegrees: Double? = null,
-        onDone: () -> Unit = {}
+        onDone: () -> Unit = {},
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
     ) {
         val body = JSONObject().apply {
             put("id_personal", idPersonal)
@@ -354,8 +388,17 @@ class WearApiClient(
             .build()
 
         http.newCall(req).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) = onDone()
+            override fun onFailure(call: Call, e: IOException) {
+                onError("Error enviando tracking: ${e.message ?: "red no disponible"}")
+                onDone()
+            }
+
             override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    onSuccess()
+                } else {
+                    onError("Error enviando tracking: HTTP ${response.code}")
+                }
                 response.close()
                 onDone()
             }

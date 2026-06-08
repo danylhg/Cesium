@@ -27,7 +27,7 @@ async function main() {
     console.log(`Operacion 2 creada/actualizada: ${op2Result.codigo} - ${op2Result.estado} (id=${op2Result.idOp}) CUT=atorres grid=${op2Result.cuadricula}`);
     console.log(`Operacion 3 creada/actualizada: ${op3Result.codigo} - ${op3Result.estado} (id=${op3Result.idOp}) CUT=cramirez grid=${op3Result.cuadricula}`);
     console.log(`Operacion 4 creada/actualizada: ${op4Result.codigo} - ${op4Result.estado} (id=${op4Result.idOp}) CUT=atorres grid=${op4Result.cuadricula}`);
-    console.log(`Dispositivos seed: ${dispositivosResult.insertados} creados, ${dispositivosResult.actualizados} actualizados, ${dispositivosResult.asignados} asignados (${dispositivosResult.total} definidos)`);
+    console.log(`Dispositivos seed: ${dispositivosResult.insertados} creados, ${dispositivosResult.actualizados} actualizados, ${dispositivosResult.asignados} asignados, ${dispositivosResult.liberados} liberados (${dispositivosResult.total} definidos)`);
     console.log(`Password para usuarios seed: ${usersResult.defaultPassword}`);
     console.log(`Personal OP1: ${op1Result.personalAsignado}`);
     console.log(`Personal OP2: ${op2Result.personalAsignado}`);

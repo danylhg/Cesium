@@ -16,7 +16,8 @@ data class User(
     val username: String,
     val rol: UserRole,
     val jerarquia: String,  // campo "puesto" en la BD
-    val tabla: String       // "usuario" | "personal" — de qué tabla viene
+    val tabla: String,      // "usuario" | "personal" — de qué tabla viene
+    val idDispositivo: Int? = null
 ) {
     val nombreCompleto get() = "$nombre $apellido"
     val puedeAsignarEstructuras get() = rol == UserRole.CET

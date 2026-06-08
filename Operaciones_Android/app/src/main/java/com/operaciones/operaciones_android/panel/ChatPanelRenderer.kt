@@ -20,6 +20,7 @@ import com.operaciones.operaciones_android.R
 import com.operaciones.operaciones_android.model.ChatMessage
 import com.operaciones.operaciones_android.model.PersonalItem
 import com.operaciones.operaciones_android.model.User
+import com.operaciones.operaciones_android.model.VehiculoItem
 import com.operaciones.operaciones_android.ui.adapter.ChatAdapter
 
 internal class ChatPanelRenderer(
@@ -27,7 +28,8 @@ internal class ChatPanelRenderer(
 ) {
     private data class TargetEntry(
         val id: String,
-        val label: String
+        val label: String,
+        val sendId: String = id
     )
 
     private data class ChannelDef(
@@ -45,6 +47,7 @@ internal class ChatPanelRenderer(
         messages: MutableList<ChatMessage>,
         currentUser: User,
         personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>,
         onFilterChanged: (ChatChannelSelection) -> Unit = {}
     ): ChatPanelRefs {
         val view = host.getLayoutInflater().inflate(R.layout.panel_chat, panelContent, false)
@@ -65,7 +68,7 @@ internal class ChatPanelRenderer(
         chatRecycler.adapter = chatAdapter
         if (messages.isNotEmpty()) chatRecycler.scrollToPosition(messages.size - 1)
 
-        val channelDefs = buildChannelDefs(currentUser, personalList)
+        val channelDefs = buildChannelDefs(currentUser, personalList, vehiculosList)
         var selectedChannel = channelDefs.first()
         var selectedTargetIdx = 0
 
@@ -74,17 +77,18 @@ internal class ChatPanelRenderer(
                 Triple(channel.destinoTipo, channel.fixedId, channel.fixedLabel)
             } else {
                 val target = channel.targets.getOrNull(targetIdx)
-                Triple(channel.destinoTipo, target?.id, target?.label)
+                Triple(channel.destinoTipo, target?.sendId, target?.label)
             }
 
         fun currentSelection(): ChatChannelSelection {
-            val (tipo, id, label) = payloadFor(selectedChannel, selectedTargetIdx)
+            val target = selectedChannel.targets.getOrNull(selectedTargetIdx)
             return ChatChannelSelection(
                 type = selectedChannel.type,
                 destinatarioRol = selectedChannel.destinatarioRol,
-                destinoTipo = tipo,
-                destinoId = id,
-                destinoLabel = label
+                destinoTipo = selectedChannel.destinoTipo,
+                destinoId = target?.id ?: selectedChannel.fixedId,
+                destinoLabel = target?.label ?: selectedChannel.fixedLabel,
+                destinoSendId = target?.sendId ?: selectedChannel.fixedId
             )
         }
 
@@ -147,13 +151,20 @@ internal class ChatPanelRenderer(
 
     private fun buildChannelDefs(
         currentUser: User,
-        personalList: List<PersonalItem>
+        personalList: List<PersonalItem>,
+        vehiculosList: List<VehiculoItem>
     ): List<ChannelDef> {
         val cuts = roleTargets(personalList, "CUT")
         val cets = roleTargets(personalList, "CET")
+            .filterNot {
+                currentUser.rol.name.equals("CET", ignoreCase = true) &&
+                    currentUser.tabla.equals("personal", ignoreCase = true) &&
+                    it.id == currentUser.id.toString()
+            }
         val cells = roleTargets(personalList, "CELL")
         val flotillas = flotillaTargets(personalList)
         val grupos = groupTargets(personalList)
+        val vehiculos = vehicleTargets(vehiculosList)
 
         val rawDefs = when (currentUser.rol.name.uppercase()) {
             "CET" -> listOf(
@@ -164,7 +175,8 @@ internal class ChatPanelRenderer(
                 ChannelDef("CET_SPECIFIC", "CET especifico", cets, "CET", "CET"),
                 ChannelDef("CELL_SPECIFIC", "CELL especifico", cells, "CELL", "CELL"),
                 ChannelDef("FLOTILLA", "Flotilla", flotillas, "CELL,CET", "FLOTILLA"),
-                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO")
+                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO"),
+                ChannelDef("VEHICULO", "Vehiculo", vehiculos, "CELL,CET", "CELL_LIST")
             )
             "CELL" -> listOf(
                 ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null),
@@ -172,7 +184,17 @@ internal class ChatPanelRenderer(
                 ChannelDef("CET_SPECIFIC", "CET especifico", cets, "CET", "CET"),
                 ChannelDef("CELL_SPECIFIC", "CELL especifico", cells, "CELL", "CELL"),
                 ChannelDef("FLOTILLA", "Flotilla", flotillas, "CELL,CET", "FLOTILLA"),
-                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO")
+                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO"),
+                ChannelDef("VEHICULO", "Vehiculo", vehiculos, "CELL,CET", "CELL_LIST")
+            )
+            "CUT" -> listOf(
+                ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null),
+                ChannelDef("CETS", "Todos los CETs", emptyList(), "CET", "CETS", "ALL", "Todos los CETs"),
+                ChannelDef("CET_SPECIFIC", "CET especifico", cets, "CET", "CET"),
+                ChannelDef("CELL_SPECIFIC", "CELL especifico", cells, "CELL", "CELL"),
+                ChannelDef("FLOTILLA", "Flotilla", flotillas, "CELL,CET", "FLOTILLA"),
+                ChannelDef("GRUPO", "Grupo especifico", grupos, "CELL,CET", "GRUPO"),
+                ChannelDef("VEHICULO", "Vehiculo", vehiculos, "CELL,CET", "CELL_LIST")
             )
             else -> listOf(ChannelDef("GLOBAL", "Global (a todos)", emptyList(), "GLOBAL", null))
         }
@@ -372,6 +394,23 @@ internal class ChatPanelRenderer(
             .distinctBy { it.id.ifBlank { it.label.trim().lowercase() } }
             .sortedBy { it.label }
 
+    private fun vehicleTargets(vehiculosList: List<VehiculoItem>): List<TargetEntry> =
+        vehiculosList
+            .groupBy { it.idVehiculo }
+            .mapNotNull { (idVehiculo, vehiculos) ->
+                val occupantIds = vehiculos
+                    .mapNotNull { it.idPersonalAsignado?.takeIf { id -> id > 0 }?.toString() }
+                    .distinct()
+                if (occupantIds.isEmpty()) return@mapNotNull null
+
+                TargetEntry(
+                    id = idVehiculo.toString(),
+                    label = vehicleName(vehiculos.first()),
+                    sendId = occupantIds.joinToString(",")
+                )
+            }
+            .sortedBy { it.label }
+
     private fun flotillaTarget(person: PersonalItem): TargetEntry? {
         val padre = person.grupoPadreNombre.trim()
         val grupo = person.grupoNombre.trim()
@@ -395,4 +434,20 @@ internal class ChatPanelRenderer(
 
     private fun personName(person: PersonalItem): String =
         person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
+
+    private fun vehicleName(vehicle: VehiculoItem): String {
+        val codigo = vehicle.codigoInterno.trim()
+        val alias = vehicle.alias.trim()
+        val nombre = vehicle.nombre.trim()
+        val tipo = vehicle.tipo.trim()
+
+        return when {
+            codigo.isNotBlank() && alias.isNotBlank() -> "$codigo - $alias"
+            codigo.isNotBlank() -> codigo
+            alias.isNotBlank() -> alias
+            nombre.isNotBlank() -> nombre
+            tipo.isNotBlank() -> tipo
+            else -> "Vehiculo ${vehicle.idVehiculo}"
+        }
+    }
 }

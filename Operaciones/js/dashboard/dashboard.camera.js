@@ -5,12 +5,9 @@ import { escapeHtml, getCurrentOperation } from "./dashboard.storage.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
-const PLACEHOLDER_IMAGES = [
-  "img/cameras/cam1.png",
-  "img/cameras/cam2.png",
-  "img/cameras/cam3.png",
-  "https://images.unsplash.com/photo-1508614589041-895b88991e3e?q=80&w=1000&auto=format&fit=crop"
-];
+const CAMERA_PROTOCOL_WEBRTC = "WEBRTC";
+const CAMERA_PROTOCOL_RTMP = "RTMP";
+const CAMERA_PROTOCOLS = new Set([CAMERA_PROTOCOL_WEBRTC, CAMERA_PROTOCOL_RTMP]);
 
 let cameraData = [];
 let activeOperationId = null;
@@ -20,6 +17,7 @@ let cameraSocketBound = false;
 let cameraDragBound = false;
 let cameraSourceFilter = "all";
 let iceServers = null;
+let focusedCameraPlaybackKey = "";
 const peerConnections = new Map();
 const joinedStreams = new Set();
 const peerTargets = new Map();
@@ -40,6 +38,7 @@ const PLAYABLE_STALE_CHECK_MS = 5000;
 const PLAYABLE_STALE_MS = 9000;
 const HLS_ATTACH_RETRY_INITIAL_MS = 1500;
 const HLS_ATTACH_RETRY_MAX_MS = 15000;
+const LIVE_STREAMS_POLL_MS = 5000;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_SIDE_RATIO = 0.38;
 const VIDEO_BUFFER_DB = "operaciones-video-buffer";
@@ -53,6 +52,7 @@ let operationArchiveLoadPromise = null;
 let operationArchiveLoadKey = "";
 let uploadRetryBound = false;
 let hlsScriptPromise = null;
+let liveStreamsPollTimer = null;
 const hlsPlayers = new Map();
 const playableUrlWatchers = new Map();
 const hlsAttachRetries = new Map();
@@ -76,6 +76,7 @@ export function initCameraFeeds(opId = null, socket = null) {
   bindCameraEvents();
   makePanelDraggable();
   ensurePlaybackUiTimer();
+  ensureLiveStreamsPolling();
   bindUploadRetryEvents();
   const setupCleanup = clearLocalVideoBufferAfterSetupReset();
   void setupCleanup.then(() => openVideoBufferDb());
@@ -94,6 +95,13 @@ export function initCameraFeeds(opId = null, socket = null) {
       renderActivePersonnelCamera();
     });
   loadLiveStreams();
+}
+
+function ensureLiveStreamsPolling() {
+  if (liveStreamsPollTimer) return;
+  liveStreamsPollTimer = window.setInterval(() => {
+    void loadLiveStreams();
+  }, LIVE_STREAMS_POLL_MS);
 }
 
 function bindUploadRetryEvents() {
@@ -117,27 +125,6 @@ function absoluteUrl(url) {
 
 function isHlsUrl(url) {
   return /\.m3u8(?:[?#].*)?$/i.test(String(url || ""));
-}
-
-function frontendBaseUrl() {
-  if (window.location.protocol.startsWith("http")) {
-    return `${window.location.protocol}//${window.location.host}`;
-  }
-
-  const apiBaseUrl = /^https?:\/\//i.test(API_BASE) ? API_BASE : `http://${API_BASE}`;
-  const apiUrl = new URL(apiBaseUrl);
-  return `${apiUrl.protocol}//${apiUrl.hostname}:3000`;
-}
-
-function obsPlaybackUrl(streamKey) {
-  const key = encodeURIComponent(String(streamKey || "obs-01").trim() || "obs-01");
-  return `${frontendBaseUrl()}/Operaciones/runtime/ffmpeg-streams/${key}/index.m3u8`;
-}
-
-function setObsStatus(text, kind = "") {
-  if (!dom.obsStreamStatus) return;
-  dom.obsStreamStatus.textContent = text;
-  dom.obsStreamStatus.style.color = kind === "error" ? "#fca5a5" : kind === "ok" ? "#86efac" : "#bfdbfe";
 }
 
 function ensureHlsScript() {
@@ -172,31 +159,198 @@ function ensureHlsScript() {
   return hlsScriptPromise;
 }
 
-function loadPlaceholderCameraData() {
+function normalizeCameraText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function isDroneLikeData(data = {}) {
+  const sourceText = normalizeCameraText([
+    data.sourceType,
+    data.source_type,
+    data.kind,
+    data.name,
+    data.label,
+    data.externalDeviceId,
+    data.external_device_id,
+    data.nombre,
+    data.numero_serie,
+    data.categoria,
+    data.tipo_tactico,
+    data.tipo_equipo,
+    data.modelo,
+    data.marca
+  ].filter(Boolean).join(" "));
+  return sourceText.includes("drone") || sourceText.includes("dron") || sourceText.includes("uav") || sourceText.includes("vant");
+}
+
+function normalizeCameraProtocol(value, data = {}) {
+  if (isDroneLikeData(data)) return CAMERA_PROTOCOL_RTMP;
+  const protocol = String(value || data.protocol || data.protocolo || CAMERA_PROTOCOL_WEBRTC).trim().toUpperCase();
+  if (protocol === CAMERA_PROTOCOL_RTMP) return CAMERA_PROTOCOL_RTMP;
+  return CAMERA_PROTOCOL_WEBRTC;
+}
+
+function getCameraProtocolFamily(camera = {}) {
+  if (camera.protocolFamily) return normalizeCameraProtocol(camera.protocolFamily, camera);
+  if (isDroneLikeData(camera)) return CAMERA_PROTOCOL_RTMP;
+  if (camera.isPlayableUrl || camera.rtmpPublishUrl || camera.rtmpPlaybackUrl) return CAMERA_PROTOCOL_RTMP;
+  return normalizeCameraProtocol(camera.protocol, camera);
+}
+
+function getProtocolDisplay(protocol) {
+  return normalizeCameraProtocol(protocol) === CAMERA_PROTOCOL_RTMP ? "RTMP" : "WEBRTC";
+}
+
+function getWaitingSignalMessage(cameraOrProtocol = CAMERA_PROTOCOL_WEBRTC) {
+  const protocol = typeof cameraOrProtocol === "string"
+    ? getProtocolDisplay(cameraOrProtocol)
+    : getProtocolDisplay(getCameraProtocolFamily(cameraOrProtocol));
+  return `Esperando señal ${protocol}`;
+}
+
+function getWaitingSignalBadge(cameraOrProtocol = CAMERA_PROTOCOL_WEBRTC) {
+  const protocol = typeof cameraOrProtocol === "string"
+    ? getProtocolDisplay(cameraOrProtocol)
+    : getProtocolDisplay(getCameraProtocolFamily(cameraOrProtocol));
+  return `ESPERANDO ${protocol}`;
+}
+
+function buildWaitingSignalMarkup(camera = {}) {
+  const protocol = getCameraProtocolFamily(camera);
+  const protocolLabel = getProtocolDisplay(protocol);
+  return `
+    <div class="cameraWaitingSignal" data-protocol="${escapeHtml(protocolLabel)}">
+      <span>${escapeHtml("Esperando señal")}</span>
+      <strong>${escapeHtml(protocolLabel)}</strong>
+    </div>
+  `;
+}
+
+function buildPlaceholderCameraData() {
   const op = getCurrentOperation();
   const personal = Array.isArray(op?.personal) ? op.personal : [];
+  const equipos = Array.isArray(op?.equipos) ? op.equipos : [];
+  const drones = equipos.filter(isDroneLikeData);
+  const placeholders = [];
 
   if (personal.length > 0) {
-    cameraData = personal.map((person, index) => {
+    placeholders.push(...personal.map((person, index) => {
       const name = [person.nombre, person.apellido].filter(Boolean).join(" ").trim();
       const role = person.rol_en_operacion || person.rol || "Personal";
 
       return {
         id: `placeholder-${person.id_personal || person.id || index}`,
         name: `${name || "Agente"} (${role})`,
-        image: PLACEHOLDER_IMAGES[index % PLACEHOLDER_IMAGES.length],
-        status: "SIN SEÑAL",
+        personnelId: person.id_personal != null ? Number(person.id_personal) : person.id != null ? Number(person.id) : null,
+        protocol: CAMERA_PROTOCOL_WEBRTC,
+        protocolFamily: CAMERA_PROTOCOL_WEBRTC,
+        sourceType: "ANDROID",
+        status: getWaitingSignalBadge(CAMERA_PROTOCOL_WEBRTC),
+        sortIndex: index,
         placeholder: true
       };
-    });
-    return;
+    }));
   }
 
-  cameraData = [
-    { id: "placeholder-1", name: "Cámara 1", image: "img/cameras/cam1.png", status: "SIN SEÑAL", placeholder: true },
-    { id: "placeholder-2", name: "Cámara 2", image: "img/cameras/cam2.png", status: "SIN SEÑAL", placeholder: true },
-    { id: "placeholder-3", name: "Cámara 3", image: "img/cameras/cam3.png", status: "SIN SEÑAL", placeholder: true }
-  ];
+  placeholders.push(...drones.map((equipo, index) => ({
+    id: `placeholder-drone-${equipo.id_equipo || equipo.id || equipo.numero_serie || index}`,
+    equipoId: equipo.id_equipo != null ? Number(equipo.id_equipo) : equipo.id != null ? Number(equipo.id) : null,
+    name: equipo.nombre || equipo.nombre_display || equipo.numero_serie || `Dron ${index + 1}`,
+    protocol: CAMERA_PROTOCOL_RTMP,
+    protocolFamily: CAMERA_PROTOCOL_RTMP,
+    sourceType: "DRONE",
+    externalDeviceId: equipo.numero_serie || equipo.external_device_id || "",
+    status: getWaitingSignalBadge(CAMERA_PROTOCOL_RTMP),
+    sortIndex: personal.length + index,
+    placeholder: true
+  })));
+
+  return placeholders.length
+    ? placeholders
+    : [
+      {
+        id: "placeholder-webrtc",
+        name: "Camaras WebRTC",
+        protocol: CAMERA_PROTOCOL_WEBRTC,
+        protocolFamily: CAMERA_PROTOCOL_WEBRTC,
+        sourceType: "ANDROID",
+        status: getWaitingSignalBadge(CAMERA_PROTOCOL_WEBRTC),
+        sortIndex: 0,
+        placeholder: true
+      },
+      {
+        id: "placeholder-rtmp",
+        name: "Camaras RTMP",
+        protocol: CAMERA_PROTOCOL_RTMP,
+        protocolFamily: CAMERA_PROTOCOL_RTMP,
+        sourceType: "EXTERNAL",
+        status: getWaitingSignalBadge(CAMERA_PROTOCOL_RTMP),
+        sortIndex: 1,
+        placeholder: true
+      }
+    ];
+}
+
+function loadPlaceholderCameraData() {
+  cameraData = buildPlaceholderCameraData();
+}
+
+function isSameCameraSlot(current = {}, next = {}) {
+  const currentKey = current.playbackKey || getCameraPlaybackKey(current);
+  const nextKey = next.playbackKey || getCameraPlaybackKey(next);
+  if (currentKey && currentKey !== "unknown" && currentKey === nextKey) return true;
+
+  const currentName = getCameraNameKey(current);
+  const nextName = getCameraNameKey(next);
+  return Boolean(currentName && nextName && currentName === nextName);
+}
+
+function shouldKeepPlaceholderName(previous = {}, next = {}) {
+  if (!previous.placeholder || !previous.name) return false;
+  const nextName = normalizeCameraNameForKey(next.name || next.label || next.cameraName);
+  return !nextName || /^stream\s+\d+$/i.test(nextName) || nextName === "camara";
+}
+
+function findCameraDataIndexForCamera(nextCamera = {}) {
+  const streamId = Number(nextCamera.streamId || 0);
+  if (streamId) {
+    const byStream = cameraData.findIndex((camera) => Number(camera.streamId || 0) === streamId);
+    if (byStream >= 0) return byStream;
+  }
+  return cameraData.findIndex((camera) => isSameCameraSlot(camera, nextCamera));
+}
+
+function upsertCameraDataEntry(nextCamera = {}) {
+  const index = findCameraDataIndexForCamera(nextCamera);
+  const normalized = { ...nextCamera, placeholder: false };
+  if (index >= 0) {
+    const previous = cameraData[index] || {};
+    cameraData[index] = {
+      ...previous,
+      ...normalized,
+      name: shouldKeepPlaceholderName(previous, normalized) ? previous.name : normalized.name,
+      sortIndex: previous.sortIndex ?? normalized.sortIndex
+    };
+    return cameraData[index];
+  }
+
+  cameraData.unshift(normalized);
+  return normalized;
+}
+
+function isGenericCameraPlaceholder(camera = {}) {
+  return camera.id === "placeholder-webrtc" || camera.id === "placeholder-rtmp";
+}
+
+function mergeLiveStreamsWithPlaceholderCameraData(streams = []) {
+  const placeholders = buildPlaceholderCameraData();
+  const onlyGenericPlaceholders = placeholders.every(isGenericCameraPlaceholder);
+  cameraData = onlyGenericPlaceholders ? [] : placeholders;
+  streams.forEach((camera) => upsertCameraDataEntry(camera));
 }
 
 async function loadLiveStreams() {
@@ -214,7 +368,7 @@ async function loadLiveStreams() {
     const streams = data.items.map(streamToCamera);
     streams.forEach(rememberCameraMetadata);
     if (streams.length > 0) {
-      cameraData = streams;
+      mergeLiveStreamsWithPlaceholderCameraData(streams);
     } else {
       loadPlaceholderCameraData();
     }
@@ -226,57 +380,8 @@ async function loadLiveStreams() {
   }
 }
 
-async function registerObsStreamFromPanel() {
-  const key = String(dom.obsStreamKey?.value || "obs-01").trim() || "obs-01";
-  if (dom.obsStreamKey) dom.obsStreamKey.value = key;
-  if (!activeOperationId) {
-    setObsStatus("Sin operacion", "error");
-    return;
-  }
-
-  const playbackUrl = obsPlaybackUrl(key);
-  setObsStatus("Buscando OBS...");
-  await loadLiveStreams();
-
-  const existing = cameraData.find((camera) =>
-    String(camera.externalDeviceId || "") === key ||
-    String(camera.playbackUrl || "") === playbackUrl
-  );
-
-  if (existing) {
-    setObsStatus("Ya esta en camaras", "ok");
-    await loadLiveStreams();
-    return;
-  }
-
-  setObsStatus("Registrando...");
-  try {
-    const res = await fetch(`${API_BASE}/ops/${activeOperationId}/streams/external`, {
-      method: "POST",
-      headers: {
-        ...authHeaders(),
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        kind: "AUDIO_VIDEO",
-        label: `OBS ${key}`,
-        stream_key: `${key}-${Date.now()}`,
-        playback_url: playbackUrl,
-        external_device_id: key
-      })
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || data.ok === false) throw new Error(data.mensaje || `HTTP ${res.status}`);
-
-    setObsStatus("OBS en camaras", "ok");
-    await loadLiveStreams();
-  } catch (err) {
-    setObsStatus(err.message || "Error OBS", "error");
-  }
-}
-
 function streamToCamera(stream) {
-  const protocol = String(stream.protocol || "WEBRTC").toUpperCase();
+  const protocol = normalizeCameraProtocol(stream.protocol || "WEBRTC", stream);
   const playbackUrl = stream.playback_url || stream.rtmp_playback_url || "";
   const isPlayableUrl = playbackUrl && !/^rtmp:\/\//i.test(playbackUrl);
 
@@ -290,14 +395,16 @@ function streamToCamera(stream) {
     userId: stream.id_usuario != null ? Number(stream.id_usuario) : null,
     name: stream.label || `Stream ${stream.id_stream}`,
     protocol,
+    protocolFamily: protocol,
     kind: stream.kind,
     status: stream.status || "ACTIVE",
     publisherSocketId: stream.publisher_socket_id,
     hasPublisher: Boolean(stream.publisher_socket_id),
     playbackUrl,
     rtmpPublishUrl: stream.rtmp_publish_url || "",
-    isWebRtc: protocol === "WEBRTC" || protocol === "HYBRID",
-    isPlayableUrl,
+    rtmpPlaybackUrl: stream.rtmp_playback_url || "",
+    isWebRtc: protocol === CAMERA_PROTOCOL_WEBRTC,
+    isPlayableUrl: protocol === CAMERA_PROTOCOL_RTMP && Boolean(isPlayableUrl),
     sourceType: stream.source_type || "ANDROID",
     externalDeviceId: stream.external_device_id || "",
     streamKey: stream.stream_key || "",
@@ -307,16 +414,17 @@ function streamToCamera(stream) {
 
 function getCameraBadge(camera) {
   if (camera.localArchiveOnly) return "LOCAL";
+  const protocol = getCameraProtocolFamily(camera);
   if (camera.isPlayableUrl) {
     const state = getPlayableUrlStateForPlaybackKey(camera.playbackKey || getCameraPlaybackKey(camera));
     if (state.live) return "EN VIVO";
-    if (state.stopped) return "SIN SENAL";
-    return "ESPERANDO";
+    return getWaitingSignalBadge(protocol);
   }
-  if (camera.placeholder) return camera.status || "SIN SEÑAL";
-  if (camera.isWebRtc && !camera.hasPublisher) return "ESPERANDO";
-  if (camera.protocol === "HYBRID" || camera.protocol === "WEBRTC") return "EN VIVO";
-  return camera.protocol || "LIVE";
+  if (camera.placeholder) return camera.status || getWaitingSignalBadge(protocol);
+  if (camera.isWebRtc) {
+    return remoteStreams.has(Number(camera.streamId)) ? "EN VIVO" : getWaitingSignalBadge(protocol);
+  }
+  return getWaitingSignalBadge(protocol);
 }
 
 function getOperationStorageKey() {
@@ -640,7 +748,8 @@ function rememberCameraMetadata(camera = {}) {
     externalDeviceId: camera.externalDeviceId ?? camera.external_device_id ?? previous.externalDeviceId ?? "",
     name: camera.name || camera.label || previous.name || `Stream ${streamId}`,
     kind: camera.kind || previous.kind || "AUDIO_VIDEO",
-    protocol: camera.protocol || previous.protocol || "WEBRTC",
+    protocol: normalizeCameraProtocol(camera.protocol || previous.protocol || "WEBRTC", camera),
+    protocolFamily: getCameraProtocolFamily(camera),
     sourceType: camera.sourceType || camera.source_type || previous.sourceType || "ANDROID"
   };
   next.playbackKey = getCameraPlaybackKey(next);
@@ -1685,7 +1794,11 @@ function renderFeeds() {
   if (!dom.cameraFeeds) return;
   destroyHlsPlayersIn(dom.cameraFeeds);
   dom.cameraFeeds.innerHTML = "";
-  getRenderableCameraDataForCurrentFilter().forEach((camera) => {
+  const renderableCameras = getRenderableCameraDataForCurrentFilter();
+  if (!renderableCameras.length) {
+    dom.cameraFeeds.appendChild(createCameraEmptyState());
+  }
+  renderableCameras.forEach((camera) => {
     dom.cameraFeeds.appendChild(createFeedElement(camera));
   });
   syncCameraSourceButtons();
@@ -1735,30 +1848,56 @@ function getRenderableCameraData() {
   const slots = new Map();
   const slotNameKeys = new Map();
 
+  const rememberSlotName = (camera, playbackKey) => {
+    const nameKey = getCameraNameKey(camera);
+    if (nameKey) slotNameKeys.set(nameKey, playbackKey);
+  };
+
+  cameraData
+    .filter((camera) => camera.placeholder)
+    .forEach((camera) => {
+      const playbackKey = camera.playbackKey || getCameraPlaybackKey(camera);
+      const placeholder = {
+        ...camera,
+        id: `camera-${safeDomId(playbackKey || camera.id)}`,
+        playbackKey,
+        hasLocalArchive: false
+      };
+      slots.set(playbackKey, placeholder);
+      rememberSlotName(placeholder, playbackKey);
+    });
+
   cameraData
     .filter((camera) => !camera.placeholder)
     .forEach((camera) => {
       rememberCameraMetadata(camera);
-      const playbackKey = getCameraPlaybackKey(camera);
+      const basePlaybackKey = camera.playbackKey || getCameraPlaybackKey(camera);
+      const nameKey = getCameraNameKey(camera);
+      const matchingPlaceholderKey = !slots.has(basePlaybackKey) && nameKey ? slotNameKeys.get(nameKey) : "";
+      const playbackKey = matchingPlaceholderKey || basePlaybackKey;
       const group = rememberGroupMetadata(playbackKey, camera);
       if (group) {
         group.streamIds.add(Number(camera.streamId));
         group.activeStreamId = Number(camera.streamId);
       }
+      const previousSlot = slots.get(playbackKey);
+      const displayName = shouldKeepPlaceholderName(previousSlot, camera) ? previousSlot.name : camera.name;
       const next = {
         ...camera,
+        name: displayName,
         id: `camera-${safeDomId(playbackKey)}`,
         playbackKey,
-        hasLocalArchive: hasPlayableArchive(group)
+        sortIndex: previousSlot?.sortIndex ?? camera.sortIndex,
+        hasLocalArchive: hasPlayableArchive(group),
+        placeholder: false
       };
 
       const current = slots.get(playbackKey);
       const nextHasRemote = remoteStreams.has(Number(next.streamId));
       const currentHasRemote = current ? remoteStreams.has(Number(current.streamId)) : false;
-      if (!current || (nextHasRemote && !currentHasRemote)) {
+      if (!current || current.placeholder || (nextHasRemote && !currentHasRemote)) {
         slots.set(playbackKey, next);
-        const nameKey = getCameraNameKey(next);
-        if (nameKey) slotNameKeys.set(nameKey, playbackKey);
+        rememberSlotName(next, playbackKey);
       }
     });
 
@@ -1776,7 +1915,12 @@ function getRenderableCameraData() {
     slots.set(playbackKey, buildLocalArchiveCameraForGroup(group));
   });
 
-  const groupedCameras = [...slots.values()].sort((a, b) => String(a.name).localeCompare(String(b.name), "es"));
+  const groupedCameras = [...slots.values()].sort((a, b) => {
+    const aSort = Number.isFinite(Number(a.sortIndex)) ? Number(a.sortIndex) : 9999;
+    const bSort = Number.isFinite(Number(b.sortIndex)) ? Number(b.sortIndex) : 9999;
+    if (aSort !== bSort) return aSort - bSort;
+    return String(a.name).localeCompare(String(b.name), "es");
+  });
   if (groupedCameras.length) {
     return groupedCameras;
   }
@@ -1784,53 +1928,33 @@ function getRenderableCameraData() {
   return cameraData;
 }
 
-function isDroneCamera(camera = {}) {
-  const sourceText = normalizeCameraNameForKey([
-    camera.sourceType,
-    camera.kind,
-    camera.name,
-    camera.label,
-    camera.externalDeviceId
-  ].filter(Boolean).join(" "));
-  return sourceText.includes("drone") || sourceText.includes("dron") || sourceText.includes("uav");
-}
-
 function getRenderableCameraDataForCurrentFilter() {
   const cameras = getRenderableCameraData();
-  if (cameraSourceFilter === "drones") {
-    const drones = cameras.filter(isDroneCamera);
-    if (!drones.length) {
-      cameraSourceFilter = "all";
-      setObsStatus("Sin drones activos", "error");
-      return cameras;
-    }
-    return drones;
+  if (CAMERA_PROTOCOLS.has(cameraSourceFilter)) {
+    return cameras.filter((camera) => getCameraProtocolFamily(camera) === cameraSourceFilter);
   }
   return cameras;
 }
 
 function syncCameraSourceButtons() {
-  dom.cameraDronesBtn?.classList.toggle("active", cameraSourceFilter === "drones");
+  dom.cameraWebRtcBtn?.classList.toggle("active", cameraSourceFilter === CAMERA_PROTOCOL_WEBRTC);
+  dom.cameraRtmpBtn?.classList.toggle("active", cameraSourceFilter === CAMERA_PROTOCOL_RTMP);
+  dom.cameraWebRtcBtn?.setAttribute("aria-pressed", cameraSourceFilter === CAMERA_PROTOCOL_WEBRTC ? "true" : "false");
+  dom.cameraRtmpBtn?.setAttribute("aria-pressed", cameraSourceFilter === CAMERA_PROTOCOL_RTMP ? "true" : "false");
 }
 
-function toggleDroneCameraFilter() {
-  if (cameraSourceFilter === "drones") {
-    cameraSourceFilter = "all";
-    setObsStatus("");
-    renderFeeds();
-    return;
-  }
-
-  const hasDrones = getRenderableCameraData().some(isDroneCamera);
-  if (!hasDrones) {
-    setObsStatus("Sin drones activos", "error");
-    syncCameraSourceButtons();
-    return;
-  }
-
-  cameraSourceFilter = "drones";
-  setObsStatus("Mostrando drones", "ok");
+function setCameraProtocolFilter(protocol) {
+  const normalized = normalizeCameraProtocol(protocol);
+  cameraSourceFilter = cameraSourceFilter === normalized ? "all" : normalized;
   renderFeeds();
+}
+
+function createCameraEmptyState() {
+  const empty = document.createElement("div");
+  empty.className = "cameraEmptyState";
+  const protocol = CAMERA_PROTOCOLS.has(cameraSourceFilter) ? cameraSourceFilter : CAMERA_PROTOCOL_WEBRTC;
+  empty.innerHTML = buildWaitingSignalMarkup({ protocol, protocolFamily: protocol });
+  return empty;
 }
 
 function createFeedElement(camera) {
@@ -1847,23 +1971,24 @@ function createFeedElement(camera) {
   const media = buildMediaMarkup(camera);
   const playback = buildPlaybackMarkup(camera);
   const audioButton = buildCameraAudioButton(camera);
+  if (playback) feed.classList.add("hasPlayback");
   const urlHint = camera.playbackUrl && !camera.isPlayableUrl
     ? `<div class="cameraFeedHint">RTMP listo para FFmpeg/HLS</div>`
     : "";
 
   feed.innerHTML = `
     <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
+    <button class="cameraSelectBtn" type="button" title="Ver esta camara" aria-label="Ver esta camara">&#128065;</button>
     ${audioButton}
-    <button class="cameraReturnBtn" type="button" title="Regresar a camaras">Camaras</button>
     ${media}
     ${urlHint}
     ${playback}
     <div class="cameraFeedName">${escapeHtml(camera.name)}</div>
   `;
 
-  feed.querySelector(".cameraReturnBtn")?.addEventListener("click", (event) => {
+  feed.querySelector(".cameraSelectBtn")?.addEventListener("click", (event) => {
     event.stopPropagation();
-    returnToCameraGrid();
+    focusCameraFeed(feed);
   });
 
   bindCameraAudioButton(feed);
@@ -1913,7 +2038,7 @@ function buildMediaMarkup(camera) {
         playsinline
         controls></video>
       <div class="cameraConnectionLostScreen" data-playback-key="${escapeHtml(playbackKey)}" aria-hidden="true">
-        <div class="cameraConnectionLostText">esperando senal RTMP</div>
+        <div class="cameraConnectionLostText">${escapeHtml(getWaitingSignalMessage(CAMERA_PROTOCOL_RTMP))}</div>
       </div>
     `;
   }
@@ -1926,13 +2051,12 @@ function buildMediaMarkup(camera) {
     return `
       <video${streamAttr} data-playback-key="${escapeHtml(playbackKey)}" data-audio-key="${escapeHtml(audioKey)}" autoplay ${audioEnabled ? "" : "muted"} playsinline></video>
       <div class="cameraConnectionLostScreen" data-playback-key="${escapeHtml(playbackKey)}" aria-hidden="true">
-        <div class="cameraConnectionLostText">se perdió la conexión</div>
+        <div class="cameraConnectionLostText">${escapeHtml(getWaitingSignalMessage(CAMERA_PROTOCOL_WEBRTC))}</div>
       </div>
     `;
   }
 
-  const image = camera.image || PLACEHOLDER_IMAGES[0];
-  return `<img src="${escapeHtml(image)}" alt="${escapeHtml(camera.name)}">`;
+  return buildWaitingSignalMarkup(camera);
 }
 
 function buildPlaybackMarkup(camera) {
@@ -2022,7 +2146,7 @@ function attachMediaStateForPlaybackKey(playbackKey) {
       setConnectionLostScreen(
         playbackKey,
         !state.live,
-        state.stopped ? "sin senal RTMP" : "esperando senal RTMP"
+        getWaitingSignalMessage(CAMERA_PROTOCOL_RTMP)
       );
       updateCameraBadgeForPlaybackKey(playbackKey);
       return;
@@ -2030,6 +2154,7 @@ function attachMediaStateForPlaybackKey(playbackKey) {
 
     if (mediaStream) {
       setConnectionLostScreen(playbackKey, false);
+      setCameraBadgeForPlaybackKey(playbackKey, "EN VIVO");
       if (video.srcObject !== mediaStream) {
         video.pause?.();
         video.removeAttribute("src");
@@ -2055,7 +2180,8 @@ function attachMediaStateForPlaybackKey(playbackKey) {
     }
 
     video.srcObject = null;
-    setConnectionLostScreen(playbackKey, Boolean(archive?.connectionLost));
+    setCameraBadgeForPlaybackKey(playbackKey, getWaitingSignalBadge(CAMERA_PROTOCOL_WEBRTC));
+    setConnectionLostScreen(playbackKey, true, getWaitingSignalMessage(CAMERA_PROTOCOL_WEBRTC));
   });
 }
 
@@ -2205,10 +2331,10 @@ function updatePlaybackControls(playbackKey = null) {
           : hasLiveSignal
             ? "LIVE"
             : playableState.hasSource
-              ? playableState.stopped ? "SIN SENAL" : "ESPERANDO"
+              ? "ESPERANDO"
               : archive
                 ? "ESPERANDO"
-                : "SIN SENAL";
+                : "ESPERANDO";
 
     queryPlaybackControls(key).forEach((control) => {
       const range = control.querySelector(".cameraPlaybackRange");
@@ -2301,7 +2427,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   let lastTapSide = "";
 
   feed.addEventListener("pointerup", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraReturnBtn, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraPlayback, .cameraAudioBtn, .cameraSelectBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const now = Date.now();
     const isDoubleTap = side !== "center" && lastTapSide === side && now - lastTapAt <= DOUBLE_TAP_MS;
@@ -2316,7 +2442,7 @@ function bindCameraSurfaceInteractions(feed, camera) {
   });
 
   feed.addEventListener("dblclick", (event) => {
-    if (event.target.closest(".cameraPlayback, .cameraReturnBtn, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraPlayback, .cameraAudioBtn, .cameraSelectBtn")) return;
     const side = getTapSide(feed, event.clientX);
     const playbackKey = feed.dataset.playbackKey;
     if (side !== "center" && playbackKey) {
@@ -2477,10 +2603,12 @@ function updateCameraBadgeForPlaybackKey(playbackKey) {
 
   const badgeText = state.live
     ? "EN VIVO"
-    : state.stopped
-      ? "SIN SENAL"
-      : "ESPERANDO";
+    : getWaitingSignalBadge(CAMERA_PROTOCOL_RTMP);
 
+  setCameraBadgeForPlaybackKey(playbackKey, badgeText);
+}
+
+function setCameraBadgeForPlaybackKey(playbackKey, badgeText) {
   document.querySelectorAll(".cameraFeed[data-playback-key]").forEach((feed) => {
     if (feed.dataset.playbackKey !== String(playbackKey)) return;
     const badge = feed.querySelector(".cameraFeedBadge");
@@ -2676,7 +2804,7 @@ function markPlayableUrlStopped(video) {
     const liveUrl = getPlayableVideoUrl(video);
     video.pause?.();
     destroyHlsPlayer(video, { stopRecording: false, stopWatcher: false });
-    setConnectionLostScreen(playbackKey, true, "sin senal RTMP");
+    setConnectionLostScreen(playbackKey, true, getWaitingSignalMessage(CAMERA_PROTOCOL_RTMP));
     if (isHlsUrl(liveUrl)) scheduleHlsAttachWhenReady(video, liveUrl, HLS_ATTACH_RETRY_INITIAL_MS);
   }
   updateCameraBadgeForPlaybackKey(playbackKey);
@@ -2735,7 +2863,7 @@ function scheduleHlsAttachWhenReady(video, url, delay = 0) {
       retry.checking = false;
       const playbackKey = video.dataset.playbackKey || "";
       if (playbackKey) {
-        setConnectionLostScreen(playbackKey, true, "esperando senal RTMP");
+        setConnectionLostScreen(playbackKey, true, getWaitingSignalMessage(CAMERA_PROTOCOL_RTMP));
         updateCameraBadgeForPlaybackKey(playbackKey);
         updatePlaybackControls(playbackKey);
       }
@@ -2856,6 +2984,59 @@ function destroyHlsPlayersIn(root) {
   });
 }
 
+function renderPersonnelCameraInto(container, personId, displayName = "") {
+  if (!container || personId == null) return;
+
+  const camera = findCameraForPerson(personId, displayName);
+  const name = camera?.name || displayName || `Agente ${personId}`;
+  const playbackKey = camera ? (camera.playbackKey || getCameraPlaybackKey(camera)) : "";
+  const fallbackCamera = {
+    protocol: CAMERA_PROTOCOL_WEBRTC,
+    protocolFamily: CAMERA_PROTOCOL_WEBRTC,
+    name,
+    placeholder: true
+  };
+  const badge = camera ? getCameraBadge(camera) : getWaitingSignalBadge(fallbackCamera);
+  const media = camera
+    ? buildMediaMarkup(camera)
+    : buildWaitingSignalMarkup(fallbackCamera);
+  const audioButton = camera ? buildCameraAudioButton(camera) : "";
+
+  destroyHlsPlayersIn(container);
+  container.dataset.playbackKey = playbackKey;
+  container.innerHTML = `
+    <div class="personInfoCameraFeed cameraFeed">
+      <div class="cameraFeedBadge">${escapeHtml(badge)}</div>
+      ${audioButton}
+      ${media}
+      <div class="cameraFeedName">${escapeHtml(name)}</div>
+    </div>
+  `;
+
+  const feed = container.querySelector(".personInfoCameraFeed");
+  if (camera && feed) {
+    bindCameraAudioButton(feed);
+    if (camera.isWebRtc && camera.streamId) joinWebRtcStream(camera);
+    bindCameraSurfaceInteractions(feed, camera);
+  }
+  attachPlayableUrlFeeds(container);
+  attachKnownMediaStreams();
+}
+
+export async function renderPersonnelLiveCamera(container, personId, displayName = "") {
+  if (!container || personId == null) return;
+
+  activeOperationId = activeOperationId || localStorage.getItem("active_operation_id");
+  const personKey = String(personId);
+  container.dataset.personCameraPersonId = personKey;
+
+  renderPersonnelCameraInto(container, personKey, displayName);
+  await loadLiveStreams();
+
+  if (container.dataset.personCameraPersonId !== personKey) return;
+  renderPersonnelCameraInto(container, personKey, displayName);
+}
+
 export async function showPersonnelLiveCamera(personId, displayName = "") {
   if (!dom.personnelDetailCamera || personId == null) return;
 
@@ -2884,10 +3065,16 @@ function renderActivePersonnelCamera() {
   const camera = findCameraForPerson(activePersonnelCamera.personId, activePersonnelCamera.displayName);
   const name = camera?.name || activePersonnelCamera.displayName || `Agente ${activePersonnelCamera.personId}`;
   const playbackKey = camera ? (camera.playbackKey || getCameraPlaybackKey(camera)) : "";
-  const badge = camera ? getCameraBadge(camera) : "SIN SEÑAL";
+  const fallbackCamera = {
+    protocol: CAMERA_PROTOCOL_WEBRTC,
+    protocolFamily: CAMERA_PROTOCOL_WEBRTC,
+    name,
+    placeholder: true
+  };
+  const badge = camera ? getCameraBadge(camera) : getWaitingSignalBadge(fallbackCamera);
   const media = camera
     ? buildMediaMarkup(camera)
-    : `<img src="${escapeHtml(getPlaceholderCameraImage(activePersonnelCamera.personId))}" alt="${escapeHtml(name)}">`;
+    : buildWaitingSignalMarkup(fallbackCamera);
   const playback = camera ? buildPlaybackMarkup(camera) : "";
   const audioButton = camera ? buildCameraAudioButton(camera) : "";
 
@@ -2933,16 +3120,6 @@ function normalizeName(value) {
     .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase();
-}
-
-function getPlaceholderCameraImage(personId) {
-  const source = String(personId || "");
-  let hash = 0;
-  for (let i = 0; i < source.length; i += 1) {
-    hash = ((hash << 5) - hash) + source.charCodeAt(i);
-    hash |= 0;
-  }
-  return PLACEHOLDER_IMAGES[Math.abs(hash) % PLACEHOLDER_IMAGES.length];
 }
 
 async function fetchIceServers() {
@@ -3097,14 +3274,7 @@ function updateCameraFromStream(stream) {
 
   const nextCamera = streamToCamera(stream);
   rememberCameraMetadata(nextCamera);
-  const index = cameraData.findIndex((camera) => Number(camera.streamId) === streamId);
-  if (index >= 0) {
-    cameraData[index] = { ...cameraData[index], ...nextCamera };
-  } else {
-    cameraData = cameraData.filter((camera) => !camera.placeholder);
-    cameraData.unshift(nextCamera);
-  }
-  return cameraData.find((camera) => Number(camera.streamId) === streamId) || nextCamera;
+  return upsertCameraDataEntry(nextCamera);
 }
 
 function findCameraByStreamId(streamId) {
@@ -3236,22 +3406,58 @@ function closePeer(streamId) {
 
 function toggleFocus(feed) {
   const wasFocused = feed.classList.contains("focused");
-  if (wasFocused) {
-    returnToCameraGrid();
+  if (wasFocused && dom.cameraFeeds?.classList.contains("speaker-layout")) {
     return;
   }
+  focusCameraFeed(feed);
+}
+
+function getCameraFeedItems() {
+  return [...(dom.cameraFeeds?.querySelectorAll(".cameraFeed") || [])];
+}
+
+function syncCameraNavigationControls() {
+  const speaker = dom.cameraFeeds?.classList.contains("speaker-layout");
+  const canAdvance = speaker && getCameraFeedItems().length > 1;
+  if (dom.cameraNextBtn) {
+    dom.cameraNextBtn.disabled = !canAdvance;
+    dom.cameraNextBtn.setAttribute("aria-disabled", canAdvance ? "false" : "true");
+  }
+}
+
+function focusCameraFeed(feed) {
+  if (!feed) return;
   setCameraLayout("speaker", feed);
+}
+
+function focusNextCamera() {
+  const feeds = getCameraFeedItems();
+  if (!feeds.length) return;
+
+  const current = dom.cameraFeeds?.querySelector(".cameraFeed.focused");
+  const currentIndex = current ? feeds.indexOf(current) : -1;
+  const nextFeed = feeds[(currentIndex + 1 + feeds.length) % feeds.length] || feeds[0];
+  setCameraLayout("speaker", nextFeed);
 }
 
 function ensureFocusedCameraInSpeakerLayout() {
   if (!dom.cameraFeeds?.classList.contains("speaker-layout")) {
     dom.cameraPanel?.classList.remove("is-focused");
+    syncCameraNavigationControls();
     return;
   }
 
   dom.cameraPanel?.classList.add("is-focused");
-  if (dom.cameraFeeds.querySelector(".cameraFeed.focused")) return;
-  dom.cameraFeeds.querySelector(".cameraFeed")?.classList.add("focused");
+  if (!dom.cameraFeeds.querySelector(".cameraFeed.focused")) {
+    const rememberedFeed = focusedCameraPlaybackKey
+      ? getCameraFeedItems().find((feed) => feed.dataset.playbackKey === focusedCameraPlaybackKey)
+      : null;
+    (rememberedFeed || dom.cameraFeeds.querySelector(".cameraFeed"))?.classList.add("focused");
+  }
+
+  const focused = dom.cameraFeeds.querySelector(".cameraFeed.focused");
+  focusedCameraPlaybackKey = focused?.dataset.playbackKey || focusedCameraPlaybackKey;
+  syncCameraNavigationControls();
 }
 
 function setCameraLayout(layout, focusFeed = null) {
@@ -3262,55 +3468,47 @@ function setCameraLayout(layout, focusFeed = null) {
   dom.cameraFeeds.classList.toggle("grid-layout", !speaker);
   dom.cameraPanel?.classList.toggle("is-focused", speaker);
   dom.cameraLayoutSpeaker?.classList.toggle("active", speaker);
+  dom.cameraLayoutSpeaker?.setAttribute("aria-pressed", speaker ? "true" : "false");
   dom.cameraLayoutGrid?.classList.toggle("active", !speaker);
+  dom.cameraLayoutGrid?.setAttribute("aria-pressed", speaker ? "false" : "true");
 
-  document.querySelectorAll(".cameraFeed").forEach((item) => item.classList.remove("focused"));
+  getCameraFeedItems().forEach((item) => item.classList.remove("focused"));
   if (speaker) {
-    (focusFeed || dom.cameraFeeds.querySelector(".cameraFeed"))?.classList.add("focused");
+    const selectedFeed = focusFeed && dom.cameraFeeds.contains(focusFeed)
+      ? focusFeed
+      : focusedCameraPlaybackKey
+        ? getCameraFeedItems().find((feed) => feed.dataset.playbackKey === focusedCameraPlaybackKey)
+        : null;
+    const focused = selectedFeed || dom.cameraFeeds.querySelector(".cameraFeed");
+    focused?.classList.add("focused");
+    focusedCameraPlaybackKey = focused?.dataset.playbackKey || focusedCameraPlaybackKey;
   }
+  syncCameraNavigationControls();
 }
 
 function returnToCameraGrid() {
   setCameraLayout("grid");
 }
 
+function closeCameraPanel() {
+  dom.cameraPanel?.classList.remove("open");
+  dom.toggleCameraPanel?.classList.remove("active");
+}
+
 function bindCameraEvents() {
   if (cameraEventsBound) return;
   cameraEventsBound = true;
 
-  if (dom.cameraLayoutGrid && dom.cameraFeeds) {
-    dom.cameraLayoutGrid.onclick = returnToCameraGrid;
-  }
+  dom.cameraLayoutGrid?.addEventListener("click", returnToCameraGrid);
+  dom.cameraLayoutSpeaker?.addEventListener("click", () => {
+    setCameraLayout("speaker", dom.cameraFeeds?.querySelector(".cameraFeed.focused"));
+  });
+  dom.cameraNextBtn?.addEventListener("click", focusNextCamera);
+  dom.cameraCloseBtn?.addEventListener("click", closeCameraPanel);
 
-  if (dom.cameraBackToGrid) {
-    dom.cameraBackToGrid.addEventListener("click", returnToCameraGrid);
-  }
+  dom.cameraWebRtcBtn?.addEventListener("click", () => setCameraProtocolFilter(CAMERA_PROTOCOL_WEBRTC));
+  dom.cameraRtmpBtn?.addEventListener("click", () => setCameraProtocolFilter(CAMERA_PROTOCOL_RTMP));
 
-  if (dom.cameraLayoutSpeaker && dom.cameraFeeds) {
-    dom.cameraLayoutSpeaker.onclick = () => {
-      setCameraLayout("speaker", document.querySelector(".cameraFeed.focused"));
-    };
-  }
-
-  if (dom.cameraDronesBtn) {
-    dom.cameraDronesBtn.addEventListener("click", toggleDroneCameraFilter);
-  }
-
-  if (dom.registerObsStreamBtn) {
-    dom.registerObsStreamBtn.addEventListener("click", registerObsStreamFromPanel);
-  }
-
-  if (dom.obsStreamKey) {
-    dom.obsStreamKey.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        registerObsStreamFromPanel();
-      }
-    });
-    dom.obsStreamKey.addEventListener("input", () => {
-      setObsStatus("");
-    });
-  }
 }
 
 function makePanelDraggable() {
@@ -3326,8 +3524,8 @@ function makePanelDraggable() {
   function startDragging(event) {
     if (event.button !== 0) return;
     if (event.target.closest("button, input, select, textarea, a")) return;
-    if (event.target.closest(".cameraPlayback, .camScrubberWrap, .cameraReturnBtn, .cameraAudioBtn")) return;
-    if (event.target.closest(".cameraControls, .obsControls, .cameraBottomControls, .layoutBtn")) return;
+    if (event.target.closest(".cameraPlayback, .camScrubberWrap, .cameraAudioBtn")) return;
+    if (event.target.closest(".cameraLayoutControls, .cameraBottomControls")) return;
 
     const rect = panel.getBoundingClientRect();
     const inResizeCorner = event.clientX > rect.right - 26 && event.clientY > rect.bottom - 26;

@@ -13,6 +13,7 @@ class PanelNavigationController(
     private val btnNavPersonal: LinearLayout,
     private val btnNavVehiculos: LinearLayout,
     private val btnNavEquipos: LinearLayout,
+    private val btnNavDispositivos: LinearLayout,
     private val host: Host
 ) {
 
@@ -22,7 +23,8 @@ class PanelNavigationController(
         CHAT,
         PERSONAL,
         VEHICULOS,
-        EQUIPOS
+        EQUIPOS,
+        DISPOSITIVOS
     }
 
     interface Host {
@@ -31,6 +33,7 @@ class PanelNavigationController(
         fun inflatePersonalPanel()
         fun inflateVehiculoPanel()
         fun inflateEquipoPanel()
+        fun inflateDispositivoPanel()
     }
 
     var activePanel: Panel = Panel.NONE
@@ -42,6 +45,7 @@ class PanelNavigationController(
         btnNavPersonal.setOnClickListener { togglePanel(Panel.PERSONAL) }
         btnNavVehiculos.setOnClickListener { togglePanel(Panel.VEHICULOS) }
         btnNavEquipos.setOnClickListener { togglePanel(Panel.EQUIPOS) }
+        btnNavDispositivos.setOnClickListener { togglePanel(Panel.DISPOSITIVOS) }
     }
 
     fun togglePanel(panel: Panel) {
@@ -57,6 +61,7 @@ class PanelNavigationController(
         setNavActive(btnNavPersonal, panel == Panel.PERSONAL)
         setNavActive(btnNavVehiculos, panel == Panel.VEHICULOS)
         setNavActive(btnNavEquipos, panel == Panel.EQUIPOS)
+        setNavActive(btnNavDispositivos, panel == Panel.DISPOSITIVOS)
 
         if (panel == Panel.NONE) {
             panelContent.visibility = View.GONE
@@ -71,6 +76,7 @@ class PanelNavigationController(
             Panel.PERSONAL -> host.inflatePersonalPanel()
             Panel.VEHICULOS -> host.inflateVehiculoPanel()
             Panel.EQUIPOS -> host.inflateEquipoPanel()
+            Panel.DISPOSITIVOS -> host.inflateDispositivoPanel()
             Panel.NONE -> {}
         }
     }

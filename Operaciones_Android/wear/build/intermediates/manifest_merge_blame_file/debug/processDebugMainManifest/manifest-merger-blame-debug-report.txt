@@ -77,29 +77,29 @@
 34-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:23:22-74
 35
 36    <queries>
-36-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:19:5-21:15
+36-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:19:5-21:15
 37        <package android:name="com.google.android.wearable.healthservices" />
-37-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:20:9-78
-37-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:20:18-75
+37-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:20:9-78
+37-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:20:18-75
 38    </queries>
 39
 40    <permission
-40-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:22:5-24:47
+40-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.4.1\transforms\7d05fb1d6fc30bbd1df45318c4a27389\transformed\core-1.10.1\AndroidManifest.xml:22:5-24:47
 41        android:name="com.operaciones.operaciones_android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
-41-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:23:9-81
+41-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.4.1\transforms\7d05fb1d6fc30bbd1df45318c4a27389\transformed\core-1.10.1\AndroidManifest.xml:23:9-81
 42        android:protectionLevel="signature" />
-42-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:24:9-44
+42-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.4.1\transforms\7d05fb1d6fc30bbd1df45318c4a27389\transformed\core-1.10.1\AndroidManifest.xml:24:9-44
 43
 44    <uses-permission android:name="com.operaciones.operaciones_android.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" />
-44-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:26:5-97
-44-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:26:22-94
+44-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.4.1\transforms\7d05fb1d6fc30bbd1df45318c4a27389\transformed\core-1.10.1\AndroidManifest.xml:26:5-97
+44-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.4.1\transforms\7d05fb1d6fc30bbd1df45318c4a27389\transformed\core-1.10.1\AndroidManifest.xml:26:22-94
 45
 46    <application
-46-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:25:5-52:19
+46-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:25:5-64:19
 47        android:allowBackup="false"
 47-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:26:9-36
 48        android:appComponentFactory="androidx.core.app.CoreComponentFactory"
-48-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.3.1\transforms\51097be9cae1d27dbd8c7d6bd77e02ed\workspace\transformed\core-1.10.1\AndroidManifest.xml:28:18-86
+48-->[androidx.core:core:1.10.1] C:\Users\PC\.gradle\caches\9.4.1\transforms\7d05fb1d6fc30bbd1df45318c4a27389\transformed\core-1.10.1\AndroidManifest.xml:28:18-86
 49        android:debuggable="true"
 50        android:extractNativeLibs="false"
 50-->INJECTED
@@ -149,36 +149,58 @@
 74            android:foregroundServiceType="location" />
 74-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:50:13-53
 75        <service
-75-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:24:9-31:19
-76            android:name="androidx.health.services.client.VersionApiService"
-76-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:25:13-77
-77            android:exported="true"
-77-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:26:13-36
-78            android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" >
-78-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:27:13-108
-79            <intent-filter>
-79-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:28:13-30:29
-80                <action android:name="hs.versionclient.BIND" />
-80-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:29:17-64
-80-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\131d389b4155cd0a862e2004b7b245e2\workspace\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:29:25-61
-81            </intent-filter>
-82        </service>
-83
-84        <activity
-84-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:9-173
-85            android:name="com.google.android.gms.common.api.GoogleApiActivity"
-85-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:19-85
-86            android:exported="false"
-86-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:146-170
-87            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-87-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\0a1c033f7ccddf5fbf54b9dfb48ecd3e\workspace\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:86-145
-88
-89        <meta-data
-89-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\3dcb3910dc131723199f8d60f51b9652\workspace\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:21:9-23:69
-90            android:name="com.google.android.gms.version"
-90-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\3dcb3910dc131723199f8d60f51b9652\workspace\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:22:13-58
-91            android:value="@integer/google_play_services_version" />
-91-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.3.1\transforms\3dcb3910dc131723199f8d60f51b9652\workspace\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:23:13-66
-92    </application>
-93
-94</manifest>
+75-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:52:9-62:19
+76            android:name="com.operaciones.operaciones_android.wear.bridge.WearPhoneListenerService"
+76-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:53:13-60
+77            android:exported="true" >
+77-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:54:13-36
+78            <intent-filter>
+78-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:55:13-61:29
+79                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+79-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:56:17-91
+79-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:56:25-88
+80
+81                <data
+81-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:57:17-60:45
+82                    android:host="*"
+82-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:58:21-37
+83                    android:pathPrefix="/sedam"
+83-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:59:21-48
+84                    android:scheme="wear" />
+84-->C:\Users\PC\Desktop\cesium-proyecto\Operaciones_Android\wear\src\main\AndroidManifest.xml:60:21-42
+85            </intent-filter>
+86        </service>
+87        <service
+87-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:24:9-31:19
+88            android:name="androidx.health.services.client.VersionApiService"
+88-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:25:13-77
+89            android:exported="true"
+89-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:26:13-36
+90            android:permission="com.google.android.wearable.healthservices.permission.PASSIVE_DATA_BINDING" >
+90-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:27:13-108
+91            <intent-filter>
+91-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:28:13-30:29
+92                <action android:name="hs.versionclient.BIND" />
+92-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:29:17-64
+92-->[androidx.health:health-services-client:1.0.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\74350282476acd7c55de40482458ab3a\transformed\jetified-health-services-client-1.0.0\AndroidManifest.xml:29:25-61
+93            </intent-filter>
+94        </service>
+95
+96        <activity
+96-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\8f65205aa2f6059bec48fd7c527c05f8\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:9-173
+97            android:name="com.google.android.gms.common.api.GoogleApiActivity"
+97-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\8f65205aa2f6059bec48fd7c527c05f8\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:19-85
+98            android:exported="false"
+98-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\8f65205aa2f6059bec48fd7c527c05f8\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:146-170
+99            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+99-->[com.google.android.gms:play-services-base:18.5.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\8f65205aa2f6059bec48fd7c527c05f8\transformed\jetified-play-services-base-18.5.0\AndroidManifest.xml:5:86-145
+100
+101        <meta-data
+101-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\5653fc2f0502acd7305bb2a9877befb4\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:21:9-23:69
+102            android:name="com.google.android.gms.version"
+102-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\5653fc2f0502acd7305bb2a9877befb4\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:22:13-58
+103            android:value="@integer/google_play_services_version" />
+103-->[com.google.android.gms:play-services-basement:18.9.0] C:\Users\PC\.gradle\caches\9.4.1\transforms\5653fc2f0502acd7305bb2a9877befb4\transformed\jetified-play-services-basement-18.9.0\AndroidManifest.xml:23:13-66
+104    </application>
+105
+106</manifest>

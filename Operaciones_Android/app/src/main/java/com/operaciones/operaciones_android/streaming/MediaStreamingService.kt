@@ -402,25 +402,14 @@ class MediaStreamingService : Service(), ConnectChecker {
 
         socket?.on(Socket.EVENT_CONNECT) {
             Log.d(TAG, "Socket stream conectado")
-            socket?.emit("join_operacion", JSONObject().apply {
-                put("id_operacion", operationId)
-                if (userId > 0 && userTable == "personal") put("id_personal", userId)
-                if (userRole.isNotBlank()) put("rol", userRole)
-            })
-            socket?.emit("stream_join", JSONObject().apply {
-                put("id_operacion", operationId)
-                put("id_stream", streamId)
-                put("role", "publisher")
-            })
-            mainHandler.removeCallbacks(pingRunnable)
-            mainHandler.postDelayed(pingRunnable, 15_000L)
+            mainHandler.post { handleSignalingConnected() }
         }
 
         socket?.on("webrtc_viewer_joined") { args ->
             val payload = args.firstOrNull() as? JSONObject ?: return@on
             val viewerSocketId = payload.optString("viewer_socket_id", "")
             if (viewerSocketId.isNotBlank()) {
-                mainHandler.post { createOfferForViewer(viewerSocketId) }
+                mainHandler.post { createOfferForViewer(viewerSocketId, replaceExisting = true) }
             }
         }
 
@@ -466,13 +455,54 @@ class MediaStreamingService : Service(), ConnectChecker {
 
         socket?.on(Socket.EVENT_CONNECT_ERROR) { args ->
             Log.e(TAG, "Socket stream connect_error: ${args.firstOrNull()}")
+            mainHandler.post { updateNotification("Reconectando transmision WebRTC...") }
+        }
+
+        socket?.on(Socket.EVENT_DISCONNECT) { args ->
+            Log.w(TAG, "Socket stream desconectado: ${args.firstOrNull()}")
+            mainHandler.post {
+                mainHandler.removeCallbacks(pingRunnable)
+                closeAllPeers()
+                if (!stopping) updateNotification("Reconectando transmision WebRTC...")
+            }
         }
 
         socket?.connect()
     }
 
-    private fun createOfferForViewer(viewerSocketId: String) {
-        if (peerConnections.containsKey(viewerSocketId)) return
+    private fun handleSignalingConnected() {
+        closeAllPeers()
+        socket?.emit("join_operacion", JSONObject().apply {
+            put("id_operacion", operationId)
+            if (userId > 0 && userTable == "personal") put("id_personal", userId)
+            if (userRole.isNotBlank()) put("rol", userRole)
+        })
+        socket?.emit("stream_join", JSONObject().apply {
+            put("id_operacion", operationId)
+            put("id_stream", streamId)
+            put("role", "publisher")
+            put("refresh", true)
+        })
+        socket?.emit("stream_ping", JSONObject().apply {
+            put("id_operacion", operationId)
+            put("id_stream", streamId)
+        })
+        mainHandler.removeCallbacks(pingRunnable)
+        mainHandler.postDelayed(pingRunnable, 15_000L)
+        updateNotification(
+            if (isRtmpUrl(rtmpPublishUrl)) {
+                "Transmitiendo por RTMP"
+            } else {
+                "Transmitiendo camara y microfono en vivo por WebRTC"
+            }
+        )
+    }
+
+    private fun createOfferForViewer(viewerSocketId: String, replaceExisting: Boolean = false) {
+        if (peerConnections.containsKey(viewerSocketId)) {
+            if (!replaceExisting) return
+            closePeer(viewerSocketId)
+        }
         val factory = peerConnectionFactory ?: return
 
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
@@ -589,6 +619,11 @@ class MediaStreamingService : Service(), ConnectChecker {
         peerConnections.remove(viewerSocketId)?.dispose()
     }
 
+    private fun closeAllPeers() {
+        peerConnections.values.forEach { it.dispose() }
+        peerConnections.clear()
+    }
+
     private fun stopStreaming(notifyServer: Boolean) {
         if (stopping) return
         stopping = true
@@ -607,8 +642,7 @@ class MediaStreamingService : Service(), ConnectChecker {
             notifyStreamStopHttp(status)
         }
 
-        peerConnections.values.forEach { it.dispose() }
-        peerConnections.clear()
+        closeAllPeers()
 
         rtmpCamera?.let { camera ->
             try {

@@ -12,29 +12,16 @@
 
   <header class="topbar">
     <div class="brand">
-      <button id="btnBack" class="backOnly" type="button" aria-label="Volver" title="Volver">
-        <svg viewBox="0 0 24 24" focusable="false" width="20" height="20">
-          <path d="M19 12H5M12 19l-7-7 7-7" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-      </button>
+      <div class="logo"></div>
+      <div class="brandText">
+        <div class="brandName">Centro de Operaciones</div>
+        <div class="brandSub">Control de dispositivos</div>
+      </div>
     </div>
 
     <div class="topActions">
-      <div class="logo" aria-label="Logo SEDAM"></div>
-      <div class="controlUserMenu">
-        <button class="userButton" type="button" aria-haspopup="true" aria-expanded="false">
-          <span class="userIcon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z"></path>
-              <path d="M4.5 20a7.5 7.5 0 0 1 15 0"></path>
-            </svg>
-          </span>
-          <span id="controlUserName">Admin</span>
-        </button>
-        <div class="userDropdown">
-          <button id="btnLogout" type="button">Cerrar sesi&oacute;n</button>
-        </div>
-      </div>
+      <button id="btnBack" class="btnTop">Volver</button>
+      <button id="btnLogout" class="btnTop">Cerrar sesión</button>
     </div>
   </header>
 
@@ -45,61 +32,59 @@
           <h1 class="title">Control de Dispositivos</h1>
           <p class="subtitle">Administra tablets, teléfonos y otros dispositivos registrados</p>
         </div>
+
+        <div class="headBtns">
+          <button id="btnAdd" class="btn primary"><span class="btnIcon">＋</span>Agregar</button>
+          <button id="btnEdit" class="btn soft" disabled><span class="btnIcon">✎</span>Modificar</button>
+          <button id="btnDelete" class="btn danger" disabled><span class="btnIcon">×</span>Eliminar</button>
+        </div>
       </div>
 
       <div class="filtersCard">
-        <div class="field searchField">
+        <div class="field">
           <label>Buscar</label>
-          <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, telefono, IMEI, ID app..." />
+          <div class="searchRow">
+            <input id="searchInput" type="text" placeholder="Buscar por tipo, marca, modelo, telefono, IMEI..." />
+            <button id="btnSearch" class="btn mini soft" type="button"><span class="btnIcon miniIcon">⌕</span>Buscar</button>
+            <button id="btnClear" class="btn mini" type="button">Limpiar</button>
+          </div>
         </div>
 
-        <div class="field filterField">
-          <label>Filtro por Tipo</label>
-          <select id="filterTipo">
-            <option value="">Todos</option>
-            <option value="TELEFONO">Teléfono</option>
-            <option value="TABLET">Tablet</option>
-            <option value="SMARTWATCH">Smart watch</option>
-            <option value="LORA">LoRa</option>
-            <option value="LAPTOP">Laptop</option>
-            <option value="RADIO">Radio</option>
-            <option value="GPS">GPS</option>
-            <option value="OTRO">Otro</option>
-          </select>
+        <div class="grid3">
+          <div class="field">
+            <label>Filtro por Tipo</label>
+            <select id="filterTipo">
+              <option value="">Todos</option>
+              <option value="TELEFONO">Teléfono</option>
+              <option value="TABLET">Tablet</option>
+              <option value="SMARTWATCH">Smart watch</option>
+              <option value="LORA">LoRa</option>
+              <option value="LAPTOP">Laptop</option>
+              <option value="RADIO">Radio</option>
+              <option value="GPS">GPS</option>
+              <option value="OTRO">Otro</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label>Filtro por Estado</label>
+            <select id="filterEstado">
+              <option value="">Todos</option>
+              <option value="DISPONIBLE">DISPONIBLE</option>
+              <option value="ASIGNADO">ASIGNADO</option>
+              <option value="MANTENIMIENTO">MANTENIMIENTO</option>
+              <option value="BAJA">BAJA</option>
+            </select>
+          </div>
         </div>
 
-        <div class="field filterField">
-          <label>Filtro por Estado</label>
-          <select id="filterEstado">
-            <option value="">Todos</option>
-            <option value="DISPONIBLE">DISPONIBLE</option>
-            <option value="ASIGNADO">ASIGNADO</option>
-            <option value="MANTENIMIENTO">MANTENIMIENTO</option>
-            <option value="BAJA">BAJA</option>
-          </select>
+        <div class="hintRow">
+          <span id="resultHint" class="hint"></span>
+          <span class="hint">Tip: da clic en una fila para seleccionarla.</span>
         </div>
-
-        <button id="btnClear" class="btn" type="button">Limpiar</button>
       </div>
 
       <div class="tableCard">
-        <div class="tableHead">
-          <span id="resultHint" class="hint"></span>
-          <div class="tableActions" style="display: flex; gap: 8px;">
-            <button id="btnAdd" class="btn primary">
-              <span class="btnIcon">＋</span>
-              Agregar
-            </button>
-            <button id="btnEdit" class="btn soft" disabled>
-              <span class="btnIcon">✎</span>
-              Modificar
-            </button>
-            <button id="btnDelete" class="btn danger" disabled>
-              <span class="btnIcon">🗑</span>
-              Eliminar
-            </button>
-          </div>
-        </div>
         <div class="tableWrap">
           <table class="tbl">
             <thead>
@@ -111,7 +96,6 @@
                 <th>Núm. teléfono</th>
                 <th>IMEI</th>
                 <th>Núm. serie</th>
-                <th>ID app</th>
                 <th>Estado</th>
                 <th>Responsable</th>
                 <th>Fecha registro</th>
@@ -172,11 +156,6 @@
             <div class="field">
               <label>Núm. serie</label>
               <input id="fNumeroSerie" type="text" maxlength="80" />
-            </div>
-
-            <div class="field">
-              <label>ID app Android</label>
-              <input id="fIdentificadorApp" type="text" maxlength="120" placeholder="ANDROID_ID de la app movil" />
             </div>
 
             <div class="field">

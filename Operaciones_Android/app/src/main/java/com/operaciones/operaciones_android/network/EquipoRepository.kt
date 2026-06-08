@@ -23,6 +23,15 @@ class EquipoRepository(
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
+    private fun JSONObject.positiveInt(key: String): Int? =
+        optInt(key, 0).takeIf { it > 0 }
+
+    private fun JSONObject.nullableDouble(key: String): Double? {
+        if (!has(key) || isNull(key)) return null
+        val value = optDouble(key, Double.NaN)
+        return value.takeUnless { it.isNaN() || it.isInfinite() }
+    }
+
     fun fetchEquipos(
         operationId: Int,
         token: String,
@@ -112,12 +121,21 @@ class EquipoRepository(
                                 detalle = detalle,
                                 asignadoA = asignadoA,
                                 tipoDestino = tipoDestino,
+                                idPersonalAsignado = e.positiveInt("ueo_id_personal")
+                                    ?: e.positiveInt("id_personal_asignado")
+                                    ?: e.positiveInt("id_personal"),
+                                idVehiculoAsignado = e.positiveInt("id_vehiculo_contexto")
+                                    ?: e.positiveInt("id_vehiculo_asignado")
+                                    ?: e.positiveInt("id_vehiculo"),
                                 personalAsignado = personalNombre,
                                 vehiculoAsignado = vehiculoNombre,
                                 grupoAsignado = grupoNombre,
                                 flotillaAsignada = flotillaNombre,
                                 gruposVinculados = gruposVinculados,
-                                flotillasVinculadas = flotillasVinculadas
+                                flotillasVinculadas = flotillasVinculadas,
+                                lat = e.nullableDouble("latitud"),
+                                lon = e.nullableDouble("longitud"),
+                                ultimaActualizacion = e.safeString("ultima_actualizacion")
                             )
                         )
                     }

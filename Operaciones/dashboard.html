@@ -6,68 +6,17 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Panorama táctico</title>
 
-  <link rel="stylesheet" href="css/dashboard.css?v=20260605-close-fullscreen" />
-  <script>
-    window.addEventListener('error', function(e) {
-      const el = document.getElementById('debug-errors');
-      if (el) {
-        el.style.display = 'block';
-        el.innerHTML += '<div style="margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.3); padding-bottom:4px;">Error: ' + e.message + '<br><small>' + e.filename + ':' + e.lineno + '</small></div>';
-      }
-    });
-    window.addEventListener('unhandledrejection', function(e) {
-      const el = document.getElementById('debug-errors');
-      if (el) {
-        el.style.display = 'block';
-        el.innerHTML += '<div style="margin-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.3); padding-bottom:4px;">Promise Rejection: ' + (e.reason?.message || e.reason) + '</div>';
-      }
-    });
-  </script>
+  <link rel="stylesheet" href="css/dashboard.css?v=20260605-camera-grid" />
   <script src="js/api_config.js"></script>
   <script src="js/auth_check.js"></script>
 
   <link href="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
   <script src="https://cesium.com/downloads/cesiumjs/releases/1.139.1/Build/Cesium/Cesium.js"></script>
-  <script>
-    window.Cesium = window.Cesium || (() => {
-      const makeColor = () => ({
-        withAlpha() {
-          return this;
-        }
-      });
-      const Color = {
-        fromCssColorString: makeColor,
-        RED: makeColor(),
-        CYAN: makeColor(),
-        BLACK: makeColor(),
-        YELLOW: makeColor(),
-        LIME: makeColor(),
-        WHITE: makeColor(),
-        MAGENTA: makeColor(),
-        ORANGE: makeColor(),
-        LIMEGREEN: makeColor(),
-        PINK: makeColor(),
-        DEEPSKYBLUE: makeColor(),
-        HOTPINK: makeColor(),
-        GOLD: makeColor(),
-        VIOLET: makeColor(),
-        SPRINGGREEN: makeColor()
-      };
-      return {
-        Ion: {},
-        Color,
-        Cartesian2: function Cartesian2() {},
-        NearFarScalar: function NearFarScalar() {}
-      };
-    })();
-  </script>
 
   <script src="js/libs/milsymbol.min.js"></script>
 </head>
 
 <body>
-
-  <div id="debug-errors" style="position:fixed; top:80px; left:10px; z-index:99999; background:rgba(255,0,0,0.95); color:white; padding:12px; border-radius:12px; display:none; max-width:500px; font-family:monospace; font-size:12px; box-shadow:0 8px 30px rgba(0,0,0,0.5); overflow-y:auto; max-height:300px;"></div>
 
   <header class="topbar">
     <div class="topbarLeft">
@@ -254,12 +203,7 @@
 
   <aside id="infoPanel" class="glassPanel open">
     <h2 class="panelTitle">Información de operación</h2>
-    <div id="infoPanelContent" class="infoPanelContent">
-      <div class="infoBlock">
-        <h3>Operacion</h3>
-        <p><strong>Estado:</strong> Cargando informacion...</p>
-      </div>
-    </div>
+    <div id="infoPanelContent" class="infoPanelContent"></div>
   </aside>
 
   <aside id="routePanel" class="glassPanel">
@@ -525,6 +469,7 @@
               <button class="chatAudienceChip" type="button" data-chat-channel="flotilla" data-chat-avatar="F"><span>Flotilla</span><small>CET e integrantes</small></button>
               <button class="chatAudienceChip" type="button" data-chat-channel="grupo" data-chat-avatar="G"><span>Grupo</span><small>Integrantes del grupo</small></button>
               <button class="chatAudienceChip" type="button" data-chat-channel="cets" data-chat-avatar="C"><span>Todos los CET</span><small>Mandos CET</small></button>
+              <button class="chatAudienceChip" type="button" data-chat-channel="cuts" data-chat-avatar="U"><span>Todos los CUT</span><small>Mandos CUT</small></button>
             </div>
           </div>
 
@@ -541,6 +486,7 @@
       <select id="chatChannelType" class="opsInput legacyChatSelect" aria-hidden="true" tabindex="-1">
         <option value="global">Global (Todos)</option>
         <option value="cets">Todos los CETs</option>
+        <option value="cuts">Todos los CUT</option>
         <option value="cet_specific">CET Específico</option>
         <option value="cell_specific">CELL Específico</option>
         <option value="flotilla">Flotilla (+ CET)</option>
@@ -560,6 +506,7 @@
         <h2 id="chatConversationTitle" class="chatConversationTitle">Todos</h2>
         <div id="chatConversationSubtitle" class="chatConversationSubtitle">Operación completa</div>
       </div>
+      <button id="chatGroupMembersToggle" class="chatGroupMembersToggle" type="button" title="Integrantes" aria-label="Integrantes" aria-expanded="false" hidden>&gt;</button>
     </div>
 
     <div id="chatTargetBox" class="chatTargetBox hidden">
@@ -582,17 +529,20 @@
     </div>
   </aside>
 
+  <aside id="chatGroupMembersPanel" class="glassPanel chatGroupMembersPanel">
+    <div class="chatGroupMembersHeader">
+      <h2 class="chatGroupMembersTitle">Integrantes</h2>
+      <span id="chatGroupMembersCount" class="chatGroupMembersCount">0</span>
+    </div>
+    <div id="chatGroupMembersList" class="chatGroupMembersList"></div>
+  </aside>
+
   <aside id="cameraPanel" class="glassPanel cameraPanel">
-    <div class="panelHeader"
-      style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; display: flex; justify-content: flex-end; gap: 8px; padding: 5px;">
-      <div class="cameraControls">
-        <button id="cameraBackToGrid" class="layoutBtn cameraBackBtn" title="Regresar a camaras"
-          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 7px;">Camaras</button>
-        <button id="cameraLayoutGrid" class="layoutBtn active" title="Vista en cuadrícula"
-          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">🔲</button>
-        <button id="cameraLayoutSpeaker" class="layoutBtn" title="Vista enfocada"
-          style="background: rgba(0,0,0,0.5); border: 1px solid rgba(0,255,166,0.3); border-radius: 4px; padding: 2px 5px;">👤</button>
-      </div>
+    <div class="cameraLayoutControls" role="group" aria-label="Vista de camaras">
+      <button id="cameraLayoutGrid" class="layoutBtn active" type="button" title="Vista en cuadricula" aria-label="Vista en cuadricula" aria-pressed="true">&#9638;</button>
+      <button id="cameraLayoutSpeaker" class="layoutBtn" type="button" title="Vista personal" aria-label="Vista personal" aria-pressed="false">&#128100;</button>
+      <button id="cameraNextBtn" class="layoutBtn cameraNextBtn" type="button" title="Siguiente camara" aria-label="Siguiente camara" disabled>&#8250;</button>
+      <button id="cameraCloseBtn" class="layoutBtn cameraCloseBtn" type="button" title="Cerrar camaras" aria-label="Cerrar camaras">x</button>
     </div>
 
     <div id="cameraFeeds" class="cameraFeeds grid-layout">
@@ -600,68 +550,14 @@
     </div>
 
     <div class="cameraBottomControls">
-      <button id="cameraDronesBtn" class="cameraSourceBtn" type="button" title="Mostrar drones">Drones</button>
-      <div class="obsControls cameraObsControls">
-        <input id="obsStreamKey" type="text" value="obs-01" aria-label="Clave OBS" />
-        <button id="registerObsStreamBtn" class="cameraSourceBtn" type="button" title="Registrar OBS en esta operacion">OBS</button>
-        <span id="obsStreamStatus" aria-live="polite"></span>
+      <div class="cameraProtocolTabs" role="group" aria-label="Filtrar camaras por protocolo">
+        <button id="cameraWebRtcBtn" class="cameraSourceBtn" type="button" title="Mostrar WebRTC" aria-pressed="false">WebRTC</button>
+        <button id="cameraRtmpBtn" class="cameraSourceBtn" type="button" title="Mostrar RTMP" aria-pressed="false">RTMP</button>
       </div>
     </div>
   </aside>
 
-  <script>
-    (function () {
-      function readJson(key, fallback) {
-        try {
-          return JSON.parse(localStorage.getItem(key) || "null") || fallback;
-        } catch {
-          return fallback;
-        }
-      }
-
-      function escapeHtml(value) {
-        return String(value ?? "")
-          .replace(/&/g, "&amp;")
-          .replace(/</g, "&lt;")
-          .replace(/>/g, "&gt;")
-          .replace(/"/g, "&quot;");
-      }
-
-      function paintDashboardFallback() {
-        const container = document.getElementById("infoPanelContent");
-        if (!container) return;
-
-        const op = readJson("operacion_actual", {});
-        const asignacion = readJson("asignacion_actual", {});
-        const titulo = op.nombre || op.title || op.titulo || op.name || "Operacion sin nombre";
-        const descripcion = op.descripcion || op.description || op.desc || "Sin descripcion";
-        const fecha = op.fecha_inicio || "No definida";
-        const hora = op.hora_inicio || "No definida";
-        const personal = Array.isArray(asignacion.personal) ? asignacion.personal : (Array.isArray(op.personal) ? op.personal : []);
-        const vehiculos = Array.isArray(asignacion.vehiculos) ? asignacion.vehiculos : (Array.isArray(op.vehiculos) ? op.vehiculos : []);
-        const equipos = Array.isArray(asignacion.equipos) ? asignacion.equipos : (Array.isArray(op.equipos) ? op.equipos : []);
-        const dispositivos = Array.isArray(asignacion.dispositivos) ? asignacion.dispositivos : (Array.isArray(op.dispositivos) ? op.dispositivos : []);
-
-        container.innerHTML = `
-          <div class="infoBlock">
-            <h3>Operacion</h3>
-            <p><strong>Titulo:</strong> ${escapeHtml(titulo)}</p>
-            <p><strong>Descripcion:</strong> ${escapeHtml(descripcion)}</p>
-            <p><strong>Fecha programada:</strong> ${escapeHtml(fecha)}</p>
-            <p><strong>Hora programada:</strong> ${escapeHtml(hora)}</p>
-          </div>
-          <div class="infoBlock"><h3>Personal asignado</h3><p>${personal.length ? `${personal.length} elementos asignados.` : "Sin personal asignado."}</p></div>
-          <div class="infoBlock"><h3>Vehiculos asignados</h3><p>${vehiculos.length ? `${vehiculos.length} vehiculos asignados.` : "Sin vehiculos asignados."}</p></div>
-          <div class="infoBlock"><h3>Equipos asignados</h3><p>${equipos.length ? `${equipos.length} equipos asignados.` : "Sin equipos asignados."}</p></div>
-          <div class="infoBlock"><h3>Dispositivos asignados</h3><p>${dispositivos.length ? `${dispositivos.length} dispositivos asignados.` : "Sin dispositivos asignados."}</p></div>
-        `;
-      }
-
-      window.addEventListener("DOMContentLoaded", paintDashboardFallback);
-      window.addEventListener("load", () => setTimeout(paintDashboardFallback, 1200));
-    })();
-  </script>
-  <script type="module" src="js/dashboard/dashboard.js?v=20260605-close-fullscreen"></script>
+  <script type="module" src="js/dashboard/dashboard.js?v=20260604-tracking-select"></script>
 
 </body>
 

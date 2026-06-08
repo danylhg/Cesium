@@ -11,8 +11,8 @@ const dispositivos = [
     numero_serie: "R52XC0BJRYP",
     sistema_operativo: "Android",
     estado: "DISPONIBLE",
-    detalles: "Modelo tecnico: SM-P620",
-    asignarA: "mlopez",
+    detalles: "Modelo tecnico: SM-P620; asignada a mcruz.",
+    asignarA: "mcruz",
   },
   {
     imagen_disp: "./uploads/dispositivo/galaxy-s24-ultra-sm-s928b.jpg",
@@ -25,7 +25,20 @@ const dispositivos = [
     sistema_operativo: "Android",
     estado: "DISPONIBLE",
     detalles: "Modelo tecnico: SM-S928B; Red: BAIT",
-    asignarA: "mcruz",
+    asignarA: "mlopez",
+  },
+  {
+    imagen_disp: "./uploads/dispositivo/SONIM-RS80-1.jpg",
+    tipo: "TABLET",
+    marca: "Generica",
+    modelo: "M17X",
+    numero_telefono: null,
+    imei: null,
+    numero_serie: "OR00806TA14N06228",
+    sistema_operativo: "Android",
+    estado: "DISPONIBLE",
+    detalles: "Serie capturada desde Ajustes > Modelo; tablet generica sin asignacion activa.",
+    asignarA: null,
   },
   {
     imagen_disp: "./uploads/dispositivo/galaxy-watch8-classic-sm-l500.jpg",
@@ -59,6 +72,31 @@ async function assignSeedDispositivos(client) {
 
   const asignadoPor = await getAdminId(client);
   let asignados = 0;
+  let liberados = 0;
+
+  for (const d of dispositivos.filter(item => item.asignarA === null)) {
+    const { rows: deviceRows } = await client.query(
+      `SELECT id_dispositivo
+       FROM dispositivo
+       WHERE numero_serie = $1
+       LIMIT 1`,
+      [d.numero_serie]
+    );
+    const dispositivo = deviceRows[0];
+    if (!dispositivo) continue;
+
+    const { rowCount } = await client.query(
+      `UPDATE operacion_dispositivo
+          SET estado_asignacion = 'LIBERADO',
+              fecha_devolucion = COALESCE(fecha_devolucion, NOW())
+        WHERE id_operacion = $1
+          AND id_dispositivo = $2
+          AND estado_asignacion = 'ASIGNADO'
+          AND fecha_devolucion IS NULL`,
+      [operacion.id_operacion, dispositivo.id_dispositivo]
+    );
+    liberados += rowCount;
+  }
 
   for (const d of dispositivos.filter(item => item.asignarA)) {
     const personal = await getPersonalByUsername(client, d.asignarA);
@@ -101,7 +139,7 @@ async function assignSeedDispositivos(client) {
     asignados += 1;
   }
 
-  return asignados;
+  return { asignados, liberados };
 }
 
 export async function seedDispositivos(client) {
@@ -177,7 +215,7 @@ export async function seedDispositivos(client) {
     insertados += 1;
   }
 
-  const asignados = await assignSeedDispositivos(client);
+  const { asignados, liberados } = await assignSeedDispositivos(client);
 
-  return { insertados, actualizados, asignados, total: dispositivos.length };
+  return { insertados, actualizados, asignados, liberados, total: dispositivos.length };
 }

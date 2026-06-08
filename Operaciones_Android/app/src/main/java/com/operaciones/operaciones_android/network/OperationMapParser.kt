@@ -3,6 +3,7 @@ package com.operaciones.operaciones_android.network
 import com.operaciones.operaciones_android.config.ApiConfig
 import com.operaciones.operaciones_android.model.AreaPolygonItem
 import com.operaciones.operaciones_android.model.CoverageCircleItem
+import com.operaciones.operaciones_android.model.DispositivoItem
 import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.OperationMapData
 import com.operaciones.operaciones_android.model.OperationGridItem
@@ -29,7 +30,8 @@ class OperationMapParser {
         return OperationMapData(
             personal = parsePersonalFromLayers(capas, personalPositions),
             vehiculos = parseVehiculos(json.optJSONArray("vehiculos")),
-            equipos = parseEquipos(capas),
+            equipos = parseEquipos(json.optJSONArray("equipos") ?: capas),
+            dispositivos = parseDispositivos(json.optJSONArray("dispositivos")),
             rutasNavegacion = json.optJSONArray("rutas_navegacion")?.toString(),
             rutasTacticas = parseTacticalRoutes(capas).toString(),
             operationZone = parseOperationZone(json.optJSONObject("zona_operacion")),
@@ -162,24 +164,95 @@ class OperationMapParser {
 
         for (i in 0 until capas.length()) {
             val c = capas.optJSONObject(i) ?: continue
-            if (c.optString("tipo_capa") != "EQUIPO") continue
+            val tipoCapa = c.optString("tipo_capa", "")
+            if (tipoCapa.isNotBlank() && tipoCapa != "EQUIPO") continue
 
             val numeroSerie = c.optString("numero_serie", "")
+            val tipoDestino = c.optString("tipo_destino", "").uppercase()
+            val vehiculoCodigo = c.optString("asignado_a_vehiculo", "")
+            val vehiculoAlias = c.optString("vehiculo_alias", "")
+            val vehiculoNombre = listOf(vehiculoCodigo, vehiculoAlias)
+                .filter { it.isNotBlank() }
+                .joinToString(" - ")
+            val personalNombre = c.optString("asignado_a_personal", "")
+            val grupoNombre = c.optString("grupo_asignado", "")
+            val flotillaNombre = c.optString("flotilla_asignada", "")
+            val gruposVinculados = splitCsv(c.optString("grupos_vinculados", ""))
+                .ifEmpty { listOf(grupoNombre).filter { it.isNotBlank() } }
+            val flotillasVinculadas = splitCsv(c.optString("flotillas_vinculadas", ""))
+                .ifEmpty { listOf(flotillaNombre).filter { it.isNotBlank() } }
 
             equipos.add(
                 EquipoItem(
-                    idEquipo = c.optInt("id_referencia"),
+                    idEquipo = positiveInt(c, "id_equipo") ?: positiveInt(c, "id_referencia") ?: 0,
                     numeroSerie = numeroSerie,
                     nombre = c.optString("nombre", "Equipo"),
                     categoria = c.optString("categoria", ""),
                     tipoEquipo = c.optString("tipo_equipo", ""),
                     detalle = if (numeroSerie.isNotBlank()) "S/N: $numeroSerie" else "",
-                    asignadoA = ""
+                    asignadoA = vehiculoNombre.ifBlank {
+                        personalNombre.ifBlank {
+                            grupoNombre.ifBlank { flotillaNombre }
+                        }
+                    },
+                    tipoDestino = tipoDestino,
+                    idPersonalAsignado = positiveInt(c, "ueo_id_personal")
+                        ?: positiveInt(c, "id_personal_asignado")
+                        ?: positiveInt(c, "id_personal"),
+                    idVehiculoAsignado = positiveInt(c, "id_vehiculo_contexto")
+                        ?: positiveInt(c, "id_vehiculo_asignado")
+                        ?: positiveInt(c, "id_vehiculo"),
+                    personalAsignado = personalNombre,
+                    vehiculoAsignado = vehiculoNombre,
+                    grupoAsignado = grupoNombre,
+                    flotillaAsignada = flotillaNombre,
+                    gruposVinculados = gruposVinculados,
+                    flotillasVinculadas = flotillasVinculadas,
+                    lat = nullableDouble(c, "latitud"),
+                    lon = nullableDouble(c, "longitud"),
+                    ultimaActualizacion = c.optString("ultima_actualizacion", "")
                 )
             )
         }
 
         return equipos
+    }
+
+    private fun parseDispositivos(source: JSONArray?): List<DispositivoItem> {
+        val dispositivos = mutableListOf<DispositivoItem>()
+        if (source == null) return dispositivos
+
+        for (i in 0 until source.length()) {
+            val d = source.optJSONObject(i) ?: continue
+            dispositivos.add(
+                DispositivoItem(
+                    idDispositivo = d.optInt("id_dispositivo"),
+                    tipo = d.optString("tipo", ""),
+                    marca = d.optString("marca", ""),
+                    modelo = d.optString("modelo", ""),
+                    numeroTelefono = d.optString("numero_telefono", ""),
+                    imei = d.optString("imei", ""),
+                    numeroSerie = d.optString("numero_serie", ""),
+                    sistemaOperativo = d.optString("sistema_operativo", ""),
+                    identificadorApp = d.optString("identificador_app", ""),
+                    estado = d.optString("dispositivo_estado", d.optString("estado", "")),
+                    idPersonal = positiveInt(d, "id_personal"),
+                    personalApodo = d.optString("personal_apodo", ""),
+                    personalNombre = d.optString("personal_nombre", ""),
+                    personalApellido = d.optString("personal_apellido", ""),
+                    personalPuesto = d.optString("personal_puesto", ""),
+                    estadoAsignacion = d.optString("estado_asignacion", ""),
+                    lat = nullableDouble(d, "latitud"),
+                    lon = nullableDouble(d, "longitud"),
+                    velocidadKmh = nullableDouble(d, "velocidad_kmh"),
+                    precisionM = nullableDouble(d, "precision_m"),
+                    bateriaPct = nullableDouble(d, "bateria_pct"),
+                    ultimaActualizacion = d.optString("ultima_actualizacion", "")
+                )
+            )
+        }
+
+        return dispositivos
     }
 
     private fun parsePois(poisSource: JSONArray?): List<PoiItem> {
@@ -411,11 +484,19 @@ class OperationMapParser {
             else -> null
         }
 
-    private fun nullableDouble(json: JSONObject, key: String): Double? =
-        if (json.isNull(key)) null else json.optDouble(key)
+    private fun nullableDouble(json: JSONObject, key: String): Double? {
+        if (!json.has(key) || json.isNull(key)) return null
+        val value = json.optDouble(key, Double.NaN)
+        return value.takeUnless { it.isNaN() || it.isInfinite() }
+    }
 
     private fun positiveInt(json: JSONObject, key: String): Int? =
         json.optInt(key, -1).takeIf { it > 0 }
+
+    private fun splitCsv(value: String): List<String> =
+        value.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
 
     private fun optionalString(json: JSONObject, key: String): String? {
         if (!json.has(key) || json.isNull(key)) return null

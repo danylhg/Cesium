@@ -10,8 +10,10 @@ import {
 } from "./dashboard.storage.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
 import { dashboardState } from "./dashboard.state.js";
+import { renderPersonnelLiveCamera } from "./dashboard.camera.js?v=20260604-person-card-camera";
 
 const PERSONAL_CONNECTION_STALE_MS = 30000;
+const TRACKING_ACTIVE_STALE_MS = PERSONAL_CONNECTION_STALE_MS;
 const personalLiveData = new Map();
 let activePersonInfoPopup = null;
 let personInfoRefreshTimer = null;
@@ -47,11 +49,19 @@ export function closeAllPanels() {
   dom.tacticalPanel?.classList.remove("open");
   dom.chatAudiencePanel?.classList.remove("open");
   dom.chatPanel?.classList.remove("open");
+  dom.chatGroupMembersPanel?.classList.remove("open");
+  dom.cameraPanel?.classList.remove("open");
 
   dom.toggleInfoPanel?.classList.remove("active");
   dom.toggleRoutePanel?.classList.remove("active");
   dom.toggleTacticalPanel?.classList.remove("active");
   dom.toggleChatPanel?.classList.remove("active");
+  dom.toggleCameraPanel?.classList.remove("active");
+
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.textContent = ">";
+    dom.chatGroupMembersToggle.setAttribute("aria-expanded", "false");
+  }
 }
 
 export function openPanel(panel, button) {
@@ -92,7 +102,11 @@ function normalizePersonal(personal) {
       flotilla: tieneSubgrupo ? grupoPadre : (grupoDirecto || grupoPadre || ""),
       id_personal: p.id_personal ?? null,
       lat: p.latitud ?? p.lat ?? null,
-      lon: p.longitud ?? p.lon ?? p.lng ?? null
+      lon: p.longitud ?? p.lon ?? p.lng ?? null,
+      ultima_actualizacion: p.ultima_actualizacion ?? null,
+      timestamp: p.timestamp ?? null,
+      updated_at: p.updated_at ?? p.fecha_actualizacion ?? null,
+      signos_actualizacion: p.signos_actualizacion ?? null
     };
   });
 }
@@ -111,6 +125,99 @@ function formatPersonWithRole(nombre, rol) {
   return [roleLabel, String(nombre || "").trim()].filter(Boolean).join(" ");
 }
 
+function makeTrackingKey(kind, id) {
+  const cleanKind = String(kind || "").trim().toUpperCase();
+  const cleanId = String(id ?? "").trim();
+  return cleanKind && cleanId ? `${cleanKind}:${cleanId}` : "";
+}
+
+function isEmptyCoordinateValue(value) {
+  return value === undefined || value === null || String(value).trim() === "";
+}
+
+function normalizeTrackingCoords(lat, lon) {
+  if (isEmptyCoordinateValue(lat) || isEmptyCoordinateValue(lon)) return null;
+  const nLat = Number(lat);
+  const nLon = Number(lon);
+  if (!Number.isFinite(nLat) || !Number.isFinite(nLon)) return null;
+  if (Math.abs(nLat) > 90 || Math.abs(nLon) > 180) return null;
+  if (nLat === 0 && nLon === 0) return null;
+  return { lat: nLat, lon: nLon };
+}
+
+function getTrackingTimestamp(item = {}) {
+  return firstValue(
+    item.timestamp,
+    item.updated_at,
+    item.fecha_actualizacion,
+    item.ultima_actualizacion,
+    item.last_update,
+    item.lastUpdated
+  );
+}
+
+function isTrackingItemFresh(item = {}) {
+  const timestamp = parseTimestamp(getTrackingTimestamp(item));
+  if (!timestamp) return false;
+  return Date.now() - timestamp <= TRACKING_ACTIVE_STALE_MS;
+}
+
+function normalizeDeviceIdentity(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function deviceIdentityValues(device = {}) {
+  return [
+    device.numero_serie,
+    device.numeroSerie,
+    device.serial_dispositivo,
+    device.serial,
+    device.imei,
+    device.identificador_app,
+    device.identificadorApp
+  ]
+    .map(normalizeDeviceIdentity)
+    .filter(Boolean);
+}
+
+function getDeviceTrackingId(device = {}) {
+  return firstValue(
+    device.id_dispositivo,
+    device.id,
+    device.dispositivo_id,
+    device.idDispositivo,
+    device.device_id
+  );
+}
+
+function getAssignedDeviceCandidates() {
+  const op = getCurrentOperation() || {};
+  const asignacion = getJsonStorage(ASIGNACION_ACTUAL_KEY, {}) || {};
+  return [
+    ...(Array.isArray(asignacion.dispositivos) ? asignacion.dispositivos : []),
+    ...(Array.isArray(op.dispositivos) ? op.dispositivos : [])
+  ];
+}
+
+function isDeviceTrackingConfirmed(device = {}, id = null) {
+  const incomingIdentity = deviceIdentityValues(device);
+  if (!incomingIdentity.length) return false;
+
+  const cleanId = String(id ?? getDeviceTrackingId(device) ?? "").trim();
+  const assigned = getAssignedDeviceCandidates();
+  const sameId = cleanId
+    ? assigned.filter((candidate) => String(getDeviceTrackingId(candidate) ?? "").trim() === cleanId)
+    : [];
+  if (!assigned.length) return true;
+  const candidates = sameId.length ? sameId : assigned;
+
+  return candidates.some((candidate) => {
+    const candidateIdentity = deviceIdentityValues(candidate);
+    return candidateIdentity.length &&
+      incomingIdentity.some((value) => candidateIdentity.includes(value));
+  });
+}
+
 // Evita duplicar prefijos como "Flotilla Flotilla Alfa" o "Grupo Grupo Alpha"
 function labelConPrefijo(prefijo, nombre) {
   if (!nombre) return prefijo;
@@ -118,33 +225,85 @@ function labelConPrefijo(prefijo, nombre) {
   return `${prefijo} ${nombre.trim()}`;
 }
 
-function personSpan(nombre, id, lat, lon) {
+function trackingSpan(nombre, kind, id, lat, lon, item = {}, extraClasses = [], title = "Seguir ubicacion") {
   const safe = escapeHtml(nombre);
-  if (id == null) return safe;
-  const personAttrs = `data-pid="${id}" data-person-id="${id}"`;
-  if (lat != null && lon != null) {
-    return `<span class="personal-locatable person-link" ${personAttrs} data-lat="${lat}" data-lon="${lon}" style="cursor:pointer;color:#00BFFF;border-bottom:1px dotted #00BFFF;" title="Ver detalle">${safe}</span>`;
+  const key = makeTrackingKey(kind, id);
+  if (!key) return safe;
+
+  const itemCoords = normalizeTrackingCoords(
+    item?.latitud ?? item?.lat,
+    item?.longitud ?? item?.lng ?? item?.lon
+  );
+  const activeItemCoords = kind === "E"
+    ? (isTrackingItemFresh(item) ? itemCoords : null)
+    : itemCoords;
+  const providedCoords = normalizeTrackingCoords(lat, lon);
+  const activeProvidedCoords = kind === "E"
+    ? (isTrackingItemFresh(item) ? providedCoords : null)
+    : providedCoords;
+  const trackingAllowed = kind !== "D" || isDeviceTrackingConfirmed(item, id);
+  const coords = trackingAllowed
+    ? activeProvidedCoords || activeItemCoords || getTrackingEntityCoordinates(key)
+    : null;
+
+  const classes = coords ? [...extraClasses] : [];
+  if (coords) {
+    classes.unshift("tracking-link");
+    classes.push("tracking-locatable", "has-connection-history");
+    if (kind === "P") classes.push("personal-locatable");
   }
-  return `<span class="person-link" ${personAttrs} style="cursor:pointer;color:#00ffa6;border-bottom:1px dotted #00ffa6;" title="Ver detalle">${safe}</span>`;
+
+  const coordsAttrs = coords ? ` data-lat="${coords.lat}" data-lon="${coords.lon}"` : "";
+  const personAttrs = kind === "P" ? ` data-pid="${id}" data-person-id="${id}"` : "";
+  const classList = [...new Set(classes)].filter(Boolean);
+  const classAttr = classList.length ? ` class="${classList.join(" ")}"` : "";
+  const labelTitle = coords
+    ? title
+    : (kind === "D" && !trackingAllowed ? "Sin serie verificada" : "Sin ubicacion activa");
+  return `<span${classAttr} data-tracking-key="${key}" data-tracking-kind="${kind}" data-tracking-id="${id}"${personAttrs}${coordsAttrs} title="${escapeHtml(labelTitle)}">${safe}</span>`;
+}
+
+function personSpan(nombre, id, lat, lon, person = {}) {
+  const classes = ["person-link"];
+  return trackingSpan(nombre, "P", id, lat, lon, person, classes, "Ver detalle");
+}
+
+function trackingLabel(nombre, kind, id, lat, lon, item = {}) {
+  return trackingSpan(nombre, kind, id, lat, lon, item);
 }
 
 export function activatePersonalLocation(id, lat, lon) {
+  activateTrackingLocation("P", id, lat, lon);
+}
+
+export function activateTrackingLocation(kind, id, lat, lon) {
+  const key = makeTrackingKey(kind, id);
+  if (!key) return;
+  const coords = normalizeTrackingCoords(lat, lon);
+  if (!coords) return;
+
+  document.querySelectorAll(`[data-tracking-kind="${kind}"][data-tracking-id="${id}"]`).forEach(span => {
+    span.dataset.lat = coords.lat;
+    span.dataset.lon = coords.lon;
+    span.classList.add("tracking-link", "tracking-locatable", "has-connection-history");
+    if (kind === "P") span.classList.add("person-link", "personal-locatable");
+    if (!span.classList.contains("person-link")) span.title = "Seguir ubicacion";
+  });
+
   document.querySelectorAll(`[data-pid="${id}"]`).forEach(span => {
-    span.dataset.lat = lat;
-    span.dataset.lon = lon;
+    span.dataset.lat = coords.lat;
+    span.dataset.lon = coords.lon;
     if (!span.classList.contains("personal-locatable")) {
       span.classList.add("personal-locatable");
-      span.style.cursor = "pointer";
-      span.style.color = "#00BFFF";
-      span.style.borderBottom = "1px dotted #00BFFF";
       span.title = "Ir a ubicacion";
     }
+    span.classList.add("has-connection-history");
   });
 }
 
-function getPersonalEntityCoordinates(id) {
+function getTrackingEntityCoordinates(key) {
   const viewer = dashboardState.viewer;
-  const entity = dashboardState.trackingEntities?.get(`P:${id}`);
+  const entity = dashboardState.trackingEntities?.get(key);
   const position = entity?.position?.getValue?.(viewer?.clock?.currentTime) ?? entity?.position;
   if (!position) return null;
 
@@ -155,39 +314,60 @@ function getPersonalEntityCoordinates(id) {
   };
 }
 
-function setFollowedPersonalStyle(id) {
-  document.querySelectorAll(".personal-locatable").forEach(span => {
-    const selected = String(span.dataset.pid || "") === String(id || "");
-    span.style.color = selected ? "#38bdf8" : "#00BFFF";
-    span.style.borderBottom = selected ? "1px solid #38bdf8" : "1px dotted #00BFFF";
-    span.title = selected ? "Siguiendo ubicacion" : "Seguir ubicacion";
+function getPersonalEntityCoordinates(id) {
+  return getTrackingEntityCoordinates(`P:${id}`);
+}
+
+function setFollowedTrackingStyle(key) {
+  document.querySelectorAll(".tracking-locatable").forEach(span => {
+    const selected = String(span.dataset.trackingKey || "") === String(key || "");
+    span.classList.toggle("is-followed", selected);
+    if (!span.classList.contains("person-link")) {
+      span.title = selected ? "Siguiendo ubicacion" : "Seguir ubicacion";
+    }
   });
 }
 
 export function followPersonalLocation(id, lat, lon) {
+  followTrackingLocation(`P:${id}`, lat, lon);
+}
+
+export function followTrackingLocation(key, lat, lon) {
   const viewer = dashboardState.viewer;
-  if (!viewer || id == null) return;
+  if (!viewer || !key) return;
 
-  dashboardState.followedPersonalId = String(id);
-  setFollowedPersonalStyle(id);
+  const liveCoords =
+    getTrackingEntityCoordinates(key) ||
+    normalizeTrackingCoords(lat, lon);
+  if (!liveCoords) return;
 
-  const liveCoords = getPersonalEntityCoordinates(id);
-  const destLat = liveCoords?.lat ?? lat;
-  const destLon = liveCoords?.lon ?? lon;
-  updateFollowedPersonalLocation(id, destLat, destLon, 0.45);
+  dashboardState.followedTrackingKey = String(key);
+  dashboardState.followedPersonalId = key.startsWith("P:") ? key.slice(2) : null;
+  setFollowedTrackingStyle(key);
+
+  const entity = dashboardState.trackingEntities?.get(key);
+  if (entity) {
+    dashboardState.selectedEntity = entity;
+    updateSelectionInfo(entity);
+  }
+
+  updateFollowedTrackingLocation(key, liveCoords.lat, liveCoords.lon, 0.45);
 }
 
 export function updateFollowedPersonalLocation(id, lat, lon, duration = 0.28) {
+  updateFollowedTrackingLocation(`P:${id}`, lat, lon, duration);
+}
+
+export function updateFollowedTrackingLocation(key, lat, lon, duration = 0.28) {
   const viewer = dashboardState.viewer;
-  if (!viewer || String(dashboardState.followedPersonalId || "") !== String(id || "")) return;
-  const destLat = Number(lat);
-  const destLon = Number(lon);
-  if (!Number.isFinite(destLat) || !Number.isFinite(destLon)) return;
+  if (!viewer || String(dashboardState.followedTrackingKey || "") !== String(key || "")) return;
+  const coords = normalizeTrackingCoords(lat, lon);
+  if (!coords) return;
 
   viewer.camera.flyTo({
     destination: Cesium.Cartesian3.fromDegrees(
-      destLon,
-      destLat,
+      coords.lon,
+      coords.lat,
       dashboardState.followedPersonalZoom || 800
     ),
     orientation: {
@@ -217,7 +397,7 @@ function renderPersonalHtml(personalNorm) {
   cuts.forEach((cut) => {
     html += `
       <div class="miniCard" style="border-left: 3px solid #10b981;">
-        <p><strong>CUT:</strong> ${personSpan(cut.nombre || cut.name, cut.id_personal, cut.lat, cut.lon)}</p>
+        <p><strong>CUT:</strong> ${personSpan(cut.nombre || cut.name, cut.id_personal, cut.lat, cut.lon, cut)}</p>
       </div>
     `;
   });
@@ -230,7 +410,7 @@ function renderPersonalHtml(personalNorm) {
     cells.forEach((cell) => {
       if (cell.flotilla !== flotillaNombre) return;
 
-      const nameHtml = personSpan(formatPersonWithRole(cell.nombre, cell.cargo), cell.id_personal, cell.lat, cell.lon);
+      const nameHtml = personSpan(formatPersonWithRole(cell.nombre, cell.cargo), cell.id_personal, cell.lat, cell.lon, cell);
       if (cell.grupo) {
         if (!grupos.has(cell.grupo)) grupos.set(cell.grupo, []);
         grupos.get(cell.grupo).push(nameHtml);
@@ -241,7 +421,7 @@ function renderPersonalHtml(personalNorm) {
 
     html += `
       <div class="miniCard" style="border-left: 3px solid #3b82f6; margin-top:8px;">
-        <p><strong>(CET) ${personSpan(cet.nombre, cet.id_personal, cet.lat, cet.lon)}</strong></p>
+        <p><strong>(CET)</strong> ${personSpan(cet.nombre, cet.id_personal, cet.lat, cet.lon, cet)}</p>
         <p style="margin-top:8px;"><strong>${escapeHtml(labelConPrefijo("Flotilla", flotillaNombre))}</strong></p>
     `;
 
@@ -276,12 +456,19 @@ function buildVehiculoTree(vehiculos) {
     const key = v.id_vehiculo ?? v.codigo_interno;
     if (!byVehiculo.has(key)) {
       byVehiculo.set(key, {
+        id_vehiculo: v.id_vehiculo ?? null,
         codigo_interno: v.codigo_interno || "",
         alias: v.alias || "",
         tipo: v.tipo || "",
+        latitud: v.latitud ?? v.lat ?? null,
+        longitud: v.longitud ?? v.lng ?? v.lon ?? null,
         rows: []
       });
     }
+    const vehiculo = byVehiculo.get(key);
+    vehiculo.id_vehiculo = vehiculo.id_vehiculo ?? v.id_vehiculo ?? null;
+    vehiculo.latitud = vehiculo.latitud ?? v.latitud ?? v.lat ?? null;
+    vehiculo.longitud = vehiculo.longitud ?? v.longitud ?? v.lng ?? v.lon ?? null;
     byVehiculo.get(key).rows.push(v);
   }
 
@@ -315,7 +502,8 @@ function renderVehiculosHierarchyHtml(vehiculos) {
       ? `${veh.codigo_interno} - ${veh.alias}`
       : (veh.codigo_interno || veh.alias || "Vehiculo");
 
-    html += `<div class="miniCard"><p><strong>${escapeHtml(nombre)}</strong></p>`;
+    const nombreHtml = trackingLabel(nombre, "V", veh.id_vehiculo, veh.latitud, veh.longitud, veh);
+    html += `<div class="miniCard"><p>${nombreHtml}</p>`;
 
     // flotilla_nombre → { directos: [], grupos: Map<string, []> }
     const cets = new Map();
@@ -452,11 +640,16 @@ function normalizeEquipos(equipos) {
         categoria: e.categoria || "",
         tipo_equipo: e.tipo_equipo || e.tipo_tactico || [e.marca, e.modelo].filter(Boolean).join(" ") || e.categoria || "Equipo",
         tipo_destino: tipoDestino,
+        id_personal_asignado: firstValue(e.ueo_id_personal, e.id_personal_asignado, e.id_personal, e.personal_id),
+        id_vehiculo_asignado: firstValue(e.id_vehiculo_contexto, e.id_vehiculo_asignado, e.id_vehiculo, e.vehiculo_id),
         asignadoA: e.asignado_a_personal || "",
         personalRol: e.personal_rol || "",
         vehiculo: tipoDestino === "VEHICULO"
           ? [e.asignado_a_vehiculo, e.vehiculo_alias].filter(Boolean).join(" - ")
           : "",
+        latitud: e.latitud ?? e.lat ?? null,
+        longitud: e.longitud ?? e.lng ?? e.lon ?? null,
+        ultima_actualizacion: e.ultima_actualizacion || e.timestamp || e.updated_at || e.fecha_actualizacion || "",
         grupos: gruposNorm,
         flotillas: flotillasNorm
       };
@@ -495,7 +688,7 @@ function renderEquiposGroupedHtml(equiposNorm) {
 
     return `
       <div class="miniCard">
-        <p><strong>Nombre de equipo:</strong> ${escapeHtml(e.nombre || "")}</p>
+        <p><strong>Nombre de equipo:</strong> ${trackingLabel(e.nombre || "Equipo", "E", e.id_equipo, e.latitud ?? e.lat, e.longitud ?? e.lng ?? e.lon, e)}</p>
         <p><strong>Identificador:</strong> ${escapeHtml(e.numero || "Sin numero")}</p>
         ${flotillas.length ? `<p style="margin-top:8px;"><strong>Flotilla:</strong> ${escapeHtml(flotillas.join(", "))}</p>` : ""}
         ${grupos.length ? `<p style="margin-top:8px;"><strong>Grupo:</strong> ${escapeHtml(grupos.join(", "))}</p>` : ""}
@@ -533,8 +726,14 @@ function normalizeDispositivos(dispositivos) {
       numero_telefono: d.numero_telefono || d.numeroTelefono || "",
       imei: d.imei || "",
       numero_serie: d.numero_serie || d.numeroSerie || "",
+      identificador_app: d.identificador_app || d.identificadorApp || "",
+      serial_dispositivo: d.serial_dispositivo || d.serial || "",
       sistema_operativo: d.sistema_operativo || d.os || "",
       estado: d.estado_asignacion || d.estado || d.dispositivo_estado || "",
+      id_personal: firstValue(d.id_personal, d.personal_id, d.idPersonal, d.id_personal_asignado),
+      personal_apodo: d.personal_apodo || d.personalApodo || "",
+      personal_nombre: d.personal_nombre || d.personalNombre || "",
+      personal_apellido: d.personal_apellido || d.personalApellido || "",
       asignadoA,
       bateria_pct: d.bateria_pct ?? d.bateria ?? d.battery ?? null,
       latitud: d.latitud ?? d.lat ?? null,
@@ -564,6 +763,75 @@ function getDispositivoCode(d) {
   return d.numero_telefono || d.numero_serie || d.imei || "Sin identificador";
 }
 
+function normalizeLookupText(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\([^)]*\)/g, " ")
+    .replace(/\b(soldado|marinero|cabo|capitan|teniente|sargento|primero|segundo)\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function getPositiveId(...values) {
+  const raw = firstValue(...values);
+  if (raw === undefined || raw === null) return "";
+  const num = Number(raw);
+  if (Number.isFinite(num) && num > 0) return String(Math.trunc(num));
+  const clean = String(raw).trim();
+  return clean && clean !== "0" ? clean : "";
+}
+
+function addLocation(map, key, coords) {
+  if (!key || !coords || map.has(key)) return;
+  map.set(key, coords);
+}
+
+function addTextLocation(map, value, coords) {
+  addLocation(map, normalizeLookupText(value), coords);
+}
+
+function itemTrackingCoords(kind, id, item = {}) {
+  return normalizeTrackingCoords(
+    item?.latitud ?? item?.lat,
+    item?.longitud ?? item?.lng ?? item?.lon
+  ) || getTrackingEntityCoordinates(makeTrackingKey(kind, id));
+}
+
+function withResolvedPersonalDeviceLocations(personalNorm, dispositivosNorm) {
+  const deviceByPersonalId = new Map();
+  const deviceByPersonalText = new Map();
+
+  dispositivosNorm.forEach((d) => {
+    const id = getPositiveId(d.id_dispositivo, d.id);
+    const coords = itemTrackingCoords("D", id, d);
+    if (!coords || !isDeviceTrackingConfirmed(d, id)) return;
+
+    addLocation(deviceByPersonalId, getPositiveId(d.id_personal, d.personal_id, d.idPersonal), coords);
+    addTextLocation(deviceByPersonalText, d.asignadoA, coords);
+    addTextLocation(deviceByPersonalText, d.personal_apodo, coords);
+    addTextLocation(deviceByPersonalText, [d.personal_nombre, d.personal_apellido].filter(Boolean).join(" "), coords);
+    addTextLocation(deviceByPersonalText, [d.personal_puesto, d.personal_nombre, d.personal_apellido].filter(Boolean).join(" "), coords);
+  });
+
+  return personalNorm.map((p) => {
+    const id = getPositiveId(p.id_personal, p.id, p.personal_id);
+    const existing = itemTrackingCoords("P", id, p);
+    if (existing) return p;
+
+    const coords = deviceByPersonalId.get(id) ||
+      deviceByPersonalText.get(normalizeLookupText(p.nombre || p.name)) ||
+      deviceByPersonalText.get(normalizeLookupText(p.apodo)) ||
+      null;
+
+    return coords
+      ? { ...p, lat: coords.lat, lon: coords.lon, latitud: coords.lat, longitud: coords.lon }
+      : p;
+  });
+}
+
 function renderDispositivosGroupedHtml(dispositivosNorm) {
   if (!dispositivosNorm.length) return "<p>sin dispositivos asignados</p>";
 
@@ -588,16 +856,16 @@ function renderDispositivosGroupedHtml(dispositivosNorm) {
     const nombre = getDispositivoName(d);
     const codigo = getDispositivoCode(d);
     const bateria = d.bateria_pct != null && d.bateria_pct !== "" ? `${d.bateria_pct}%` : "";
-    const tieneUbicacion = d.latitud != null && d.longitud != null;
+    const ubicacion = normalizeTrackingCoords(d.latitud, d.longitud);
 
     return `
       <div class="miniCard">
-        <p><strong>Dispositivo:</strong> ${escapeHtml(nombre)}</p>
+        <p><strong>Dispositivo:</strong> ${trackingLabel(nombre, "D", d.id_dispositivo, d.latitud, d.longitud, d)}</p>
         <p><strong>Identificador:</strong> ${escapeHtml(codigo)}</p>
         ${d.sistema_operativo ? `<p><strong>Sistema:</strong> ${escapeHtml(d.sistema_operativo)}</p>` : ""}
         ${d.asignadoA ? `<p><strong>Custodio:</strong> ${escapeHtml(d.asignadoA)}</p>` : ""}
         ${bateria ? `<p><strong>Bateria:</strong> ${escapeHtml(bateria)}</p>` : ""}
-        ${tieneUbicacion ? `<p><strong>Ubicacion:</strong> ${escapeHtml(formatCoord(d.latitud))}, ${escapeHtml(formatCoord(d.longitud))}</p>` : ""}
+        ${ubicacion ? `<p><strong>Ubicacion:</strong> ${escapeHtml(formatCoord(ubicacion.lat))}, ${escapeHtml(formatCoord(ubicacion.lon))}</p>` : ""}
       </div>
     `;
   };
@@ -675,14 +943,14 @@ export function renderInfoPanel(bdData = null) {
 
   const fecha = formatDate(operacion.fecha_creacion || operacion.created_at);
 
-  const personalNorm = normalizePersonal(personal);
+  const dispositivosNorm = normalizeDispositivos(dispositivos);
+  const personalNorm = withResolvedPersonalDeviceLocations(normalizePersonal(personal), dispositivosNorm);
   const personalHtml = renderPersonalHtml(personalNorm);
 
   const vehiculosHtml = renderVehiculosHierarchyHtml(vehiculos);
 
   const equiposNorm = normalizeEquipos(equipos);
   const equiposHtml = renderEquiposGroupedHtml(equiposNorm);
-  const dispositivosNorm = normalizeDispositivos(dispositivos);
   const dispositivosHtml = renderDispositivosGroupedHtml(dispositivosNorm);
 
   container.innerHTML = `
@@ -729,16 +997,16 @@ export function renderInfoPanel(bdData = null) {
     });
   }
 
-  container.addEventListener("click", (e) => {
+  container.onclick = (e) => {
     if (e.target.closest(".person-link")) return;
-    const el = e.target.closest(".personal-locatable");
+    const el = e.target.closest(".tracking-locatable");
     if (!el) return;
-    const id = el.dataset.pid;
+    const key = el.dataset.trackingKey;
     const lat = parseFloat(el.dataset.lat);
     const lon = parseFloat(el.dataset.lon);
-    if (isNaN(lat) || isNaN(lon)) return;
-    followPersonalLocation(id, lat, lon);
-  });
+    if (!normalizeTrackingCoords(lat, lon) && !getTrackingEntityCoordinates(key)) return;
+    followTrackingLocation(key, lat, lon);
+  };
 }
 
 export function updateChatAvailability() {
@@ -792,6 +1060,11 @@ export function updateChatAvailability() {
   if (!active) {
     dom.chatAudiencePanel?.classList.remove("open");
     dom.chatPanel?.classList.remove("open");
+    dom.chatGroupMembersPanel?.classList.remove("open");
+    if (dom.chatGroupMembersToggle) {
+      dom.chatGroupMembersToggle.textContent = ">";
+      dom.chatGroupMembersToggle.setAttribute("aria-expanded", "false");
+    }
     dom.toggleChatPanel?.classList.remove("active");
     dom.cameraPanel?.classList.remove("open");
     dom.toggleCameraPanel?.classList.remove("active");
@@ -803,13 +1076,13 @@ export function updateChatAvailability() {
   if (dom.chatEmojiBtn) dom.chatEmojiBtn.disabled = !active;
   if (dom.chatAttachmentBtn) dom.chatAttachmentBtn.disabled = !active;
   if (dom.chatAudioBtn) dom.chatAudioBtn.disabled = !active;
+  if (dom.chatGroupMembersToggle) dom.chatGroupMembersToggle.disabled = !active;
   if (dom.chatTargetPicker) dom.chatTargetPicker.disabled = !active;
   document.querySelectorAll("[data-chat-channel]").forEach((btn) => {
     btn.disabled = !active;
   });
-  if (dom.cameraDronesBtn) dom.cameraDronesBtn.disabled = !active;
-  if (dom.registerObsStreamBtn) dom.registerObsStreamBtn.disabled = !active;
-  if (dom.obsStreamKey) dom.obsStreamKey.disabled = !active;
+  if (dom.cameraWebRtcBtn) dom.cameraWebRtcBtn.disabled = !active;
+  if (dom.cameraRtmpBtn) dom.cameraRtmpBtn.disabled = !active;
   if (dom.chatTabCet) dom.chatTabCet.disabled = !active;
   if (dom.chatTabCells) dom.chatTabCells.disabled = !active;
 }
@@ -865,6 +1138,10 @@ export function updateSelectionInfo(selectedEntity) {
       });
     }
   } else {
+    if (trackingKey && trackingKey.startsWith("P:")) type = "Personal (Rastreo)";
+    if (trackingKey && trackingKey.startsWith("E:")) type = "Equipo (Rastreo)";
+    if (trackingKey && trackingKey.startsWith("D:")) type = "Dispositivo (Rastreo)";
+
     dom.selectionInfo.innerHTML = `
       <div style="font-weight:bold; color:#00ffa6;">${escapeHtml(name)}</div>
       <div style="font-size:11px; margin-top:2px;">Tipo: ${escapeHtml(type)}</div>
@@ -1261,19 +1538,30 @@ function getBiometricSourceLabel(live = {}, person = {}, assignedDevices = [], a
   return assignedDevice && Object.keys(assignedDevice).length ? getDeviceCompactName(assignedDevice) : "";
 }
 
-function getPersonCameraImage(personId) {
-  const images = [
-    "img/cameras/cam1.png",
-    "img/cameras/cam2.png",
-    "img/cameras/cam3.png"
-  ];
-  const text = String(personId || "");
-  let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(i);
-    hash |= 0;
-  }
-  return images[Math.abs(hash) % images.length];
+function normalizeCameraProtocol(value) {
+  const protocol = String(value || "WEBRTC").trim().toUpperCase();
+  return protocol === "RTMP" ? "RTMP" : "WEBRTC";
+}
+
+function getPersonCameraProtocol(person = {}, live = {}) {
+  return normalizeCameraProtocol(firstValue(
+    live.camera_protocol,
+    live.protocolo_camara,
+    live.protocol,
+    person.camera_protocol,
+    person.protocolo_camara,
+    person.protocol
+  ));
+}
+
+function renderWaitingCameraSignal(protocol) {
+  const label = normalizeCameraProtocol(protocol);
+  return `
+    <div class="personCameraWaiting" data-protocol="${escapeHtml(label)}">
+      <span>Esperando señal</span>
+      <strong>${escapeHtml(label)}</strong>
+    </div>
+  `;
 }
 
 function placePersonInfoPopup(anchor = {}) {
@@ -1335,7 +1623,7 @@ export function showPersonnelDetail(personId, anchor = {}) {
   const baro = firstValue(live.presion_barometrica_hpa, live.barometro, live.baro, live.presion, live.pressure, person.presion_barometrica_hpa, person.barometro, person.baro, person.presion, person.pressure, "-");
   const bateria = formatBattery(firstValue(live.bateria_pct, live.bateria, live.battery, live.battery_level, person.bateria_pct, person.bateria, person.battery, person.battery_level, assignedDevice.bateria_pct, assignedDevice.bateria, assignedDevice.battery, assignedDevice.battery_level, assignedDevice.nivel_bateria));
   const actualizado = firstValue(live.signos_actualizacion, live.timestamp, person.signos_actualizacion, person.updated_at, person.fecha_actualizacion, person.ultima_actualizacion, person.timestamp);
-  const cameraImage = firstValue(person.camera_url, person.camara_url, person.video_thumbnail) || getPersonCameraImage(personId);
+  const cameraProtocol = getPersonCameraProtocol(person, live);
   const dispositivosHtml = assignedDevices.length
     ? assignedDevices.map((device) => {
       const code = getDeviceCodeValue(device);
@@ -1375,9 +1663,12 @@ export function showPersonnelDetail(personId, anchor = {}) {
       <div class="personInfoUpdated">${escapeHtml(actualizado ? `Actualizado ${formatTime(actualizado)}` : "Sin datos recientes")}</div>
     </div>
     <div class="personInfoCamera">
-      <img src="${escapeHtml(cameraImage)}" alt="Camara de ${escapeHtml(nombre)}">
+      ${renderWaitingCameraSignal(cameraProtocol)}
     </div>
   `;
+
+  const cameraContainer = dom.personInfoPopupContent.querySelector(".personInfoCamera");
+  void renderPersonnelLiveCamera(cameraContainer, personId, nombre);
 
   if (dom.btnClosePersonInfoPopup) {
     dom.btnClosePersonInfoPopup.onclick = () => {

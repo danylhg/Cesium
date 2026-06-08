@@ -15,7 +15,7 @@ class CesiumWebController(
     private val opZoom: Int
 ) {
     private var isPageReady: Boolean = false
-    private var pendingMyPosition: Pair<Double, Double>? = null
+    private var pendingMyPosition: Triple<Double, Double, Boolean>? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     fun setup() {
@@ -52,8 +52,8 @@ class CesiumWebController(
                 super.onPageFinished(view, url)
                 isPageReady = true
                 applyOperationView()
-                pendingMyPosition?.let { (lat, lon) ->
-                    updateMyPosition(lat, lon)
+                pendingMyPosition?.let { (lat, lon, showMarker) ->
+                    updateMyPosition(lat, lon, showMarker)
                 }
             }
         }
@@ -85,15 +85,15 @@ class CesiumWebController(
         }, 2500)
     }
 
-    fun updateMyPosition(latitude: Double, longitude: Double) {
-        pendingMyPosition = latitude to longitude
+    fun updateMyPosition(latitude: Double, longitude: Double, showMarker: Boolean = true) {
+        pendingMyPosition = Triple(latitude, longitude, showMarker)
         if (!isPageReady) return
         webView.post {
             webView.evaluateJavascript(
                 """
                 (function() {
                     if (typeof updateMyPosition === 'function') {
-                        updateMyPosition($latitude, $longitude);
+                        updateMyPosition($latitude, $longitude, $showMarker);
                         return 'OK';
                     }
                     return 'ERROR:updateMyPosition no existe';
@@ -134,6 +134,33 @@ class CesiumWebController(
         }
     }
 
+    fun selectTrackingVehiculo(idVehiculo: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof selectTrackingVehiculo==='function') selectTrackingVehiculo($idVehiculo); })();",
+                null
+            )
+        }
+    }
+
+    fun selectTrackingEquipo(idEquipo: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof selectTrackingEquipo==='function') selectTrackingEquipo($idEquipo); })();",
+                null
+            )
+        }
+    }
+
+    fun selectTrackingDispositivo(idDispositivo: Int) {
+        webView.post {
+            webView.evaluateJavascript(
+                "(function(){ if(typeof selectTrackingDispositivo==='function') selectTrackingDispositivo($idDispositivo); })();",
+                null
+            )
+        }
+    }
+
     fun followTrackingPersonal(idPersonal: Int, latitude: Double, longitude: Double, zoom: Int = 500) {
         webView.post {
             webView.evaluateJavascript(
@@ -145,6 +172,90 @@ class CesiumWebController(
                     }
                     if (typeof selectTrackingPersonal === 'function') {
                         selectTrackingPersonal($idPersonal);
+                    }
+                    if (typeof centerOnLocation === 'function') {
+                        centerOnLocation($latitude, $longitude, $zoom, false);
+                    }
+                    return 'OK';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun followTrackingVehiculo(idVehiculo: Int, latitude: Double?, longitude: Double?, zoom: Int = 500) {
+        if (latitude == null || longitude == null) {
+            selectTrackingVehiculo(idVehiculo)
+            return
+        }
+
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function(){
+                    if (typeof followTrackingVehiculo === 'function') {
+                        followTrackingVehiculo($idVehiculo, $latitude, $longitude, $zoom);
+                        return 'OK';
+                    }
+                    if (typeof selectTrackingVehiculo === 'function') {
+                        selectTrackingVehiculo($idVehiculo);
+                    }
+                    if (typeof centerOnLocation === 'function') {
+                        centerOnLocation($latitude, $longitude, $zoom, false);
+                    }
+                    return 'OK';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun followTrackingEquipo(idEquipo: Int, latitude: Double?, longitude: Double?, zoom: Int = 500) {
+        if (latitude == null || longitude == null) {
+            selectTrackingEquipo(idEquipo)
+            return
+        }
+
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function(){
+                    if (typeof followTrackingEquipo === 'function') {
+                        followTrackingEquipo($idEquipo, $latitude, $longitude, $zoom);
+                        return 'OK';
+                    }
+                    if (typeof selectTrackingEquipo === 'function') {
+                        selectTrackingEquipo($idEquipo);
+                    }
+                    if (typeof centerOnLocation === 'function') {
+                        centerOnLocation($latitude, $longitude, $zoom, false);
+                    }
+                    return 'OK';
+                })();
+                """.trimIndent(),
+                null
+            )
+        }
+    }
+
+    fun followTrackingDispositivo(idDispositivo: Int, latitude: Double?, longitude: Double?, zoom: Int = 500) {
+        if (latitude == null || longitude == null) {
+            selectTrackingDispositivo(idDispositivo)
+            return
+        }
+
+        webView.post {
+            webView.evaluateJavascript(
+                """
+                (function(){
+                    if (typeof followTrackingDispositivo === 'function') {
+                        followTrackingDispositivo($idDispositivo, $latitude, $longitude, $zoom);
+                        return 'OK';
+                    }
+                    if (typeof selectTrackingDispositivo === 'function') {
+                        selectTrackingDispositivo($idDispositivo);
                     }
                     if (typeof centerOnLocation === 'function') {
                         centerOnLocation($latitude, $longitude, $zoom, false);

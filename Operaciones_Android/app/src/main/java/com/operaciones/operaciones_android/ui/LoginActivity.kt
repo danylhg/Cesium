@@ -147,14 +147,7 @@ class LoginActivity : AppCompatActivity() {
                                 handleLoginSuccess(json)
                             response.code == 403 -> {
                                 val message = json.optString("mensaje", "Usuario inactivo.")
-                                val code = json.optString("codigo", "")
-                                val deviceId = devicePayload.optString("identificador_app", "")
-                                val deviceMessage = if (code.startsWith("DISPOSITIVO") && deviceId.isNotBlank()) {
-                                    "$message\nID app: $deviceId"
-                                } else {
-                                    message
-                                }
-                                showError(deviceMessage)
+                                showError(message)
                             }
                             else ->
                                 showError(json.optString("mensaje", "Usuario o contraseña incorrectos."))
@@ -244,6 +237,7 @@ class LoginActivity : AppCompatActivity() {
             u.optInt("id_personal", 0).takeIf { it > 0 } ?: u.optInt("id_usuario", 0)
         else
             u.optInt("id_usuario", 0)
+        val idDispositivo = u.optInt("id_dispositivo", 0).takeIf { it > 0 }
 
         val user = User(
             id        = id,
@@ -252,7 +246,8 @@ class LoginActivity : AppCompatActivity() {
             username  = u.getString("username"),
             rol       = rol,
             jerarquia = u.optString("puesto",   ""),
-            tabla     = tabla
+            tabla     = tabla,
+            idDispositivo = idDispositivo
         )
 
         AuthManager.saveSession(this, user, token)

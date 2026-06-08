@@ -12,7 +12,7 @@ import {
   openPanel
 } from "./dashboard.ui.js";
 import { bindDashboardEvents } from "./dashboard.events.js";
-import { initChat, bindChatEvents } from "./dashboard.chat.js";
+import { initChat, bindChatEvents } from "./dashboard.chat.js?v=20260604-emergency-pulse";
 import {
   setTacticalUI,
   bindTacticalEvents,
@@ -34,7 +34,7 @@ import {
 } from "./dashboard.routes.js";
 import { loadTrackingFromBackend, loadTrackingFromMapaData, initTrackingSocket, startTrackingPolling } from "./dashboard.tracking.js";
 import { bindDrawingEvents, loadDrawingsFromBackend, initDrawingSocket } from "./dashboard.drawing.js";
-import { initCameraFeeds } from "./dashboard.camera.js";
+import { initCameraFeeds } from "./dashboard.camera.js?v=20260604-person-card-camera";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 const CONNECTION_LOST_MESSAGE = "Se perdio la conexion con el servidor.";
@@ -289,6 +289,33 @@ function loadSocketIOScript() {
   });
 }
 
+function getSocketJoinPayload(opId) {
+  let stored = {};
+  let tokenPayload = {};
+  try {
+    stored = JSON.parse(localStorage.getItem("userData") || "{}");
+  } catch {
+    stored = {};
+  }
+  try {
+    const token = localStorage.getItem("token") || "";
+    tokenPayload = JSON.parse(atob(token.split(".")[1] || ""));
+  } catch {
+    tokenPayload = {};
+  }
+
+  const tabla = String(tokenPayload.tabla || stored.tabla || "").toLowerCase();
+  const rol = String(tokenPayload.rol || stored.rol || "").toUpperCase();
+  const idPersonal = tokenPayload.id_personal || stored.id_personal ||
+    (tabla === "personal" ? tokenPayload.sub : null);
+  const payload = { id_operacion: Number(opId) };
+
+  if (idPersonal) payload.id_personal = Number(idPersonal);
+  if (rol) payload.rol = rol;
+
+  return payload;
+}
+
 async function connectSocket(opId) {
   try {
     await loadSocketIOScript();
@@ -301,7 +328,7 @@ async function connectSocket(opId) {
   socket.on("connect", () => {
     console.log("[SOCKET] conectado:", socket.id);
     setServerConnectionState(true);
-    socket.emit("join_operacion", { id_operacion: Number(opId) });
+    socket.emit("join_operacion", getSocketJoinPayload(opId));
   });
 
   socket.on("connect_error", (err) => {

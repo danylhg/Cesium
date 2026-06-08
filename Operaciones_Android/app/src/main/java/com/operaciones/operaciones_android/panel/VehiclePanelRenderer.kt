@@ -16,11 +16,39 @@ internal class VehiclePanelRenderer(
         val grupos: LinkedHashMap<String, MutableList<String>> = LinkedHashMap()
     )
 
+    private val liveLocations = mutableMapOf<Int, Pair<Double, Double>>()
+    private val locatedVehiculoIds = mutableSetOf<Int>()
+    private val activeRows = mutableMapOf<Int, View>()
+    private var selectedVehiculoId: Int? = null
+
+    fun selectVehiculo(idVehiculo: Int?) {
+        selectedVehiculoId = idVehiculo
+        activeRows.forEach { (id, row) -> applyVehicleRowStyle(row, id) }
+    }
+
+    fun updateVehiculoLocation(id: Int, lat: Double, lon: Double) {
+        if (!isValidLocation(lat, lon)) return
+        liveLocations[id] = lat to lon
+        locatedVehiculoIds.add(id)
+        val row = activeRows[id] ?: return
+        val label = row.tag as? String
+            ?: row.findViewById<TextView>(R.id.equipoNombre).text.toString()
+        setSelectableForeground(row)
+        row.isClickable = true
+        row.setOnClickListener {
+            selectVehiculo(id)
+            host.selectVehiculoOnMap(id, lat, lon, label)
+        }
+        applyVehicleRowStyle(row, id)
+    }
+
     fun inflate(panelContent: FrameLayout, vehiculosList: List<VehiculoItem>) {
         val view = host.getLayoutInflater().inflate(R.layout.panel_vehiculo, panelContent, false)
         panelContent.addView(view)
 
         val list = view.findViewById<LinearLayout>(R.id.vehiculoList)
+        activeRows.clear()
+        locatedVehiculoIds.clear()
         if (vehiculosList.isEmpty()) {
             addEmptyState(list, "Cargando vehiculos...")
             return
@@ -50,6 +78,14 @@ internal class VehiclePanelRenderer(
     private fun addVehicleHeader(list: LinearLayout, vehicle: VehiculoItem) {
         val row = host.getLayoutInflater().inflate(R.layout.item_equipo, list, false)
         val tipo = vehicle.tipo.uppercase()
+        val rowLabel = when {
+            vehicle.codigoInterno.isNotBlank() && vehicle.alias.isNotBlank() ->
+                "${vehicle.codigoInterno} - ${vehicle.alias}"
+            vehicle.codigoInterno.isNotBlank() -> vehicle.codigoInterno
+            vehicle.alias.isNotBlank() -> vehicle.alias
+            else -> "Vehiculo"
+        }
+        row.tag = rowLabel
 
         row.findViewById<TextView>(R.id.equipoIcon).text = when {
             tipo == "INTERCEPTOR" -> "INT"
@@ -59,18 +95,27 @@ internal class VehiclePanelRenderer(
             else -> "VEH"
         }
 
-        row.findViewById<TextView>(R.id.equipoNombre).text = when {
-            vehicle.codigoInterno.isNotBlank() && vehicle.alias.isNotBlank() ->
-                "${vehicle.codigoInterno} - ${vehicle.alias}"
-            vehicle.codigoInterno.isNotBlank() -> vehicle.codigoInterno
-            vehicle.alias.isNotBlank() -> vehicle.alias
-            else -> "Vehiculo"
-        }
+        row.findViewById<TextView>(R.id.equipoNombre).text = rowLabel
 
         row.findViewById<TextView>(R.id.equipoDetalle).text = ""
         row.findViewById<TextView>(R.id.equipoTipo).text =
             if (vehicle.tipo.isNotBlank()) vehicle.tipo.uppercase() else "VEHICULO"
 
+        val live = liveLocations[vehicle.idVehiculo]
+        val effectiveLat = live?.first ?: vehicle.lat
+        val effectiveLon = live?.second ?: vehicle.lon
+        if (effectiveLat != null && effectiveLon != null && isValidLocation(effectiveLat, effectiveLon)) {
+            locatedVehiculoIds.add(vehicle.idVehiculo)
+            setSelectableForeground(row)
+            row.isClickable = true
+            row.setOnClickListener {
+                selectVehiculo(vehicle.idVehiculo)
+                host.selectVehiculoOnMap(vehicle.idVehiculo, effectiveLat, effectiveLon, rowLabel)
+            }
+        }
+
+        activeRows[vehicle.idVehiculo] = row
+        applyVehicleRowStyle(row, vehicle.idVehiculo)
         list.addView(row)
     }
 
@@ -177,6 +222,40 @@ internal class VehiclePanelRenderer(
     private fun prefixed(prefix: String, name: String): String {
         val clean = name.trim()
         return if (clean.lowercase().startsWith(prefix.lowercase())) clean else "$prefix $clean"
+    }
+
+    private fun setSelectableForeground(row: View) {
+        if (row.foreground == null) {
+            row.foreground = row.context.obtainStyledAttributes(
+                intArrayOf(android.R.attr.selectableItemBackground)
+            ).getDrawable(0)
+        }
+    }
+
+    private fun isValidLocation(lat: Double, lon: Double): Boolean =
+        !lat.isNaN() &&
+            !lon.isNaN() &&
+            !lat.isInfinite() &&
+            !lon.isInfinite() &&
+            lat in -90.0..90.0 &&
+            lon in -180.0..180.0 &&
+            !(lat == 0.0 && lon == 0.0)
+
+    private fun applyVehicleRowStyle(row: View, idVehiculo: Int) {
+        val selected = selectedVehiculoId == idVehiculo
+        val hasLocation = locatedVehiculoIds.contains(idVehiculo)
+        val highlighted = selected
+
+        row.setBackgroundColor(Color.parseColor(if (highlighted) "#0d1f3c" else "#0d1526"))
+        row.findViewById<TextView>(R.id.equipoNombre).setTextColor(
+            Color.parseColor(if (highlighted) "#3b82f6" else "#e2e8f0")
+        )
+        row.findViewById<TextView>(R.id.equipoIcon).setBackgroundColor(
+            Color.parseColor(if (selected) "#2563eb" else "#0f172a")
+        )
+        row.findViewById<TextView>(R.id.equipoTipo).setTextColor(
+            Color.parseColor(if (hasLocation) "#22c55e" else "#64748b")
+        )
     }
 
     private fun dp(view: View, value: Float): Int =

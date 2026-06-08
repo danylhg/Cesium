@@ -2,6 +2,14 @@ package com.operaciones.operaciones_android.wear.data
 
 import org.json.JSONObject
 
+private fun JSONObject.safeString(key: String, fallback: String = ""): String {
+    if (!has(key) || isNull(key)) return fallback
+    return optString(key, fallback).takeUnless { it.equals("null", ignoreCase = true) } ?: fallback
+}
+
+private fun JSONObject.optionalString(key: String): String? =
+    safeString(key).trim().takeIf { it.isNotBlank() }
+
 enum class WearUserRole {
     CET,
     CELL,
@@ -91,18 +99,18 @@ data class WearChatMessage(
         fun fromJson(json: JSONObject): WearChatMessage =
             WearChatMessage(
                 id = json.optInt("id_mensaje", -1),
-                autor = json.optString("autor_nombre", "Sistema"),
-                contenido = json.optString("contenido", ""),
-                tipo = json.optString("tipo_mensaje", "NORMAL"),
-                fecha = json.optString("fecha_envio", ""),
-                destinatarioRol = json.optString("destinatario_rol", "GLOBAL"),
-                destinoTipo = json.optString("destino_tipo", "").takeIf { it.isNotBlank() },
-                destinoId = json.optString("destino_id", "").takeIf { it.isNotBlank() },
-                destinoLabel = json.optString("destino_label", "").takeIf { it.isNotBlank() },
-                attachmentKind = json.optString("attachment_kind", "").takeIf { it.isNotBlank() },
-                attachmentUrl = json.optString("attachment_url", "").takeIf { it.isNotBlank() },
-                attachmentMime = json.optString("attachment_mime", "").takeIf { it.isNotBlank() },
-                attachmentName = json.optString("attachment_name", "").takeIf { it.isNotBlank() }
+                autor = json.safeString("autor_nombre", "Sistema").ifBlank { "Sistema" },
+                contenido = json.safeString("contenido"),
+                tipo = json.safeString("tipo_mensaje", "NORMAL").ifBlank { "NORMAL" },
+                fecha = json.safeString("fecha_envio"),
+                destinatarioRol = json.safeString("destinatario_rol", "GLOBAL").ifBlank { "GLOBAL" },
+                destinoTipo = json.optionalString("destino_tipo"),
+                destinoId = json.optionalString("destino_id"),
+                destinoLabel = json.optionalString("destino_label"),
+                attachmentKind = json.optionalString("attachment_kind"),
+                attachmentUrl = json.optionalString("attachment_url"),
+                attachmentMime = json.optionalString("attachment_mime"),
+                attachmentName = json.optionalString("attachment_name")
             )
     }
 }

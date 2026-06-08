@@ -1,5 +1,9 @@
 // Importa Router de Express para declarar rutas agrupadas
-import { Router } from "express";
+import { Router, raw } from "express";
+import { randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, extname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 // Pool de PostgreSQL para ejecutar consultas
 import { pool } from "../db.js";
@@ -19,6 +23,10 @@ import { getActorFromRequest, logOperacionEvento } from "../utils/timeline.js";
 
 // Crea la instancia del router que se exportará al final
 const router = Router();
+const routesDir = dirname(fileURLToPath(import.meta.url));
+const apiRoot = resolve(routesDir, "..");
+const chatStorageRoot = resolve(apiRoot, "storage", "chat");
+const chatAttachmentContentTypes = new Set(["application/octet-stream"]);
 
 // ── Filtro de visibilidad para historial ─────────────────────
 // opParam, rolParam, actorParam: referencias a parámetros SQL ("$1", "$2", …)
@@ -44,10 +52,21 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
                 COALESCE(g_cet.id_grupo_padre,  g_cet.id_grupo_operacion)
         ))
       ))
-      OR (
-        m.destino_tipo = 'CELL_LIST'
-        AND ${actorParam}::text = ANY(string_to_array(COALESCE(m.destino_id, ''), ','))
-      )
+      OR (m.destino_tipo = 'CELL_LIST' AND (
+        ${rolParam} = 'CUT'
+        OR ${actorParam}::text = ANY(string_to_array(replace(COALESCE(m.destino_id, ''), ' ', ''), ','))
+      ))
+      OR (m.destino_tipo = 'VEHICULO' AND (
+        ${rolParam} = 'CUT'
+        OR EXISTS (
+          SELECT 1
+          FROM vehiculo_operacion vo
+          WHERE vo.id_operacion = ${opParam}
+            AND vo.id_vehiculo::text = m.destino_id
+            AND vo.id_personal = ${actorParam}
+            AND COALESCE(vo.estado_asignacion::text, '') <> 'LIBERADO'
+        )
+      ))
       OR (m.destino_tipo IN ('FLOTILLA', 'GRUPO') AND EXISTS (
         SELECT 1
         FROM grupo_personal gper
@@ -72,7 +91,7 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
       OR m.destino_tipo = 'GLOBAL'
       OR (m.destino_tipo = 'CETS' AND ${rolParam} = 'CET')
       OR (m.destino_tipo = 'CET'  AND m.destino_id = ${actorParam}::text AND ${rolParam} = 'CET')
-      OR (m.destino_tipo = 'CUTS' AND ${rolParam} IN ('CUT', 'CET'))
+      OR (m.destino_tipo = 'CUTS' AND ${rolParam} = 'CUT')
       OR (m.destino_tipo = 'CUT'  AND (
             (m.destino_id = ${actorParam}::text AND ${rolParam} = 'CUT')
             OR (pc.id_personal = ${actorParam} AND ${rolParam} = 'CET')
@@ -82,6 +101,65 @@ function chatVisibilityClause(opParam, rolParam, actorParam, isPersonal) {
 }
 
 let chatDestinationColumnsReady = false;
+
+function isChatAttachmentContentType(req) {
+  const contentType = String(req.headers["content-type"] || "").toLowerCase();
+  const mediaType = contentType.split(";")[0].trim();
+  return (
+    mediaType.startsWith("image/") ||
+    mediaType.startsWith("video/") ||
+    mediaType.startsWith("audio/") ||
+    chatAttachmentContentTypes.has(mediaType)
+  );
+}
+
+function normalizeAttachmentKind(value, mimeType = "") {
+  const raw = String(value || "").trim().toUpperCase();
+  if (["IMAGE", "VIDEO", "AUDIO", "VOICE", "FILE"].includes(raw)) {
+    return raw === "VOICE" ? "AUDIO" : raw;
+  }
+  if (mimeType.startsWith("image/")) return "IMAGE";
+  if (mimeType.startsWith("video/")) return "VIDEO";
+  if (mimeType.startsWith("audio/")) return "AUDIO";
+  return "FILE";
+}
+
+function defaultAttachmentText(kind) {
+  if (kind === "IMAGE") return "Imagen adjunta";
+  if (kind === "VIDEO") return "Video adjunto";
+  if (kind === "AUDIO") return "Mensaje de voz";
+  return "Archivo adjunto";
+}
+
+function extensionForMime(mimeType) {
+  if (mimeType === "image/jpeg") return ".jpg";
+  if (mimeType === "image/png") return ".png";
+  if (mimeType === "image/webp") return ".webp";
+  if (mimeType === "video/mp4") return ".mp4";
+  if (mimeType === "video/webm") return ".webm";
+  if (mimeType === "audio/mp4") return ".m4a";
+  if (mimeType === "audio/aac") return ".aac";
+  if (mimeType === "audio/mpeg") return ".mp3";
+  if (mimeType === "audio/webm") return ".webm";
+  return "";
+}
+
+function safeFilename(value, fallbackExt = "") {
+  const input = String(value || "").trim() || `adjunto${fallbackExt}`;
+  const raw = (() => {
+    try {
+      return decodeURIComponent(input);
+    } catch {
+      return input;
+    }
+  })();
+  const cleaned = raw
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 120);
+  const withExt = cleaned || `adjunto${fallbackExt}`;
+  return extname(withExt) ? withExt : `${withExt}${fallbackExt}`;
+}
 
 function shouldHideLegacySystemMessage(row) {
   const tipo = String(row?.tipo_mensaje || "").toUpperCase();
@@ -96,7 +174,13 @@ async function ensureChatDestinationColumns() {
     ALTER TABLE mensaje_chat
       ADD COLUMN IF NOT EXISTS destino_tipo TEXT,
       ADD COLUMN IF NOT EXISTS destino_id TEXT,
-      ADD COLUMN IF NOT EXISTS destino_label TEXT
+      ADD COLUMN IF NOT EXISTS destino_label TEXT,
+      ADD COLUMN IF NOT EXISTS attachment_kind TEXT,
+      ADD COLUMN IF NOT EXISTS attachment_url TEXT,
+      ADD COLUMN IF NOT EXISTS attachment_mime TEXT,
+      ADD COLUMN IF NOT EXISTS attachment_name TEXT,
+      ADD COLUMN IF NOT EXISTS attachment_size BIGINT,
+      ADD COLUMN IF NOT EXISTS attachment_duration_ms BIGINT
   `);
 
   chatDestinationColumnsReady = true;
@@ -113,6 +197,22 @@ function shouldHideChatMessage(row) {
   );
 }
 
+function isSelfCetDestination(req, destinoTipo, destinoId) {
+  return req.user?.tabla === "personal" &&
+    String(req.user?.rol || "").toUpperCase() === "CET" &&
+    String(destinoTipo || "").trim().toUpperCase() === "CET" &&
+    destinoId != null &&
+    String(destinoId).trim() === String(req.user.sub);
+}
+
+function rejectInvalidChatDestination(req, res, destinoTipo, destinoId) {
+  if (isSelfCetDestination(req, destinoTipo, destinoId)) {
+    res.status(400).json({ ok: false, mensaje: "No puedes crear un chat CET contigo mismo" });
+    return true;
+  }
+  return false;
+}
+
 
 // ===============================
 // CHAT / MENSAJES
@@ -126,7 +226,7 @@ function shouldHideChatMessage(row) {
 // Además:
 //   Aplica filtro de visibilidad según el rol del usuario autenticado.
 // Reglas:
-//   - ADMIN y CUT ven todo
+//   - ADMIN ve todo
 //   - otros roles solo ven:
 //       * mensajes GLOBAL
 //       * mensajes dirigidos a su rol
@@ -169,6 +269,13 @@ router.get("/ops/:id/chat", requireAuth, async (req, res) => {
         m.destino_tipo,
         m.destino_id,
         m.destino_label,
+        m.attachment_kind,
+        m.attachment_url,
+        m.attachment_mime,
+        m.attachment_name,
+        m.attachment_size,
+        m.attachment_duration_ms,
+        m.estado_operacion_creacion,
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
@@ -187,8 +294,8 @@ router.get("/ops/:id/chat", requireAuth, async (req, res) => {
     `;
     let params = [id_operacion];
 
-    // Si no es ADMIN ni CUT, aplica filtro de visibilidad
-    if (user_role !== 'ADMIN' && user_role !== 'CUT') {
+    // Si no es ADMIN, aplica filtro de visibilidad
+    if (user_role !== 'ADMIN') {
       query += chatVisibilityClause('$1', '$2', '$3', isPersonal);
       params.push(user_role, id_actor);
     }
@@ -259,6 +366,10 @@ router.post("/ops/:id/chat", requireAuth, async (req, res) => {
 
   // Id del actor autenticado
   const id_actor = Number(req.user.sub);
+
+  if (rejectInvalidChatDestination(req, res, destino_tipo, destino_id)) {
+    return;
+  }
 
   // Conexión manual por transacción
   const client = await pool.connect();
@@ -615,6 +726,13 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
         m.destino_tipo,
         m.destino_id,
         m.destino_label,
+        m.attachment_kind,
+        m.attachment_url,
+        m.attachment_mime,
+        m.attachment_name,
+        m.attachment_size,
+        m.attachment_duration_ms,
+        m.estado_operacion_creacion,
         pc.tipo AS tipo_participante,
         pc.id_usuario,
         pc.id_personal,
@@ -635,8 +753,8 @@ router.get("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     `;
     let msgParams = [id_chat];
 
-    // Aplica visibilidad si no es ADMIN/CUT
-    if (gm_role !== 'ADMIN' && gm_role !== 'CUT') {
+    // Aplica visibilidad si no es ADMIN
+    if (gm_role !== 'ADMIN') {
       msgParams.push(id_operacion, gm_role, gm_actor); // $2, $3, $4
       msgQuery += chatVisibilityClause('$2', '$3', '$4', gm_isPersonal);
     }
@@ -688,6 +806,10 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     const destino_tipo = String(req.body?.destino_tipo || "").trim().toUpperCase() || null;
     const destino_id = req.body?.destino_id != null ? String(req.body.destino_id).trim() : null;
     const destino_label = req.body?.destino_label != null ? String(req.body.destino_label).trim() : null;
+
+    if (rejectInvalidChatDestination(req, res, destino_tipo, destino_id)) {
+      return;
+    }
 
     // contenido obligatorio
     if (!contenido) {
@@ -757,7 +879,10 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio,
-                destinatario_rol, destino_tipo, destino_id, destino_label
+                destinatario_rol, destino_tipo, destino_id, destino_label,
+                attachment_kind, attachment_url, attachment_mime, attachment_name,
+                attachment_size, attachment_duration_ms,
+                estado_operacion_creacion
       `,
       [
         id_chat,
@@ -818,6 +943,183 @@ router.post("/ops/:id/chat/messages", requireAuth, async (req, res) => {
     return sendDbError(res, err, "Error enviando mensaje");
   }
 });
+
+router.post(
+  "/ops/:id/chat/attachments",
+  requireAuth,
+  raw({ type: isChatAttachmentContentType, limit: "500mb" }),
+  async (req, res) => {
+    const id_operacion = Number(req.params.id);
+    if (!isInt(id_operacion)) {
+      return res.status(400).json({ ok: false, mensaje: "id invalido" });
+    }
+
+    const buffer = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buffer || buffer.length === 0) {
+      return res.status(400).json({ ok: false, mensaje: "archivo vacio" });
+    }
+
+    const mimeType = String(req.headers["content-type"] || "application/octet-stream")
+      .split(";")[0]
+      .trim()
+      .toLowerCase();
+    const attachmentKind = normalizeAttachmentKind(req.headers["x-attachment-kind"], mimeType);
+    const originalName = safeFilename(req.headers["x-file-name"], extensionForMime(mimeType));
+    const durationMsRaw = Number(req.headers["x-duration-ms"] || req.query.duration_ms);
+    const durationMs = Number.isFinite(durationMsRaw) && durationMsRaw >= 0 ? Math.round(durationMsRaw) : null;
+
+    const contenido = String(req.query.contenido || "").trim() || defaultAttachmentText(attachmentKind);
+    const tipo_mensaje = String(req.query.tipo_mensaje || "NORMAL").toUpperCase();
+    const destinatario_rol = String(req.query.destinatario_rol || "GLOBAL").toUpperCase();
+    const destino_tipo = String(req.query.destino_tipo || "").trim().toUpperCase() || null;
+    const destino_id = req.query.destino_id != null ? String(req.query.destino_id).trim() : null;
+    const destino_label = req.query.destino_label != null ? String(req.query.destino_label).trim() : null;
+
+    if (rejectInvalidChatDestination(req, res, destino_tipo, destino_id)) {
+      return;
+    }
+
+    if (!["NORMAL", "SISTEMA", "URGENTE"].includes(tipo_mensaje)) {
+      return res.status(400).json({ ok: false, mensaje: "tipo_mensaje invalido" });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await ensureChatDestinationColumns();
+
+      const dir = resolve(chatStorageRoot, `op_${id_operacion}`);
+      await mkdir(dir, { recursive: true });
+
+      const storedName = `${Date.now()}_${randomUUID()}_${originalName}`;
+      const storagePath = resolve(dir, storedName);
+      await writeFile(storagePath, buffer);
+      const attachmentUrl = `/api/storage/chat/op_${id_operacion}/${storedName}`;
+
+      await client.query("BEGIN");
+
+      const chatRes = await client.query(
+        `SELECT id_chat FROM chat_operacion WHERE id_operacion = $1 LIMIT 1`,
+        [id_operacion]
+      );
+
+      if (chatRes.rowCount === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ ok: false, mensaje: "La operacion no tiene chat" });
+      }
+
+      const id_chat = chatRes.rows[0].id_chat;
+      let id_participante = null;
+
+      if (req.user.tabla === "usuario") {
+        const partRes = await client.query(
+          `
+          INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
+          VALUES ($1, 'USUARIO', $2, NULL)
+          ON CONFLICT (id_chat, id_usuario) DO UPDATE
+            SET id_usuario = EXCLUDED.id_usuario
+          RETURNING id_participante
+          `,
+          [id_chat, Number(req.user.sub)]
+        );
+        id_participante = partRes.rows[0].id_participante;
+      } else {
+        const partRes = await client.query(
+          `
+          INSERT INTO participante_chat (id_chat, tipo, id_usuario, id_personal)
+          VALUES ($1, 'PERSONAL', NULL, $2)
+          ON CONFLICT (id_chat, id_personal) DO UPDATE
+            SET id_personal = EXCLUDED.id_personal
+          RETURNING id_participante
+          `,
+          [id_chat, Number(req.user.sub)]
+        );
+        id_participante = partRes.rows[0].id_participante;
+      }
+
+      const ins = await client.query(
+        `
+        INSERT INTO mensaje_chat (
+          id_chat, id_participante, contenido, tipo_mensaje, destinatario_rol,
+          destino_tipo, destino_id, destino_label,
+          attachment_kind, attachment_url, attachment_mime, attachment_name,
+          attachment_size, attachment_duration_ms
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+        RETURNING id_mensaje, id_chat, contenido, tipo_mensaje, fecha_envio,
+                  destinatario_rol, destino_tipo, destino_id, destino_label,
+                  attachment_kind, attachment_url, attachment_mime, attachment_name,
+                  attachment_size, attachment_duration_ms,
+                  estado_operacion_creacion
+        `,
+        [
+          id_chat,
+          id_participante,
+          contenido,
+          tipo_mensaje,
+          destinatario_rol,
+          destino_tipo,
+          destino_id,
+          destino_label,
+          attachmentKind,
+          attachmentUrl,
+          mimeType,
+          originalName,
+          buffer.length,
+          durationMs
+        ]
+      );
+
+      const autorRes = await client.query(
+        `
+        SELECT
+          pc.tipo AS tipo_participante,
+          pc.id_usuario,
+          pc.id_personal,
+          COALESCE(u.rol::text, p.rol::text) AS autor_rol,
+          COALESCE(
+            u.nombre || ' ' || u.apellido,
+            p.nombre || ' ' || p.apellido,
+            'Sistema'
+          ) AS autor_nombre
+        FROM participante_chat pc
+        LEFT JOIN usuario u ON u.id_usuario = pc.id_usuario
+        LEFT JOIN personal p ON p.id_personal = pc.id_personal
+        WHERE pc.id_participante = $1
+        LIMIT 1
+        `,
+        [id_participante]
+      );
+
+      const payload = {
+        ...ins.rows[0],
+        ...(autorRes.rows[0] || {})
+      };
+
+      await client.query("COMMIT");
+
+      await logOperacionEvento(pool, {
+        id_operacion,
+        tipo_evento: "chat_adjunto",
+        entidad_tipo: "mensaje_chat",
+        entidad_id: payload.id_mensaje,
+        payload,
+        occurred_at: payload.fecha_envio,
+        actor: getActorFromRequest(req)
+      });
+
+      const io = req.app.get("io");
+      await emitChatMessage(io, id_operacion, payload);
+
+      return res.status(201).json({ ok: true, item: payload });
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      return sendDbError(res, err, "Error enviando adjunto");
+    } finally {
+      client.release();
+    }
+  }
+);
 
 // Exporta el router para montarlo en app/server
 export default router;

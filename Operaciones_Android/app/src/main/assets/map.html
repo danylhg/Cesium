@@ -62,7 +62,10 @@
     const trackingPersonalEntities = new Map();
     const trackingVehiculoEntities = new Map();
     const trackingEquipoEntities = new Map();
+    const trackingDispositivoEntities = new Map();
     const emergencyPulseEntities = new Map();
+    let selectedTrackingKind = null;
+    let selectedTrackingId = null;
     let selectedTrackingPersonalId = null;
     let followedTrackingPersonalId = null;
     let followMyLocation = false;
@@ -73,6 +76,8 @@
     const TRACKING_PERSONAL_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
     const TRACKING_VEHICULO_COLOR = Cesium.Color.fromCssColorString("#FFD700");
     const TRACKING_EQUIPO_COLOR = Cesium.Color.fromCssColorString("#B4FF39");
+    const TRACKING_DISPOSITIVO_COLOR = Cesium.Color.fromCssColorString("#38BDF8");
+    const TRACKING_SELECTED_COLOR = Cesium.Color.fromCssColorString("#2563EB");
     const TRACKING_ACTIVE_COLOR = Cesium.Color.LIME;
     const TRACKING_SYMBOL_SIZE = 42;
     const TRACKING_SYMBOL_RENDER_SIZE = 160;
@@ -327,10 +332,11 @@
       }
 
       const trackingKind = String(getEntityProperty(entity, "trackingKind") || "");
-      if (trackingKind === "personal") {
+      if (isTrackingKind(trackingKind)) {
         const trackingId = Number(getEntityProperty(entity, "trackingId"));
         if (Number.isFinite(trackingId) && trackingId > 0) {
-          return { kind: "personal", id: trackingId, label: label || ("P-" + trackingId) };
+          const prefix = trackingKind === "vehiculo" ? "V-" : trackingKind === "equipo" ? "E-" : trackingKind === "dispositivo" ? "D-" : "P-";
+          return { kind: trackingKind, id: trackingId, label: label || (prefix + trackingId) };
         }
       }
 
@@ -474,17 +480,17 @@
           if (!_drawMode) {
             const selectedObject = getSelectableObjectAt(movement.position);
             if (selectedObject) {
-              if (selectedObject.kind === "personal") {
-                setSelectedTrackingPersonal(selectedObject.id);
+              if (isTrackingKind(selectedObject.kind)) {
+                setSelectedTracking(selectedObject.kind, selectedObject.id);
               } else {
-                setSelectedTrackingPersonal(null);
+                setSelectedTracking(null, null);
               }
               notifyMapObjectSelected(selectedObject);
               return;
             }
           }
 
-          setSelectedTrackingPersonal(null);
+          setSelectedTracking(null, null);
           notifyMapSelectionCleared();
 
           // Click normal, se mantiene tu flujo actual
@@ -543,10 +549,18 @@
       }
     };
 
-    window.updateMyPosition = function (lat, lon) {
+    window.updateMyPosition = function (lat, lon, showMarker) {
       try {
         if (!viewer) return;
         if (userMarker) viewer.entities.remove(userMarker);
+        userMarker = null;
+
+        if (showMarker === false) {
+          if (followMyLocation) {
+            flyToLocation(lat, lon, FOLLOW_LOCATION_ZOOM, 0.45);
+          }
+          return;
+        }
 
         const marker = getTrackingMilMarker({ kind: "personal", tacticalType: "personal" }, "Mi ubicacion");
         userMarker = viewer.entities.add({
@@ -590,7 +604,8 @@
     function getFallbackTrackingSidc(kind) {
       if (kind === "vehiculo") return buildMilSidc("F", "G", "EV----");
       if (kind === "equipo") return buildMilSidc("F", "G", "E-----");
-      return buildMilSidc("F", "G", "U-----");
+      if (kind === "dispositivo") return buildMilSidc("F", "G", "UCS---");
+      return buildMilSidc("F", "G", "UCI---");
     }
 
     function resolveTrackingMilSymbol(options, label) {
@@ -630,10 +645,17 @@
         return buildMilSidc("F", "G", "E-----");
       }
 
-      if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "UH----");
+      if (kind === "dispositivo") {
+        if (textIncludes(text, "WATCH", "RELOJ")) return buildMilSidc("F", "G", "U-----");
+        if (textIncludes(text, "TELEFONO", "CELULAR", "TABLET", "RADIO", "LORA", "COMUNIC")) return buildMilSidc("F", "G", "UCS---");
+        if (textIncludes(text, "CAMARA", "CAMERA")) return buildMilSidc("F", "G", "EX----");
+        return buildMilSidc("F", "G", "E-----");
+      }
+
+      if (textIncludes(text, "CUT", "CET")) return buildMilSidc("F", "G", "UCI---");
       if (textIncludes(text, "CELL", "CELULA")) return buildMilSidc("F", "G", "UCI---");
       if (textIncludes(text, "PATRULL", "POLIC", "SEGUR")) return buildMilSidc("F", "G", "UCF---");
-      return buildMilSidc("F", "G", "U-----");
+      return getFallbackTrackingSidc("personal");
     }
 
     function renderTrackingMilSymbol(sidc) {
@@ -693,53 +715,99 @@
       };
     }
 
-    function applyPersonalTrackingStyle(entity, selected) {
+    function isTrackingKind(kind) {
+      return kind === "personal" || kind === "vehiculo" || kind === "equipo" || kind === "dispositivo";
+    }
+
+    function trackingStoreForKind(kind) {
+      if (kind === "vehiculo") return trackingVehiculoEntities;
+      if (kind === "equipo") return trackingEquipoEntities;
+      if (kind === "dispositivo") return trackingDispositivoEntities;
+      return trackingPersonalEntities;
+    }
+
+    function trackingColorForKind(kind, selected) {
+      if (selected) return kind === "personal" ? TRACKING_PERSONAL_SELECTED_COLOR : TRACKING_SELECTED_COLOR;
+      if (kind === "vehiculo") return TRACKING_VEHICULO_COLOR;
+      if (kind === "equipo") return TRACKING_EQUIPO_COLOR;
+      if (kind === "dispositivo") return TRACKING_DISPOSITIVO_COLOR;
+      return TRACKING_PERSONAL_COLOR;
+    }
+
+    function applyTrackingStyle(entity, kind, selected) {
       if (!entity) return;
 
-      const markerColor = selected ? TRACKING_PERSONAL_SELECTED_COLOR : TRACKING_PERSONAL_COLOR;
+      const markerColor = trackingColorForKind(kind, selected);
       if (entity.billboard) {
         entity.billboard.width = selected ? TRACKING_SYMBOL_SIZE + 8 : TRACKING_SYMBOL_SIZE;
         entity.billboard.height = selected ? TRACKING_SYMBOL_SIZE + 8 : TRACKING_SYMBOL_SIZE;
       }
 
       if (entity.label) {
-        entity.label.showBackground = true;
+        entity.label.showBackground = selected || kind === "personal";
         entity.label.fillColor = Cesium.Color.WHITE;
         entity.label.backgroundColor = markerColor.withAlpha(selected ? 0.9 : 0.68);
         entity.label.backgroundPadding = new Cesium.Cartesian2(5, 3);
       }
     }
 
-    function setSelectedTrackingPersonal(id) {
-      const nextId = id == null ? null : String(id);
+    function applyPersonalTrackingStyle(entity, selected) {
+      applyTrackingStyle(entity, "personal", selected);
+    }
 
-      if (selectedTrackingPersonalId && selectedTrackingPersonalId !== nextId) {
-        const previous = trackingPersonalEntities.get(selectedTrackingPersonalId);
-        applyPersonalTrackingStyle(previous, false);
+    function setSelectedTracking(kind, id) {
+      const nextKind = isTrackingKind(kind) && id != null ? kind : null;
+      const nextId = nextKind ? String(id) : null;
+
+      if (
+        selectedTrackingKind &&
+        selectedTrackingId &&
+        (selectedTrackingKind !== nextKind || selectedTrackingId !== nextId)
+      ) {
+        const previous = trackingStoreForKind(selectedTrackingKind).get(selectedTrackingId);
+        applyTrackingStyle(previous, selectedTrackingKind, false);
       }
 
-      selectedTrackingPersonalId = nextId;
+      selectedTrackingKind = nextKind;
+      selectedTrackingId = nextId;
+      selectedTrackingPersonalId = nextKind === "personal" ? nextId : null;
 
-      if (selectedTrackingPersonalId) {
-        const current = trackingPersonalEntities.get(selectedTrackingPersonalId);
-        applyPersonalTrackingStyle(current, true);
+      if (selectedTrackingKind && selectedTrackingId) {
+        const current = trackingStoreForKind(selectedTrackingKind).get(selectedTrackingId);
+        applyTrackingStyle(current, selectedTrackingKind, true);
       }
     }
 
-    window.selectTrackingPersonal = function (idPersonal) {
-      setSelectedTrackingPersonal(idPersonal);
-    };
+    function setSelectedTrackingPersonal(id) {
+      setSelectedTracking("personal", id);
+    }
 
-    window.followTrackingPersonal = function (idPersonal, lat, lon, zoomMeters) {
+    function coordinateNumber(value) {
+      if (value === undefined || value === null) return null;
+      const text = String(value).trim();
+      if (!text) return null;
+      const number = Number(text);
+      return Number.isFinite(number) ? number : null;
+    }
+
+    function normalizeCoordinatePair(lat, lon) {
+      const nLat = coordinateNumber(lat);
+      const nLon = coordinateNumber(lon);
+      if (nLat === null || nLon === null) return null;
+      if (Math.abs(nLat) > 90 || Math.abs(nLon) > 180) return null;
+      if (nLat === 0 && nLon === 0) return null;
+      return { lat: nLat, lon: nLon };
+    }
+
+    function followTrackingEntity(kind, idValue, lat, lon, zoomMeters) {
       if (!viewer) return;
-      const id = String(idPersonal || "");
-      followedTrackingPersonalId = id || null;
+      const id = String(idValue || "");
       followMyLocation = false;
-      setSelectedTrackingPersonal(id || null);
 
-      const live = id ? trackingPersonalEntities.get(id) : null;
-      let destLat = Number(lat);
-      let destLon = Number(lon);
+      const live = id ? trackingStoreForKind(kind).get(id) : null;
+      const providedCoords = normalizeCoordinatePair(lat, lon);
+      let destLat = providedCoords ? providedCoords.lat : null;
+      let destLon = providedCoords ? providedCoords.lon : null;
       const livePosition = live && (live.position && live.position.getValue
         ? live.position.getValue(viewer.clock.currentTime)
         : live.position);
@@ -750,14 +818,54 @@
         destLon = Cesium.Math.toDegrees(carto.longitude);
       }
 
-      if (Number.isFinite(destLat) && Number.isFinite(destLon)) {
+      if (destLat !== null && destLon !== null) {
+        followedTrackingPersonalId = kind === "personal" ? (id || null) : null;
+        setSelectedTracking(kind, id || null);
         flyToLocation(destLat, destLon, zoomMeters || FOLLOW_TRACKING_ZOOM, 0.45);
       }
+    }
+
+    function selectExistingTracking(kind, idValue) {
+      const id = String(idValue || "");
+      if (!id || !trackingStoreForKind(kind).has(id)) return;
+      setSelectedTracking(kind, id);
+    }
+
+    window.selectTrackingPersonal = function (idPersonal) {
+      selectExistingTracking("personal", idPersonal);
+    };
+
+    window.selectTrackingVehiculo = function (idVehiculo) {
+      selectExistingTracking("vehiculo", idVehiculo);
+    };
+
+    window.selectTrackingEquipo = function (idEquipo) {
+      selectExistingTracking("equipo", idEquipo);
+    };
+
+    window.selectTrackingDispositivo = function (idDispositivo) {
+      selectExistingTracking("dispositivo", idDispositivo);
+    };
+
+    window.followTrackingPersonal = function (idPersonal, lat, lon, zoomMeters) {
+      followTrackingEntity("personal", idPersonal, lat, lon, zoomMeters);
+    };
+
+    window.followTrackingVehiculo = function (idVehiculo, lat, lon, zoomMeters) {
+      followTrackingEntity("vehiculo", idVehiculo, lat, lon, zoomMeters);
+    };
+
+    window.followTrackingEquipo = function (idEquipo, lat, lon, zoomMeters) {
+      followTrackingEntity("equipo", idEquipo, lat, lon, zoomMeters);
+    };
+
+    window.followTrackingDispositivo = function (idDispositivo, lat, lon, zoomMeters) {
+      followTrackingEntity("dispositivo", idDispositivo, lat, lon, zoomMeters);
     };
 
     window.clearTrackingSelection = function () {
       followedTrackingPersonalId = null;
-      setSelectedTrackingPersonal(null);
+      setSelectedTracking(null, null);
     };
 
     function removeEmergencyPulse(id) {
@@ -839,13 +947,11 @@
       try {
         if (!viewer) return;
 
-        const nLat = Number(lat);
-        const nLon = Number(lon);
-        if (!Number.isFinite(nLat) || !Number.isFinite(nLon)) return;
-        if (Math.abs(nLat) > 90 || Math.abs(nLon) > 180) return;
+        const coords = normalizeCoordinatePair(lat, lon);
+        if (!coords) return;
 
         const id = String(idPersonal || ("loc-" + Date.now()));
-        drawEmergencyPulse(id, Cesium.Cartesian3.fromDegrees(nLon, nLat));
+        drawEmergencyPulse(id, Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat));
         if (trackingPersonalEntities.has(id)) setSelectedTrackingPersonal(id);
       } catch (e) {
         console.error("Error en pulseEmergencyAtLocation: " + e.message);
@@ -853,7 +959,8 @@
     };
 
     function upsertTrackingEntity(store, key, lat, lon, label, color, meta) {
-      if (!viewer || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+      const coords = normalizeCoordinatePair(lat, lon);
+      if (!viewer || !coords) return;
 
       const options = meta || {};
       const marker = getTrackingMilMarker(options, label);
@@ -862,7 +969,7 @@
 
       const entity = viewer.entities.add({
         name: label,
-        position: Cesium.Cartesian3.fromDegrees(lon, lat),
+        position: Cesium.Cartesian3.fromDegrees(coords.lon, coords.lat),
         billboard: marker.billboard,
         label: label ? {
           text: label,
@@ -889,16 +996,20 @@
 
       store.set(key, entity);
 
-      if (options.kind === "personal") {
-        applyPersonalTrackingStyle(entity, selectedTrackingPersonalId === String(key));
+      if (isTrackingKind(options.kind)) {
+        applyTrackingStyle(
+          entity,
+          options.kind,
+          selectedTrackingKind === options.kind && selectedTrackingId === String(key)
+        );
       }
     }
 
     window.updateTrackingPersonal = function (idPersonal, lat, lon, label, meta) {
       try {
         const id = String(idPersonal || "");
-        const nextLat = Number(lat);
-        const nextLon = Number(lon);
+        const coords = normalizeCoordinatePair(lat, lon);
+        if (!coords) return;
         const options = Object.assign({}, meta || {}, {
           kind: "personal",
           trackingKey: "P:" + id,
@@ -908,14 +1019,14 @@
         upsertTrackingEntity(
           trackingPersonalEntities,
           id,
-          nextLat,
-          nextLon,
+          coords.lat,
+          coords.lon,
           label || ("P-" + id),
           TRACKING_PERSONAL_COLOR,
           options
         );
-        if (followedTrackingPersonalId === id && Number.isFinite(nextLat) && Number.isFinite(nextLon)) {
-          flyToLocation(nextLat, nextLon, FOLLOW_TRACKING_ZOOM, 0.3);
+        if (followedTrackingPersonalId === id) {
+          flyToLocation(coords.lat, coords.lon, FOLLOW_TRACKING_ZOOM, 0.3);
         }
       } catch (e) {
         console.error("Error en updateTrackingPersonal: " + e.message);
@@ -934,8 +1045,8 @@
         upsertTrackingEntity(
           trackingVehiculoEntities,
           id,
-          Number(lat),
-          Number(lon),
+          lat,
+          lon,
           label || ("V-" + id),
           TRACKING_VEHICULO_COLOR,
           options
@@ -957,14 +1068,27 @@
         upsertTrackingEntity(
           trackingEquipoEntities,
           id,
-          Number(lat),
-          Number(lon),
+          lat,
+          lon,
           label || ("E-" + id),
           TRACKING_EQUIPO_COLOR,
           options
         );
       } catch (e) {
         console.error("Error en updateTrackingEquipo: " + e.message);
+      }
+    };
+
+    window.updateTrackingDispositivo = function (idDispositivo, lat, lon, label, meta) {
+      try {
+        const id = String(idDispositivo || "");
+        const current = trackingDispositivoEntities.get(id);
+        if (current) {
+          viewer.entities.remove(current);
+          trackingDispositivoEntities.delete(id);
+        }
+      } catch (e) {
+        console.error("Error en updateTrackingDispositivo: " + e.message);
       }
     };
 

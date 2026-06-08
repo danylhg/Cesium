@@ -9,6 +9,7 @@ class PhoneBridge(private val context: Context) {
     companion object {
         const val PATH_OPEN_PHONE = "/sedam/open-phone"
         const val PATH_EMERGENCY = "/sedam/emergency"
+        const val PATH_SESSION_REQUEST = "/sedam/session/request"
     }
 
     fun openPhone(operation: WearOperation?, onDone: (Boolean) -> Unit = {}) {
@@ -35,6 +36,14 @@ class PhoneBridge(private val context: Context) {
             put("timestamp", System.currentTimeMillis())
         }
         sendMessage(PATH_EMERGENCY, payload, onDone)
+    }
+
+    fun requestSessionSync(device: JSONObject, onDone: (Boolean) -> Unit = {}) {
+        val payload = JSONObject().apply {
+            put("device", device)
+            put("timestamp", System.currentTimeMillis())
+        }
+        sendMessage(PATH_SESSION_REQUEST, payload, onDone)
     }
 
     private fun sendMessage(path: String, json: JSONObject, onDone: (Boolean) -> Unit) {

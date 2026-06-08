@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { pool } from "../db.js";
 import { ensureExtendedTrackingSchema, ensurePersonalMotionTrackingSchema } from "../utils/trackingSchema.js";
+import { derivePersonalTrackingFromDevice, getLatestDevicePosition } from "../utils/personalTrackingFromDevices.js";
 
 function streamRoomName(idStream) {
   return `media_stream_${idStream}`;
@@ -55,6 +56,187 @@ function validCoords(latitud, longitud) {
     lat <= 90 &&
     lon >= -180 &&
     lon <= 180;
+}
+
+function firstPayloadValue(payload, ...keys) {
+  for (const key of keys) {
+    const value = payload?.[key];
+    if (value !== undefined && value !== null && value !== "") return value;
+  }
+  return null;
+}
+
+const VITAL_KEYS = [
+  "frecuencia_cardiaca_bpm",
+  "oxigenacion_spo2",
+  "temperatura_c",
+  "frecuencia_respiratoria_rpm",
+  "presion_sistolica_mmhg",
+  "presion_diastolica_mmhg",
+  "pasos",
+  "presion_barometrica_hpa",
+  "bateria_pct",
+];
+
+const VITAL_ALIASES = {
+  frecuencia_cardiaca_bpm: ["frecuencia_cardiaca_bpm", "frecuencia_cardiaca", "fc", "heart_rate", "heart_rate_bpm", "bpm"],
+  oxigenacion_spo2: ["oxigenacion_spo2", "spo2", "oxigenacion", "oxygen_saturation"],
+  temperatura_c: ["temperatura_c", "temperatura", "temperature_c", "body_temperature"],
+  frecuencia_respiratoria_rpm: ["frecuencia_respiratoria_rpm", "respiracion", "respiratory_rate", "respiratory_rate_rpm"],
+  presion_sistolica_mmhg: ["presion_sistolica_mmhg", "sistolica", "systolic", "blood_pressure_systolic"],
+  presion_diastolica_mmhg: ["presion_diastolica_mmhg", "diastolica", "diastolic", "blood_pressure_diastolic"],
+  pasos: ["pasos", "steps"],
+  presion_barometrica_hpa: ["presion_barometrica_hpa", "barometro", "baro", "pressure", "pressure_hpa"],
+  bateria_pct: ["bateria_pct", "bateria", "battery", "battery_level", "battery_pct"],
+  latitud: ["latitud", "lat", "latitude"],
+  longitud: ["longitud", "lon", "lng", "longitude"],
+};
+
+const VITAL_RANGES = {
+  frecuencia_cardiaca_bpm: [20, 240],
+  oxigenacion_spo2: [0, 100],
+  temperatura_c: [25, 45],
+  frecuencia_respiratoria_rpm: [1, 80],
+  presion_sistolica_mmhg: [30, 260],
+  presion_diastolica_mmhg: [20, 180],
+  pasos: [0, Number.MAX_SAFE_INTEGER],
+  presion_barometrica_hpa: [300, 1100],
+  bateria_pct: [0, 100],
+  latitud: [-90, 90],
+  longitud: [-180, 180],
+};
+
+function readSocketVitalNumber(payload, key) {
+  const raw = firstPayloadValue(payload, ...(VITAL_ALIASES[key] || [key]));
+  if (raw == null) return null;
+  const number = Number(raw);
+  if (!Number.isFinite(number)) return null;
+  const [min, max] = VITAL_RANGES[key] || [];
+  if (min != null && (number < min || number > max)) return null;
+  return key === "pasos" ? Math.round(number) : number;
+}
+
+function readSocketVitalText(payload, key, fallback = null) {
+  const raw = payload?.[key];
+  if (raw === undefined || raw === null) return fallback;
+  const value = String(raw).trim();
+  return value || fallback;
+}
+
+function readSocketVitalTimestamp(payload) {
+  const raw = firstPayloadValue(payload, "timestamp", "capturado_en", "fecha");
+  if (raw == null) return null;
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function socketVitalPayload(payload = {}) {
+  const vitales = {};
+  for (const key of [...VITAL_KEYS, "latitud", "longitud"]) {
+    vitales[key] = readSocketVitalNumber(payload, key);
+  }
+  return vitales;
+}
+
+function toNumberOrNull(value) {
+  if (value === undefined || value === null) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function publicSocketVital(row = {}) {
+  const fc = toNumberOrNull(row.frecuencia_cardiaca_bpm);
+  const spo2 = toNumberOrNull(row.oxigenacion_spo2);
+  const temp = toNumberOrNull(row.temperatura_c);
+  const resp = toNumberOrNull(row.frecuencia_respiratoria_rpm);
+  const sys = toNumberOrNull(row.presion_sistolica_mmhg);
+  const dia = toNumberOrNull(row.presion_diastolica_mmhg);
+  const baro = toNumberOrNull(row.presion_barometrica_hpa);
+  const bateria = toNumberOrNull(row.bateria_pct);
+
+  return {
+    id_signo_vital: row.id_signo_vital != null ? Number(row.id_signo_vital) : null,
+    id_operacion: row.id_operacion != null ? Number(row.id_operacion) : null,
+    id_personal: row.id_personal != null ? Number(row.id_personal) : null,
+    apodo: row.apodo ?? null,
+    nombre: row.nombre ?? null,
+    apellido: row.apellido ?? null,
+    rol: row.rol ?? null,
+    frecuencia_cardiaca_bpm: fc,
+    frecuencia_cardiaca: fc,
+    fc,
+    heart_rate: fc,
+    heart_rate_bpm: fc,
+    oxigenacion_spo2: spo2,
+    spo2,
+    temperatura_c: temp,
+    temperatura: temp,
+    frecuencia_respiratoria_rpm: resp,
+    presion_sistolica_mmhg: sys,
+    presion_diastolica_mmhg: dia,
+    pasos: row.pasos != null ? Number(row.pasos) : null,
+    presion_barometrica_hpa: baro,
+    barometro: baro,
+    baro,
+    bateria_pct: bateria,
+    bateria,
+    battery_level: bateria,
+    latitud: toNumberOrNull(row.latitud),
+    longitud: toNumberOrNull(row.longitud),
+    dispositivo_id: row.dispositivo_id ?? null,
+    origen: row.origen ?? "SMARTWATCH",
+    metadata: row.metadata ?? {},
+    timestamp: row.timestamp ?? row.ultima_actualizacion ?? row.signos_actualizacion ?? null,
+    ultima_actualizacion: row.ultima_actualizacion ?? row.timestamp ?? row.signos_actualizacion ?? null,
+    signos_actualizacion: row.signos_actualizacion ?? row.ultima_actualizacion ?? row.timestamp ?? null,
+    estado_operacion_creacion: row.estado_operacion_creacion ?? null,
+  };
+}
+
+async function getAssignedSocketPersonal(idOperacion, idPersonal) {
+  const { rows } = await pool.query(
+    `SELECT a.id_operacion, a.id_personal, p.apodo, p.nombre, p.apellido, p.rol
+       FROM asignacion_operacion_personal a
+       JOIN personal p ON p.id_personal = a.id_personal
+      WHERE a.id_operacion = $1
+        AND a.id_personal = $2
+        AND a.estado_asignacion NOT IN ('LIBERADO')
+      LIMIT 1`,
+    [idOperacion, idPersonal]
+  );
+  return rows[0] || null;
+}
+
+async function getLatestSocketVital(idOperacion, idPersonal) {
+  const { rows } = await pool.query(
+    `SELECT *
+       FROM v_ultimos_signos_vitales_personal
+      WHERE id_operacion = $1
+        AND id_personal = $2
+      LIMIT 1`,
+    [idOperacion, idPersonal]
+  );
+  return rows[0] || null;
+}
+
+async function verifyDeviceSerial(idDispositivo, serial) {
+  const clean = String(serial || "").trim();
+  if (!clean) return false;
+
+  const { rows } = await pool.query(
+    `SELECT 1
+       FROM dispositivo
+      WHERE id_dispositivo = $1
+        AND (
+          lower(btrim(COALESCE(numero_serie, ''))) = lower($2) OR
+          lower(btrim(COALESCE(imei, ''))) = lower($2) OR
+          lower(btrim(COALESCE(identificador_app, ''))) = lower($2)
+        )
+      LIMIT 1`,
+    [Number(idDispositivo), clean]
+  );
+
+  return rows.length > 0;
 }
 
 async function getActiveStream(idOperacion, idStream) {
@@ -128,15 +310,16 @@ export function initSocket(server) {
         const { rows } = await pool.query(
           `INSERT INTO tracking_personal (
              id_operacion, id_personal, latitud, longitud, altitud,
-             precision_m, velocidad_kmh, rumbo_grados
+             precision_m, velocidad_kmh, rumbo_grados, fuente_tracking
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
            RETURNING id_tracking, id_operacion, id_personal, latitud, longitud, altitud, precision_m, velocidad_kmh, rumbo_grados, timestamp, estado_operacion_creacion`,
           [opId, Number(id_personal), Number(latitud), Number(longitud),
             optionalNumber(altitud),
             optionalNumber(precision_m),
             optionalNumber(velocidad_kmh),
-            optionalNumber(rumbo_grados)]
+            optionalNumber(rumbo_grados),
+            "GPS_DIRECTO"]
         );
         savedTracking = rows[0];
       } catch (err) {
@@ -156,6 +339,98 @@ export function initSocket(server) {
         nombre: data.nombre,
         rol: data.rol,
       });
+    });
+
+    socket.on("signos_vitales_personal", async (data) => {
+      const opId = socket.operationId;
+      if (!opId) {
+        console.warn("[SOCKET] signos_vitales_personal ignorado: socket sin operacion", data);
+        return;
+      }
+
+      const idPersonal = Number(data?.id_personal);
+      if (!Number.isInteger(idPersonal) || idPersonal <= 0) {
+        console.warn("[SOCKET] signos_vitales_personal ignorado: falta id_personal", data);
+        return;
+      }
+
+      const vitales = socketVitalPayload(data);
+      if (VITAL_KEYS.every((key) => vitales[key] == null)) {
+        console.warn("[SOCKET] signos_vitales_personal ignorado: sin signos vitales", data);
+        return;
+      }
+
+      let savedVital = null;
+      try {
+        const assigned = await getAssignedSocketPersonal(opId, idPersonal);
+        if (!assigned) {
+          socket.emit("signos_vitales_personal_error", {
+            ok: false,
+            mensaje: "Personal no asignado a la operacion",
+          });
+          return;
+        }
+
+        const metadata = data?.metadata && typeof data.metadata === "object" && !Array.isArray(data.metadata)
+          ? data.metadata
+          : {};
+        const timestamp = readSocketVitalTimestamp(data);
+
+        const { rows } = await pool.query(
+          `INSERT INTO signos_vitales_personal (
+             id_operacion,
+             id_personal,
+             frecuencia_cardiaca_bpm,
+             oxigenacion_spo2,
+             temperatura_c,
+             frecuencia_respiratoria_rpm,
+             presion_sistolica_mmhg,
+             presion_diastolica_mmhg,
+             pasos,
+             presion_barometrica_hpa,
+             bateria_pct,
+             latitud,
+             longitud,
+             dispositivo_id,
+             origen,
+             metadata,
+             "timestamp"
+           )
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,COALESCE($17::timestamptz, NOW()))
+           RETURNING *`,
+          [
+            opId,
+            idPersonal,
+            vitales.frecuencia_cardiaca_bpm,
+            vitales.oxigenacion_spo2,
+            vitales.temperatura_c,
+            vitales.frecuencia_respiratoria_rpm,
+            vitales.presion_sistolica_mmhg,
+            vitales.presion_diastolica_mmhg,
+            vitales.pasos,
+            vitales.presion_barometrica_hpa,
+            vitales.bateria_pct,
+            vitales.latitud,
+            vitales.longitud,
+            readSocketVitalText(data, "dispositivo_id"),
+            readSocketVitalText(data, "origen", "SMARTWATCH"),
+            JSON.stringify(metadata),
+            timestamp,
+          ]
+        );
+
+        const latest = await getLatestSocketVital(opId, idPersonal);
+        savedVital = publicSocketVital(latest || { ...rows[0], ...assigned });
+      } catch (err) {
+        console.error("[SOCKET] Error guardando signos_vitales_personal:", err.message);
+        socket.emit("signos_vitales_personal_error", {
+          ok: false,
+          mensaje: "No se pudo guardar signos_vitales_personal",
+        });
+        return;
+      }
+
+      io.to(`op_${opId}`).emit("signos_vitales_personal", savedVital);
     });
 
     // Persiste en BD y retransmite al room
@@ -277,6 +552,15 @@ export function initSocket(server) {
         precision_m,
         bateria_pct
       } = data ?? {};
+      const serialDispositivo = firstPayloadValue(
+        data,
+        "serial_dispositivo",
+        "numero_serie",
+        "numeroSerie",
+        "serial",
+        "imei",
+        "identificador_app"
+      );
       if (!id_dispositivo || !validCoords(latitud, longitud)) {
         console.warn("[SOCKET] tracking_dispositivo ignorado: payload incompleto", data);
         return;
@@ -285,12 +569,24 @@ export function initSocket(server) {
       let savedTracking = null;
       try {
         await ensureExtendedTrackingSchema();
+        const serialOk = await verifyDeviceSerial(id_dispositivo, serialDispositivo);
+        if (!serialOk) {
+          console.warn("[SOCKET] tracking_dispositivo ignorado: serie no coincide", data);
+          socket.emit("tracking_dispositivo_error", {
+            ok: false,
+            mensaje: serialDispositivo
+              ? "El numero de serie no coincide con el dispositivo"
+              : "Falta numero de serie del dispositivo",
+          });
+          return;
+        }
+
         const { rows } = await pool.query(
           `INSERT INTO tracking_dispositivo (
              id_operacion, id_dispositivo, latitud, longitud, altitud,
-             velocidad_kmh, rumbo_grados, precision_m, bateria_pct
+             velocidad_kmh, rumbo_grados, precision_m, bateria_pct, serial_dispositivo
            )
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
            RETURNING id_tracking, id_operacion, id_dispositivo, latitud, longitud, altitud, velocidad_kmh, rumbo_grados, precision_m, bateria_pct, timestamp, estado_operacion_creacion`,
           [
             opId,
@@ -301,7 +597,8 @@ export function initSocket(server) {
             optionalNumber(velocidad_kmh),
             optionalNumber(rumbo_grados),
             optionalNumber(precision_m),
-            optionalNumber(bateria_pct)
+            optionalNumber(bateria_pct),
+            serialDispositivo ? String(serialDispositivo).trim() : null
           ]
         );
         savedTracking = rows[0];
@@ -314,13 +611,30 @@ export function initSocket(server) {
         return;
       }
 
-      socket.to(`op_${opId}`).emit("tracking_dispositivo", {
+      let latestDevice = null;
+      try {
+        latestDevice = await getLatestDevicePosition(opId, Number(id_dispositivo));
+      } catch (err) {
+        console.warn("[SOCKET] No se pudo obtener ultima posicion de dispositivo:", err.message);
+      }
+
+      io.to(`op_${opId}`).emit("tracking_dispositivo", latestDevice || {
         ...data,
         ...savedTracking,
         tipo: data.tipo,
         marca: data.marca,
         modelo: data.modelo,
+        serial_dispositivo: serialDispositivo ? String(serialDispositivo).trim() : null,
       });
+
+      try {
+        const personalFromDevices = await derivePersonalTrackingFromDevice(opId, Number(id_dispositivo));
+        if (personalFromDevices) {
+          io.to(`op_${opId}`).emit("tracking_personal", personalFromDevices);
+        }
+      } catch (err) {
+        console.error("[SOCKET] Error calculando tracking_personal desde dispositivo:", err.message);
+      }
     });
 
     socket.on("stream_join", async (payload, ack) => {
@@ -647,6 +961,13 @@ export function emitRutaOperacionEliminada(io, idOperacion, idRuta) {
 }
 
 // ── Visibilidad de mensajes de chat ──────────────────────────
+function splitChatDestinationIds(value) {
+  return String(value || '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
 async function canReceiveChatMessage(sock, msg, idOperacion) {
   const { rol, id_personal } = sock.userData || {};
   const tipo   = (msg.destino_tipo || '').toUpperCase().trim();
@@ -654,16 +975,41 @@ async function canReceiveChatMessage(sock, msg, idOperacion) {
 
   if (!tipo || tipo === 'GLOBAL') return true;
   if (!rol) return true;                          // dashboard sin rol → ve todo
-  if (rol === 'ADMIN' || rol === 'CUT') return true;
+  if (rol === 'ADMIN') return true;
 
   switch (tipo) {
     case 'CETS': return rol === 'CET';
     case 'CET':  return rol === 'CET'  && id_personal != null && String(id_personal) === destId;
-    case 'CUTS': return rol === 'CUT' || rol === 'CET';
+    case 'CUTS': return rol === 'CUT';
     case 'CUT':  return id_personal != null && (
       (rol === 'CUT' && String(id_personal) === destId)
       || (rol === 'CET' && msg.id_personal != null && String(msg.id_personal) === String(id_personal))
     );
+
+    case 'CELL_LIST':
+      if (rol === 'CUT') return true;
+      return id_personal != null && splitChatDestinationIds(destId).includes(String(id_personal));
+
+    case 'VEHICULO': {
+      if (rol === 'CUT') return true;
+      if (!id_personal || !destId) return false;
+      try {
+        const { rows } = await pool.query(
+          `SELECT 1
+           FROM vehiculo_operacion vo
+           WHERE vo.id_operacion = $1
+             AND vo.id_vehiculo::text = $2
+             AND vo.id_personal = $3
+             AND COALESCE(vo.estado_asignacion::text, '') <> 'LIBERADO'
+           LIMIT 1`,
+          [idOperacion, destId, id_personal]
+        );
+        return rows.length > 0;
+      } catch (err) {
+        console.error('[SOCKET] canReceiveChatMessage VEHICULO:', err.message);
+        return false;
+      }
+    }
 
     case 'CELL': {
       if (!id_personal) return false;

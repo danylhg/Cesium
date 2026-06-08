@@ -4,6 +4,7 @@ import { dom } from "./dashboard.dom.js";
 import { escapeHtml } from "./dashboard.storage.js";
 import { formatTime } from "./dashboard.ui.js";
 import { getVehicleOccupants } from "./dashboard.tracking.clustering.js";
+import { pulseEmergencyForChatMessage } from "./dashboard.emergency.js";
 
 const API_BASE = localStorage.getItem("API_BASE") || `http://${window.location.hostname}:3001`;
 
@@ -14,6 +15,7 @@ let _channelType = "global";
 let _channelTarget = "";
 let _allMsgs   = [];             // todos los mensajes en memoria
 let _chatDirectory = {
+  cuts: [],
   cets: [],
   cells: [],
   flotillas: [],
@@ -26,6 +28,7 @@ let _audioChunks = [];
 let _isRecordingAudio = false;
 
 const ATTACHMENT_PREFIX = "CHAT_ATTACHMENT:";
+const GROUP_MEMBER_CHANNELS = new Set(["global", "cuts", "cets", "flotilla", "grupo", "vehiculo"]);
 
 // ── JWT helper ──────────────────────────────────────────────
 function getMyInfo() {
@@ -134,31 +137,51 @@ function isVisibleInTab(msg) {
 
   if (_channelType === "global") return destinatario === "GLOBAL" && !destinoTipo;
   if (_channelType === "cets") {
-    return (destinatario === "CET" && (!destinoTipo || destinoTipo === "CETS"))
-      || destinoTipo === "CUTS";
+    return destinatario === "CET" && (!destinoTipo || destinoTipo === "CETS");
+  }
+  if (_channelType === "cuts") {
+    return destinoTipo === "CUTS" || (destinatario === "CUT" && !destinoTipo);
   }
   if (_channelType === "cet_specific") {
     return (destinoTipo === "CET" && destinoId === String(_channelTarget))
+      || (destinoTipo === "CELL" && String(msg.id_personal || "") === String(_channelTarget))
       || (destinoTipo === "CUT" && String(msg.id_personal || "") === String(_channelTarget));
   }
   if (_channelType === "cell_specific") {
-    return destinoTipo === "CELL" && destinoId === String(_channelTarget);
+    return (destinoTipo === "CELL" && destinoId === String(_channelTarget))
+      || (destinoTipo === "CET" && String(msg.id_personal || "") === String(_channelTarget));
   }
   if (_channelType === "flotilla") {
-    return flotillaMessageMatchesTarget(msg)
-      || destinoTipo === "CETS"
-      || (destinoTipo === "CELL" && cellBelongsToFlotilla(destinoId, _channelTarget))
-      || (destinoTipo === "CET" && personBelongsToFlotilla(destinoId, _channelTarget));
+    return flotillaMessageMatchesTarget(msg);
   }
   if (_channelType === "grupo") {
-    return destinoTipo === "GRUPO" && destinoId === String(_channelTarget);
+    return destinoTipo === "GRUPO" && grupoAliasesForTarget().some((alias) =>
+      sameValue(destinoId, alias) || sameValue(msg.destino_label, alias)
+    );
   }
   if (_channelType === "vehiculo") {
-    return (destinoTipo === "VEHICULO" && destinoId === String(_channelTarget))
-      || (destinoTipo === "CELL_LIST" && sameValue(msg.destino_label, getTargetLabel()));
+    return (destinoTipo === "VEHICULO" && sameValue(destinoId, _channelTarget))
+      || cellListMatchesVehicle(msg);
   }
   if (_activeTab === "global") return destinatario === "GLOBAL";
   return destinatario === "CET" || destinatario === "CUT";
+}
+
+function splitDestinationIds(value) {
+  return String(value || "")
+    .split(",")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+function cellListMatchesVehicle(msg) {
+  const destinoTipo = String(msg?.destino_tipo || "").toUpperCase();
+  if (destinoTipo !== "CELL_LIST") return false;
+  if (sameValue(msg.destino_label, getTargetLabel())) return true;
+
+  const vehicleRecipientIds = new Set(getVehicleRecipientIds().map((id) => String(id)));
+  if (!vehicleRecipientIds.size) return false;
+  return splitDestinationIds(msg.destino_id).some((id) => vehicleRecipientIds.has(String(id)));
 }
 
 function normalizeRole(person) {
@@ -230,14 +253,20 @@ function uniqueById(items, keyFn = (item) => item?.id) {
 function buildChatDirectory(mapaData = {}) {
   const personal = Array.isArray(mapaData.personal) ? mapaData.personal : [];
   const vehiculosRaw = Array.isArray(mapaData.vehiculos) ? mapaData.vehiculos : [];
+  const { sub, tabla } = getMyInfo();
+  const currentPersonalId = tabla === "personal" ? String(sub || "") : "";
 
   const personalById = new Map();
   personal.forEach((p) => {
     if (p.id_personal != null) personalById.set(String(p.id_personal), p);
   });
 
+  const cuts = personal
+    .filter((p) => normalizeRole(p) === "CUT")
+    .map((p) => ({ id: String(p.id_personal), label: fullName(p) }));
+
   const cets = personal
-    .filter((p) => normalizeRole(p) === "CET")
+    .filter((p) => normalizeRole(p) === "CET" && String(p.id_personal) !== currentPersonalId)
     .map((p) => ({ id: String(p.id_personal), label: fullName(p) }));
 
   const cells = personal
@@ -260,18 +289,29 @@ function buildChatDirectory(mapaData = {}) {
     label: g.flotilla ? `${g.label} (${g.flotilla})` : g.label
   }));
 
-  const vehiculos = uniqueById(
-    vehiculosRaw.map((v) => {
-      const id = v.id_vehiculo ?? v.id ?? v.codigo_interno ?? v.alias;
+  const vehiculoMap = new Map();
+  vehiculosRaw.forEach((v) => {
+    const id = v.id_vehiculo ?? v.id ?? v.codigo_interno ?? v.alias;
+    if (id == null) return;
+    const key = String(id);
+    if (!vehiculoMap.has(key)) {
       const name = v.alias ||
         v.codigo_interno ||
         v.tipo ||
         `Vehiculo ${id}`;
-      return id == null ? null : { id: String(id), label: name };
-    }).filter(Boolean)
-  );
+      vehiculoMap.set(key, { id: key, label: name, personIds: new Set() });
+    }
+    if (v.id_personal != null) {
+      vehiculoMap.get(key).personIds.add(String(v.id_personal));
+    }
+  });
 
-  _chatDirectory = { cets, cells, flotillas, grupos, vehiculos, personalById };
+  const vehiculos = Array.from(vehiculoMap.values()).map((v) => ({
+    ...v,
+    personIds: Array.from(v.personIds)
+  }));
+
+  _chatDirectory = { cuts, cets, cells, flotillas, grupos, vehiculos, personalById };
 }
 
 async function loadChatDirectory() {
@@ -301,9 +341,143 @@ function getTargetsForType(type = _channelType) {
   return [];
 }
 
+function isGroupMemberChannel(type = _channelType) {
+  return GROUP_MEMBER_CHANNELS.has(type);
+}
+
+function getSpecificChannelForPerson(person) {
+  const role = normalizeRole(person);
+  if (role === "CET") return "cet_specific";
+  if (role === "CELL") return "cell_specific";
+  return "";
+}
+
+function getChatPeople() {
+  return Array.from(_chatDirectory.personalById.values())
+    .filter((person) => person?.id_personal != null && getSpecificChannelForPerson(person))
+    .sort((a, b) => fullName(a).localeCompare(fullName(b), "es", { sensitivity: "base" }));
+}
+
+function grupoAliasesForTarget(grupoId = _channelTarget) {
+  const aliases = new Set();
+  const add = (value) => {
+    const text = String(value || "").trim();
+    if (text) aliases.add(text);
+  };
+
+  const selected = _chatDirectory.grupos.find((grupo) =>
+    sameValue(grupo.id, grupoId) || sameValue(grupo.label, grupoId)
+  );
+
+  add(grupoId);
+  add(selected?.id);
+  add(selected?.label);
+  add(String(selected?.label || "").replace(/\s*\([^)]*\)\s*$/, ""));
+
+  return [...aliases];
+}
+
+function personBelongsToGrupo(person, grupoId = _channelTarget) {
+  const grupo = getGrupoForPerson(person);
+  if (!grupo) return false;
+
+  const labelWithFlotilla = grupo.flotilla ? `${grupo.label} (${grupo.flotilla})` : grupo.label;
+  return grupoAliasesForTarget(grupoId).some((alias) =>
+    sameValue(grupo.id, alias) ||
+    sameValue(grupo.label, alias) ||
+    sameValue(labelWithFlotilla, alias)
+  );
+}
+
+function getVehicleTarget(vehicleId = _channelTarget) {
+  return _chatDirectory.vehiculos.find((vehicle) =>
+    sameValue(vehicle.id, vehicleId) || sameValue(vehicle.label, vehicleId)
+  );
+}
+
+function getGroupChatMembers() {
+  const people = getChatPeople();
+
+  if (_channelType === "global") return people;
+  if (_channelType === "cuts") return people.filter((person) => normalizeRole(person) === "CUT");
+  if (_channelType === "cets") return people.filter((person) => normalizeRole(person) === "CET");
+  if (_channelType === "flotilla") {
+    return people.filter((person) => personBelongsToFlotilla(person.id_personal, _channelTarget));
+  }
+  if (_channelType === "grupo") {
+    return people.filter((person) => personBelongsToGrupo(person, _channelTarget));
+  }
+  if (_channelType === "vehiculo") {
+    const vehicle = getVehicleTarget();
+    const memberIds = new Set([
+      ...(vehicle?.personIds || []),
+      ...getVehicleOccupants(`V:${_channelTarget}`).map((key) => String(key).replace(/^P:/, "").trim())
+    ].filter(Boolean));
+    return people.filter((person) => memberIds.has(String(person.id_personal)));
+  }
+
+  return [];
+}
+
+function getGroupMemberContext(person) {
+  if (_channelType === "vehiculo") return getTargetLabel();
+  const grupo = getGrupoForPerson(person);
+  const flotilla = getFlotillaForPerson(person);
+  if (_channelType === "flotilla") return grupo?.label || flotilla?.label || "";
+  if (_channelType === "grupo") return flotilla?.label || "";
+  return flotilla?.label || grupo?.label || "";
+}
+
+function setGroupMembersPanelOpen(open) {
+  const canShow = isGroupMemberChannel();
+  const shouldOpen = Boolean(open && canShow);
+  dom.chatGroupMembersPanel?.classList.toggle("open", shouldOpen);
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.textContent = shouldOpen ? "<" : ">";
+    dom.chatGroupMembersToggle.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+  }
+}
+
+function renderGroupMembersPanel() {
+  const canShow = isGroupMemberChannel();
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.hidden = !canShow;
+  }
+
+  if (!canShow) {
+    setGroupMembersPanelOpen(false);
+    return;
+  }
+
+  const members = getGroupChatMembers();
+  if (dom.chatGroupMembersCount) {
+    dom.chatGroupMembersCount.textContent = String(members.length);
+  }
+
+  if (!dom.chatGroupMembersList) return;
+  if (!members.length) {
+    dom.chatGroupMembersList.innerHTML = `<div class="chatGroupMembersEmpty">Sin integrantes</div>`;
+    return;
+  }
+
+  dom.chatGroupMembersList.innerHTML = members.map((person) => {
+    const id = String(person.id_personal);
+    const role = normalizeRole(person) || "PERSONAL";
+    const context = getGroupMemberContext(person);
+    const meta = [role, context].filter(Boolean).join(" - ");
+    return `
+      <button class="chatGroupMemberItem" type="button" data-chat-member-id="${escapeHtml(id)}">
+        <span>${escapeHtml(fullName(person))}</span>
+        <small>${escapeHtml(meta)}</small>
+      </button>
+    `;
+  }).join("");
+}
+
 function channelLabel(type = _channelType) {
   const labels = {
     global: "Todos",
+    cuts: "Todos los CUT",
     cets: "Todos los CET",
     cet_specific: "CET",
     cell_specific: "CELL",
@@ -317,6 +491,7 @@ function channelLabel(type = _channelType) {
 function channelSubtitle(type = _channelType) {
   const labels = {
     global: "Operación completa",
+    cuts: "Mandos CUT",
     cets: "Mandos CET",
     cet_specific: "Personal específico",
     cell_specific: "Personal específico",
@@ -330,6 +505,7 @@ function channelSubtitle(type = _channelType) {
 function channelAvatar(type = _channelType) {
   const labels = {
     global: "T",
+    cuts: "U",
     cets: "C",
     cet_specific: "C",
     cell_specific: "P",
@@ -369,6 +545,7 @@ function syncAudienceUi() {
     dom.chatConversationSubtitle.textContent = targetLabel ? channelLabel() : channelSubtitle();
   }
   if (dom.chatConversationAvatar) dom.chatConversationAvatar.textContent = channelAvatar();
+  renderGroupMembersPanel();
 }
 
 function updateTargetSelect(preferredValue = "") {
@@ -414,6 +591,7 @@ function setChannel(type, target = "") {
 
 function getDestinatarioRol() {
   if (_channelType === "global") return "GLOBAL";
+  if (_channelType === "cuts") return "CUT";
   if (_channelType === "cets" || _channelType === "cet_specific") return "CET";
   if (_channelType === "cell_specific") return "CELL";
   if (_channelType === "flotilla" || _channelType === "grupo" || _channelType === "vehiculo") return "CELL,CET";
@@ -428,6 +606,7 @@ function getTargetLabel() {
 
 function getDestinoTipo() {
   if (_channelType === "cets") return "CETS";
+  if (_channelType === "cuts") return "CUTS";
   if (_channelType === "cet_specific") return "CET";
   if (_channelType === "cell_specific") return "CELL";
   if (_channelType === "flotilla") return "FLOTILLA";
@@ -436,30 +615,40 @@ function getDestinoTipo() {
   return "";
 }
 
+function getVehicleRecipientIds() {
+  const vehicle = getVehicleTarget();
+  return Array.from(new Set([
+    ...(vehicle?.personIds || []),
+    ...getVehicleOccupants(`V:${_channelTarget}`)
+      .map((key) => String(key).replace(/^P:/, "").trim())
+  ].filter(Boolean)));
+}
+
 function getDestinoPayload() {
   const destinoTipo = getDestinoTipo();
   if (!destinoTipo) return {};
 
-  const label = destinoTipo === "CETS" ? "Todos los CETs" : getTargetLabel();
-
-  if (destinoTipo === "VEHICULO") {
-    const occupantIds = getVehicleOccupants(`V:${_channelTarget}`)
-      .map((key) => String(key).replace(/^P:/, "").trim())
-      .filter(Boolean);
-
-    if (!occupantIds.length) {
-      alert("No hay personal detectado arriba de ese vehiculo.");
+  if (_channelType === "vehiculo") {
+    const recipientIds = getVehicleRecipientIds();
+    if (!recipientIds.length) {
+      alert("No hay personal detectado o asignado a ese vehiculo.");
       return null;
     }
 
     return {
       destino_tipo: "CELL_LIST",
-      destino_id: occupantIds.join(","),
-      destino_label: label
+      destino_id: recipientIds.join(","),
+      destino_label: getTargetLabel()
     };
   }
 
-  const id = destinoTipo === "CETS" ? "ALL" : _channelTarget;
+  const label = destinoTipo === "CETS"
+    ? "Todos los CETs"
+    : destinoTipo === "CUTS"
+      ? "Todos los CUT"
+      : getTargetLabel();
+
+  const id = destinoTipo === "CETS" || destinoTipo === "CUTS" ? "ALL" : _channelTarget;
 
   return {
     destino_tipo: destinoTipo,
@@ -708,14 +897,14 @@ function renderMessages() {
 
 // ── Agrega un mensaje (guard de duplicados) ─────────────────
 function appendMessage(msg) {
-  if (!dom.chatMessages) return;
+  if (!dom.chatMessages) return false;
 
   // Dedup por id_mensaje
-  if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return;
+  if (msg.id_mensaje && _allMsgs.some(m => m.id_mensaje === msg.id_mensaje)) return false;
   _allMsgs.push(msg);
 
-  if (shouldHideChatMessage(msg)) return;
-  if (!isVisibleInTab(msg)) return;
+  if (shouldHideChatMessage(msg)) return true;
+  if (!isVisibleInTab(msg)) return true;
 
   const atBottom =
     dom.chatMessages.scrollHeight - dom.chatMessages.scrollTop <=
@@ -724,6 +913,7 @@ function appendMessage(msg) {
   dom.chatMessages.insertAdjacentHTML("beforeend", buildBubble(msg));
 
   if (atBottom) dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+  return true;
 }
 
 // ── Carga historial desde backend ──────────────────────────
@@ -960,7 +1150,9 @@ export function initChat(opId, socket) {
   _socket = socket;
 
   socket.on("chat_message", (msg) => {
-    appendMessage(msg);
+    if (appendMessage(msg)) {
+      pulseEmergencyForChatMessage(msg);
+    }
   });
 
   loadChatDirectory();
@@ -990,6 +1182,29 @@ export function bindChatEvents() {
         "aria-label",
         collapsed ? "Expandir destinatarios" : "Minimizar destinatarios"
       );
+    });
+  }
+
+  if (dom.chatGroupMembersToggle) {
+    dom.chatGroupMembersToggle.addEventListener("click", () => {
+      const isOpen = dom.chatGroupMembersPanel?.classList.contains("open");
+      setGroupMembersPanelOpen(!isOpen);
+      renderGroupMembersPanel();
+    });
+  }
+
+  if (dom.chatGroupMembersList) {
+    dom.chatGroupMembersList.addEventListener("click", (event) => {
+      const item = event.target.closest("[data-chat-member-id]");
+      if (!item) return;
+      const id = String(item.dataset.chatMemberId || "").trim();
+      const person = _chatDirectory.personalById.get(id);
+      const channel = getSpecificChannelForPerson(person);
+      if (!channel) return;
+      setChannel(channel, id);
+      setGroupMembersPanelOpen(false);
+      openChatPanels();
+      dom.chatInput?.focus();
     });
   }
 
