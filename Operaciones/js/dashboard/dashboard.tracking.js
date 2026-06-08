@@ -30,6 +30,10 @@ const SYMBOL_SCALE_BY_DIST = new Cesium.NearFarScalar(1e3, 1.0, 2e6, 0.28);
 const TRACKING_SYMBOL_SIZE = 42;
 const TRACKING_SYMBOL_RENDER_SIZE = 160;
 const TRACKING_ACTIVE_STALE_MS = 30000;
+const TRACKING_HEADING_START_M = 7;
+const TRACKING_HEADING_LENGTH_M = 32;
+const TRACKING_LABEL_MAX_CHARS = 18;
+const TRACKING_DRONE_LABEL_MAX_CHARS = 14;
 const trackingSymbolImageCache = new Map();
 
 function normalizeText(value) {
@@ -189,6 +193,41 @@ function makeEquipoLabel(item) {
   return nombre || serie || `E-${item.id_equipo}`;
 }
 
+function compactTrackingLabel(value, maxChars = TRACKING_LABEL_MAX_CHARS) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(1, maxChars - 3)).trim()}...`;
+}
+
+function stripTrackingIdentityPrefix(value) {
+  return String(value || "")
+    .replace(/^[A-Z0-9_-]{8,}\s*-\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function makeTrackingMapLabel(key, label, meta = {}) {
+  const kind = meta.tacticalType || (String(key || "").startsWith("E:") ? "equipo" : "");
+  if (kind !== "equipo") return compactTrackingLabel(label);
+
+  const item = meta.liveData || {};
+  const text = normalizeText([
+    item.categoria,
+    item.tipo_equipo,
+    item.tipo,
+    item.nombre,
+    label
+  ].filter(Boolean).join(" "));
+
+  const preferred = stripTrackingIdentityPrefix(item.nombre || item.tipo_equipo || label);
+  if (textIncludes(text, "DRON", "DRONE", "UAV", "MATRICE")) {
+    const droneLabel = preferred.replace(/\bDJI\b\s*/i, "").trim() || preferred || "Dron";
+    return compactTrackingLabel(droneLabel, TRACKING_DRONE_LABEL_MAX_CHARS);
+  }
+
+  return compactTrackingLabel(preferred || label);
+}
+
 function makeDispositivoLabel(item) {
   const modelo = [item.marca, item.modelo].filter(Boolean).join(" ").trim();
   const tipo = item.tipo || "Dispositivo";
@@ -249,23 +288,97 @@ function firstTrackingValue(...values) {
   return values.find((value) => value !== undefined && value !== null && String(value).trim() !== "");
 }
 
-function isWearableDevice(item = {}) {
-  const tipo = normalizeText(item.tipo || item.tipo_dispositivo || "");
-  return textIncludes(tipo, "SMARTWATCH", "WEARABLE", "WATCH", "RELOJ");
+function normalizeHeadingDegrees(value) {
+  const raw = firstTrackingValue(value);
+  if (raw == null) return null;
+  const degrees = Number(String(raw).replace(/[^\d.+-]/g, "").trim());
+  if (!Number.isFinite(degrees)) return null;
+  return ((degrees % 360) + 360) % 360;
 }
 
-function activateAssignedWearableLocationsFromPersonal(item = {}, coords = null) {
-  const idPersonal = assignedPersonalId(item);
-  if (!idPersonal || !coords) return;
+function trackingHeadingDegrees(meta = {}) {
+  const liveData = meta.liveData || {};
+  return normalizeHeadingDegrees(firstTrackingValue(
+    liveData.rumbo_grados,
+    liveData.rumboGrados,
+    liveData.headingDegrees,
+    liveData.heading,
+    liveData.bearing,
+    liveData.curso,
+    liveData.rumbo,
+    meta.rumbo_grados,
+    meta.rumboGrados,
+    meta.headingDegrees,
+    meta.heading,
+    meta.bearing,
+    meta.curso,
+    meta.rumbo
+  ));
+}
 
-  getAssignedDevices()
-    .filter((device) => isWearableDevice(device) && assignedPersonalId(device) === idPersonal)
-    .forEach((device) => {
-      const idDispositivo = getDeviceId(device);
-      if (idDispositivo == null || String(idDispositivo).trim() === "") return;
-      activateTrackingLocation("D", idDispositivo, coords.lat, coords.lng);
-      updateFollowedTrackingLocation(`D:${idDispositivo}`, coords.lat, coords.lng);
-    });
+function headingEndPosition(lat, lng, headingDegrees, meters = TRACKING_HEADING_LENGTH_M) {
+  const origin = Cesium.Cartesian3.fromDegrees(lng, lat);
+  const radians = Cesium.Math.toRadians(headingDegrees);
+  const localStart = new Cesium.Cartesian3(
+    Math.sin(radians) * TRACKING_HEADING_START_M,
+    Math.cos(radians) * TRACKING_HEADING_START_M,
+    0
+  );
+  const localEnd = new Cesium.Cartesian3(
+    Math.sin(radians) * meters,
+    Math.cos(radians) * meters,
+    0
+  );
+  const enu = Cesium.Transforms.eastNorthUpToFixedFrame(origin);
+  const start = Cesium.Matrix4.multiplyByPoint(enu, localStart, new Cesium.Cartesian3());
+  const end = Cesium.Matrix4.multiplyByPoint(enu, localEnd, new Cesium.Cartesian3());
+  return { start, end };
+}
+
+function upsertTrackingHeadingLine(key, lat, lng, color, meta = {}) {
+  const viewer = dashboardState.viewer;
+  if (!viewer) return;
+
+  const heading = trackingHeadingDegrees(meta);
+  if (heading === null) {
+    removeTrackingHeadingLine(key);
+    return;
+  }
+
+  const coords = headingEndPosition(lat, lng, heading);
+  const existing = dashboardState.trackingHeadingEntities.get(key);
+  if (existing) {
+    existing.polyline.positions = [coords.start, coords.end];
+    existing.polyline.material = color.withAlpha(0.92);
+    existing.properties.headingDegrees = heading;
+    return;
+  }
+
+  const entity = viewer.entities.add({
+    name: `Rumbo ${Math.round(heading)}°`,
+    polyline: {
+      positions: [coords.start, coords.end],
+      width: 3,
+      material: color.withAlpha(0.92),
+      clampToGround: true
+    },
+    properties: {
+      trackingKey: key,
+      tacticalType: "tracking-heading",
+      headingLine: true,
+      headingDegrees: heading,
+      draggable: false
+    }
+  });
+  dashboardState.trackingHeadingEntities.set(key, entity);
+}
+
+function removeTrackingHeadingLine(key) {
+  const entity = dashboardState.trackingHeadingEntities.get(key);
+  if (!entity) return;
+  const viewer = dashboardState.viewer;
+  if (viewer) viewer.entities.remove(entity);
+  dashboardState.trackingHeadingEntities.delete(key);
 }
 
 function normalizeDeviceIdentity(value) {
@@ -334,7 +447,6 @@ function upsertPersonalTracking(item) {
     liveData: item
   });
   activatePersonalLocation(item.id_personal, coords.lat, coords.lng);
-  activateAssignedWearableLocationsFromPersonal(item, coords);
   updateFollowedPersonalLocation(item.id_personal, coords.lat, coords.lng);
   refreshPersonnelInfoPopup(item.id_personal, item);
 }
@@ -372,29 +484,78 @@ function upsertEquipoTracking(item, options = {}) {
 function upsertDispositivoTracking(item) {
   const coords = getCoords(item);
   if (!coords || item?.id_dispositivo == null) return;
+  const key = `D:${item.id_dispositivo}`;
   const confirmedDevice = findConfirmedDevice(item);
   if (!confirmedDevice) {
-    removeTrackingEntity(`D:${item.id_dispositivo}`);
+    dashboardState.trackingDeviceLatest.delete(key);
+    dashboardState.requestedDeviceTrackingKeys.delete(key);
+    removeTrackingEntity(key);
     return;
   }
 
   const liveData = { ...confirmedDevice, ...item };
+  dashboardState.trackingDeviceLatest.set(key, liveData);
+  activateTrackingLocation("D", item.id_dispositivo, coords.lat, coords.lng);
 
-  if (assignedPersonalId(item) != null) {
-    activateTrackingLocation("D", item.id_dispositivo, coords.lat, coords.lng);
-    updateFollowedTrackingLocation(`D:${item.id_dispositivo}`, coords.lat, coords.lng);
-    removeTrackingEntity(`D:${item.id_dispositivo}`);
+  if (!isDeviceTrackingDisplayRequested(key)) {
+    removeTrackingEntity(key);
     return;
   }
 
-  upsertTrackingEntity(`D:${item.id_dispositivo}`, coords.lat, coords.lng, makeDispositivoLabel(liveData), COLOR_DISPOSITIVO, {
+  upsertTrackingEntity(key, coords.lat, coords.lng, makeDispositivoLabel(liveData), COLOR_DISPOSITIVO, {
     tacticalType: "dispositivo",
     trackingRole: item.tipo || "",
     liveData
   });
-  activateTrackingLocation("D", item.id_dispositivo, coords.lat, coords.lng);
-  updateFollowedTrackingLocation(`D:${item.id_dispositivo}`, coords.lat, coords.lng);
+  updateFollowedTrackingLocation(key, coords.lat, coords.lng);
 }
+
+function isDeviceTrackingDisplayRequested(key) {
+  return dashboardState.requestedDeviceTrackingKeys.has(String(key || "")) ||
+    String(dashboardState.followedTrackingKey || "") === String(key || "");
+}
+
+function clearRequestedDeviceTracking(keepKey = null) {
+  const keep = keepKey ? String(keepKey) : null;
+  [...dashboardState.requestedDeviceTrackingKeys].forEach((key) => {
+    if (keep && key === keep) return;
+    dashboardState.requestedDeviceTrackingKeys.delete(key);
+    removeTrackingEntity(key);
+  });
+}
+
+function requestDeviceTrackingDisplay(detail = {}) {
+  const key = String(detail.key || "");
+  if (!key.startsWith("D:")) {
+    clearRequestedDeviceTracking();
+    return;
+  }
+
+  clearRequestedDeviceTracking(key);
+  dashboardState.requestedDeviceTrackingKeys.add(key);
+
+  const id = key.slice(2);
+  const cached = dashboardState.trackingDeviceLatest.get(key) || {
+    id_dispositivo: id,
+    latitud: detail.lat,
+    longitud: detail.lon,
+    nombre: detail.label
+  };
+  const coords = getCoords(cached) || normalizeCoords(detail.lat, detail.lon);
+  if (!coords) return;
+
+  const liveData = { ...cached, id_dispositivo: cached.id_dispositivo ?? id };
+  dashboardState.trackingDeviceLatest.set(key, liveData);
+  upsertTrackingEntity(key, coords.lat, coords.lng, makeDispositivoLabel(liveData), COLOR_DISPOSITIVO, {
+    tacticalType: "dispositivo",
+    trackingRole: liveData.tipo || "",
+    liveData
+  });
+}
+
+document.addEventListener("dashboard:tracking-follow-requested", (event) => {
+  requestDeviceTrackingDisplay(event.detail || {});
+});
 
 // ── Crear o mover una entidad de tracking ────────────────────
 function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
@@ -408,6 +569,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
 
   const position = Cesium.Cartesian3.fromDegrees(coords.lng, coords.lat);
   const marker = getTrackingMarker(meta);
+  const mapLabel = makeTrackingMapLabel(key, label, meta);
 
   if (dashboardState.trackingEntities.has(key)) {
     // Mover y refrescar estilo/etiqueta si ya existe
@@ -415,7 +577,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
     ent.position = position;
     ent.name = label;
     if (ent.label) {
-      ent.label.text = label;
+      ent.label.text = mapLabel;
       ent.label.backgroundColor = color.withAlpha(0.7);
       ent.label.pixelOffset = marker.labelOffset;
     }
@@ -425,7 +587,10 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
       ent.properties.trackingRole = meta.trackingRole || ent.properties.trackingRole;
       ent.properties.tacticalType = meta.tacticalType || ent.properties.tacticalType;
       ent.properties.trackingSidc = marker.sidc || ent.properties.trackingSidc;
+      ent.properties.trackingFullLabel = label;
+      ent.properties.trackingMapLabel = mapLabel;
     }
+    upsertTrackingHeadingLine(key, coords.lat, coords.lng, color, meta);
     return;
   }
 
@@ -436,7 +601,7 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
     billboard: marker.billboard,
     point: marker.point,
     label: {
-      text: label,
+      text: mapLabel,
       font: "11px sans-serif",
       pixelOffset: marker.labelOffset,
       fillColor: Cesium.Color.WHITE,
@@ -454,15 +619,19 @@ function upsertTrackingEntity(key, lat, lng, label, color, meta = {}) {
       tacticalType: meta.tacticalType || (key.startsWith("V:") ? "vehiculo" : "personal"),
       trackingRole: meta.trackingRole || "",
       trackingSidc: marker.sidc || "",
+      trackingFullLabel: label,
+      trackingMapLabel: mapLabel,
       draggable: false
     }
   });
 
   dashboardState.trackingEntities.set(key, ent);
+  upsertTrackingHeadingLine(key, coords.lat, coords.lng, color, meta);
 }
 
 function removeTrackingEntity(key) {
   const ent = dashboardState.trackingEntities.get(key);
+  removeTrackingHeadingLine(key);
   if (!ent) return;
   const viewer = dashboardState.viewer;
   if (viewer) viewer.entities.remove(ent);
@@ -478,7 +647,7 @@ export function loadTrackingFromMapaData(mapaData) {
     upsertVehiculoTracking(v);
   });
   (mapaData.equipos || []).forEach(e => {
-    upsertEquipoTracking(e, { requireFreshTimestamp: true });
+    upsertEquipoTracking(e);
   });
   (mapaData.dispositivos || []).forEach(d => {
     upsertDispositivoTracking(d);
@@ -505,7 +674,7 @@ export async function loadTrackingFromBackend() {
     (data.vehiculos || []).forEach(upsertVehiculoTracking);
 
     (data.equipos || []).forEach(e => {
-      upsertEquipoTracking(e, { requireFreshTimestamp: true });
+      upsertEquipoTracking(e);
     });
 
     (data.dispositivos || []).forEach(d => {
@@ -552,7 +721,7 @@ export async function refreshTrackingPositions() {
 
   personal.forEach(upsertPersonalTracking);
   vehiculos.forEach(upsertVehiculoTracking);
-  equipos.forEach(e => upsertEquipoTracking(e, { requireFreshTimestamp: true }));
+  equipos.forEach(upsertEquipoTracking);
   dispositivos.forEach(upsertDispositivoTracking);
 }
 

@@ -64,6 +64,9 @@ import okhttp3.OkHttpClient
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 
 class MainActivity : AppCompatActivity(),
     MainPanelRenderer.Host,
@@ -137,6 +140,14 @@ class MainActivity : AppCompatActivity(),
     private var voiceRecorder: MediaRecorder? = null
     private var voiceOutputFile: File? = null
     private var voiceStartedAt: Long = 0L
+    private val trackingTimestampFormats = listOf(
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ssX", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US),
+        SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
+    ).onEach { it.timeZone = TimeZone.getTimeZone("UTC") }
 
     // Última posición conocida del usuario — se emite al socket cuando se conecta
     private var lastKnownLat: Double? = null
@@ -780,7 +791,7 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String) {
+    override fun onSocketTrackingPersonal(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?) {
         val person = personalList.firstOrNull { it.idPersonal == id }
         val meta = JSONObject()
             .put("rol", person?.rol ?: "")
@@ -790,29 +801,17 @@ class MainActivity : AppCompatActivity(),
             .put("grupoNombre", person?.grupoNombre ?: "")
             .put("grupoApodo", person?.grupoApodo ?: "")
             .put("cetNombre", person?.cetNombre ?: "")
+            .apply { (rumboGrados ?: person?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingPersonal === 'function') updateTrackingPersonal($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
         if (recordPersonalLocation(id, lat, lon)) {
             panelRenderer.updatePersonalLocation(id, lat, lon)
-            dispositivosList
-                .filter { it.idPersonal == id && usesPersonalTrackingFallback(it) }
-                .forEach { dispositivo ->
-                    if (recordDispositivoLocation(dispositivo.idDispositivo, lat, lon)) {
-                        panelRenderer.updateDispositivoLocation(
-                            dispositivo.idDispositivo,
-                            lat,
-                            lon,
-                            dispositivo.numeroSerie,
-                            dispositivo.imei
-                        )
-                    }
-                }
             refreshEquipmentLocationsFromAssignments()
         }
     }
 
-    override fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String) {
+    override fun onSocketTrackingVehicle(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?) {
         val vehiculo = vehiculosList.firstOrNull { it.idVehiculo == id }
         val meta = JSONObject()
             .put("tipo", vehiculo?.tipo ?: "")
@@ -820,6 +819,7 @@ class MainActivity : AppCompatActivity(),
             .put("alias", vehiculo?.alias ?: label)
             .put("codigo_interno", vehiculo?.codigoInterno ?: "")
             .put("detalle", vehiculo?.detalle ?: "")
+            .apply { (rumboGrados ?: vehiculo?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingVehiculo === 'function') updateTrackingVehiculo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -829,13 +829,14 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String) {
+    override fun onSocketTrackingEquipo(id: Int, lat: Double, lon: Double, label: String, rumboGrados: Double?) {
         val equipo = equiposList.firstOrNull { it.idEquipo == id }
         val meta = JSONObject()
             .put("categoria", equipo?.categoria ?: "")
             .put("tipo_equipo", equipo?.tipoEquipo ?: "")
             .put("nombre", equipo?.nombre ?: label)
             .put("numero_serie", equipo?.numeroSerie ?: "")
+            .apply { (rumboGrados ?: equipo?.rumboGrados)?.let { put("rumbo_grados", it) } }
         cesiumWebController.evaluate(
             "if(typeof updateTrackingEquipo === 'function') updateTrackingEquipo($id, $lat, $lon, '${jsString(label)}', ${meta})"
         )
@@ -850,10 +851,21 @@ class MainActivity : AppCompatActivity(),
         lon: Double,
         label: String,
         numeroSerie: String?,
-        imei: String?
+        imei: String?,
+        rumboGrados: Double?
     ) {
         val dispositivo = dispositivosList.firstOrNull { it.idDispositivo == id }
         if (dispositivo != null && !matchesDispositivoIdentity(dispositivo, numeroSerie, imei)) return
+        val meta = JSONObject()
+            .put("tipo", dispositivo?.tipo ?: "")
+            .put("marca", dispositivo?.marca ?: "")
+            .put("modelo", dispositivo?.modelo ?: "")
+            .put("numero_serie", numeroSerie ?: dispositivo?.numeroSerie ?: "")
+            .put("imei", imei ?: dispositivo?.imei ?: "")
+            .apply { (rumboGrados ?: dispositivo?.rumboGrados)?.let { put("rumbo_grados", it) } }
+        cesiumWebController.evaluate(
+            "if(typeof updateTrackingDispositivo === 'function') updateTrackingDispositivo($id, $lat, $lon, '${jsString(label)}', ${meta})"
+        )
         if (recordDispositivoLocation(id, lat, lon)) {
             panelRenderer.updateDispositivoLocation(id, lat, lon, numeroSerie, imei)
             refreshEquipmentLocationsFromAssignments()
@@ -1030,14 +1042,7 @@ class MainActivity : AppCompatActivity(),
         panelRenderer.selectVehiculo(null)
         panelRenderer.selectEquipo(null)
         panelRenderer.selectDispositivo(idDispositivo)
-        val assignedPersonalId = dispositivosList.firstOrNull { it.idDispositivo == idDispositivo }?.idPersonal
-        if (assignedPersonalId != null) {
-            followedPersonalId = assignedPersonalId
-            panelRenderer.selectPersonal(assignedPersonalId)
-            cesiumWebController.followTrackingPersonal(assignedPersonalId, lat, lon, zoom = 500)
-        } else {
-            cesiumWebController.centerOnLocation(lat, lon, zoom = 500, follow = false)
-        }
+        cesiumWebController.followTrackingDispositivo(idDispositivo, lat, lon, zoom = 500, label = label)
     }
 
     override fun refreshPersonalPanelIfActive() {
@@ -1135,6 +1140,13 @@ class MainActivity : AppCompatActivity(),
     override fun onPanelEquiposLoaded(items: List<EquipoItem>) {
         equiposList.clear()
         equiposList.addAll(items)
+        equiposList.forEach { equipo ->
+            validPair(equipo.lat, equipo.lon)?.let { location ->
+                if (equipo.idEquipo !in liveEquipoLocations) {
+                    liveEquipoLocations[equipo.idEquipo] = location
+                }
+            }
+        }
 
         if (panelNavigationController.activePanel == Panel.EQUIPOS) {
             inflateEquipoPanel()
@@ -1143,8 +1155,9 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onPanelDispositivosLoaded(items: List<DispositivoItem>) {
+        items.forEach { liveDispositivoLocations.remove(it.idDispositivo) }
         dispositivosList.clear()
-        dispositivosList.addAll(items)
+        dispositivosList.addAll(items.map(::deviceWithFreshTrackingOnly))
         dispositivosList.forEach { dispositivo ->
             validPair(dispositivo.lat, dispositivo.lon)?.let { liveDispositivoLocations[dispositivo.idDispositivo] = it }
             val location = liveDispositivoLocations[dispositivo.idDispositivo] ?: return@forEach
@@ -1200,7 +1213,9 @@ class MainActivity : AppCompatActivity(),
 
     private fun resolveEquipoLocation(equipo: EquipoItem): Pair<Double, Double>? {
         liveEquipoLocations[equipo.idEquipo]?.let { return it }
-        return null
+        equipo.idPersonalAsignado?.let { livePersonalLocations[it]?.let { location -> return location } }
+        equipo.idVehiculoAsignado?.let { liveVehiculoLocations[it]?.let { location -> return location } }
+        return validPair(equipo.lat, equipo.lon)
     }
 
     private fun validPair(lat: Double?, lon: Double?): Pair<Double, Double>? {
@@ -1236,12 +1251,31 @@ class MainActivity : AppCompatActivity(),
     private fun normalizeDeviceIdentity(value: String?): String =
         value?.trim()?.lowercase().orEmpty()
 
-    private fun usesPersonalTrackingFallback(dispositivo: DispositivoItem): Boolean {
-        val tipo = dispositivo.tipo.uppercase()
-        return tipo.contains("SMARTWATCH") ||
-            tipo.contains("WEARABLE") ||
-            tipo.contains("WATCH") ||
-            tipo.contains("RELOJ")
+    private fun deviceWithFreshTrackingOnly(dispositivo: DispositivoItem): DispositivoItem {
+        if (isFreshTrackingTimestamp(dispositivo.ultimaActualizacion)) return dispositivo
+        return dispositivo.copy(
+            lat = null,
+            lon = null,
+            velocidadKmh = null,
+            rumboGrados = null,
+            precisionM = null,
+            bateriaPct = null
+        )
+    }
+
+    private fun isFreshTrackingTimestamp(value: String): Boolean {
+        val timestamp = parseTrackingTimestamp(value) ?: return false
+        return System.currentTimeMillis() - timestamp <= TRACKING_ACTIVE_STALE_MS
+    }
+
+    private fun parseTrackingTimestamp(value: String): Long? {
+        val clean = value.trim()
+        if (clean.isBlank()) return null
+        clean.toLongOrNull()?.let { return it }
+        trackingTimestampFormats.forEach { format ->
+            runCatching { format.parse(clean)?.time }.getOrNull()?.let { return it }
+        }
+        return null
     }
 
     private fun fetchPersonalPanelData() {
@@ -1608,6 +1642,8 @@ class MainActivity : AppCompatActivity(),
 
     override fun getSimulationVehiculos(): List<VehiculoItem> = vehiculosList
 
+    override fun getSimulationEquipos(): List<EquipoItem> = equiposList
+
     override fun getSimulationOperationLat(): Double = opLat
 
     override fun getSimulationOperationLon(): Double = opLon
@@ -1624,6 +1660,10 @@ class MainActivity : AppCompatActivity(),
 
     override fun fetchSimulationVehiculos() {
         fetchVehiculosPanelData()
+    }
+
+    override fun fetchSimulationEquipos() {
+        fetchEquiposPanelData()
     }
 
     override fun emitSimulationPersonalTracking(
@@ -1656,6 +1696,34 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
+    override fun emitSimulationEquipoTracking(
+        idEquipo: Int,
+        lat: Double,
+        lon: Double,
+        label: String,
+        categoria: String,
+        tipoEquipo: String,
+        numeroSerie: String,
+        altitud: Double?,
+        speedKmh: Double?,
+        headingDegrees: Double?,
+        accuracyMeters: Float?
+    ) {
+        chatSocketManager?.emitTrackingEquipo(
+            idEquipo = idEquipo,
+            lat = lat,
+            lon = lon,
+            nombre = label,
+            categoria = categoria,
+            tipoEquipo = tipoEquipo,
+            numeroSerie = numeroSerie,
+            altitud = altitud,
+            speedKmh = speedKmh,
+            headingDegrees = headingDegrees,
+            accuracyMeters = accuracyMeters
+        )
+    }
+
     override fun isSimulationCesiumReady(): Boolean = isCesiumReady
 
     override fun updateSimulationPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String) {
@@ -1670,8 +1738,35 @@ class MainActivity : AppCompatActivity(),
         )
     }
 
+    override fun updateSimulationEquipoOnMap(
+        idEquipo: Int,
+        lat: Double,
+        lon: Double,
+        label: String,
+        categoria: String,
+        tipoEquipo: String,
+        numeroSerie: String,
+        headingDegrees: Double?
+    ) {
+        val meta = JSONObject()
+            .put("categoria", categoria)
+            .put("tipo_equipo", tipoEquipo)
+            .put("nombre", label)
+            .put("numero_serie", numeroSerie)
+            .apply { headingDegrees?.let { put("rumbo_grados", it) } }
+        cesiumWebController.evaluate(
+            "if(typeof updateTrackingEquipo === 'function') updateTrackingEquipo($idEquipo, $lat, $lon, '${jsString(label)}', ${meta})"
+        )
+    }
+
     override fun updateSimulationPersonalPanel(idPersonal: Int, lat: Double, lon: Double) {
         panelRenderer.updatePersonalLocation(idPersonal, lat, lon)
+    }
+
+    override fun updateSimulationEquipoPanel(idEquipo: Int, lat: Double, lon: Double) {
+        if (recordEquipoLocation(idEquipo, lat, lon)) {
+            panelRenderer.updateEquipoLocation(idEquipo, lat, lon)
+        }
     }
 
     override fun inflateChatPanel() {
@@ -1830,5 +1925,6 @@ class MainActivity : AppCompatActivity(),
         private const val REQUEST_CHAT_CAMERA_PERMISSION = 303
         private const val REQUEST_CHAT_AUDIO_PERMISSION = 304
         private const val REQUEST_CHAT_NOTIFICATION_PERMISSION = 305
+        private const val TRACKING_ACTIVE_STALE_MS = 30_000L
     }
 }

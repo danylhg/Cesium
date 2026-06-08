@@ -18,6 +18,17 @@ class PersonalRepository(
         return optString(key, "").takeUnless { it.equals("null", ignoreCase = true) } ?: ""
     }
 
+    private fun JSONObject.nullableDouble(key: String): Double? {
+        if (!has(key) || isNull(key)) return null
+        val value = optDouble(key, Double.NaN)
+        return value.takeUnless { it.isNaN() || it.isInfinite() }
+    }
+
+    private fun JSONObject.nullableHeadingDegrees(): Double? =
+        listOf("rumbo_grados", "rumboGrados", "headingDegrees", "heading", "bearing", "curso", "rumbo")
+            .firstNotNullOfOrNull { key -> nullableDouble(key) }
+            ?.let { ((it % 360.0) + 360.0) % 360.0 }
+
     fun fetchPersonal(
         operationId: Int,
         token: String,
@@ -59,8 +70,9 @@ class PersonalRepository(
                                 apellido = p.safeString("apellido"),
                                 rol = p.safeString("rol"),
                                 puesto = p.safeString("puesto"),
-                                lat = if (p.isNull("latitud")) null else p.optDouble("latitud"),
-                                lon = if (p.isNull("longitud")) null else p.optDouble("longitud"),
+                                lat = p.nullableDouble("latitud"),
+                                lon = p.nullableDouble("longitud"),
+                                rumboGrados = p.nullableHeadingDegrees(),
                                 grupoNombre = p.safeString("grupo_nombre"),
                                 grupoApodo = p.safeString("grupo_apodo"),
                                 idGrupoOperacion = p.optInt("id_grupo_operacion", -1).takeIf { it > 0 },

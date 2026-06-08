@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import com.operaciones.operaciones_android.model.EquipoItem
 import com.operaciones.operaciones_android.model.Operation
 import com.operaciones.operaciones_android.model.OperationStatus
 import com.operaciones.operaciones_android.model.PersonalItem
@@ -18,6 +19,7 @@ import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.text.Normalizer
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -32,6 +34,7 @@ class OperationSimulationController(
         fun getSimulationUser(): User
         fun getSimulationPersonal(): List<PersonalItem>
         fun getSimulationVehiculos(): List<VehiculoItem>
+        fun getSimulationEquipos(): List<EquipoItem>
         fun getSimulationOperationLat(): Double
         fun getSimulationOperationLon(): Double
         fun getSimulationLastKnownLat(): Double?
@@ -39,12 +42,37 @@ class OperationSimulationController(
         fun hasSimulationSocket(): Boolean
         fun fetchSimulationPersonal()
         fun fetchSimulationVehiculos()
+        fun fetchSimulationEquipos()
         fun emitSimulationPersonalTracking(idPersonal: Int, lat: Double, lon: Double, apodo: String, rol: String)
         fun emitSimulationVehiculoTracking(idVehiculo: Int, lat: Double, lon: Double, alias: String)
+        fun emitSimulationEquipoTracking(
+            idEquipo: Int,
+            lat: Double,
+            lon: Double,
+            label: String,
+            categoria: String,
+            tipoEquipo: String,
+            numeroSerie: String,
+            altitud: Double?,
+            speedKmh: Double?,
+            headingDegrees: Double?,
+            accuracyMeters: Float?
+        )
         fun isSimulationCesiumReady(): Boolean
         fun updateSimulationPersonalOnMap(idPersonal: Int, lat: Double, lon: Double, label: String)
         fun updateSimulationVehiculoOnMap(idVehiculo: Int, lat: Double, lon: Double, label: String)
+        fun updateSimulationEquipoOnMap(
+            idEquipo: Int,
+            lat: Double,
+            lon: Double,
+            label: String,
+            categoria: String,
+            tipoEquipo: String,
+            numeroSerie: String,
+            headingDegrees: Double?
+        )
         fun updateSimulationPersonalPanel(idPersonal: Int, lat: Double, lon: Double)
+        fun updateSimulationEquipoPanel(idEquipo: Int, lat: Double, lon: Double)
     }
 
     private data class SimulationRoutePoint(
@@ -106,6 +134,7 @@ class OperationSimulationController(
     private var simulationRouteDistanceSq = Double.POSITIVE_INFINITY
     private val fallbackSimulationAnchorLat = 19.04497
     private val fallbackSimulationAnchorLon = -95.97219
+    private val combiningMarksRegex = Regex("\\p{Mn}+")
 
     val isActive: Boolean
         get() = simulationActive
@@ -274,6 +303,10 @@ class OperationSimulationController(
             host.fetchSimulationVehiculos()
             showToast("Cargando vehiculos asignados. Intenta de nuevo en unos segundos.")
             return
+        }
+
+        if (host.getSimulationEquipos().isEmpty()) {
+            host.fetchSimulationEquipos()
         }
 
         val vehicleGroups = buildSimulationVehicleGroups(personalList, vehiculosList)
@@ -497,14 +530,17 @@ class OperationSimulationController(
     }
 
     private fun emitSimulationPositions() {
+        val emittedEquipmentIds = mutableSetOf<Int>()
         simulationVehicleRuntimes.values.forEachIndexed { index, runtime ->
-            emitSimulationRuntimePositions(runtime, index)
+            emitSimulationRuntimePositions(runtime, index, emittedEquipmentIds)
         }
+        emitUnanchoredSimulationEquipmentPositions(emittedEquipmentIds)
     }
 
     private fun emitSimulationRuntimePositions(
         runtime: SimulationVehicleRuntime,
-        runtimeIndex: Int
+        runtimeIndex: Int,
+        emittedEquipmentIds: MutableSet<Int>
     ) {
         val routePoints = runtime.routePlan?.points.orEmpty()
         val hasRoute = routePoints.size >= 2
@@ -566,6 +602,7 @@ class OperationSimulationController(
         val groupRadiusLat = 1.6 / 111_320.0
         val groupRadiusLon = 1.6 / 104_500.0
         val phase = simulationTick * 0.22 + runtimeIndex * 0.37
+        val personPositions = mutableMapOf<Int, SimulationRoutePoint>()
 
         targets.forEachIndexed { index, person ->
             val baseAngle = Math.PI * 2.0 * index / targets.size.coerceAtLeast(1)
@@ -617,6 +654,7 @@ class OperationSimulationController(
             val lat = personPosition.lat
             val lon = personPosition.lon
             simulationLastPersonPoints[person.idPersonal] = personPosition
+            personPositions[person.idPersonal] = personPosition
             val name = person.apodo.ifBlank { "${person.nombre} ${person.apellido}".trim() }
                 .ifBlank { "Personal ${person.idPersonal}" }
 
@@ -646,7 +684,208 @@ class OperationSimulationController(
         if (host.isSimulationCesiumReady()) {
             host.updateSimulationVehiculoOnMap(runtime.group.vehicle.idVehiculo, vehicleLat, vehicleLon, vehicleName)
         }
+
+        emitSimulationEquipmentPositions(
+            runtime = runtime,
+            runtimeIndex = runtimeIndex,
+            vehiclePosition = vehiclePosition,
+            personPositions = personPositions,
+            emittedEquipmentIds = emittedEquipmentIds
+        )
     }
+
+    private fun emitSimulationEquipmentPositions(
+        runtime: SimulationVehicleRuntime,
+        runtimeIndex: Int,
+        vehiclePosition: SimulationRoutePoint,
+        personPositions: Map<Int, SimulationRoutePoint>,
+        emittedEquipmentIds: MutableSet<Int>
+    ) {
+        host.getSimulationEquipos()
+            .asSequence()
+            .filter { it.idEquipo > 0 && isSimulationEquipment(it) }
+            .forEach { equipo ->
+                if (equipo.idEquipo in emittedEquipmentIds) return@forEach
+                val base = equipmentBasePoint(
+                    equipo = equipo,
+                    runtime = runtime,
+                    runtimeIndex = runtimeIndex,
+                    vehiclePosition = vehiclePosition,
+                    personPositions = personPositions
+                ) ?: return@forEach
+
+                emittedEquipmentIds.add(equipo.idEquipo)
+                emitSimulationEquipmentAtBase(equipo, base, runtimeIndex)
+            }
+    }
+
+    private fun emitUnanchoredSimulationEquipmentPositions(emittedEquipmentIds: MutableSet<Int>) {
+        host.getSimulationEquipos()
+            .asSequence()
+            .filter { it.idEquipo > 0 && isSimulationEquipment(it) }
+            .forEachIndexed { index, equipo ->
+                if (equipo.idEquipo in emittedEquipmentIds) return@forEachIndexed
+                val base = coordinatePointOrNull(equipo.lat, equipo.lon)
+                    ?: coordinatePointOrNull(host.getSimulationLastKnownLat(), host.getSimulationLastKnownLon())
+                    ?: simulationAnchorPoint()
+                emittedEquipmentIds.add(equipo.idEquipo)
+                emitSimulationEquipmentAtBase(equipo, base, index)
+            }
+    }
+
+    private fun emitSimulationEquipmentAtBase(
+        equipo: EquipoItem,
+        base: SimulationRoutePoint,
+        runtimeIndex: Int
+    ) {
+        val drone = isDroneEquipment(equipo)
+        val point = equipmentPoint(equipo, base, drone, runtimeIndex)
+        val label = equipmentDisplayName(equipo)
+        val heading = ((simulationTick * 11 + equipo.idEquipo * 23) % 360).toDouble()
+        val altitude = if (drone) {
+            85.0 + (equipo.idEquipo % 4) * 12.0 + sin(simulationTick * 0.25 + equipo.idEquipo) * 6.0
+        } else {
+            null
+        }
+
+        host.emitSimulationEquipoTracking(
+            idEquipo = equipo.idEquipo,
+            lat = point.lat,
+            lon = point.lon,
+            label = label,
+            categoria = equipo.categoria,
+            tipoEquipo = equipo.tipoEquipo,
+            numeroSerie = equipo.numeroSerie,
+            altitud = altitude,
+            speedKmh = if (drone) 22.0 else 0.0,
+            headingDegrees = heading,
+            accuracyMeters = if (drone) 6f else 3f
+        )
+
+        if (host.isSimulationCesiumReady()) {
+            host.updateSimulationEquipoOnMap(
+                idEquipo = equipo.idEquipo,
+                lat = point.lat,
+                lon = point.lon,
+                label = label,
+                categoria = equipo.categoria,
+                tipoEquipo = equipo.tipoEquipo,
+                numeroSerie = equipo.numeroSerie,
+                headingDegrees = heading
+            )
+        }
+        host.updateSimulationEquipoPanel(equipo.idEquipo, point.lat, point.lon)
+    }
+
+    private fun equipmentBasePoint(
+        equipo: EquipoItem,
+        runtime: SimulationVehicleRuntime,
+        runtimeIndex: Int,
+        vehiclePosition: SimulationRoutePoint,
+        personPositions: Map<Int, SimulationRoutePoint>
+    ): SimulationRoutePoint? {
+        equipo.idPersonalAsignado?.let { idPersonal ->
+            personPositions[idPersonal]?.let { return it }
+            if (idPersonal == host.getSimulationUser().id) {
+                coordinatePointOrNull(
+                    host.getSimulationLastKnownLat(),
+                    host.getSimulationLastKnownLon()
+                )?.let { return it }
+            }
+            return null
+        }
+
+        equipo.idVehiculoAsignado?.let { idVehiculo ->
+            return if (idVehiculo == runtime.group.vehicle.idVehiculo) vehiclePosition else null
+        }
+
+        val destinationType = normalizeSimulationText(equipo.tipoDestino).uppercase()
+        return when (destinationType) {
+            "PERSONAL", "VEHICULO" -> null
+            "GRUPO", "FLOTILLA" -> if (equipmentMatchesRuntimeScope(equipo, runtime)) vehiclePosition else null
+            else -> when {
+                equipmentMatchesRuntimeScope(equipo, runtime) -> vehiclePosition
+                runtimeIndex == 0 -> vehiclePosition
+                else -> null
+            }
+        }
+    }
+
+    private fun equipmentMatchesRuntimeScope(
+        equipo: EquipoItem,
+        runtime: SimulationVehicleRuntime
+    ): Boolean {
+        val equipmentGroups = (equipo.gruposVinculados + equipo.grupoAsignado)
+            .map(::normalizeSimulationText)
+            .filter { it.isNotBlank() }
+            .toSet()
+        val equipmentFleets = (equipo.flotillasVinculadas + equipo.flotillaAsignada)
+            .map(::normalizeSimulationText)
+            .filter { it.isNotBlank() }
+            .toSet()
+        if (equipmentGroups.isEmpty() && equipmentFleets.isEmpty()) return false
+
+        val runtimeGroups = (
+            listOf(runtime.group.vehicle.grupoNombre) +
+                runtime.group.targets.map { it.grupoNombre }
+            )
+            .map(::normalizeSimulationText)
+            .filter { it.isNotBlank() }
+            .toSet()
+        val runtimeFleets = (
+            listOf(runtime.group.vehicle.grupoPadreNombre) +
+                runtime.group.targets.map { simulationFlotillaName(it) }
+            )
+            .map(::normalizeSimulationText)
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        return equipmentGroups.any { it in runtimeGroups } || equipmentFleets.any { it in runtimeFleets }
+    }
+
+    private fun equipmentPoint(
+        equipo: EquipoItem,
+        base: SimulationRoutePoint,
+        drone: Boolean,
+        runtimeIndex: Int
+    ): SimulationRoutePoint {
+        val phase = simulationTick * if (drone) 0.34 else 0.18
+        val angle = phase + equipo.idEquipo * 0.73 + runtimeIndex * 0.41
+        val meters = if (drone) {
+            24.0 + (equipo.idEquipo % 5) * 4.0
+        } else {
+            1.2 + (equipo.idEquipo % 3) * 0.4
+        }
+        return SimulationRoutePoint(
+            lat = base.lat + sin(angle) * (meters / 111_320.0),
+            lon = base.lon + cos(angle) * (meters / 104_500.0)
+        )
+    }
+
+    private fun isSimulationEquipment(equipo: EquipoItem): Boolean {
+        val category = normalizeSimulationText(equipo.categoria)
+        return category.contains("comunicacion") ||
+            category.contains("tactico") ||
+            isDroneEquipment(equipo)
+    }
+
+    private fun isDroneEquipment(equipo: EquipoItem): Boolean {
+        val text = normalizeSimulationText(
+            listOf(equipo.categoria, equipo.tipoEquipo, equipo.nombre, equipo.numeroSerie)
+                .joinToString(" ")
+        )
+        return listOf("dron", "drone", "uav", "matrice", "dji").any { text.contains(it) }
+    }
+
+    private fun equipmentDisplayName(equipo: EquipoItem): String =
+        equipo.nombre.ifBlank { equipo.tipoEquipo }
+            .ifBlank { equipo.numeroSerie }
+            .ifBlank { "Equipo ${equipo.idEquipo}" }
+
+    private fun normalizeSimulationText(value: String): String =
+        Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
+            .replace(combiningMarksRegex, "")
+            .lowercase()
 
     private fun emitSimulationPositions(
         targets: List<PersonalItem>,

@@ -522,6 +522,7 @@ class OperationMapDataController(
                         .put("grupoNombre", person.grupoNombre)
                         .put("grupoApodo", person.grupoApodo)
                         .put("cetNombre", person.cetNombre)
+                        .apply { person.rumboGrados?.let { put("rumbo_grados", it) } }
                         .toString()
                 )
                 append(");")
@@ -550,6 +551,7 @@ class OperationMapDataController(
                         .put("alias", vehiculo.alias)
                         .put("codigo_interno", vehiculo.codigoInterno)
                         .put("detalle", vehiculo.detalle)
+                        .apply { vehiculo.rumboGrados?.let { put("rumbo_grados", it) } }
                         .toString()
                 )
                 append(");")
@@ -576,6 +578,7 @@ class OperationMapDataController(
                         .put("tipo_equipo", equipo.tipoEquipo)
                         .put("nombre", equipo.nombre)
                         .put("numero_serie", equipo.numeroSerie)
+                        .apply { equipo.rumboGrados?.let { put("rumbo_grados", it) } }
                         .toString()
                 )
                 append(");")
@@ -584,6 +587,7 @@ class OperationMapDataController(
                 val lat = dispositivo.lat ?: return@forEach
                 val lon = dispositivo.lon ?: return@forEach
                 if (!isValidLocation(lat, lon)) return@forEach
+                if (!isFreshTrackingTimestamp(dispositivo.ultimaActualizacion)) return@forEach
                 host.updateMapDataDispositivoPanel(
                     dispositivo.idDispositivo,
                     lat,

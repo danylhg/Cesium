@@ -24,8 +24,13 @@ class DispositivoRepository(
     private fun JSONObject.nullableDouble(key: String): Double? {
         if (!has(key) || isNull(key)) return null
         val value = optDouble(key, Double.NaN)
-        return value.takeUnless { it.isNaN() }
+        return value.takeUnless { it.isNaN() || it.isInfinite() }
     }
+
+    private fun JSONObject.nullableHeadingDegrees(): Double? =
+        listOf("rumbo_grados", "rumboGrados", "headingDegrees", "heading", "bearing", "curso", "rumbo")
+            .firstNotNullOfOrNull { key -> nullableDouble(key) }
+            ?.let { ((it % 360.0) + 360.0) % 360.0 }
 
     fun fetchDispositivos(
         operationId: Int,
@@ -91,6 +96,7 @@ class DispositivoRepository(
             lat = d.nullableDouble("latitud"),
             lon = d.nullableDouble("longitud"),
             velocidadKmh = d.nullableDouble("velocidad_kmh"),
+            rumboGrados = d.nullableHeadingDegrees(),
             precisionM = d.nullableDouble("precision_m"),
             bateriaPct = d.nullableDouble("bateria_pct"),
             ultimaActualizacion = d.safeString("ultima_actualizacion")
