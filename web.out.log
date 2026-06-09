@@ -1,0 +1,21 @@
+ INFO  Accepting connections at http://localhost:8080
+ HTTP  9/6/2026 12:14:18 a.m. ::1 HEAD /
+ HTTP  9/6/2026 12:14:18 a.m. ::1 Returned 302 in 45 ms
+ HTTP  9/6/2026 12:14:18 a.m. ::1 HEAD /Operaciones/login.html
+ HTTP  9/6/2026 12:14:18 a.m. ::1 Returned 301 in 1 ms
+ HTTP  9/6/2026 12:14:24 a.m. ::1 HEAD /Operaciones/login
+ HTTP  9/6/2026 12:14:24 a.m. ::1 Returned 200 in 4 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /Operaciones/login
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 200 in 4 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /Operaciones/css/login.css
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /Operaciones/js/api_config.js
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 200 in 3 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 200 in 2 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /Operaciones/img/logo_sedam_sinfondo.png
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 200 in 3 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /Operaciones/js/login.js
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 200 in 3 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /Operaciones/css/identity.css
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 200 in 2 ms
+ HTTP  9/6/2026 12:14:48 a.m. ::1 GET /favicon.ico
+ HTTP  9/6/2026 12:14:48 a.m. ::1 Returned 404 in 2 ms

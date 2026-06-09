@@ -1,0 +1,53 @@
+DB TEST ERROR: AggregateError [ECONNREFUSED]: 
+    at C:\Users\laura\Downloads\Cesium\Cesium\Operaciones\api\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+        at createConnectionError (node:net:1746:14)
+        at afterConnectMultiple (node:net:1776:16) {
+      errno: -4078,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 5432
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+        at createConnectionError (node:net:1746:14)
+        at afterConnectMultiple (node:net:1776:16) {
+      errno: -4078,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 5432
+    }
+  ]
+}
+[DB SCHEMA] Error preparando tracking antes de iniciar API: AggregateError [ECONNREFUSED]: 
+    at C:\Users\laura\Downloads\Cesium\Cesium\Operaciones\api\node_modules\pg-pool\index.js:45:11
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async withTrackingSchemaLock (file:///C:/Users/laura/Downloads/Cesium/Cesium/Operaciones/api/utils/trackingSchema.js:186:18)
+    at async ensureTrackingSchemas (file:///C:/Users/laura/Downloads/Cesium/Cesium/Operaciones/api/utils/trackingSchema.js:647:3)
+    at async startServer (file:///C:/Users/laura/Downloads/Cesium/Cesium/Operaciones/api/server.js:35:5) {
+  code: 'ECONNREFUSED',
+  [errors]: [
+    Error: connect ECONNREFUSED ::1:5432
+        at createConnectionError (node:net:1746:14)
+        at afterConnectMultiple (node:net:1776:16) {
+      errno: -4078,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '::1',
+      port: 5432
+    },
+    Error: connect ECONNREFUSED 127.0.0.1:5432
+        at createConnectionError (node:net:1746:14)
+        at afterConnectMultiple (node:net:1776:16) {
+      errno: -4078,
+      code: 'ECONNREFUSED',
+      syscall: 'connect',
+      address: '127.0.0.1',
+      port: 5432
+    }
+  ]
+}
