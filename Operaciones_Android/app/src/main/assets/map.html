@@ -733,12 +733,18 @@
           return null;
         }
 
-        if (typeof symbol.asSVG === "function" && />\s*\?\s*</.test(symbol.asSVG())) {
+        if (typeof symbol.asSVG !== "function") {
           trackingSymbolImageCache.set(sidc, null);
           return null;
         }
 
-        const image = symbol.asCanvas();
+        const svg = symbol.asSVG();
+        if (!svg || />\s*\?\s*</.test(svg)) {
+          trackingSymbolImageCache.set(sidc, null);
+          return null;
+        }
+
+        const image = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
         trackingSymbolImageCache.set(sidc, image);
         return image;
       } catch (e) {
@@ -1750,10 +1756,15 @@
     let operationZoneForGrid = null;
     let pendingOperationGrid = null;
 
-    function getMilSymbolCanvas(sidc) {
+    function getMilSymbolImage(sidc) {
       try {
         if (!sidc || typeof ms === 'undefined' || typeof ms.Symbol !== 'function') return null;
-        return new ms.Symbol(sidc, { size: 500, colorMode: 'Light' }).asCanvas();
+        const symbol = new ms.Symbol(sidc, { size: 500, colorMode: 'Light' });
+        if (typeof symbol.isValid === 'function' && symbol.isValid() === false) return null;
+        if (typeof symbol.asSVG !== 'function') return null;
+        const svg = symbol.asSVG();
+        if (!svg || />\s*\?\s*</.test(svg)) return null;
+        return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
       } catch (e) {
         console.error('[POI][WEB] Error creando milsymbol: ' + e.message);
         return null;
@@ -1771,11 +1782,11 @@
         const entityId = 'poi_' + id;
         const normalizedIconoSrc = (typeof iconoSrc === 'string') ? iconoSrc.trim() : iconoSrc;
         const normalizedSidc = (typeof sidc === 'string') ? sidc.trim() : sidc;
-        const milCanvas = getMilSymbolCanvas(normalizedSidc || (normalizedIconoSrc && normalizedIconoSrc.startsWith('S') ? normalizedIconoSrc : null));
+        const milImage = getMilSymbolImage(normalizedSidc || (normalizedIconoSrc && normalizedIconoSrc.startsWith('S') ? normalizedIconoSrc : null));
         const useImageSrc = !!normalizedIconoSrc &&
           normalizedIconoSrc !== 'null' &&
           !normalizedIconoSrc.endsWith('/null');
-        const billboardImage = milCanvas || (useImageSrc ? normalizedIconoSrc : null);
+        const billboardImage = milImage || (useImageSrc ? normalizedIconoSrc : null);
         const useBillboard = !!billboardImage;
         const billboardScale = 0.05;
 
